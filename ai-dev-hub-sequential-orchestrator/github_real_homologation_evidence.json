@@ -1,0 +1,20 @@
+{
+  "repository": "deco-verc/decohub-homologation-test",
+  "url": "https://github.com/deco-verc/decohub-homologation-test",
+  "isPrivate": true,
+  "issue": {
+    "number": 2,
+    "url": "https://github.com/deco-verc/decohub-homologation-test/issues/2",
+    "finalState": "OPEN"
+  },
+  "branch": "ai/2-modulo-calculo-financeiro",
+  "pullRequest": {
+    "number": 3,
+    "url": "https://github.com/deco-verc/decohub-homologation-test/pull/3",
+    "merged": true
+  },
+  "testsPassed": true,
+  "secretsShieldVerified": true,
+  "noForcePush": true,
+  "timestamp": "2026-10-08T03:05:27.497Z"
+}

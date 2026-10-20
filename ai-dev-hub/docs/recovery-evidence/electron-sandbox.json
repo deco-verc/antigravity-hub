@@ -1,0 +1,116 @@
+{
+  "status": "PASS",
+  "executionMode": "packaged",
+  "nativePolicyUiProof": null,
+  "uiCreatedProof": {
+    "projectId": "0d05e5a4-ba1a-4d74-90db-e7448c35c191",
+    "projectPath": "C:\\Users\\Deco\\AppData\\Local\\Temp\\decohub-electron-proof-Q55OMb\\ui-created-project",
+    "runId": "02ccb113-ee9e-455c-9fc4-d7a298b10818",
+    "sessions": [
+      {
+        "role": "SUPERVISOR",
+        "provider_conversation_id": "conv-fake-supervisor-1-mv780yai"
+      },
+      {
+        "role": "WORKER",
+        "provider_conversation_id": "conv-fake-worker-2-mv780yr5"
+      }
+    ],
+    "evaluations": [
+      {
+        "verdict": "FAIL"
+      },
+      {
+        "verdict": "PASS"
+      },
+      {
+        "verdict": "PASS"
+      }
+    ],
+    "workerAttempts": [
+      [
+        "0d05e5a4-ba1a-4d74-90db-e7448c35c191:1",
+        2
+      ],
+      [
+        "0d05e5a4-ba1a-4d74-90db-e7448c35c191:2",
+        1
+      ]
+    ],
+    "restartDuringTurn": true,
+    "duplicateRequestSuppressed": true
+  },
+  "executable": "C:\\IA\\Antigravity HUB\\ai-dev-hub\\dist-desktop\\win-unpacked\\DecoHUB.exe",
+  "dataDir": "C:\\Users\\Deco\\AppData\\Local\\Temp\\decohub-electron-proof-Q55OMb",
+  "backendUrl": "http://127.0.0.1:3002",
+  "health": {
+    "status": "ok",
+    "time": "2026-10-13T21:56:44.572Z",
+    "dataPath": "C:\\Users\\Deco\\AppData\\Local\\Temp\\decohub-electron-proof-Q55OMb\\hub.db",
+    "offline": true
+  },
+  "runId": "90358c1d-62d7-4e79-a549-ddc942478b54",
+  "runStatus": "completed",
+  "sessions": [
+    {
+      "role": "SUPERVISOR",
+      "provider_conversation_id": "conv-fake-supervisor-3-mv7819ic"
+    },
+    {
+      "role": "WORKER",
+      "provider_conversation_id": "conv-fake-worker-4-mv7819qz"
+    }
+  ],
+  "evaluations": [
+    {
+      "verdict": "FAIL"
+    },
+    {
+      "verdict": "PASS"
+    },
+    {
+      "verdict": "PASS"
+    }
+  ],
+  "failures": [
+    {
+      "name": "Sandbox sem autorização",
+      "error": "AUTHORIZATION_GUARD",
+      "visible": true
+    },
+    {
+      "name": "Sandbox autenticação expirada",
+      "error": "AUTH_ERROR",
+      "visible": true
+    },
+    {
+      "name": "Sandbox plano inválido",
+      "error": "SUPERVISOR_UNAVAILABLE",
+      "visible": true
+    },
+    {
+      "name": "Sandbox provider indisponível",
+      "error": "RUNTIME_UNAVAILABLE",
+      "visible": true
+    }
+  ],
+  "tabs": [
+    {
+      "name": "Tarefas",
+      "visible": true
+    },
+    {
+      "name": "Atividade",
+      "visible": true
+    }
+  ],
+  "nativeWaitVisible": null,
+  "restart": {
+    "sameRun": true,
+    "sameSessionIds": true,
+    "newFixtureCreations": 0
+  },
+  "realAgentApiCalls": 0,
+  "realConversations": 0,
+  "fixture": "External model responses and Worker tool boundary are simulated; product routes, UI, Runner, transcript parser and Evaluator are real."
+}

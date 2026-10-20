@@ -1,0 +1,37 @@
+[
+  {
+    "name": "Test 1: Dois Projetos Independentes com Chats Independentes",
+    "passed": true,
+    "details": "Alpha msgs: 3, Beta msgs: 3. Isolamento estrito verificado sem contaminação cruzada."
+  },
+  {
+    "name": "Test 2: Conta e Modelo Visíveis no Cabeçalho",
+    "passed": true,
+    "details": "Contas: 3, Modelos disponíveis: flash_lite, flash, pro, Preferência 'pro' persistida."
+  },
+  {
+    "name": "Test 3: Monitoramento de Uso 5 Horas e Semanal (Honestidade Operacional)",
+    "passed": true,
+    "details": "Disclaimer: \"Contagem e cotas exatas de tokens não são disponibilizadas pela CLI do Antigravity neste runtime; o monitoramento registra execuções locais verificadas.\". Zero percentuais fictícios. Execuções rastreadas hoje: 250."
+  },
+  {
+    "name": "Test 4: Integração com GitHub (AES-256-GCM e Proteção de Segredos)",
+    "passed": true,
+    "details": "GitHub user: @deco-verc. .gitignore protege .env, *.key, hub.db, credentials.json. Token encriptado."
+  },
+  {
+    "name": "Test 5: Loop de Desenvolvimento Autônomo com GitHub",
+    "passed": true,
+    "details": "DAG de tarefas e milestones operacional com suporte a branches semânticas (ai/<task>-<slug>), PRs e Issues."
+  },
+  {
+    "name": "Test 6: Continuidade de Solicitações no Mesmo Projeto",
+    "passed": true,
+    "details": "Projeto manteve mensagens anteriores e aceitou instruções subsequentes com fila concorrente segura. Total msgs: 9."
+  },
+  {
+    "name": "Test 7: Fechamento e Reabertura do DecoHUB (Persistência SQLite)",
+    "passed": true,
+    "details": "SQLite hub.db intacto (4404.0 KB) em C:\\Users\\Deco\\.ai-dev-hub\\hub.db. Projetos (41) e contas (3) preservados."
+  }
+]

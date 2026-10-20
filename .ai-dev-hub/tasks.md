@@ -1,0 +1,83 @@
+# Gerenciamento de Tarefas
+
+## Pendente
+- [ ] (Nenhuma tarefa pendente)
+
+## Fazendo
+- [ ] Adicionar conciliação bancária ou integração de API REST se aplicável
+- [ ] Integrar o motor financeiro com persistência em disco ou API REST se requerido pelo DecoHUB
+- [ ] Integrar persistência em disco ou API REST se requerido
+- [ ] DecoHUB pronto para operação contínua e evolução de novas features com publicação em nuvem
+- [ ] Operação em produção e validação em novos fluxos autônomos
+- [ ] Continuar expansão e homologação do DecoHUB Meta-Chat ou novas features da plataforma.
+- [ ] Validação de usuário final e acompanhamento em produção do DecoHUB
+
+## Concluído
+- [x] Implementação do motor financeiro em src/financeEngine.cjs com resetLedger, deposit, withdraw, transfer, getBalance e getStatement
+- [x] Implementação completa do financeEngine.cjs com resetLedger, deposit, withdraw, transfer, getBalance e getStatement
+- [x] Validação e aprovação dos 6 testes unitários no Node.js test runner
+- [x] Implementação das 6 funções essenciais: resetLedger, deposit, withdraw, transfer, getBalance, getStatement
+- [x] Testes unitários validados e passando com 100% de sucesso
+- [x] Modo de Evolução Cirúrgica (DELTA_EVOLUTION) com DeltaFeatureEngine e scanProjectInventory
+- [x] Smart Demo Seeder (seedIfEmpty) para inicialização rica e não-vazia no primeiro boot
+- [x] Kit Cloud Deploy (Dockerfile Node 22 Alpine, healthcheck em /api/health e .dockerignore)
+- [x] Homologação e commits com 100% dos testes verdes no serviceflow2 (74/74) e rotinateste (158/158)
+- [x] Suíte de 6 testes em server/test/deltaEvolutionAndCloudReadiness.test.ts aprovada 100%
+- [x] Build e sincronização dos binários de produção para C:\Users\Deco\AppData\Local\Programs\ai-dev-hub-root\resources\app.asar.unpacked
+- [x] 1
+- [x] .
+- [x] I
+- [x] m
+- [x] p
+- [x] l
+- [x] e
+- [x] n
+- [x] t
+- [x] a
+- [x] d
+- [x] o
+- [x] r
+- [x] j
+- [x] c
+- [x] s
+- [x] v
+- [x] u
+- [x] y
+- [x] h
+- [x] f
+- [x] ç
+- [x] ã
+- [x] -
+- [x] b
+- [x] /
+- [x] ,
+- [x] g
+- [x] 4
+- [x] (
+- [x] X
+- [x] 5
+- [x] )
+- [x] ê
+- [x] 2
+- [x] 3
+- [x] w
+- [x] z
+- [x] í
+- [x] :
+- [x] 7
+- [x] 6
+- [x] 0
+- [x] %
+- [x] ó
+- [x] Implementado ProjectOperationsService.postCompletionVisualSummaryToChat com verificação de screenshots em .ai-dev-hub/evidence/, geração de resumo de homologação em 4 camadas (Dev, UI, UX F5, AppSec) e idempotência estrita por runId.
+- [x] Integrada chamada de publicação visual no encerramento de runs em autonomousRunnerService.ts e autonomousManager.ts.
+- [x] No frontend (DecoHubChatView.tsx), implementado Card Visual de Entrega Final com grid responsivo de screenshots Playwright, suporte a zoom Lightbox em tela cheia, 4 mini-selos e botão direto para abrir o preview ao vivo.
+- [x] Criada suíte de testes em server/test/chatCompletionScreenshots.test.ts comprovando entrega de mensagens, idempotência e entrega segura de imagens via /api/projects/:id/evidence-file/:filename.
+- [x] Suíte completa de testes aprovada com 71 suítes e 612 testes 100% verdes (0 falhas).
+- [x] Build compilado com sucesso no server e client, sincronizado para o diretório de produção do aplicativo.
+- [x] Hotfix cirúrgico: Fallback de Servidor Estático SPA em Projetos Sem Backend no ProjectOperationsService
+- [x] Sincronização de artefatos de build com app.asar.unpacked
+- [x] Auditoria completa ponta a ponta da Fase 14 com testes de regressão 100% verdes (625 testes, 73 suítes)
+- [x] Dual rendering de screenshots no DecoHubChatView e no DecoHubCurrentActivityWidget
+- [x] Captura real do Playwright sem travamentos e geração de 10 PNGs reais para serviceflow2 e rotinateste
+- [x] Sincronização dos binários de build em resources/app.asar.unpacked/

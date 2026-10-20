@@ -1,0 +1,287 @@
+# Resumo da Sessão Atual — Sessão #16
+Data: 07/10/2026, 23:53:36
+
+----------------------------------
+ESTADO ATUAL DO PROJETO
+
+Projeto:
+DecoHUB
+
+Objetivo:
+Centralizar o desenvolvimento autônomo local e orquestração de agentes de IA com preservação de memória permanente, continuidade multi-contas (Google Pro 1, Google Pro 2, etc.) e interface Simple IDE unificada (Desktop Electron + Web React).
+
+IMPLEMENTADO:
+- Inicialização do repositório e pasta de memória .ai-dev-hub
+- Criação do arquivo test.txt para validação do ambiente
+- Processamento da solicitação do usuário (Linha 1, 2, 3)
+- Sincronização com AI DEV HUB
+- Sistema Multi-Worker com leases atômicas, renovação contínua de 15s, mesma branch detection, recuperação pós-falha e review do Gemini Supervisor
+- Fase Productization / Simple IDE: 3 Colunas, File Explorer, Diff Modal, Terminal Drawer, Multi-Account Continuity e 10 screenshots validadas
+- Fase Desktop Productization + Reliability: Executável autônomo (AI DEV.exe, Portable e NSIS), ProcessManager silencioso, Startup Health Check (DEV-XXXX), Single-Instance Lock, Auto-Recovery e 5 screenshots validadas
+- Empacotamento Desktop com Electron 44.5.1 gerando AI DEV Setup 1.0.0.exe (NSIS), AI DEV 1.0.0.exe (Portable) e dist-desktop/win-unpacked/AI DEV.exe
+- ProcessManager silencioso (windowsHide: true) executando o backend via Electron-as-Node com suporte nativo a node:sqlite sem requerer Node host
+- Startup Health Check completo cobrindo SQLite, Git, Antigravity Language Server, agentapi, Contas Google e MCP com emissão de código DEV-XXXX
+- Single-Instance Lock com redirecionamento de foco para a janela existente e prevenção de processos duplicados
+- Isolamento estrito entre executáveis em dist-desktop e dados mutáveis de usuário em ~/.ai-dev-hub/
+- Mecanismo de Auto-Recovery com detecção de crash do backend e reconexão automática com banner visual no topo da UI
+- Execução da suíte E2E automatizada e captura das 5 screenshots obrigatórias validadas (01_desktop_startup.png até 05_recovery.png)
+- Estruturação inicial do projeto: Git inicializado com branch main, .gitignore abrangente, documentação viva (.ai-dev-hub/project.md e architecture.md) e compilação completa validada
+- Implementação de testes automatizados: 13 testes unitários e de integração nativos (node:test) cobrindo GitManager, PolicyEngine, DbAndMemory e HealthCheck com 100% de sucesso
+- Configuração de rotinas adicionais do projeto: scripts "npm test", rotinas de compilação TS e resolução resiliente de diretório de dados em ambientes multi-perfil (getHubDataDir)
+- Implementação da Etapa 1 da Karpathy Execution Layer
+- Global Agent Guidelines (Think Before Coding, Simplicity First, Surgical Changes, Goal-Driven)
+- Constituição do Projeto (.ai-dev-hub/program.md) com templates automáticos por projeto
+- Injeção automática em GeminiSupervisorProvider, AntigravityProvider, Autonomous Runs e Chat
+- Validação matemática de diffs cirúrgicos e detecção de sobreengenharia no Gemini Supervisor
+- UI Settings -> Project Program na Simple IDE com editor e visualização de guidelines
+- Aprovação com 100% de sucesso nos 3 Testes Reais (A: Simplicidade, B: Cirúrgico, C: Goal-Driven)
+- Criação do SuccessContract formal com critérios, thresholds e arquivos protegidos
+- Módulo IndependentEvaluator desacoplado do Builder e integrado ao Gemini Supervisor
+- Defesa contra adulteração com rejeição imediata e penalidade no Supervisor (Score 1/10)
+- Ciclo de bugfix com verificação de baseline de reprodução e evidência objetiva de terminal
+- Interface Simple IDE com badges discretos e modal completo de detalhes da avaliação
+- Novo modo de execução RESEARCH RUN desacoplado de NORMAL e AUTONOMOUS
+- Experiment Contract com objective, primary_metric, direction, measurement_command e limites overnight
+- Experiment Ledger persistido em SQLite com sequência, hipótese, metric_before, metric_after, delta, LOC e status
+- Mecanismo de reversão atômica via Git para DISCARD e CRASH comprovado em teste real
+- Suíte de validação 4/4 aprovada com baseline real, 1 KEEP, 1 DISCARD e 1 CRASH controlado
+- Dashboard interativo do Autoresearch no Simple IDE
+- ETAPA 4 da Karpathy Execution Layer: AI DEV COUNCIL
+- Stage 1: 3 Revisores Independentes (Corretude, Simplicidade, Regressão)
+- Stage 2: Classificação Anônima por Pares (Peer Ranking) sem viés de autoridade
+- Stage 3: Síntese e Veredicto Final do Chairman (com Simplicity Alert e consenso)
+- Persistência SQLite e Endpoints REST no backend
+- Componente CouncilModal e integração no Simple IDE (botão no header e badges)
+- Suíte de teste adversarial com rejeição de código overengineered e aprovação de código cirúrgico
+- Tabelas SQLite arena_runs e arena_candidates
+- Módulo ArenaManager com orquestração de torneio, worktrees, avaliação, conselho e integração
+- Rotas REST para recomendação, torneio, avaliação, conselho, diff e cancelamento
+- Interface Simple IDE com modo ARENA, botão superior, badge pós-execução e ArenaModal completo
+- Suíte de testes de validação adversarial cobrindo elegibilidade, torneio real 3 candidatos e NO_ACCEPTABLE_CANDIDATE
+- Captura de screenshots comprovando funcionamento visual e auditoria histórica
+- Banco de dados estendido com benchmark_runs, benchmark_task_results e self_improvement_experiments.
+- Suíte de 12 tarefas de benchmark implementada abrangendo 10 categorias oficiais e 4 holdouts.
+- Golden Evaluator com anti-tampering SHA-256 e fórmulas de pontuação de simplicidade e cirurgia.
+- Congelamento e persistência da Baseline Oficial AI_DEV_BASELINE_V1 (100% de acerto).
+- Mecanismo de auto-aprimoramento identificando gargalos, gerando hipóteses e avaliando candidatos na Arena.
+- Comparador formal de versões com cálculo de delta e barreira estrita de regressão.
+- Regression Gate testado e validado bloqueando candidato quebrado com nota zero e veredicto REGRESSION_REJECTED.
+- UI moderna do BenchmarkModal integrada ao Simple IDE com abas de Scorecard, Comparação e Auto-aprimoramento.
+- Captura de screenshots completa e suíte de 6 testes automatizados aprovada com 100% de sucesso.
+- Implementada regra 6 do agentPrompt com instrução Windows Safe Node Execution
+- Adicionada diretriz 5 WINDOWS SAFE EXECUTION no getGlobalAgentGuidelines
+- Level 2 Agent Benchmark Suite com 5 tarefas reais e holdouts físicos protegidos
+- Execução real da Baseline AI_DEV_AGENT_BASELINE_V1 (commit e40137c7) com 100% de aprovação
+- Auditoria empírica de transcripts com identificação do gargalo de PowerShell ExecutionPolicy
+- Formulaçao de hipótese com Gemini Supervisor e criação de branch isolada candidate-a
+- Execução de ciclo de Self-Improvement real com Builder Antigravity e recompilação do sistema
+- Avaliação pelo Regression Gate com 0 regressões e promoção oficial do commit 71ba345e para AI_DEV_AGENT_V2
+- Atualização completa da interface BenchmarkModal com separação de Level 1 e Level 2 e evidências visuais capturadas
+- Entidade SelfImprovementRun e tabela SQLite self_improvement_runs
+- ZoneManager com classificação GREEN/YELLOW/RED e validação de diff contra violações de Zona Vermelha
+- AutonomousSelfImprovementEngine com loop contínuo e orçamentos de tempo, iterações e regressão
+- Congelamento de PromotionContract com hash SHA-256 antes da geração de código
+- Criação de Candidate A e Candidate B em worktrees e branches isoladas a partir da mesma baseline SHA
+- Testes de parada graciosa (STOP) e recuperação após reinicialização do backend (Restart Recovery) aprovados 100%
+- Geração de Morning Report para execuções noturnas desatendidas
+- Interface gráfica web atualizada com aba dedicada Autonomous Engine, timeline e modal de relatório
+- Implementação da Estratégia B no Candidate B (run-9574cd1b/exp-1/Candidate_B)
+- Normalização de caminhos pré-prompt no runtime do AntigravityProvider
+- Compactação das diretrizes globais para redução de token overhead e latência
+- Compilação TypeScript com 0 erros e commit Git real 0f4f6cd
+- Implementação da Estratégia B no Candidate B (run-82ea1aad/exp-1/Candidate_B)
+- Validação de compilação TypeScript com 0 erros
+- Implementação da Estratégia A no Candidate A: normalização de caminhos, diretivas de terminal estritamente condicionais a comandos Node/Windows e compactação das diretrizes para redução de token overhead e ruído em tarefas curtas
+- Compilação TypeScript com 0 erros e commit Git real e671391 na branch self-improve/run-82ea1aad/exp-1/candidate-a
+- Execução do preset E2E_PROOF sem intervenção humana de ponta a ponta (Run ID: 82ea1aad-4232-4232-aa66-d8cc16421b73)
+- Conclusão natural em status COMPLETED com completed_experiments = 1 no SQLite hub.db
+- Aplicação rigorosa do Promotion Gate e Pareto Dominance com veredito DISCARD ALL e preservação da baseline estável 71ba345e
+- Captura das evidências visuais de alta fidelidade: screenshots 60 (Dashboard COMPLETED) e 61 (Morning Report Modal)
+- Geração do relatório executivo oficial em Markdown relatorio_fase7_validacao_final_e2e_autonomous_engine.md
+- Auditoria isolada do diff do Experimento #5 e confirmação do veredito DISCARD no PromotionGate atual
+- Reversão cirúrgica sem reset cego, preservando 100% da infraestrutura subsequente
+- Compilação limpa do servidor (tsc) e cliente (vite) e aprovação de 100% dos FAST benchmarks e testes protegidos
+- Execução de 3 confirmation runs oficiais dos Agent Benchmarks gerando métricas matemáticas consolidadas
+- Criação da identidade AI_DEV_STABLE_V1 no commit 63fdd47ebc74180a9c911d83da9bd4e1a6f41403
+- Atualização histórica formal do Experimento #5 no SQLite como REVERTED_FROM_STABLE_BASELINE
+- Smoke test do Autonomous Engine comprovando leitura da nova baseline limpa e descarte de 71ba345e
+- Captura das screenshots 62 e 63 e geração do relatório relatorio_fase7_stable_baseline_reconciliation.md
+- Eliminação de 100% dos SHAs hardcoded no código TypeScript de server e client
+- Criação do módulo StableBaselineResolver e tabela stable_version_registry no SQLite
+- Integração da resolução dinâmica de baseline na inicialização de novos Autonomous Runs e na promoção KEEP
+- Execução e aprovação completa dos 6 passos do teste de auditoria de baseline dinâmica
+- Geração do relatório executivo relatorio_auditoria_dynamic_baseline_source_of_truth.md
+- Empacotamento completo do AI DEV HUB em executáveis Windows (AI DEV Setup 1.0.0.exe, AI DEV.exe nativo e AI DEV 1.0.0.exe portable)
+- Módulo AntigravityDiscovery com localização dinâmica em LOCALAPPDATA, PROGRAMFILES e PATH eliminando hardcode de usuário
+- ServiceManager com alocação dinâmica de portas (3001..3040), supervisão de processos filhos e auto-recovery de crash (3 tentativas com backoff)
+- Main process Electron com Single Instance Lock, restauração de tamanho e coordenadas da janela, System Tray e Safe Shutdown com proteção contra cancelamento acidental de trabalho ativo
+- Endpoint /api/desktop/diagnostics e interface de diagnóstico no Simple IDE com visualização de métricas e botão de cópia sem segredos
+- Bateria de testes de confiabilidade com 7/7 cenários aprovados cobrindo discovery, AppData, port allocation, config persistence, crash recovery e safe shutdown
+- Geração de 4 capturas de tela oficiais da aplicação desktop (Splash Screen, Janela Principal, Health Checks e System Diagnostics)
+- Criar teste de aceitação da fase 8 em acceptance_proof.txt com timestamp 2026-10-07T00:00:19.279Z
+- Criar teste de aceitação da fase 8 em acceptance_proof.txt com timestamp 2026-10-07T00:01:18.746Z
+- Criar teste de aceitação da fase 8 em acceptance_proof.txt com timestamp 2026-10-07T00:03:16.795Z
+- Criar teste de aceitação da fase 8 em acceptance_proof.txt com timestamp 2026-10-07T00:04:39.815Z
+- Execução do instalador real AI DEV Setup 1.0.0.exe instalando em AppData/Local/Programs/ai-dev-hub-root/AI DEV.exe
+- Medição precisa de First Boot (Cold Start completo em 1.285s sem terminal ou browser externo)
+- Auditoria da árvore de processos confirmando zero terminais cmd/powershell em idle
+- Amostragem de memória em idle comprovando 490 MB total e 107 MB no backend RSS
+- Real Project Test via chat atualizando tasks.md no disco pelo assistente integrado
+- Multi-Account Test alternando Google Pro 1 -> Google Pro 2 -> Google Pro 1 com preservação de checkpoint e sem duplicação de credenciais
+- Backend Crash Test com derrubada proposital via taskkill /F e auto-restart em 2.61s pelo Electron ServiceManager
+- Single Instance Lock bloqueando segunda chamada do executável sem duplicar processos ou conexões SQLite
+- Autonomous Engine Desktop Test disparando TEST_SHORT e finalizando com Stop Safely com estado CANCELLED persistido
+- Restart Restore Test restaurando último projeto, conta, coordenadas de janela, baseline e histórico intactos
+- 60-Minute Soak Test comprovando estabilidade absoluta e ausência total de memory leak (+2 MB de variação)
+- Orphan Process Check comprovando limpeza completa e zero processos restantes após Safe Shutdown
+- Uninstall e Reinstall Test comprovando preservação integral do hub.db de 2.55 MB após desinstalação e reinstalação
+- Declaração oficial: AI_DEV_DESKTOP_V1 = RELEASE_READY
+- Implementação do Gerenciador de Contas (Adicionar, Remover, Editar, Sincronizar) e Revisão do Sistema de Adição
+- Criação do Gerenciador de Contas completo (AccountManagerModal) integrado ao Simple IDE e ao dropdown de contas.
+- Adição de suporte a remoção de contas (DELETE /api/account-profiles/:id) com confirmação na UI e reatribuição de projetos ativos.
+- Adição de edição de contas (PATCH/PUT /api/account-profiles/:id) para nome e e-mail.
+- Revisão completa do fluxo de adição de contas com isolamento de perfis, auto-detecção de e-mail e confirmação manual assistida.
+- Eliminação de caminhos hardcoded de usuário no lançamento do Antigravity GUI.
+- Suíte de testes de ciclo de vida de contas criada e aprovada com 100% de sucesso.
+- Reestruturação visual completa do frontend para DecoHUB (estilo Linear/Notion/Raycast)
+- Renomeação de toda a identidade visual de produto para DecoHUB
+- Remoção de sobrecarga visual, slogans futuristas e badges concorrentes da tela principal
+- Criação da barra lateral minimalista DecoHubSidebar (+ Novo Projeto, busca, lista simples e rodapé)
+- Criação do cabeçalho de projeto limpo DecoHubHeader (nome, caminho com cópia, botão Continuar, menu ..., seletor Google e toggle lateral)
+- Criação da aba Visão Geral DecoHubOverview (objetivo editável, 3 cards numéricos, tarefas recentes e atividade recente humanizada)
+- Criação do modo de trabalho limpo DecoHubChatView (prompt acolhedor, etapas de progresso humanas, toggle de detalhes técnicos e voltar à visão geral)
+- Integração direta do login do Google com o navegador padrão Google Chrome do Deco ao invés de janela isolada sem sessão
+- Implementação do endpoint /api/account-profiles-detected para autodescoberta de contas salvas no sistema
+- Adição de botões de preenchimento rápido (chips) das contas existentes no fluxo de adição de conta
+- Botão '🌐 1. ABRIR MEU GOOGLE (CHROME)' abrindo o Chrome com sessão e cookies ativos do usuário
+- Botão '🌐 Abrir no Chrome' nos cards de cada perfil no Gerenciador de Contas
+- Persistência garantida do e-mail no app_storage.json e .gemini fora de projeto com status READY imediato
+- Zero-Model Reliability & Hardening: 15 bugs auditados, detecção de commit pelo Agente (AGENT) vs DecoHUB (DECOHUB), rejeição de working tree suja (DIRTY_WORKING_TREE_UNRESOLVED), workspace isolation (WORKSPACE_MISMATCH), Windows path normalization, persistência de DAG PENDING->READY, lease heartbeat atômico, cancelamento determinístico, telemetria precisa de tool_calls (NULL quando desconhecido), nova suíte coreReliability.test.ts com 27 testes (42/42 total passando), compilado e 100% íntegro.
+- Criação do prompt fable-worker-v2-flash.md com compressão de 71.1% (12,041 bytes)
+- Implementação dos princípios centrais Minimum Sufficient Context e Action Bias
+- Preservação integral da inteligência e salvaguardas operacionais sem verbosidade repetitiva
+- Correção da métrica de violação de escopo no benchmark harness
+- Diagnóstico conclusivo do timeout do Evaluator no Cenário 3 (AGENT_EXECUTION_TIMEOUT aos 300s)
+- Implementação da Suíte 19 de testes determinísticos para o V2 (77/77 testes PASS)
+- Execução do smoke test real com flash e Fable V2 Flash completando em 60.4s (7/7 PASS)
+- Verificação Desktop HealthCheck 6/6 PASS
+- Verificação Google Account Management (listar, probe, criar, alternar, restaurar, excluir) PASS
+- Verificação Project Creation & Opening UI (criação, árvore de arquivos, memória) PASS
+- Verificação Project Chat (prompt do usuário, resposta do assistente, persistência no SQLite) PASS
+- Verificação Autonomous Execution Run 1 (decomposição por Gemini Pro, execução por Native Worker, avaliação independente, aprovação do Supervisor) PASS
+- Verificação de resiliência a CRLF/whitespace em commits git no Windows
+- Detecção imediata de RESOURCE_EXHAUSTED 429 no AntigravityProvider
+- Integração do DecoHubChatView diretamente ao AutonomousRunnerService e AutonomousManager sem simulações
+- Painel de DAG e checklist de tarefas integrado em tempo real no chat
+- Tratamento e resiliência arquitetural para RESOURCE_EXHAUSTED 429 (QUOTA_EXHAUSTED e COOLDOWN)
+- Filtro e governança de workers na pool para contas em cooldown de cota
+- Badge de Cota em Cooldown com contagem regressiva e ação Verificar Cota na interface gráfica
+- Conclusão e validação funcional completa (31/31 testes PASS, REST API, CLI, HTML UI) do decohub-user-tasks-app
+- Captura de 7 telas reais da GUI do DecoHUB comprovando funcionamento de ponta a ponta
+- Fase 1: Chat isolado e persistente por projeto com enfileiramento seguro de mensagens em trânsito
+- Fase 2: Conta Google ativa e seletor de modelos no cabeçalho com exibição de modelo verificado
+- Fase 3: Monitoramento honesto de quotas (5h e semanal) com 'Não disponibilizado pelo provedor' e contagem regressiva 429
+- Fase 4: Integração com GitHub (criação privada/vincular), criptografia AES-256-GCM para tokens e proteção .gitignore
+- Fase 5: Planejamento do Supervisor sincronizado como milestones e issues no GitHub
+- Fase 6: Loop de desenvolvimento autônomo com branch dedicada, commits semânticos, PRs e auto-merge
+- Fase 7: Card unificado de acompanhamento no chat (Supervisor, Worker, GitHub, Limites) com badges clicáveis
+- Fase 8: Continuidade de solicitações no mesmo projeto preservando backlog existente
+- Fase 9: Execução dos 7 testes de verificação real com 7/7 PASS comprovados
+- Fase 10: Matriz de Conformidade Definitiva (Critérios C01 a C24 PASS)
+
+ALTERAÇÕES RECENTES:
+- ai-dev-hub/changes.md (modified)
+- .ai-dev-hub/decisions.md (modified)
+- .ai-dev-hub/session-summary.md (modified)
+- .ai-dev-hub/tasks.md (modified)
+- desktop_homologation_evidence.json (new)
+- scripts/homologate_desktop_real.mjs (new)
+- scripts/test_etapa2_etapa3.mjs (new)
+
+PROBLEMAS:
+- Nenhum bloqueio registrado
+
+PRÓXIMA TAREFA:
+Monitoramento contínuo e execução de novos ciclos autônomos conforme backlog
+
+DECISÕES IMPORTANTES:
+- Uso de arquivos Markdown locais para memória permanente do projeto.
+- Arquitetura Multi-Agente com Supervisor Gemini e Executor Antigravity (Fase 4)
+- Implementação da arquitetura Productization / Simple IDE com layout de 3 colunas, Diff Modal, Terminal Drawer e preservação de sessão
+- Arquitetura Desktop Productization: Empacotamento standalone completo com Electron 44.5.1 (NSIS + Portable .exe + win-unpacked). ProcessManager executa o backend Node silenciosamente utilizando o runtime interno do Electron (ELECTRON_RUN_AS_NODE=1), aproveitando suporte nativo do Node 24 a node:sqlite e evitando dependência de terminais ou Node instalado no host.
+- Separação de Dados e Confiabilidade: Isolamento estrito entre executáveis (dist-desktop) e dados mutáveis de usuário armazenados centralmente em C:\Users\Deco\.ai-dev-hub (hub.db, logs com rotação de 5MB, perfis de contas Google e config.json). Implementação de Single-Instance Lock e Auto-Recovery com reconexão automática em caso de crash.
+- Criação de `getHubDataDir()` no backend e desktop para resolver dinamicamente o diretório raiz `~/.ai-dev-hub/hub.db`, independentemente de o processo rodar sob perfil de agente (`profiles/google_pro_2`) ou perfil do sistema operacional. Implementação de suíte de testes com runner nativo `node:test` e TypeScript `tsx` cobrindo GitManager, PolicyEngine, persistência de banco/memória e integridade do runtime.
+- Implementação da Etapa 1 da Karpathy Execution Layer no AI DEV HUB (Global Agent Guidelines + Project Program program.md)
+- Hierarquia de 6 camadas: Safety -> Global Guidelines -> Program.md -> Context -> Task -> User Request
+- Injeção automática nos contratos e prompts do Gemini Supervisor, Antigravity Builder e Simple IDE
+- Validação matemática de diff cirúrgico com rejeição de arquivos fora de escopo
+- Settings -> Project Program modal no frontend Simple IDE
+- Implementação da Etapa 2 da Karpathy Execution Layer: Success Contract e Independent Evaluator desacoplado do Builder, com defesa criptográfica contra adulteração de testes (PROTECTED_EVALUATION).
+- Criação do módulo IndependentEvaluator e tabelas success_contracts e evaluation_results no SQLite
+- Proteção estrita com hashes SHA-256 (PROTECTED_EVALUATION) bloqueando tentativas de adulteração de testes pelo Builder
+- Ciclo objetivo de bugfix: Baseline FAIL obrigatório antes do fix -> Fix cirúrgico -> Evaluator PASS -> Gemini Supervisor APPROVED
+- Implementação da Etapa 3 da Karpathy Execution Layer: Autoresearch Mode para Software (Research Run, Baseline fixo, Experiment Ledger persistido, Rollback automático em DISCARD/CRASH, Simplicity Penalty e UI Dashboard).
+- Criação do módulo ResearchManager e das tabelas research_runs e research_experiments no SQLite
+- Baseline obrigatório medido antes de qualquer alteração de código (Experimento #0)
+- Loop autônomo com veredito objetivo: KEEP avança commit; DISCARD e CRASH executam git reset --hard automático para o melhor commit estável
+- Penalidade de complexidade (Simplicity First): rejeita melhorias marginais com acréscimo desproporcional de LOC
+- Interface visual completa com ResearchModal, métricas consolidadas (Baseline, Melhor Marca, Melhoria Global) e tabela detalhada de Experiment Ledger
+- Implementação da ETAPA 4 da Karpathy Execution Layer: AI DEV COUNCIL (LLM Council Pattern adaptado para revisão de software, com 3 revisores especializados em Corretude, Simplicidade Karpathy e Regressão, classificação por pares anônima e síntese do Presidente).
+- Adotada arquitetura 3-stage LLM Council para revisão por pares independente sem custos ou APIs externas pagas
+- Imposto veto do Chairman por Simplicity Alert quando Reviewer B apontar nota <= 5 mesmo com aprovação funcional do Reviewer A
+- Implementação da ETAPA 5 da Karpathy Execution Layer: AI DEV ARENA (Torneio Multi-Candidato com Workspaces Isolados, Evaluator Idêntico, AI DEV Council Anônimo e Promoção Exclusiva do Vencedor)
+- Implementação da AI DEV ARENA (Etapa 5 Karpathy Execution Layer)
+- Workspaces isolados via git worktree em .ai-dev-arena/ para garantir separação estrita de candidatos
+- Avaliação justa com mesmo Independent Evaluator harness e penalização de complexidade (Simplicity First)
+- Integração do AI DEV Council com 3 perspectivas anônimas e Chairman com veredicto NO_ACCEPTABLE_CANDIDATE
+- Promoção exclusiva do vencedor e descarte seguro de candidatos perdedores
+- Implementação da FASE 6: AI DEV BENCHMARK & SELF-IMPROVEMENT LOOP com Suíte Fixa (12 tarefas em 10 categorias oficiais, incluindo 4 holdouts), Golden Evaluator imutável com proteção criptográfica SHA-256 e sandboxing isolado, congelamento da Baseline Oficial AI_DEV_BASELINE_V1, Regression Gate intransigente com política Zero-Regressão, e loop autônomo de auto-aprimoramento com geração de hipóteses e promoção formal para AI_DEV_V2.
+- Suíte Fixa de Benchmarks com 12 tarefas cobrindo 10 categorias oficiais e 4 tarefas holdout protegidas.
+- Golden Evaluator com proteção criptográfica SHA-256 e sandboxing em .ai-dev-benchmarks.
+- Regression Gate intransigente: zero regressões permitidas para aprovação.
+- Auto-aprimoramento validado com promoção formal da Baseline V1 para AI_DEV_V2.
+- Windows Safe Execution Directive implementada no agentBenchmarkManager e agentGuidelines
+- Windows Safe Execution Directive implementada no agentBenchmarkManager e agentGuidelines
+- Conclusão da FASE 6 com LEVEL 2 AGENT BENCHMARK real e ciclo autônomo de Self-Improvement. Baseline oficial congelada no Git commit e40137c7 com 5 tarefas reais e holdouts físicos. O gargalo de PowerShell ExecutionPolicy foi diagnosticado, formulada hipótese com Gemini Supervisor e executado Candidate A em branch isolada self-improve/exp-5/candidate-a. O Regression Gate aprovou o candidato com zero regressões e 100% pass rate, promovendo o commit real 71ba345e7f4c2a327ef844ac2388fa5373c88327 para AI_DEV_AGENT_V2.
+- Implementação do Self-Improvement Governance & Promotion Gate com PromotionContract, Pareto Dominance, Regression Budget e AI DEV Council Synthesis. Reavaliação retrospectiva do Experimento #5 de KEEP para TRADEOFF_REVIEW (Council: DISCARD).
+- Implementação e Validação do AUTONOMOUS SELF-IMPROVEMENT ENGINE no AI DEV HUB com orçamentos rigorosos, governança de Zonas (GREEN/YELLOW/RED), contratos congelados a priori, execução de múltiplos candidatos, parada graciosa (STOP), recuperação após reinício e Morning Report.
+- Implementação do AUTONOMOUS SELF-IMPROVEMENT ENGINE com máquina de estados formal, orçamentos rigorosos, zoneamento GREEN/YELLOW/RED, congelamento de contratos com SHA-256 e diversidade de candidatos.
+- Validação dos presets OVERNIGHT (8h, 10 exps), CONSERVATIVE (3h, 3 exps), RESEARCH (4h, 5 exps) e TEST_SHORT (60m, 2 exps).
+- Comprovação de integridade via testes automatizados de parada graciosa (STOP) e recuperação após reinício (Restart Recovery).
+- Implementação da Estratégia B (Detecção Externa Pré-Prompt) para Candidate B: normalização de caminhos no runtime do provedor (AntigravityProvider.preNormalizePrompt) e redução do overhead de tokens no agentGuidelines.ts
+- Implementação da Estratégia B (Detecção Externa Pré-Prompt) para Candidate B: normalização de caminhos no runtime do provedor (AntigravityProvider.preNormalizePrompt) e redução do overhead de tokens no agentGuidelines.ts
+- Implementação da Estratégia A (Injeção Condicional Minimalista) para Candidate A: diretivas de terminal estritamente condicionais a comandos Node/Windows e redução de ruído em tarefas curtas
+- Implementação da Estratégia A (Injeção Condicional Minimalista) no Candidate A para run-82ea1aad/exp-1/Candidate_A
+- Validação Final E2E do Autonomous Self-Improvement Engine com conclusão natural em status COMPLETED e completed_experiments = 1
+- Validação Final E2E do Autonomous Self-Improvement Engine com conclusão natural em status COMPLETED e completed_experiments = 1
+- Declaração formal OVERNIGHT_VALIDATED = true após execução ponta a ponta sem interrupções humanas e com governança de Pareto integralmente respeitada
+- Reconciliação Cirúrgica da Baseline de Produção (AI_DEV_STABLE_V1) e Reversão da Alteração Rejeitada do Experimento #5
+- Reconciliação Cirúrgica da Baseline de Produção (AI_DEV_STABLE_V1) e Reversão da Alteração Rejeitada do Experimento #5
+- Declaração formal OVERNIGHT_READY = true com baseline imutável limpa 63fdd47ebc74180a9c911d83da9bd4e1a6f41403
+- Auditoria de Fonte da Verdade e Resolução Dinâmica de Stable Baseline (Zero Hardcode)
+- Auditoria de Fonte da Verdade e Resolução Dinâmica de Stable Baseline (Zero Hardcode)
+- Declaração formal OVERNIGHT_READY = true após aprovação de todos os 6 passos do teste dinâmico de baseline
+- Conclusão da Fase 8: Desktop Productization & Reliability (Executáveis gerados, Suíte de 7 testes de confiabilidade aprovada e Interface Simple IDE nativa)
+- Declaração Formal de Homologação: AI_DEV_DESKTOP_V1 = RELEASE_READY
+- undefined
+- Criação do componente AccountManagerModal com suporte a visualização, alternância de conta ativa, sincronização/verificação, edição inline e remoção segura com reatribuição automática de projetos.
+- Revisão do fluxo de adição de contas com suporte a e-mail opcional pré-configurado, confirmação manual assistida, prevenção de colisão de nomes de perfil e inicialização completa da pasta de isolamento .gemini.
+- Resolução dinâmica de executáveis Antigravity (Antigravity.exe e language_server.exe) sem qualquer caminho hardcoded de usuário no sistema.
+- Isolamento de ambiente AppData e LocalAppData no launchLogin do Antigravity para permitir janelas simultâneas e login de múltiplas contas sem bloqueio por singleInstanceLock do Electron.
+- READY exige conversation agentapi no runtime do perfil
+- Fortalecimento Determinístico de Confiabilidade do Núcleo (Fase Zero-Model)
+- Integração do Fable Worker V1 System Prompt no DecoHUB via Native Rule Files e Controlled Rotation
+- DecoHUB Prompt Benchmark V1 Concluído: Legacy Worker mantido como padrão de produção, Fable Worker V1 comprovado funcionalmente como opção experimental
+- Fable Worker V2 Flash integrado como terceira variante oficial (fable-worker-v2-flash)
+- Métrica de scope violation corrigida no harness para distinguir HARNESS_CONTROLLED_FILES de WORKER_CHANGED_FILES
+- Legacy Worker mantido como default de produção até novo benchmark comparativo (Benchmark V2)
+- Adoção definitiva do modo Gemini Nativo sem injeções artificiais de system prompt
+- Transparência total na telemetria: relatar honestamente 'Não disponibilizado pelo provedor' para janelas contínuas de 5h/semanal sem inventar percentuais
+- Criptografia AES-256-GCM com chave vinculada à máquina para tokens PAT do GitHub no SQLite
+- Escudo de segurança mandatório no .gitignore protegendo .env, *.key, hub.db, credentials.json antes de qualquer push
+
+INSTRUÇÃO PARA O PRÓXIMO AGENTE:
+Analise primeiro os arquivos de memória e o Git.
+Não refaça tarefas concluídas.
+Continue do estado atual.
+----------------------------------

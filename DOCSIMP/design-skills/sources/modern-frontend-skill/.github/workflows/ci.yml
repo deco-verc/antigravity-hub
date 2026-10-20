@@ -1,0 +1,43 @@
+name: CI — Validate Skill & Run Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    name: Validate & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest
+
+      - name: Validate SKILL.md
+        run: python scripts/validate_skill.py skills/modern-frontend-design/SKILL.md
+
+      - name: Run eval summary
+        run: python scripts/run_evals.py skills/modern-frontend-design/evals/evals.json
+
+      - name: Run tests
+        run: python -m pytest tests/ -v
+
+      - name: Check file structure
+        run: |
+          echo "Checking required files..."
+          test -f skills/modern-frontend-design/SKILL.md
+          test -f skills/modern-frontend-design/evals/evals.json
+          test -f skills/modern-frontend-design/references/design-systems.md
+          echo "All required files present ✓"

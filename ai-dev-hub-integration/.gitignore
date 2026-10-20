@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Builds and distributions
+client/dist/
+server/dist/
+dist-desktop/
+dist/
+
+# Logs and environment
+*.log
+logs/
+.env
+.env.local
+.env.*.local
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# SQLite local temporary files
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Temporary benchmark workspaces
+.ai-dev-benchmarks/

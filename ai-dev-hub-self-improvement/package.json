@@ -1,0 +1,63 @@
+{
+  "name": "ai-dev-hub-root",
+  "version": "1.0.1",
+  "type": "module",
+  "description": "AI DEV — Central de Desenvolvimento Autônomo com Memória Permanente",
+  "main": "desktop/main.cjs",
+  "scripts": {
+    "start": "node start.js",
+    "build": "npm --prefix server run build && npm --prefix client run build",
+    "test": "npm --prefix server run test",
+    "typecheck": "tsc --noEmit --project server/tsconfig.json && tsc --noEmit --project client/tsconfig.json",
+    "desktop": "electron desktop/main.cjs",
+    "desktop:dev": "electron desktop/main.cjs --dev",
+    "desktop:build": "npm run build && electron-builder --win",
+    "desktop:dist": "npm run build && electron-builder --win nsis portable"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
+    "puppeteer-core": "^25.12.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@modelcontextprotocol/server-github": "^2025.4.8",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
+  },
+  "build": {
+    "appId": "com.aidev.hub",
+    "productName": "DecoHUB",
+    "directories": {
+      "output": "dist-desktop"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "desktop/assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "DecoHUB"
+    },
+    "asar": true,
+    "asarUnpack": [
+      "server/**/*",
+      "client/**/*"
+    ],
+    "files": [
+      "desktop/**/*",
+      "server/dist/**/*",
+      "server/package.json",
+      "server/node_modules/**/*",
+      "client/dist/**/*",
+      "package.json"
+    ]
+  }
+}

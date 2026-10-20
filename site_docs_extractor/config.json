@@ -1,0 +1,21 @@
+{
+  "last_url": "https://antigravity.google/docs/",
+  "last_project_name": "antigravity_google_docs",
+  "last_prefix": "/docs/",
+  "max_pages": 1000,
+  "delay": 1.0,
+  "blocked_paths": "",
+  "selected_preset": "PagNiv",
+  "extraction_mode": "Documentacao padrao",
+  "include_links": true,
+  "include_tables": true,
+  "use_playwright": true,
+  "clean_markdown": true,
+  "deduplicate_global_repeated_text": true,
+  "required_terms": "",
+  "blocked_terms_filter": "",
+  "css_include": "",
+  "css_remove": "",
+  "manual_urls": "",
+  "ignore_prefix_for_manual": false
+}

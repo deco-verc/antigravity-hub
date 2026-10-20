@@ -1,0 +1,44 @@
+{
+  "name": "modern-frontend-design",
+  "version": "3.0.0",
+  "description": "Premium frontend design skill — transforms any idea into visually stunning, modern, award-quality web interfaces using Next.js, React, Tailwind CSS, shadcn/ui, and Framer Motion.",
+  "author": "deveshpunjabi",
+  "repository": "https://github.com/deveshpunjabi/modern-frontend-skill",
+  "license": "MIT",
+  "type": "skill",
+  "entry": "skills/modern-frontend-design/SKILL.md",
+  "tags": [
+    "frontend",
+    "design",
+    "ui-ux",
+    "landing-page",
+    "dashboard",
+    "web-design",
+    "tailwind",
+    "nextjs",
+    "react",
+    "saas"
+  ],
+  "compatibility": {
+    "agents": [
+      "claude-code",
+      "cursor",
+      "windsurf",
+      "cline",
+      "codex",
+      "aider",
+      "gemini"
+    ],
+    "install": {
+      "claude-code": "npx skills add deveshpunjabi/modern-frontend-skill",
+      "cursor": "Copy skills/modern-frontend-design/ to .cursor/skills/",
+      "windsurf": "Copy skills/modern-frontend-design/ to .windsurf/skills/",
+      "cline": "Copy skills/modern-frontend-design/ to .cline/skills/",
+      "manual": "Copy skills/modern-frontend-design/SKILL.md into your agent's instruction directory"
+    }
+  },
+  "references": [
+    "skills/modern-frontend-design/references/design-systems.md"
+  ],
+  "evals": "skills/modern-frontend-design/evals/evals.json"
+}

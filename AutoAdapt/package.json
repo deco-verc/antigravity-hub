@@ -1,0 +1,29 @@
+{
+  "name": "autoadapt",
+  "version": "0.2.0",
+  "description": "AutoAdapt - Autonomous Adaptation and Verification Layer",
+  "type": "module",
+  "main": "src/worktreeIsolation.js",
+  "scripts": {
+    "test": "node --test test/**/*.test.js",
+    "audit:worktree": "node src/worktreeIsolation.js",
+    "audit:benchmarks": "node src/auditAndBenchmarks.js",
+    "plan:evolution": "node src/evolutionPlan.js",
+    "healing:loop": "node src/selfHealingLoop.js",
+    "ephemeral:worktrees": "node src/ephemeralWorktrees.js",
+    "benchmark:comparative": "node src/comparativeBenchmark.js",
+    "verify:delivery": "node src/candidateDelivery.js",
+    "verify": "npm test"
+  },
+  "keywords": [
+    "autoadapt",
+    "git",
+    "worktree",
+    "audit",
+    "self-healing",
+    "rlvr",
+    "decohub"
+  ],
+  "author": "DecoHUB",
+  "license": "ISC"
+}

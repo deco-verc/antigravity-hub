@@ -1,0 +1,11 @@
+{
+  "name": "SaaS Pricing Page",
+  "prompt": "Build a modern pricing page for a design tool called Forma AI. Three plans: Free ($0), Standard ($9.99/m), and Pro ($19.99/m). Free gets: 3 cloud projects, 1080p export, basic editing, free templates, web + mobile access. Standard gets: 50 cloud projects, 4K export, advanced editing, team collab (5 members), premium templates. Pro gets: unlimited projects, 8K + animations export, AI content gen, unlimited team, brand customization. Include a monthly/yearly toggle. Dark background with glassmorphism cards. Use any modern stack.",
+  "expected": {
+    "framework": "Any modern stack (React, Next.js, or HTML/CSS/JS)",
+    "styling": "Tailwind CSS or custom CSS",
+    "theme": "dark",
+    "sections": ["navbar", "pricing-header", "billing-toggle", "pricing-cards", "footer"],
+    "design_notes": "Dark gradient background with depth. 3 glassmorphism pricing cards (backdrop-blur, translucent bg, subtle borders). Monthly/yearly toggle switch. Feature lists with checkmark icons. One tier highlighted as recommended (larger, glowing border, or badge). Prominent price typography. 'Choose Plan' CTA on each card. Responsive — cards stack on mobile."
+  }
+}

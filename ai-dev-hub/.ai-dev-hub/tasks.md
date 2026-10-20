@@ -1,0 +1,444 @@
+# Gerenciamento de Tarefas
+
+## Pendente
+- [ ] Distribuição do instalador AI DEV Setup.exe para uso diário em ambiente de produção e automação de auto-update se desejado
+- [ ] Integração de notificações nativas do sistema operacional para alertas de Approval Inbox (riscos Orange/Red)
+- [ ] INCIDENTE P0: Bloqueio e contenção de criação descontrolada de conversas Antigravity, Fail-Closed Gateway e Suíte Offline (0 chats gerados)
+
+## Fazendo
+- [ ] Monitoramento contínuo e execução de novos ciclos autônomos conforme backlog
+- [ ] Pronto para avançar para a Etapa 2 (Autoresearch loop / experimentação autônoma) quando solicitado
+- [ ] Etapa 3 da Karpathy Execution Layer: Autoresearch Loop (Propose -> Experiment -> Measure -> Keep/Discard) ou LLM Council
+- [ ] Etapa 4 da Karpathy Execution Layer: LLM Council (deliberação multi-modelo para decisões críticas)
+- [ ] Karpathy Execution Layer consolidada (Etapas 1, 2, 3 e 4 concluídas). Pronto para uso contínuo no AI DEV HUB.
+- [ ] ETAPA 5 da Karpathy Execution Layer: AI DEV ARENA (Multi-Candidate Tournament, Isolated Workspaces, Identical Evaluator, Anonymous Council, Winner Promotion & No-Winner Handling)
+- [ ] Apresentar relatório executivo final consolidando todas as 5 etapas da Karpathy Execution Layer implementadas e validadas no AI DEV HUB
+- [ ] Utilizar o AI DEV V2 em produção e monitorar novos ciclos de auto-aprimoramento com novas tarefas adicionadas à suíte holdout.
+- [ ] Executar Level 2 Agent Benchmark Suite para o Candidate A e avaliar contra Regression Gate
+- [ ] Avançar para próximas melhorias de escala ou produção contínua do AI DEV HUB
+- [ ] Habilitar execuções noturnas no preset OVERNIGHT (8 horas, 10 experimentos) conforme demanda do usuário.
+- [ ] Executar suíte Level 2 Agent Benchmark para Candidate B e avaliar no Promotion Gate contra Candidate A e Baseline V1
+- [ ] Executar benchmark para o Candidate A e avaliar métricas contra o baseline e Candidate B no Promotion Gate
+- [ ] Execução autônoma em produção noturna (preset OVERNIGHT) com plena confiança operacional e governança de Pareto ativa
+- [ ] Execução do modo OVERNIGHT (8 horas, 10 experimentos) com plena segurança arquitetural e governança de Pareto ativa
+- [ ] Pronto para disparo do primeiro ciclo autônomo noturno em modo OVERNIGHT (8 horas, 10 experimentos)
+- [ ] Utilizar o AI DEV.exe em ambiente de produção diário ou disparar ciclos noturnos no preset OVERNIGHT conforme demanda
+- [ ] Iniciar o primeiro ciclo noturno em produção real com o preset OVERNIGHT (8 horas, 10 experimentos) ou distribuir o instalador para uso diário
+- [ ] Utilizar o Gerenciador de Contas pelo botão '⚙️ GERENCIADOR DE CONTAS' no topo direito do AI DEV HUB ou disparar novas tarefas multi-conta.
+- [ ] Empacotar release desktop do DecoHUB se desejado ou executar novos ciclos autônomos
+- [ ] Criação do explorador DecoHubFilesView com seção especial para Memória do Projeto (.ai-dev-hub/*.md)
+- [ ] Criação da linha do tempo DecoHubActivityView (sessões, checkpoints e entregas)
+- [ ] Criação do painel lateral recolhível DecoHubRightPanel (Sobre o Projeto)
+- [ ] Criação do modal unificado AdvancedDashboardModal hospedando 100% das ferramentas avançadas (Autonomous Engine, Council, Arena, Benchmarks, Program, Autoresearch, Agentes, Git, Memória, Saúde e Logs)
+- [ ] Captura de 7 screenshots de evidência visual comprovando a nova interface funcional
+- [ ] Utilizar o Gerenciador de Contas para alternar ou cadastrar novas contas Google conectadas com 1 clique direto pelo Chrome
+- [ ] Reparar e provar contas, workers e Autonomous Build E2E com evidência real
+- [ ] Preparar e executar o Benchmark V2 comparando Legacy vs Fable V1 vs Fable V2 Flash nos 5 cenários pareados
+- [ ] Aguardar reset da cota do Google Antigravity (1h40m) ou autenticar a segunda conta Google (Google Pro 2: ald.clothingg@gmail.com) para conclusão do Run 2
+- [ ] Utilização diária do DecoHUB para desenvolvimento contínuo de sistemas e monitoramento de cotas Google
+- [ ] DecoHUB homologado de ponta a ponta com 100% dos critérios C01-C24 atendidos. Pronto para uso pessoal diário no Windows.
+- [ ] DecoHUB homologado com sucesso de ponta a ponta para uso pessoal diário no Windows.
+- [ ] Uso pessoal contínuo no ambiente Windows DecoHUB Desktop com suporte total a múltiplos perfis e tarefas autônomas
+- [ ] Merge da branch feat/decohub-karpathy-integration na main ou branch definitiva após revisão do usuário
+- [ ] Acompanhar a evolução das tarefas da solicitação 2 (CSV export) e empacotar versão desktop para uso diário
+- [ ] Homologação concluída com sucesso; sistema 100% autônomo e operacional pronto para uso em produção
+- [ ] Execução diária em produção com autonomia total em projetos confiáveis
+- [ ] Disponível para revisão e aprovação humana do merge para a branch main
+- [ ] Utilizar o Prompt Inicial de Planejamento para planejar novos projetos ou iniciar a decomposição da próxima feature demandada pelo usuário
+- [ ] P0: Conter e eliminar criação massiva de conversas no Antigravity com isolamento offline fail-closed e circuit breaker
+- [ ] Gerar novo instalador Desktop (DecoHUB 1.0.2) caso o usuário deseje distribuir as correções de isolamento e cotas para o executável Windows.
+- [ ] Instalação controlada da versão 1.0.2 pelo usuário após sua autorização explícita.
+- [ ] Implementar Sistema Completo de Logs, Observabilidade e Diagnóstico no DecoHUB
+- [ ] Sistema de Observabilidade e Diagnóstico concluído com sucesso e pronto para homologação em produção.
+- [ ] Acompanhar a execução autônoma do novo Run 3af0217f e homologar novas demandas do projeto Ritmo
+- [ ] Avançar para a próxima fase: validação da autonomia em projeto de teste novo e isolado conforme solicitação do usuário
+- [ ] Monitoramento contínuo e execução de novos ciclos autônomos conforme backlog
+- [ ] Autorizar e preparar o Piloto Autônomo 02 sob o ambiente isolado certificado após validação de pré-voo e gates de aceitação.
+- [ ] Execução autônoma contínua em produção com suporte total a Auto-Failover multi-conta
+- [ ] SaaS Encyclopedia Ultra-Deep 100% homologado e distribuído em produção desktop com 80 suítes verdes. Pronto para novas solicitações.
+- [ ] FASE 21: Cancelamento Universal de Mensagens (Chat de Projetos, Fila & Meta-Chat) e Perfeição Operacional Ponta a Ponta do Meta-Chat
+- [ ] Utilização em produção diária do Chat do Projeto e Meta-Chat com cancelamento e auto-evolução ativa.
+- [ ] Pronto para homologação operacional em ambiente real e uso contínuo do Meta-Chat com contas autenticadas.
+- [ ] Pronto para novas instrucoes de operacao ou evolucao do DecoHUB.
+- [ ] HOTFIX: Seleção de Contas Iniciais no Modal de Criação de Projetos
+- [ ] Homologação contínua de novos projetos e expansão de catálogos verticais se necessário
+- [ ] Pronto para criação fluida de projetos em produção com seleção flexível ou automática de contas.
+- [ ] Monitorar telemetria de produção e execuções autônomas no DecoHUB.
+- [ ] Iniciar primeiro projeto autônomo com especificações vivas ativas da Onda 0.
+- [ ] Fase 24: Testes de ponta a ponta com agente real em execução de novo projeto validando a materialização das especificações vivas na prática
+- [ ] Pronto para novas fases ou evolução do sistema DecoHUB
+- [ ] Próximas fases de evolução autônoma e homologação de ponta a ponta do DecoHUB
+- [ ] Próximas fases de evolução autônoma e homologação de novos projetos com especificações vivas ativas
+- [ ] Monitorar a telemetria de criação de projetos em produção e prosseguir para próximas expansões do roadmap DecoHUB
+
+## Concluído
+- [x] FASE 3: Resiliência Autônoma — Auto-Recovery de AGENTAPI_UNAVAILABLE e Self-Healing de Verificação: Implementação de retry transiente no AgentApiGateway com até 2 tentativas e re-descoberta dinâmica de binário do Antigravity (AntigravityDiscovery.discover({ forceRefresh: true })); implementação de watchdog de auto-recuperação (attemptResourceRecovery e integração em schedulerTick) para runs em waiting_resource que restaura status para running, zera falhas transitórias, registra RUNTIME_RECOVERED_AUTOMATICALLY e aciona o ciclo autônomo sem intervenção manual; implementação do Self-Healing de verificação no AutonomousRunnerService convertendo veredictos técnicos BLOCKED em REWORK_REQUIRED com feedback diagnóstico estruturado para o Worker e normalização de comandos via normalizeOrRecoverVerificationCommand enquanto retry_count < maxRetries sem pausar o run; preservação estrita de travas de segurança para TAMPERING_DETECTED e exaustão de retries (pauseForVerification mantido); criação do arquivo de teste test/autonomousSelfHealingAndRecovery.test.ts cobrindo os 3 cenários; integração no package.json elevando a suíte oficial para 53 arquivos de teste e 511 testes passando 100% (0 falhas) com TypeScript build limpo.
+- [x] FASE 2: Reengenharia do Supervisor para Planejamento Multi-Pass (Fim do Gargalo de 6 Tarefas): Eliminação do portão tudo-ou-nada (`validTasks.length === rawTasks.length`) em `GeminiSupervisorProvider` substituído por `sanitizeAndRepairPlannedTask`; implementação do pipeline Multi-Pass / Two-Pass (Onda 1: Blueprint Arquitetural e Onda 2: Expansão Atômica com encadeamento de DAG inter-Grandes Tarefas e verificação de ciclos via `detectCircularDependencies`); prompts de Arquiteto Sênior sem teto artificial de 6 tarefas; implementação de `generateMultiPassPlannedTasks` gerando planos profundos (>15 microtarefas); criação de `test/multiPassDeepPlanning.test.ts` com 3 cenários rigorosos; reintegração da suíte oficial no `package.json` para 52 arquivos de teste (508 testes passando com 0 falhas) e compilação limpa TypeScript `npm run build`.
+- [x] FASE 1: Restauração da Cobertura Real de Testes (51 arquivos de teste / 505 asserções), correção do fluxo E2E hierárquico e chat conversacional: Correção de `chatIntentAndLogs.test.ts`, `conversationalArchitectureIntegration.test.ts`, e `hierarchicalOrchestration.test.ts`, reintegração dos 9 arquivos ao `server/package.json`, validação com `0 fail` em 505 testes e compilação limpa TypeScript `npm run build`.
+- [x] Preparação da Versão Testável DecoHUB v1.0.8 para Windows: Backup verificável com SHA-256 de hub.db e manifesto JSON, limpeza auditada de todos os 152 projetos e 38 tabelas dependentes (0 órfãos), preservação estrita de contas e configurações globais, empacotamento completo NSIS e Portable e validação ao vivo do binário gerado.
+- [x] Homologação Operacional Real da Autonomia Hierárquica do DecoHUB: Comprovação do fluxo de ponta a ponta (Projeto -> Chat -> Planejamento Hierárquico -> Worker -> Review Independente -> Correções/Retrabalho -> Commits Atômicos -> Validação Integrada Final) com 100% de testes verdes e zero regressão.
+- [x] Executar teste autônomo controlado em projeto novo e isolado conforme roteiro da Seção I do relatório.
+- [x] Executar novos projetos autônomos utilizando o fluxo hierárquico com Grandes Tarefas, Microtarefas e Review independente.
+- [x] Executar homologação assistida com múltiplos agentes LLM reais nas janelas nativas do Antigravity IDE para validar latência e telemetria visual em tempo real.
+- [x] Padronização Global do Gemini 3.8 Flash com nível de inteligência HIGH como padrão permanente e centralizado do DecoHUB, com migração de schema SQLite (intelligence_level), governança fail-closed sem fallback silencioso, alinhamento no frontend e suíte de regressão cobrindo 100% dos 9 requisitos contratuais.
+- [x] Operação Autonomous Intelligence: Integração completa dos subsistemas inteligentes existentes (Council, Research Gate, Skill Router, Anti-Slop, Evaluator, Supervisor Review) ao Autonomous Runner com 300/300 testes aprovados (100% green)
+- [x] Inicialização do repositório e pasta de memória .ai-dev-hub
+- [x] Criação do arquivo test.txt para validação do ambiente
+- [x] Processamento da solicitação do usuário (Linha 1, 2, 3)
+- [x] Sincronização com AI DEV HUB
+- [x] Sistema Multi-Worker com leases atômicas, renovação contínua de 15s, mesma branch detection, recuperação pós-falha e review do Gemini Supervisor
+- [x] Fase Productization / Simple IDE: 3 Colunas, File Explorer, Diff Modal, Terminal Drawer, Multi-Account Continuity e 10 screenshots validadas
+- [x] Fase Desktop Productization + Reliability: Executável autônomo (AI DEV.exe, Portable e NSIS), ProcessManager silencioso, Startup Health Check (DEV-XXXX), Single-Instance Lock, Auto-Recovery e 5 screenshots validadas
+- [x] Empacotamento Desktop com Electron 44.5.1 gerando AI DEV Setup 1.0.0.exe (NSIS), AI DEV 1.0.0.exe (Portable) e dist-desktop/win-unpacked/AI DEV.exe
+- [x] ProcessManager silencioso (windowsHide: true) executando o backend via Electron-as-Node com suporte nativo a node:sqlite sem requerer Node host
+- [x] Startup Health Check completo cobrindo SQLite, Git, Antigravity Language Server, agentapi, Contas Google e MCP com emissão de código DEV-XXXX
+- [x] Single-Instance Lock com redirecionamento de foco para a janela existente e prevenção de processos duplicados
+- [x] Isolamento estrito entre executáveis em dist-desktop e dados mutáveis de usuário em ~/.ai-dev-hub/
+- [x] Mecanismo de Auto-Recovery com detecção de crash do backend e reconexão automática com banner visual no topo da UI
+- [x] Execução da suíte E2E automatizada e captura das 5 screenshots obrigatórias validadas (01_desktop_startup.png até 05_recovery.png)
+- [x] Estruturação inicial do projeto: Git inicializado com branch main, .gitignore abrangente, documentação viva (.ai-dev-hub/project.md e architecture.md) e compilação completa validada
+- [x] Implementação de testes automatizados: 13 testes unitários e de integração nativos (node:test) cobrindo GitManager, PolicyEngine, DbAndMemory e HealthCheck com 100% de sucesso
+- [x] Configuração de rotinas adicionais do projeto: scripts "npm test", rotinas de compilação TS e resolução resiliente de diretório de dados em ambientes multi-perfil (getHubDataDir)
+- [x] Implementação da Etapa 1 da Karpathy Execution Layer
+- [x] Global Agent Guidelines (Think Before Coding, Simplicity First, Surgical Changes, Goal-Driven)
+- [x] Constituição do Projeto (.ai-dev-hub/program.md) com templates automáticos por projeto
+- [x] Injeção automática em GeminiSupervisorProvider, AntigravityProvider, Autonomous Runs e Chat
+- [x] Validação matemática de diffs cirúrgicos e detecção de sobreengenharia no Gemini Supervisor
+- [x] UI Settings -> Project Program na Simple IDE com editor e visualização de guidelines
+- [x] Aprovação com 100% de sucesso nos 3 Testes Reais (A: Simplicidade, B: Cirúrgico, C: Goal-Driven)
+- [x] Criação do SuccessContract formal com critérios, thresholds e arquivos protegidos
+- [x] Módulo IndependentEvaluator desacoplado do Builder e integrado ao Gemini Supervisor
+- [x] Defesa contra adulteração com rejeição imediata e penalidade no Supervisor (Score 1/10)
+- [x] Ciclo de bugfix com verificação de baseline de reprodução e evidência objetiva de terminal
+- [x] Interface Simple IDE com badges discretos e modal completo de detalhes da avaliação
+- [x] Novo modo de execução RESEARCH RUN desacoplado de NORMAL e AUTONOMOUS
+- [x] Experiment Contract com objective, primary_metric, direction, measurement_command e limites overnight
+- [x] Experiment Ledger persistido em SQLite com sequência, hipótese, metric_before, metric_after, delta, LOC e status
+- [x] Mecanismo de reversão atômica via Git para DISCARD e CRASH comprovado em teste real
+- [x] Suíte de validação 4/4 aprovada com baseline real, 1 KEEP, 1 DISCARD e 1 CRASH controlado
+- [x] Dashboard interativo do Autoresearch no Simple IDE
+- [x] ETAPA 4 da Karpathy Execution Layer: AI DEV COUNCIL
+- [x] Stage 1: 3 Revisores Independentes (Corretude, Simplicidade, Regressão)
+- [x] Stage 2: Classificação Anônima por Pares (Peer Ranking) sem viés de autoridade
+- [x] Stage 3: Síntese e Veredicto Final do Chairman (com Simplicity Alert e consenso)
+- [x] Persistência SQLite e Endpoints REST no backend
+- [x] Componente CouncilModal e integração no Simple IDE (botão no header e badges)
+- [x] Suíte de teste adversarial com rejeição de código overengineered e aprovação de código cirúrgico
+- [x] Tabelas SQLite arena_runs e arena_candidates
+- [x] Módulo ArenaManager com orquestração de torneio, worktrees, avaliação, conselho e integração
+- [x] Rotas REST para recomendação, torneio, avaliação, conselho, diff e cancelamento
+- [x] Interface Simple IDE com modo ARENA, botão superior, badge pós-execução e ArenaModal completo
+- [x] Suíte de testes de validação adversarial cobrindo elegibilidade, torneio real 3 candidatos e NO_ACCEPTABLE_CANDIDATE
+- [x] Captura de screenshots comprovando funcionamento visual e auditoria histórica
+- [x] Banco de dados estendido com benchmark_runs, benchmark_task_results e self_improvement_experiments.
+- [x] Suíte de 12 tarefas de benchmark implementada abrangendo 10 categorias oficiais e 4 holdouts.
+- [x] Golden Evaluator com anti-tampering SHA-256 e fórmulas de pontuação de simplicidade e cirurgia.
+- [x] Congelamento e persistência da Baseline Oficial AI_DEV_BASELINE_V1 (100% de acerto).
+- [x] Mecanismo de auto-aprimoramento identificando gargalos, gerando hipóteses e avaliando candidatos na Arena.
+- [x] Comparador formal de versões com cálculo de delta e barreira estrita de regressão.
+- [x] Regression Gate testado e validado bloqueando candidato quebrado com nota zero e veredicto REGRESSION_REJECTED.
+- [x] UI moderna do BenchmarkModal integrada ao Simple IDE com abas de Scorecard, Comparação e Auto-aprimoramento.
+- [x] Captura de screenshots completa e suíte de 6 testes automatizados aprovada com 100% de sucesso.
+- [x] Implementada regra 6 do agentPrompt com instrução Windows Safe Node Execution
+- [x] Adicionada diretriz 5 WINDOWS SAFE EXECUTION no getGlobalAgentGuidelines
+- [x] Level 2 Agent Benchmark Suite com 5 tarefas reais e holdouts físicos protegidos
+- [x] Execução real da Baseline AI_DEV_AGENT_BASELINE_V1 (commit e40137c7) com 100% de aprovação
+- [x] Auditoria empírica de transcripts com identificação do gargalo de PowerShell ExecutionPolicy
+- [x] Formulaçao de hipótese com Gemini Supervisor e criação de branch isolada candidate-a
+- [x] Execução de ciclo de Self-Improvement real com Builder Antigravity e recompilação do sistema
+- [x] Avaliação pelo Regression Gate com 0 regressões e promoção oficial do commit 71ba345e para AI_DEV_AGENT_V2
+- [x] Atualização completa da interface BenchmarkModal com separação de Level 1 e Level 2 e evidências visuais capturadas
+- [x] Entidade SelfImprovementRun e tabela SQLite self_improvement_runs
+- [x] ZoneManager com classificação GREEN/YELLOW/RED e validação de diff contra violações de Zona Vermelha
+- [x] AutonomousSelfImprovementEngine com loop contínuo e orçamentos de tempo, iterações e regressão
+- [x] Congelamento de PromotionContract com hash SHA-256 antes da geração de código
+- [x] Criação de Candidate A e Candidate B em worktrees e branches isoladas a partir da mesma baseline SHA
+- [x] Testes de parada graciosa (STOP) e recuperação após reinicialização do backend (Restart Recovery) aprovados 100%
+- [x] Geração de Morning Report para execuções noturnas desatendidas
+- [x] Interface gráfica web atualizada com aba dedicada Autonomous Engine, timeline e modal de relatório
+- [x] Implementação da Estratégia B no Candidate B (run-9574cd1b/exp-1/Candidate_B)
+- [x] Normalização de caminhos pré-prompt no runtime do AntigravityProvider
+- [x] Compactação das diretrizes globais para redução de token overhead e latência
+- [x] Compilação TypeScript com 0 erros e commit Git real 0f4f6cd
+- [x] Implementação da Estratégia B no Candidate B (run-82ea1aad/exp-1/Candidate_B)
+- [x] Validação de compilação TypeScript com 0 erros
+- [x] Implementação da Estratégia A no Candidate A: normalização de caminhos, diretivas de terminal estritamente condicionais a comandos Node/Windows e compactação das diretrizes para redução de token overhead e ruído em tarefas curtas
+- [x] Compilação TypeScript com 0 erros e commit Git real e671391 na branch self-improve/run-82ea1aad/exp-1/candidate-a
+- [x] Execução do preset E2E_PROOF sem intervenção humana de ponta a ponta (Run ID: 82ea1aad-4232-4232-aa66-d8cc16421b73)
+- [x] Conclusão natural em status COMPLETED com completed_experiments = 1 no SQLite hub.db
+- [x] Aplicação rigorosa do Promotion Gate e Pareto Dominance com veredito DISCARD ALL e preservação da baseline estável 71ba345e
+- [x] Captura das evidências visuais de alta fidelidade: screenshots 60 (Dashboard COMPLETED) e 61 (Morning Report Modal)
+- [x] Geração do relatório executivo oficial em Markdown relatorio_fase7_validacao_final_e2e_autonomous_engine.md
+- [x] Auditoria isolada do diff do Experimento #5 e confirmação do veredito DISCARD no PromotionGate atual
+- [x] Reversão cirúrgica sem reset cego, preservando 100% da infraestrutura subsequente
+- [x] Compilação limpa do servidor (tsc) e cliente (vite) e aprovação de 100% dos FAST benchmarks e testes protegidos
+- [x] Execução de 3 confirmation runs oficiais dos Agent Benchmarks gerando métricas matemáticas consolidadas
+- [x] Criação da identidade AI_DEV_STABLE_V1 no commit 63fdd47ebc74180a9c911d83da9bd4e1a6f41403
+- [x] Atualização histórica formal do Experimento #5 no SQLite como REVERTED_FROM_STABLE_BASELINE
+- [x] Smoke test do Autonomous Engine comprovando leitura da nova baseline limpa e descarte de 71ba345e
+- [x] Captura das screenshots 62 e 63 e geração do relatório relatorio_fase7_stable_baseline_reconciliation.md
+- [x] Eliminação de 100% dos SHAs hardcoded no código TypeScript de server e client
+- [x] Criação do módulo StableBaselineResolver e tabela stable_version_registry no SQLite
+- [x] Integração da resolução dinâmica de baseline na inicialização de novos Autonomous Runs e na promoção KEEP
+- [x] Execução e aprovação completa dos 6 passos do teste de auditoria de baseline dinâmica
+- [x] Geração do relatório executivo relatorio_auditoria_dynamic_baseline_source_of_truth.md
+- [x] Empacotamento completo do AI DEV HUB em executáveis Windows (AI DEV Setup 1.0.0.exe, AI DEV.exe nativo e AI DEV 1.0.0.exe portable)
+- [x] Módulo AntigravityDiscovery com localização dinâmica em LOCALAPPDATA, PROGRAMFILES e PATH eliminando hardcode de usuário
+- [x] ServiceManager com alocação dinâmica de portas (3001..3040), supervisão de processos filhos e auto-recovery de crash (3 tentativas com backoff)
+- [x] Main process Electron com Single Instance Lock, restauração de tamanho e coordenadas da janela, System Tray e Safe Shutdown com proteção contra cancelamento acidental de trabalho ativo
+- [x] Endpoint /api/desktop/diagnostics e interface de diagnóstico no Simple IDE com visualização de métricas e botão de cópia sem segredos
+- [x] Bateria de testes de confiabilidade com 7/7 cenários aprovados cobrindo discovery, AppData, port allocation, config persistence, crash recovery e safe shutdown
+- [x] Geração de 4 capturas de tela oficiais da aplicação desktop (Splash Screen, Janela Principal, Health Checks e System Diagnostics)
+- [x] Criar teste de aceitação da fase 8 em acceptance_proof.txt com timestamp 2026-10-07T00:00:19.279Z
+- [x] Criar teste de aceitação da fase 8 em acceptance_proof.txt com timestamp 2026-10-07T00:01:18.746Z
+- [x] Criar teste de aceitação da fase 8 em acceptance_proof.txt com timestamp 2026-10-07T00:03:16.795Z
+- [x] Criar teste de aceitação da fase 8 em acceptance_proof.txt com timestamp 2026-10-07T00:04:39.815Z
+- [x] Execução do instalador real AI DEV Setup 1.0.0.exe instalando em AppData/Local/Programs/ai-dev-hub-root/AI DEV.exe
+- [x] Medição precisa de First Boot (Cold Start completo em 1.285s sem terminal ou browser externo)
+- [x] Auditoria da árvore de processos confirmando zero terminais cmd/powershell em idle
+- [x] Amostragem de memória em idle comprovando 490 MB total e 107 MB no backend RSS
+- [x] Real Project Test via chat atualizando tasks.md no disco pelo assistente integrado
+- [x] Multi-Account Test alternando Google Pro 1 -> Google Pro 2 -> Google Pro 1 com preservação de checkpoint e sem duplicação de credenciais
+- [x] Backend Crash Test com derrubada proposital via taskkill /F e auto-restart em 2.61s pelo Electron ServiceManager
+- [x] Single Instance Lock bloqueando segunda chamada do executável sem duplicar processos ou conexões SQLite
+- [x] Autonomous Engine Desktop Test disparando TEST_SHORT e finalizando com Stop Safely com estado CANCELLED persistido
+- [x] Restart Restore Test restaurando último projeto, conta, coordenadas de janela, baseline e histórico intactos
+- [x] 60-Minute Soak Test comprovando estabilidade absoluta e ausência total de memory leak (+2 MB de variação)
+- [x] Orphan Process Check comprovando limpeza completa e zero processos restantes após Safe Shutdown
+- [x] Uninstall e Reinstall Test comprovando preservação integral do hub.db de 2.55 MB após desinstalação e reinstalação
+- [x] Declaração oficial: AI_DEV_DESKTOP_V1 = RELEASE_READY
+- [x] Implementação do Gerenciador de Contas (Adicionar, Remover, Editar, Sincronizar) e Revisão do Sistema de Adição
+- [x] Criação do Gerenciador de Contas completo (AccountManagerModal) integrado ao Simple IDE e ao dropdown de contas.
+- [x] Adição de suporte a remoção de contas (DELETE /api/account-profiles/:id) com confirmação na UI e reatribuição de projetos ativos.
+- [x] Adição de edição de contas (PATCH/PUT /api/account-profiles/:id) para nome e e-mail.
+- [x] Revisão completa do fluxo de adição de contas com isolamento de perfis, auto-detecção de e-mail e confirmação manual assistida.
+- [x] Eliminação de caminhos hardcoded de usuário no lançamento do Antigravity GUI.
+- [x] Suíte de testes de ciclo de vida de contas criada e aprovada com 100% de sucesso.
+- [x] Reestruturação visual completa do frontend para DecoHUB (estilo Linear/Notion/Raycast)
+- [x] Renomeação de toda a identidade visual de produto para DecoHUB
+- [x] Remoção de sobrecarga visual, slogans futuristas e badges concorrentes da tela principal
+- [x] Criação da barra lateral minimalista DecoHubSidebar (+ Novo Projeto, busca, lista simples e rodapé)
+- [x] Criação do cabeçalho de projeto limpo DecoHubHeader (nome, caminho com cópia, botão Continuar, menu ..., seletor Google e toggle lateral)
+- [x] Criação da aba Visão Geral DecoHubOverview (objetivo editável, 3 cards numéricos, tarefas recentes e atividade recente humanizada)
+- [x] Criação do modo de trabalho limpo DecoHubChatView (prompt acolhedor, etapas de progresso humanas, toggle de detalhes técnicos e voltar à visão geral)
+- [x] Integração direta do login do Google com o navegador padrão Google Chrome do Deco ao invés de janela isolada sem sessão
+- [x] Implementação do endpoint /api/account-profiles-detected para autodescoberta de contas salvas no sistema
+- [x] Adição de botões de preenchimento rápido (chips) das contas existentes no fluxo de adição de conta
+- [x] Botão '🌐 1. ABRIR MEU GOOGLE (CHROME)' abrindo o Chrome com sessão e cookies ativos do usuário
+- [x] Botão '🌐 Abrir no Chrome' nos cards de cada perfil no Gerenciador de Contas
+- [x] Persistência garantida do e-mail no app_storage.json e .gemini fora de projeto com status READY imediato
+- [x] Zero-Model Reliability & Hardening: 15 bugs auditados, detecção de commit pelo Agente (AGENT) vs DecoHUB (DECOHUB), rejeição de working tree suja (DIRTY_WORKING_TREE_UNRESOLVED), workspace isolation (WORKSPACE_MISMATCH), Windows path normalization, persistência de DAG PENDING->READY, lease heartbeat atômico, cancelamento determinístico, telemetria precisa de tool_calls (NULL quando desconhecido), nova suíte coreReliability.test.ts com 27 testes (42/42 total passando), compilado e 100% íntegro.
+- [x] Criação do prompt fable-worker-v2-flash.md com compressão de 71.1% (12,041 bytes)
+- [x] Implementação dos princípios centrais Minimum Sufficient Context e Action Bias
+- [x] Preservação integral da inteligência e salvaguardas operacionais sem verbosidade repetitiva
+- [x] Correção da métrica de violação de escopo no benchmark harness
+- [x] Diagnóstico conclusivo do timeout do Evaluator no Cenário 3 (AGENT_EXECUTION_TIMEOUT aos 300s)
+- [x] Implementação da Suíte 19 de testes determinísticos para o V2 (77/77 testes PASS)
+- [x] Execução do smoke test real com flash e Fable V2 Flash completando em 60.4s (7/7 PASS)
+- [x] Verificação Desktop HealthCheck 6/6 PASS
+- [x] Verificação Google Account Management (listar, probe, criar, alternar, restaurar, excluir) PASS
+- [x] Verificação Project Creation & Opening UI (criação, árvore de arquivos, memória) PASS
+- [x] Verificação Project Chat (prompt do usuário, resposta do assistente, persistência no SQLite) PASS
+- [x] Verificação Autonomous Execution Run 1 (decomposição por Gemini Pro, execução por Native Worker, avaliação independente, aprovação do Supervisor) PASS
+- [x] Verificação de resiliência a CRLF/whitespace em commits git no Windows
+- [x] Detecção imediata de RESOURCE_EXHAUSTED 429 no AntigravityProvider
+- [x] Integração do DecoHubChatView diretamente ao AutonomousRunnerService e AutonomousManager sem simulações
+- [x] Painel de DAG e checklist de tarefas integrado em tempo real no chat
+- [x] Tratamento e resiliência arquitetural para RESOURCE_EXHAUSTED 429 (QUOTA_EXHAUSTED e COOLDOWN)
+- [x] Filtro e governança de workers na pool para contas em cooldown de cota
+- [x] Badge de Cota em Cooldown com contagem regressiva e ação Verificar Cota na interface gráfica
+- [x] Conclusão e validação funcional completa (31/31 testes PASS, REST API, CLI, HTML UI) do decohub-user-tasks-app
+- [x] Captura de 7 telas reais da GUI do DecoHUB comprovando funcionamento de ponta a ponta
+- [x] Fase 1: Chat isolado e persistente por projeto com enfileiramento seguro de mensagens em trânsito
+- [x] Fase 2: Conta Google ativa e seletor de modelos no cabeçalho com exibição de modelo verificado
+- [x] Fase 3: Monitoramento honesto de quotas (5h e semanal) com 'Não disponibilizado pelo provedor' e contagem regressiva 429
+- [x] Fase 4: Integração com GitHub (criação privada/vincular), criptografia AES-256-GCM para tokens e proteção .gitignore
+- [x] Fase 5: Planejamento do Supervisor sincronizado como milestones e issues no GitHub
+- [x] Fase 6: Loop de desenvolvimento autônomo com branch dedicada, commits semânticos, PRs e auto-merge
+- [x] Fase 7: Card unificado de acompanhamento no chat (Supervisor, Worker, GitHub, Limites) com badges clicáveis
+- [x] Fase 8: Continuidade de solicitações no mesmo projeto preservando backlog existente
+- [x] Fase 9: Execução dos 7 testes de verificação real com 7/7 PASS comprovados
+- [x] Fase 10: Matriz de Conformidade Definitiva (Critérios C01 a C24 PASS)
+- [x] Etapa 1: Aplicativo real empacotado DecoHUB.exe executado no Windows sem dev server
+- [x] Etapa 2: Chat por projeto e isolamento estrito entre Teste Financeiro e Teste de Tarefas
+- [x] Etapa 3: Contas Google, seleção de modelos e exibição honesta de quotas
+- [x] Etapa 4: Integração GitHub real (repositório privado, commit inicial, issue #2, branch, PR #3, merge e fechamento de issue)
+- [x] Etapa 5: Projeto autônomo iniciado pelo chat com DAG de 5 tarefas e enfileiramento seguro
+- [x] Etapa 6: Continuidade de solicitações no mesmo projeto sem duplicação de repo ou destruição de histórico
+- [x] Etapa 7: Controles operacionais (pausar, continuar) e persistência total pós-reinício (hub.db 4.48 MB)
+- [x] Conclusão autônoma de ponta a ponta do projeto Teste Financeiro (5/5 tarefas concluídas, 31 testes aprovados)
+- [x] Execução autônoma de tarefas no Teste de Tarefas (5/5 tarefas concluídas, 92 testes aprovados)
+- [x] Correção do falso positivo de quota no AntigravityProvider verificando apenas novas linhas do transcript
+- [x] Ajuste no accountProfileManager para respeitar perfis selecionados sem falso fallback
+- [x] 100% dos testes do servidor DecoHUB aprovados (96/96 testes PASS)
+- [x] Criação de worktree exclusivo de integração ai-dev-hub-integration na branch feat/decohub-karpathy-integration
+- [x] Merge controlado da Karpathy Engineering Layer preservando 100% das correções de autonomia e cota
+- [x] Preservação de detecção incremental de logs no antigravityProvider e prioridade de conta no accountProfileManager
+- [x] Criação da suíte karpathyAutonomousIntegration.test.ts cobrindo o pipeline unificado de ponta a ponta
+- [x] Execução de 109/109 testes com 100% de aprovação (Core, Autonomia, Karpathy, Integrado)
+- [x] Build do servidor, build do frontend Vite e Typecheck com 0 erros
+- [x] Integração segura Karpathy + Autonomia Real (111/111 testes PASS)
+- [x] Validação rigorosa de aceitação visual e de persistência no Evaluator
+- [x] Guard de completude do projeto impedindo encerramento prematuro e escalando tarefas complementares
+- [x] Execução autônoma end-to-end 100% não assistida de projeto financeiro completo (6/6 tarefas concluídas, 43/43 testes passando)
+- [x] Teste de continuidade no chat do projeto com planejamento automático e preflight Karpathy (Issues #11 a #16 criadas)
+- [x] Princípio 5: Operational Autonomy & Intelligent Execution formalizado no DecoHUB e integrado à Karpathy Layer
+- [x] Detecção inteligente de gerenciadores de pacotes (npm, pnpm, yarn, bun, pip, poetry, cargo) e stack tecnológico
+- [x] Classificação GREEN no PolicyEngine para instalações de dependências locais sob fullDevAutonomy em projetos confiáveis
+- [x] Diretivas de terminal sem bloqueio interativo e ciclo ativo de autocorreção (self-healing) sem desativar testes
+- [x] Persistência das preferências de autonomia (is_trusted, full_dev_autonomy) no SQLite e endpoints REST /api/projects/:id/autonomy e /api/settings
+- [x] Homologação real ponta a ponta sem intervenção humana: 5/5 tarefas executadas e aprovadas pelo Gemini Pro Supervisor com 44 testes automatizados no projeto gerado e 120 testes no DecoHUB Core
+- [x] Auditoria e proteção do banco de dados de produção hub.db
+- [x] Isolamento estrito entre projetos (arquivos, tarefas, runs e constituição Karpathy)
+- [x] Anti-Weakening Guard e proteção contra adulteração de critérios e testes
+- [x] Controles visuais de autonomia (Global e por projeto) no frontend DecoHUB
+- [x] 137/137 testes automatizados aprovados sem falhas
+- [x] Tratamento cirúrgico de quota e eliminação de retries em 429
+- [x] Homologação ponta a ponta dos prompts contextuais e adaptativos com 8 etapas cumpridas com sucesso
+- [x] Validação de 208/208 testes automatizados aprovados na suíte de regressão
+- [x] Criação e padronização do Prompt Inicial de Planejamento para agentes e supervisores
+- [x] Auditoria detalhada do runtime real (AgentApiGateway, DevAutonomyService, Electron, flags de autorização por projeto)
+- [x] Auditoria e comprovação do estado de contas e Language Server (distinção entre runtime anexado e token ativo)
+- [x] Auditoria de quotas e ausência do CLI agy (relato honesto de UNKNOWN sem inventar percentuais)
+- [x] Implementação e aprovação da suíte offline de retomada pós-quota (quotaRestartRecovery.test.ts com 5 fases e 0 novas conversas)
+- [x] Validação da suíte completa de testes (230/230 testes aprovados offline)
+- [x] Verificação rigorosa da cadeia de autorização Electron -> Backend -> Autonomous Runner -> AgentApiGateway -> AgentSessionManager
+- [x] Implementação da suíte de teste runtimeAuthorizationAndSimulation.test.ts comprovando bloqueio de projetos não confiáveis, exigência explícita de política de autonomia e reutilização em 10 tarefas consecutivas
+- [x] Consolidação total do Git com working tree 100% limpa em commits rastreáveis e version bump para 1.0.2
+- [x] Compilação do backend TypeScript (tsc) e frontend React/Vite (vite build) sem erros
+- [x] Geração dos novos instaladores e executáveis Windows DecoHUB Setup 1.0.2.exe e DecoHUB 1.0.2.exe mantendo a versão 1.0.1 preservada
+- [x] Homologação em sandbox do Electron com porta e pastas temporárias isoladas comprovando zero criação de conversas reais e integridade da interface
+- [x] Logger estruturado central com AsyncLocalStorage para correlação ponta a ponta (traceId, spanId, runId, taskId)
+- [x] Sanitizador rigoroso mascarando Google AI keys, GitHub tokens, Bearer/JWT, senhas e URIs autenticadas
+- [x] Persistência dual: SQLite (observability_events com 9 índices) e arquivo rotativo (events.jsonl e backend.log)
+- [x] Instrumentação completa de chamadas nativas, turns de agentes, leases, reservas, relatórios, avaliação independente e reconciliação
+- [x] Motor de diagnóstico de anomalias (runs travados, tarefas sem lease, revisões presas, divergências de estado)
+- [x] Endpoints RESTful (/api/observability/*) com suporte a filtros, timeline de runs, exportação JSON/JSONL e limpeza
+- [x] Interface rica DecoHubObservabilityView no frontend integrada ao Painel Avançado e Cabeçalho de Projetos
+- [x] 362 testes passando sem regressões com 100% de integridade preservada no hub.db e nos projetos FinanceFlow/AutoAdapt
+- [x] Auditoria técnica profunda do banco de dados hub.db e identificação das causas-raízes dos travamentos de execução
+- [x] Auditoria e verificação independente dos 75 testes do projeto Ritmo em disco (100% de aprovação)
+- [x] Implementação de auto-cura de reservas de processos mortos (reconcileDeadReservations e acquire idempotente) no ExecutionCoordinator
+- [x] Reconciliação e validação de tarefas in_review órfãs no recoverInterruptedRuns e watchdogTick
+- [x] Desacoplamento de regex de reconciliação nativa em AutonomousManager.resumeRunInternal
+- [x] Criação da suíte executionCoordinatorRecovery.test.ts com 5 testes de não-regressão (367 testes DecoHUB passando)
+- [x] Elaboração do relatório técnico AUDIT_20261011_DECOHUB_RELIABILITY.md
+- [x] Retomar execução do projeto Ritmo via AutonomousManager.resumeRun para finalização do Marco M6 sem travas órfãs
+- [x] Validação operacional completa das correções de confiabilidade do DecoHUB (367/367 testes passando, build de produção e typecheck 100% OK)
+- [x] Retomada legítima e conclusão do Run 83986c07 no projeto Ritmo com marco M6 entregue (89/89 testes passando)
+- [x] Correção arquitetural da falha ENAMETOOLONG no Windows via sumarização de alto sinal do prompt do supervisor e clamping defensivo de argumentos no AgentApiGateway
+- [x] Auditoria do diff e validação da suite de testes completa (377/377 testes aprovados)
+- [x] Build de produção limpo do backend TypeScript e frontend React/Vite (0 erros)
+- [x] Empacotamento do instalador Windows NSIS e executável Portable com electron-builder (DecoHUB Setup 1.0.7.exe)
+- [x] Validação não destrutiva da instalação e integridade via puppeteer sandbox test (test_electron_sandbox.mjs aprovado)
+- [x] Preservação comprovada do banco de produção (hub.db) e projetos de teste existentes (Ritmo, FinanceFlow, AutoAdapt)
+- [x] Otimização Permanente do Motor de Execução e Orquestração: CommandExecutionEngine com persistência SQLite e log em disco, TestSelector cirúrgico, idempotência e prevenção de duplicações, eliminação de hangs por stdin interativo no Windows, proteção contra reinício com auto-cura de órfãos, endpoints de diagnóstico de desempenho e MCP payload compaction (390/390 testes aprovados, 39 suítes 100% green)
+- [x] Auditoria Pré-Release Completa do DecoHUB em 15 fases técnicas
+- [x] Validação da suíte de regressão (399/399 testes verdes, 100% de aprovação)
+- [x] Verificação de integridade e assinatura dos instaladores Windows 1.0.7
+- [x] Comprovação operacional de isolamento e execução sequencial do Supervisor/Worker/Evaluator
+- [x] Implementar Orquestração Hierárquica Autônoma (Grandes Tarefas, Microtarefas, Máquina de Estados, Comunicação Supervisor/Worker/Review, Commit pós-Review, Replanejamento e Homologação E2E com 24+ cenários automatizados)
+- [x] Esquema e migrações SQLite para autonomous_major_tasks, task_state_transitions e agent_communications
+- [x] Serviço HierarchicalOrchestrationService com máquina de estados, detecção de ciclos, subdivisão automática, contratos de execução do Worker, avaliação independente do Review, commit gate pós-Review e replanejamento dinâmico
+- [x] Integração completa em AutonomousManager, AutonomousRunnerService e endpoints REST em routes.ts
+- [x] Interface visual hierárquica em AutonomousBuildView.tsx e DecoHubTasksView.tsx com Grandes Tarefas, Microtarefas, barra de replanejamento e abas de auditoria de comunicações e transições
+- [x] Suíte automatizada server/test/hierarchicalOrchestration.test.ts com os 24 cenários obrigatórios e homologação de ponta a ponta (Seção 12)
+- [x] Auditoria técnica independente completa (Seções 3 a 12) da Orquestração Hierárquica Autônoma do DecoHUB
+- [x] Correção das 12 falhas estruturais (A1–A12) em planejamento, comunicação, máquina de estados, Review independente, Git seletivo e recuperação pós-crash
+- [x] Suíte adversarial independente (server/test/independentHierarchicalAudit.test.ts) cobrindo os 7 cenários adversariais da Seção 6, matriz de estados da Seção 5, isolamento Git da Seção 8 e crash recovery da Seção 9
+- [x] Missão 03: Evolução Arquitetural e Inteligência Operacional concluída (M3-1 Qualidade de Plano e Escopo, M3-2 Loop de Aprendizado Operacional, M3-3 Autodiagnóstico Profundo, M3-4 Autorremediação Proativa, M3-5 Replanejamento Incremental Autônomo) - 409/409 testes aprovados
+- [x] M3-1: Validação de Qualidade de Plano e Mapeamento de Escopo (deduplicação, critérios obrigatórios, validação de grafo de dependências DAG e correção de mapeamento de expected_files e verification_command na revisão do Supervisor)
+- [x] M3-2: Loop de Aprendizado Operacional (tabela operational_lessons no SQLite, sincronização com lessons.md, classificação de falha, resolução automática em retry com sucesso, injeção de lições no contexto da tarefa e planejamento)
+- [x] M3-3: Autodiagnóstico Profundo (diferenciação entre execução lenta com atividade recente e tarefa travada sem lease, detecção de padrões repetitivos de erro, verificações não executadas e falhas recorrentes de cota/auth)
+- [x] M3-4: Autorremediação Proativa Inteligente (remediação automática no watchdog para expiração de lease, liberação de reservas com PID morto, recuperação de tarefas in_review e in_progress)
+- [x] M3-5: Replanejamento Incremental Autônomo (disparo automático de replanejamento no Supervisor quando o guard de completude detecta escopo pendente, com limite estrito de 1 ciclo de replanejamento)
+- [x] Execução e validação de 409/409 testes automatizados aprovados na suíte do servidor DecoHUB com 0 falhas e 0 skips
+- [x] FASE 20: Auto-Failover Multi-Conta via Rapid Switch
+- [x] Classificador unificado de erros de cota (429/RESOURCE_EXHAUSTED) e autenticação (LOGIN_REQUIRED/Keyring)
+- [x] Zero penalização de retry_count de tarefas em trocas de conta/cota
+- [x] Reatribuição automática da pool de workers na troca de conta ativa
+- [x] Suíte de testes dedicada accountAutoFailoverRapidSwitch.test.ts com 4 cenários (passando 100%)
+- [x] Sincronização de build do servidor e cliente para app.asar.unpacked
+- [x] FASE 21: Supervisor SaaS Encyclopedia Ultra-Deep (12 GTs, 45-75+ microtarefas, /docs, Dev API/Webhooks, Billing, RBAC, seedIfEmpty)
+- [x] Resolução de hooks e isolamento de runtime no AccountProfileManager e AgentApiGateway
+- [x] Adaptação da regra de overengineering do Council para suportar planos SaaS profundos (até 85 tarefas) sem rejeição indevida
+- [x] Blindagem de retomada em waiting_resource quando Antigravity runtime está offline em modo live
+- [x] Compilação e build limpo de server e client com 100% dos testes passando (80 suítes, 696 testes)
+- [x] Espelhamento de distribuição de produção nos diretórios desktop app.asar.unpacked
+- [x] FASE 21: Cancelamento Universal de Mensagens (Chat de Projetos, Fila & Meta-Chat) e Perfeição Operacional Ponta a Ponta do Meta-Chat
+- [x] Cancelamento universal de mensagens em voo e na fila no Chat de Projetos (POST /api/projects/:id/messages/cancel e DELETE /api/projects/:id/messages/:messageId)
+- [x] Cancelamento imediato de execução do Meta-Chat com rollback íntegro de arquivos via baseline SHA-1 e liberação estrita de locks (POST /api/metachat/cancel)
+- [x] Status em tempo real no Meta-Chat (cronômetro tabular-nums, fase atual, botão vermelho Cancelar)
+- [x] Ações de copiar/reutilizar e remover mensagem no Meta-Chat (DELETE /api/metachat/messages/:id)
+- [x] Persistência em localStorage de conta, modelo (gemini-3.8-flash) e nível de raciocínio (high) no Meta-Chat
+- [x] Motor híbrido no Antigravity com parser de blocos [FILE: ...] e proteção Self-Healing Typecheck Guard (tsc --noEmit)
+- [x] Suíte automatizada de testes com 100% de aprovação (710/710 testes verdes, 81/81 suítes) e sincronização binária em app.asar.unpacked
+- [x] Unificação do Seletor de Contas e Modelos do Meta-Chat com o padrão oficial dos Projetos (DecoHubHeader)
+- [x] Conexão real com lista de contas de autenticação do backend (Google Pro 1, Conta 02 a 09, etc.) e status visual por bolinha de prontidão
+- [x] Integração dos botões Rapid Switch (1-clique), Adicionar conta e Gerenciar com os modais já existentes no App.tsx
+- [x] Seleção oficial de modelos: Automático (Gemini 3.8 Flash HIGH), Gemini Pro e Gemini 3.8 Flash normalizados nas requisições ao backend
+- [x] Correção de tipagem SQL em updateThread e resolução de bugs de typecheck em server e client
+- [x] Aprovação de 100% das 81 suítes de teste (712 testes passando) e espelhamento robocopy /MIR para executáveis desktop win-unpacked
+- [x] Conversas Salvas Multi-Threads persistentes no SQLite (meta_chat_threads) com + Nova Conversa, troca dinamica e delecao em cascata
+- [x] Painel de Tarefas e Acoes em Tempo Real (Telemetria do Pipeline) com Live Cockpit Card, cronometro e badges de tipo de acao
+- [x] Armazenamento de executed_steps_json nas mensagens do assistente e checklist expansivel no historico
+- [x] Homologacao 100% verde em 81 suites de testes (712 testes passando) e deploy nos bundles de producao win-unpacked
+- [x] FASE 22: Implementação da Onda 0 (Market Research, Reference Apps & REA Discovery)
+- [x] Integração da Onda 0 no GeminiSupervisorProvider e PromptArchitectureService
+- [x] Implementação do Slash Command /research (aliases: /discovery, /market-rea) com suporte ao flag --build
+- [x] Indicador visual no DecoHubCurrentActivityWidget para detecção da Onda 0
+- [x] Criação da suíte de testes automatizados marketDiscoveryWaveZero.test.ts (8/8 testes aprovados)
+- [x] Homologação de 100% da suíte global com 82 suítes e 720 testes aprovados (0 falhas)
+- [x] Sincronização robocopy /MIR para as distribuições de produção em app.asar.unpacked
+- [x] Correção e sincronização da listagem de contas iniciais no NewProjectModal com o AccountProfileManager e App.tsx
+- [x] Normalização defensiva de array para suportar tanto array direto quanto envelopes { profiles: [...] }, { accounts: [...] }
+- [x] Exibição de todas as contas cadastradas com seus nomes reais, e-mails e status de prontidão (● Pronto, ▲ Cota Esgotada, ○ Login Necessário)
+- [x] Pré-seleção automática da conta ativa principal para que o formulário fique imediatamente pronto para submissão
+- [x] Blindagem do endpoint POST /api/projects com fallback automático para a conta ativa global (AccountProfileManager.getGlobalActiveProfile) caso initialProfileId seja omitido
+- [x] Criação da suíte de testes server/test/projectCreationAccountSelection.test.ts com 100% de aprovação (4/4 testes novos)
+- [x] Validação completa de tipos (tsc --noEmit) e aprovação de 100% das 83 suítes de teste (724 testes passando)
+- [x] Build e espelhamento robocopy /MIR para executáveis desktop win-unpacked
+- [x] Blindagem contra JSON.parse desprotegido em colunas de banco SQLite e linhas de transcript.
+- [x] Proteção contra TypeError por req.body indefinido em mais de 25 endpoints REST de routes.ts.
+- [x] Eliminação de memory leaks em Sets e Caches estáticos (turnCancellationManager, skillRouter).
+- [x] Adição de listeners globais para unhandledRejection e uncaughtException em index.ts.
+- [x] Defesa contra travamento no parser de transcripts concorrentes em agentTurnState e metaChatService.
+- [x] Sincronização de migrações defensivas de colunas em db.ts.
+- [x] Refinamento de regex para prevenção de falsos positivos e negativos em independentEvaluator.
+- [x] Criação da suíte backendForensicHardening.test.ts com 11 testes unitários dedicados.
+- [x] Execução e aprovação de 100% dos 735 testes da suíte completa do servidor (0 falhas).
+- [x] Compilação completa do servidor e cliente e espelhamento em win-unpacked e AppData.
+- [x] Implementação de ProjectLivingSpecService com geração dos 4 documentos canônicos (CONTEUDO.md, DESIGN.md, BACKEND.md e PRINCIPIOS.md) e espelhamento de DESIGN.md na raiz.
+- [x] Mapeamento de 5 seções enumeradas obrigatórias (01-Secao a 05-Secao) com role='tab', data-tab, KPIs com delta %, gráficos SVG, Data Grid com debounce e CSV, Drawers, Modais e seedIfEmpty (15 a 30 registros ricos).
+- [x] Especificação de tokens CSS :root, font-variant-numeric: tabular-nums, 4 estados visuais e SVGs Lucide inline (zero emojis).
+- [x] Esquemas completos SQLite com audit_logs, contratos de rotas REST, fórmulas matemáticas e validações HTTP 400.
+- [x] Princípios Karpathy, PORT_GUARD (faixa 4000-4999), blindagem OWASP (queries ?, escapeHtml, Path Traversal) e persistência pós-F5.
+- [x] Método getRoleSpecificSpecContext com orçamento controlado de 1.500 a 3.500 caracteres (máx 3.800).
+- [x] Suíte de testes server/test/projectLivingSpecs.test.ts com 100% de aprovação.
+- [x] Execução da suíte completa de testes (85 suítes, 739 testes, 0 falhas).
+- [x] Compilação completa do servidor e cliente e sincronização robocopy com diretórios de distribuição.
+- [x] Fase 23A: Motor Autônomo de Especificação Viva na Onda 0 (ProjectLivingSpecService) gerando CONTEUDO.md, DESIGN.md, BACKEND.md e PRINCIPIOS.md
+- [x] Fase 23B: Roteamento Automático de Living Specs no Supervisor (Ondas 0, 1 e 2) e no Worker com classificação automática de camada
+- [x] Garantia orçamentária matemática mantendo todos os prompts estritamente abaixo de 24.000 caracteres
+- [x] 7 novos testes automatizados dedicados cobrindo roteamento, orçamento e injeção canônica
+- [x] Validação integral de 85 suítes de teste (742 testes) com 100% de aprovação (0 fail)
+- [x] FASE 23C: Modo Autônomo Senior Dev para Pedidos Naturais no Chat & Atualização Viva de Specs em DELTA_EVOLUTION
+- [x] Resolução da cascata de regressão em sequentialOrchestrator.test.ts com 100% de 85 suítes passando (745 testes)
+- [x] Validação completa de tipagem (tsc) e build do frontend e backend
+- [x] FASE 23E: Materialização do 5º documento canônico JORNADAS.md (Playwright Visual Eyes, UX Simulator F5 reload, AppSec Red Team)
+- [x] FASE 23E: Provisionamento do índice raiz AGENTS.md com inlining @.ai-dev-hub/specs/...
+- [x] FASE 23E: Sincronizador pós-tarefa de backend ProjectLivingSpecService.syncImplementedBackendContractsToSpec
+- [x] FASE 23E: Gate de Paridade de Especificações em AutonomousRunnerService.checkProjectCompleteness com auto-replanejamento
+- [x] FASE 23E: Seleção autônoma de Skills de nicho e adaptadores DOCSIMP em DESIGN.md e BACKEND.md
+- [x] FASE 23E: 15 testes dedicados em test/projectLivingSpecs.test.ts e 100% das 85 suítes de teste (750 testes) passando com 0 falhas
+- [x] Auditoria Forense da Fase 23: Consistência cruzada 100% comprovada nos 3 nichos (Finanças, CRM B2B e Telemedicina)
+- [x] Auditoria Forense da Fase 23: Fidelidade de roteamento de papel para Worker Backend, Frontend, Fullstack e Teste
+- [x] Auditoria Forense da Fase 23: Medição exata de prompts confirmando teto < 24.000 caracteres em todas as camadas
+- [x] Auditoria Forense da Fase 23: Homologação global com 85 suítes e 750 testes passando com 0 falhas e 0 erros de typecheck
+- [x] Auditoria Forense da Fase 23: Distribuição e espelhamento robocopy /MIR em produção para AppData e dist-desktop
+- [x] Commit formal 95a16b9 realizado na branch codex/product-evolution
+- [x] Tornar POST /api/projects instantâneo e não-bloqueante no servidor com resposta 201 em menos de 1000ms
+- [x] Processamento em background via setImmediate para vinculação nativa, runtime switch e repositórios GitHub remotos
+- [x] Timeout de 12 segundos via AbortController no cliente e tratamento explícito de AbortError com mensagem em português
+- [x] Garantia de reset de isSubmitting no bloco finally e alerta visual claro de erro no modal NewProjectModal
+- [x] Espelhamento dos builds compilados para os diretórios unpacked e app.asar.unpacked da distribuição desktop

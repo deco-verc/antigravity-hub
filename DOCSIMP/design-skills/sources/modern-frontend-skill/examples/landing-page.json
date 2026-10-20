@@ -1,0 +1,12 @@
+{
+  "name": "AI SaaS Landing Page",
+  "prompt": "I'm building an AI writing assistant called InkFlow — it helps content creators write blog posts, social media captions, and newsletters using AI. I need a landing page that looks really modern and premium, something like how Linear or Raycast looks. It should have a hero with a live demo preview, a features section showing the different writing modes, pricing with 3 tiers (Free, Standard, Pro), and some testimonials. Dark theme with blue/purple accents. Use Next.js and Tailwind.",
+  "expected": {
+    "framework": "Next.js + TypeScript",
+    "styling": "Tailwind CSS",
+    "theme": "dark",
+    "accent_color": "blue/purple gradient system",
+    "sections": ["navbar", "hero", "social-proof", "features", "pricing", "testimonials", "cta", "footer"],
+    "design_notes": "Deep dark background with blue/purple accent palette. Hero with display-size typography and demo preview element. Glassmorphism pricing cards with highlighted recommended tier. Social proof logo bar. Clean typography hierarchy with Inter or Cal Sans. Subtle glow effects on CTAs. Consistent spacing scale throughout."
+  }
+}

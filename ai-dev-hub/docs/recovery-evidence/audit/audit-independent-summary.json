@@ -1,0 +1,97 @@
+{
+  "phase3_installed_app": {
+    "executable": "C:\\Users\\Deco\\AppData\\Local\\Programs\\ai-dev-hub-root\\DecoHUB.exe",
+    "sizeBytes": 245742080,
+    "lastModified": "2026-10-13T16:28:56.000Z",
+    "exists": true
+  },
+  "phase4_real_states": {
+    "waiting_resource": {
+      "status": "PASS",
+      "apiStatus": "waiting_resource",
+      "lastError": "AGENTAPI_UNAVAILABLE: binário de linguagem do Antigravity não responde",
+      "headerBadge": "Aguardando recurso",
+      "actionOffered": "Verificar Recursos e Retomar",
+      "noFalseRunning": true,
+      "noFalseApproval": true
+    },
+    "waiting_approval": {
+      "status": "PASS",
+      "apiStatus": "waiting_approval",
+      "headerBadge": "Aguardando aprovação",
+      "actionOffered": "Aprovar e Prosseguir"
+    },
+    "paused": {
+      "status": "PASS",
+      "apiStatus": "paused",
+      "headerBadge": "Pausado",
+      "actionOffered": "Continuar / Retomar"
+    },
+    "blocked": {
+      "status": "PASS",
+      "apiStatus": "blocked",
+      "headerBadge": "Execução bloqueada",
+      "actionOffered": "Tentar Novamente (Continuar)"
+    },
+    "completed": {
+      "status": "PASS",
+      "runId": "08343570-3cb3-47dc-ab75-48af0cec98c5",
+      "headerBadge": "Concluído",
+      "tasksExecuted": 2
+    }
+  },
+  "phase5_user_experience": {
+    "single_account_model_location": {
+      "status": "PASS",
+      "element": "Header AI Config Pill",
+      "text": "Google Pro 1\n·\nGemini 3.8 Flash",
+      "unifiedDropdownVerified": true
+    },
+    "conversational_queries": {
+      "status": "PASS",
+      "question": "Qual foi o erro?",
+      "runsCountBefore": 0,
+      "runsCountAfter": 0,
+      "tasksCountBefore": 0,
+      "tasksCountAfter": 0,
+      "noPhantomTasks": true
+    },
+    "electron_menu_removed": {
+      "status": "PASS",
+      "menuBarInDom": false
+    },
+    "tasks_hierarchy": {
+      "status": "PASS",
+      "level1_objective_and_progress": true,
+      "level2_major_tasks": true,
+      "level3_microtasks": true,
+      "level4_expandable_evidence": true
+    },
+    "advanced_panel": {
+      "status": "PASS",
+      "executiveLayerCards": true,
+      "tabsOnDemand": true
+    }
+  },
+  "phase6_task_architecture": {
+    "status": "PASS",
+    "complexityTier": "ENTERPRISE",
+    "majorTasksCount": 6,
+    "microtasksCount": 24,
+    "exceededArtificial6Limit": true,
+    "dagNoCycles": true,
+    "allTasksHaveVerificationCommand": true,
+    "allTasksHaveCriteria": true
+  },
+  "evidence_files": [
+    "C:\\IA\\Antigravity HUB\\ai-dev-hub\\docs\\recovery-evidence\\audit\\fase4-waiting_resource.png",
+    "C:\\IA\\Antigravity HUB\\ai-dev-hub\\docs\\recovery-evidence\\audit\\fase4-waiting_approval.png",
+    "C:\\IA\\Antigravity HUB\\ai-dev-hub\\docs\\recovery-evidence\\audit\\fase4-paused.png",
+    "C:\\IA\\Antigravity HUB\\ai-dev-hub\\docs\\recovery-evidence\\audit\\fase4-blocked.png",
+    "C:\\IA\\Antigravity HUB\\ai-dev-hub\\docs\\recovery-evidence\\audit\\fase5-header-ai-config.png",
+    "C:\\IA\\Antigravity HUB\\ai-dev-hub\\docs\\recovery-evidence\\audit\\fase5-chat-conversational-question.png",
+    "C:\\IA\\Antigravity HUB\\ai-dev-hub\\docs\\recovery-evidence\\audit\\fase4-completed.png",
+    "C:\\IA\\Antigravity HUB\\ai-dev-hub\\docs\\recovery-evidence\\audit\\fase5-tasks-hierarchy.png",
+    "C:\\IA\\Antigravity HUB\\ai-dev-hub\\docs\\recovery-evidence\\audit\\fase5-advanced-panel.png"
+  ]
+}

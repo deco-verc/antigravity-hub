@@ -1,0 +1,27 @@
+'use strict';
+const fs=require('node:fs');
+const path=require('node:path');
+const assert=require('node:assert/strict');
+const {Ledger,digest}=require('./ledger.cjs');
+const root='C:\\IA\\DecoHUB-native-sandbox-20261009';
+const configFile=path.join(root,'sandbox.json');
+const config=JSON.parse(fs.readFileSync(configFile,'utf8'));
+const ledger=new Ledger(config.controlRoot,config.binding);
+const before=ledger.snapshot();
+assert.equal(before.activeCalls.length,0);assert.equal(ledger.db.prepare('SELECT COUNT(*) n FROM backend_lease').get().n,0);
+assert.equal(fs.existsSync(path.join(config.controlRoot,'live-approval.json')),false);
+const folder=path.join(root,'runtime-overlay');fs.mkdirSync(folder,{recursive:true});
+fs.writeFileSync(path.join(folder,'package.json'),JSON.stringify({type:'commonjs'}));
+fs.writeFileSync(path.join(root,'runtime-fix-build','package.json'),JSON.stringify({type:'commonjs'}));
+for(const file of ['accountProfileManager.js','runtimeProfileSelector.js'])fs.copyFileSync(path.join(root,'runtime-fix-build',file),path.join(folder,file));
+config.runtimeOverlay={manager:path.join(folder,'accountProfileManager.js'),selector:path.join(folder,'runtimeProfileSelector.js')};
+config.runtimeOverlay.managerHash=digest(fs.readFileSync(config.runtimeOverlay.manager));config.runtimeOverlay.selectorHash=digest(fs.readFileSync(config.runtimeOverlay.selector));
+const guardBytes=fs.readFileSync(path.join(__dirname,'guard.cjs'));
+const oldGuardHash=config.fileHashes['guard.cjs'];
+fs.writeFileSync(path.join(root,'guard','guard.cjs'),guardBytes);config.fileHashes['guard.cjs']=digest(guardBytes);
+fs.writeFileSync(configFile,JSON.stringify(config,null,2));
+ledger.event('MAIN_SOURCE_RUNTIME_FIX_PREPARED',{oldGuardHash,newGuardHash:config.fileHashes['guard.cjs'],...config.runtimeOverlay,
+  originalArtifactPreserved:true,creationBudgetReset:false});
+const after=ledger.snapshot();
+assert.deepEqual(after.binding,before.binding);assert.deepEqual(after.control,before.control);assert.deepEqual(after.creations,before.creations);assert.deepEqual(after.sends,before.sends);
+ledger.close();console.log(JSON.stringify({sourceRuntimeFixPrepared:true,creationReservations:after.creations.length,creationBudgetReset:false,originalArtifactPreserved:true}));

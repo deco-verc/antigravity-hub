@@ -1,0 +1,42 @@
+{
+  "Custom": {
+    "url": "",
+    "project": "",
+    "prefix": "",
+    "mode": "Documentacao padrao",
+    "use_playwright": false,
+    "clean_markdown": true
+  },
+  "Pushinpay": {
+    "url": "https://app.theneo.io/pushinpay/pix/pix",
+    "project": "pushinpay_docs",
+    "prefix": "/pushinpay/",
+    "mode": "Documentacao padrao",
+    "use_playwright": false,
+    "clean_markdown": true
+  },
+  "PagNiv": {
+    "url": "https://devs.pagniv.com/docs/",
+    "project": "pagniv_docs",
+    "prefix": "/docs/",
+    "mode": "Documentacao padrao",
+    "use_playwright": false,
+    "clean_markdown": true
+  },
+  "CashinpayBR": {
+    "url": "https://integre.cashinpaybr.com/",
+    "project": "cashinpaybr_docs",
+    "prefix": "",
+    "mode": "Documentacao padrao",
+    "use_playwright": false,
+    "clean_markdown": true
+  },
+  "Appmax": {
+    "url": "https://appmax.readme.io/reference/",
+    "project": "appmax_docs",
+    "prefix": "/reference/",
+    "mode": "Documentacao padrao",
+    "use_playwright": false,
+    "clean_markdown": true
+  }
+}

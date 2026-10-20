@@ -1,0 +1,83 @@
+# Dependencies
+node_modules/
+**/node_modules/
+__pycache__/
+**/__pycache__/
+*.pyc
+.venv/
+**/.venv/
+venv/
+**/venv/
+
+# Builds, desktop dists and binary releases
+dist/
+**/dist/
+dist-desktop/
+**/dist-desktop/
+dist-desktop-*/
+**/dist-desktop-*/
+build/
+**/build/
+*.exe
+*.zip
+*.asar
+*.tar.gz
+*.dmg
+*.msi
+
+# Environment, secrets and private keys
+.env
+**/.env
+.env.*
+**/.env.*
+!**/.env.example
+*.key
+**/*.key
+*.pem
+**/*.pem
+credentials.json
+**/credentials.json
+token.json
+**/token.json
+
+# SQLite databases and WAL journal files
+*.db
+**/*.db
+*.db-journal
+**/*.db-journal
+*.db-wal
+**/*.db-wal
+*.db-shm
+**/*.db-shm
+
+# Browser runtime, testing and benchmark caches
+.playwright-cli/
+**/.playwright-cli/
+test_profile_dir/
+**/test_profile_dir/
+.ai-dev-benchmarks/
+**/.ai-dev-benchmarks/
+.ai-dev-hub/metachat-uploads/
+**/.ai-dev-hub/metachat-uploads/
+.gemini/
+**/.gemini/
+site_docs_extractor/dist/
+site_docs_extractor/build/
+site_docs_extractor/outputs/
+
+# Standalone git backups
+.git_backup/
+**/.git_backup/
+.git_standalone_backup/
+**/.git_standalone_backup/
+
+# Logs and debug files
+logs/
+**/logs/
+*.log
+**/*.log
+
+# Operating system files
+.DS_Store
+Thumbs.db
+desktop.ini

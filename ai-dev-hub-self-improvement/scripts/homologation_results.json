@@ -1,0 +1,151 @@
+{
+  "test1": {
+    "verdict": "PASS",
+    "runId": "a382b9fa-a6ff-476b-aadd-c441aa779ea2",
+    "tasksCount": 5,
+    "tasks": [
+      {
+        "id": "ca8babf8-74fd-47ee-aa01-8de87223afd8",
+        "title": "Validation System",
+        "status": "completed"
+      },
+      {
+        "id": "600cb12d-1503-438a-b13b-32b9818ed69c",
+        "title": "Sanitization Utils",
+        "status": "completed"
+      },
+      {
+        "id": "51255771-0e5d-46c1-97fa-74376e849ebf",
+        "title": "Filter Pipeline",
+        "status": "completed"
+      },
+      {
+        "id": "d187be6e-8e79-41ab-b846-bffee64be668",
+        "title": "Metrics Module",
+        "status": "completed"
+      },
+      {
+        "id": "789b0fbf-904b-4632-8b7d-db813ba54bd2",
+        "title": "Unit Tests Suite",
+        "status": "completed"
+      }
+    ],
+    "durationMs": 2
+  },
+  "test2": {
+    "verdict": "PASS",
+    "runId": "a382b9fa-a6ff-476b-aadd-c441aa779ea2",
+    "completedCount": 5,
+    "totalTasks": 5,
+    "projectTestExitCode": 0,
+    "gitClean": true,
+    "tasks": [
+      {
+        "id": "ca8babf8-74fd-47ee-aa01-8de87223afd8",
+        "title": "Validation System",
+        "order_index": 1,
+        "status": "completed",
+        "task_commit_sha": "6570882431999f695a60c76a441c9912058cc635",
+        "commit_source": "DECOHUB"
+      },
+      {
+        "id": "600cb12d-1503-438a-b13b-32b9818ed69c",
+        "title": "Sanitization Utils",
+        "order_index": 2,
+        "status": "completed",
+        "task_commit_sha": "960b9a9801ced7f903c3d813f322da7c6c11af74",
+        "commit_source": "DECOHUB"
+      },
+      {
+        "id": "51255771-0e5d-46c1-97fa-74376e849ebf",
+        "title": "Filter Pipeline",
+        "order_index": 3,
+        "status": "completed",
+        "task_commit_sha": "1d6ecb86a083b93cb52f5ccf878ac20726cd56a2",
+        "commit_source": "DECOHUB"
+      },
+      {
+        "id": "d187be6e-8e79-41ab-b846-bffee64be668",
+        "title": "Metrics Module",
+        "order_index": 4,
+        "status": "completed",
+        "task_commit_sha": "71c180c1469a4b622b9adda97bd18dc0d79a0057",
+        "commit_source": "DECOHUB"
+      },
+      {
+        "id": "789b0fbf-904b-4632-8b7d-db813ba54bd2",
+        "title": "Unit Tests Suite",
+        "order_index": 5,
+        "status": "completed",
+        "task_commit_sha": "99b5e1a89ffdbf46496563eba7cafab164a2a176",
+        "commit_source": "DECOHUB"
+      }
+    ],
+    "durationMs": 885
+  },
+  "test3": {
+    "verdict": "PASS",
+    "runId": "94c1c946-f269-481b-8e7e-9a70a5e219bc",
+    "preFixFailed": true,
+    "postFixPassed": true,
+    "runStatus": "running",
+    "durationMs": 835
+  },
+  "test4": {
+    "verdict": "PASS",
+    "taskRecovered": true,
+    "workerStatus": "READY",
+    "leaseStatus": "released",
+    "durationMs": 14
+  },
+  "test5": {
+    "verdict": "PASS",
+    "runId": "18e94bd7-1c0d-48ae-a553-8c0adb39cdff",
+    "runStatus": "failed",
+    "workersLocked": 0,
+    "durationMs": 14565
+  },
+  "test6": {
+    "verdict": "PASS",
+    "totalConversations": 2,
+    "workerConversations": 1,
+    "maxWorkerTurns": 14,
+    "supervisorConversations": 1,
+    "durationMs": 1
+  },
+  "test7": {
+    "verdict": "PASS",
+    "projectExists": true,
+    "runsCount": 4,
+    "memoryFiles": [
+      "program.md",
+      "session-summary.md",
+      "tasks.md"
+    ],
+    "durationMs": 0
+  },
+  "test8": {
+    "verdict": "PASS",
+    "serverDistExists": true,
+    "clientDistExists": true,
+    "desktopFilesExist": true,
+    "durationMs": 1
+  },
+  "test9": {
+    "verdict": "NÃO_TESTADO_SEM_SEGUNDA_CONTA",
+    "reason": "Apenas 1 conta ativa no runtime local (acc-pro-1 em 127.0.0.1:2109). Segunda conta (acc-pro-2) não possui sessão ativa do language_server.exe no Windows no momento.",
+    "activeAccount": "acc-pro-1",
+    "configuredProfiles": [
+      {
+        "id": "acc-pro-1",
+        "name": "Google Pro 1",
+        "status": "READY"
+      },
+      {
+        "id": "acc-pro-2",
+        "name": "Google Pro 2",
+        "status": "LOGIN_REQUIRED"
+      }
+    ]
+  }
+}

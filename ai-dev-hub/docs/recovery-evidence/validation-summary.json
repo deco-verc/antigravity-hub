@@ -1,0 +1,18 @@
+{
+  "status": "PASS",
+  "tests": 249,
+  "passed": 249,
+  "failed": 0,
+  "skipped": 0,
+  "suites": 30,
+  "durationMs": 33288.5897,
+  "codeHead": "ac853990f88c0113597eba4fe8838659383c7fcd",
+  "typecheck": "PASS",
+  "backendBuild": "PASS",
+  "frontendBuild": "PASS",
+  "electronSandbox": "PASS",
+  "nativeGeminiIntegration": "NOT_TESTED",
+  "physicalAgentApiCallsInOfflineTests": 0,
+  "physicalConversationsCreatedInOfflineTests": 0,
+  "simulatedProviderExplicit": true
+}

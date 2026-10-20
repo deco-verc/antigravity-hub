@@ -1,0 +1,101 @@
+{
+  "project": {
+    "id": "bcfd09a0-2ac1-4800-9c8f-0e960b094ad0",
+    "name": "Finance Flow",
+    "path": "C:\\IA\\test-projects\\FinanceFlow",
+    "status": "active",
+    "is_trusted": 1,
+    "full_dev_autonomy": 1,
+    "active_account_profile_id": "acc-pro-1"
+  },
+  "runs": [
+    {
+      "id": "81ea4117-5417-441e-b14b-981974f2387f",
+      "status": "error",
+      "current_cycle": 0,
+      "last_error": "SUPERVISOR_UNAVAILABLE: SUPERVISOR_UNAVAILABLE: o agentapi não retornou um plano de tarefas válido.",
+      "created_at": "2026-10-09T05:07:28.110Z",
+      "updated_at": "2026-10-09T05:07:29.657Z"
+    }
+  ],
+  "messages": [
+    {
+      "id": "a6b5e059-9605-4c70-ba9f-3f52b605623c",
+      "role": "system",
+      "created_at": "2026-10-09T05:06:22.994Z",
+      "contentLength": 136
+    },
+    {
+      "id": "607baa26-3e9d-4dc0-9b34-560ee3fdcc03",
+      "role": "user",
+      "created_at": "2026-10-09T05:07:28.109Z",
+      "contentLength": 1729
+    },
+    {
+      "id": "828e2b2a-dc8e-4a16-90ea-193723ed16fa",
+      "role": "assistant",
+      "created_at": "2026-10-09T05:07:29.658Z",
+      "contentLength": 87
+    }
+  ],
+  "sessions": [],
+  "taskCount": {
+    "n": 0
+  },
+  "telemetry": [
+    {
+      "event_type": "AGENT_CONVERSATION_CREATE_ATTEMPT",
+      "origin": "API",
+      "role": null,
+      "caller": "AccountProfileManager.switchProjectAccount",
+      "conversation_id": null,
+      "created_at": "2026-10-09T05:06:33.004Z",
+      "reason": "Tentativa de criação de conversa: \"Projeto Finance Flow (Google Pro 1)\" (Model: flash)"
+    },
+    {
+      "event_type": "CREATE_SUCCESS",
+      "origin": "API",
+      "role": null,
+      "caller": "AccountProfileManager.switchProjectAccount",
+      "conversation_id": "6edffbd2-f3d2-4120-84dd-cf52fe204c03",
+      "created_at": "2026-10-09T05:06:33.255Z",
+      "reason": "Conversa real criada com sucesso no Antigravity: \"Projeto Finance Flow (Google Pro 1)\""
+    },
+    {
+      "event_type": "SESSION_REUSED",
+      "origin": "API",
+      "role": null,
+      "caller": "AccountProfileManager.switchProjectAccount",
+      "conversation_id": "6edffbd2-f3d2-4120-84dd-cf52fe204c03",
+      "created_at": "2026-10-09T05:06:33.481Z",
+      "reason": "Sessão física 6edffbd2 reutilizada com sucesso via send-message."
+    },
+    {
+      "event_type": "AGENT_CONVERSATION_CREATE_ATTEMPT",
+      "origin": "API",
+      "role": "SUPERVISOR",
+      "caller": "AgentSessionManager.getOrCreateAgentSession",
+      "conversation_id": null,
+      "created_at": "2026-10-09T05:07:29.656Z",
+      "reason": "Tentativa de criação de conversa: \"Supervisor — Finance Flow\" (Model: pro)"
+    },
+    {
+      "event_type": "SESSION_CREATION_STORM",
+      "origin": "API",
+      "role": "SUPERVISOR",
+      "caller": "AgentSessionManager.getOrCreateAgentSession",
+      "conversation_id": null,
+      "created_at": "2026-10-09T05:07:29.656Z",
+      "reason": "SESSION_CREATION_STORM: Limite de 3 criações por projeto em 10 minutos excedido (3 tentativas detectadas)."
+    },
+    {
+      "event_type": "CREATE_BLOCKED",
+      "origin": "API",
+      "role": "SUPERVISOR",
+      "caller": "AgentSessionManager.getOrCreateAgentSession",
+      "conversation_id": null,
+      "created_at": "2026-10-09T05:07:29.657Z",
+      "reason": "SESSION_CREATION_STORM: Limite de 3 criações por projeto em 10 minutos excedido (3 tentativas detectadas)."
+    }
+  ]
+}

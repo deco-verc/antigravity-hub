@@ -1,0 +1,16 @@
+[
+  {
+    "project_id": "proj-dedup",
+    "role": "WORKER",
+    "conversation_id": "026dfc7e-bded-41ae-a06f-d55ca469e64f",
+    "caller": "AgentSessionManager.getOrCreateAgentSession",
+    "created_at": "2026-10-09T05:04:48.886Z"
+  },
+  {
+    "project_id": "proj-iso-beta-uuid",
+    "role": "WORKER",
+    "conversation_id": "1415e86b-2713-49f5-a96c-f89b6b4ad546",
+    "caller": "AgentSessionManager.getOrCreateAgentSession",
+    "created_at": "2026-10-09T05:09:37.461Z"
+  }
+]

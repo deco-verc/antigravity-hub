@@ -1,0 +1,268 @@
+{
+  "status": "PASS",
+  "version": "1.0.3",
+  "comparedFiles": [
+    {
+      "file": "server/dist/accountProfileManager.js",
+      "sha256": "46e6f63e8409e11208d90c124a4e40deb1d2fa400bf9a8437ab880cb3219b719"
+    },
+    {
+      "file": "server/dist/agentApiGateway.js",
+      "sha256": "493793dba4536be4777c41229d4da4760bbbd14ff3a510ccd2994f75dde29d75"
+    },
+    {
+      "file": "server/dist/agentBenchmarkManager.js",
+      "sha256": "a2fba0b70a206f31d9f74b21f7a895f6e0528a25d0acf4512d6259148428eee7"
+    },
+    {
+      "file": "server/dist/agentGuidelines.js",
+      "sha256": "a62d374340b80c12720827a84fc14f70ff2eb6960879d986bca1d91b3bd16be1"
+    },
+    {
+      "file": "server/dist/agentProvider.js",
+      "sha256": "d43aa81f5bc89faa359e0f97c814ba25155591ff078fbb9bfd40f8c7c9683230"
+    },
+    {
+      "file": "server/dist/agentSessionManager.js",
+      "sha256": "6bbf38f0a92673cdce9fcb2a63bd137eef1050937893bda5030cdcbbe688eaa9"
+    },
+    {
+      "file": "server/dist/analyzer.js",
+      "sha256": "b5f797cfd5eae931fbcb1dffdfabbaa047d6e6cba210e4f4b4294f9606b42889"
+    },
+    {
+      "file": "server/dist/antigravityDiscovery.js",
+      "sha256": "54bfdfc1dc0c4c98c1b7eaceb9ea5376a253a6f20ddd22fad7bbb4b636d17f42"
+    },
+    {
+      "file": "server/dist/antigravityProvider.js",
+      "sha256": "83579df8f339ccbe7ed96b8d677722d205ebd9619fcb21cf204aa6a1c25b46e8"
+    },
+    {
+      "file": "server/dist/arenaManager.js",
+      "sha256": "18deb796ff375460f93d53d4cc6d1411b919079036f0a8e867465225f0eed92e"
+    },
+    {
+      "file": "server/dist/autonomousAgentRunner.js",
+      "sha256": "ea030b9786bfd74cd006890b3366f05559452631405ad94e5faaec2d7bf66449"
+    },
+    {
+      "file": "server/dist/autonomousManager.js",
+      "sha256": "8f0fd043afbd06f8eb9a185b11e1822aca9a2bc2c3f8acb1aaa564898fd953ea"
+    },
+    {
+      "file": "server/dist/autonomousRunnerService.js",
+      "sha256": "f0e8d1c58fced6eb135bfffbfc5dd5e8d6a6da2c08caaca8c5783207bee69c9b"
+    },
+    {
+      "file": "server/dist/benchmarkManager.js",
+      "sha256": "7234111d6670cf463344ae5d6a9f684d98d3afbebb7ed027ecc16211f0c83acb"
+    },
+    {
+      "file": "server/dist/benchmarkSuite.js",
+      "sha256": "30a6774b4fefb5de17635d323da1963ae79b7d56cb114f94c87f959d43e104a4"
+    },
+    {
+      "file": "server/dist/checkpointManager.js",
+      "sha256": "d05e66310a4f77213738a0ffe577cdd73f46de87342027bcc7abe1b076346e46"
+    },
+    {
+      "file": "server/dist/conversationManager.js",
+      "sha256": "59faa047489255869c425182439d179467d9c84012d91602b3e1fcffb4ba919f"
+    },
+    {
+      "file": "server/dist/councilManager.js",
+      "sha256": "b0d9492f86694e5214212194246ea15d5e16eed39f7a8da73c84504f2c444481"
+    },
+    {
+      "file": "server/dist/db.js",
+      "sha256": "77455d6cf98733aced63a4ae143c0065b41bc0a3119b53b14b955e9e39bc0f70"
+    },
+    {
+      "file": "server/dist/devAutonomyService.js",
+      "sha256": "8043ed082f1d7fef73aebcf3febdea69bc37c6b77a58878ba7ed684ff4a20040"
+    },
+    {
+      "file": "server/dist/engineeringContextService.js",
+      "sha256": "f37f76d52e15fcc5bc4281d965d8a7b32eec182d2f8788b85448e802c6b4baa5"
+    },
+    {
+      "file": "server/dist/executionCoordinator.js",
+      "sha256": "53b40bca518591c5a2800f37a2c7fe9f56a85a276c03eb47ba56af29780b476e"
+    },
+    {
+      "file": "server/dist/geminiSupervisorProvider.js",
+      "sha256": "e5f60646cd3f88df439b6128090084fcb2654567be8f8d8398655fa3cfdc7380"
+    },
+    {
+      "file": "server/dist/githubMcpClient.js",
+      "sha256": "6de240287ef57a3a7f6ebe5d409c0528d8700f1ec2dd24ad02964055a743067a"
+    },
+    {
+      "file": "server/dist/gitManager.js",
+      "sha256": "3ffead45f894a1e1c9cbe5079a90acb35beb3424837b1ab95504aa8b1080b36c"
+    },
+    {
+      "file": "server/dist/independentEvaluator.js",
+      "sha256": "5cc170869760aaeb0f2e63516ab888e66281e31d15ef2129d75c27d5c4c579be"
+    },
+    {
+      "file": "server/dist/index.js",
+      "sha256": "c0e5383dac654df4aaf9154ee6212002458ac5dee222ce78cca0fc3de337b2f6"
+    },
+    {
+      "file": "server/dist/logger.js",
+      "sha256": "b3337c740b5ec5b94c45b10200b7de82ad1c3a3b65e2486b4ac16c20cdd5b20d"
+    },
+    {
+      "file": "server/dist/mcpCore.js",
+      "sha256": "87babf0151448f33dc4188961fead055d7f60b76deea47e1a07c8827c9012dfa"
+    },
+    {
+      "file": "server/dist/memoryManager.js",
+      "sha256": "e14b97153c55c240d9be36acaad7c95ce09c57bac807d25d5c9e6a4cb5d2f64f"
+    },
+    {
+      "file": "server/dist/modelRegistry.js",
+      "sha256": "4d37ab7e61d55e27e21455c558d4ed0f160f0bbbbfbf375104c147b8719a9482"
+    },
+    {
+      "file": "server/dist/policyEngine.js",
+      "sha256": "d1bf39a440bd8cd9505151c84f7a7791935a1f274a686d6896b6bbb541ec10b8"
+    },
+    {
+      "file": "server/dist/promotionContract.js",
+      "sha256": "23ef2dfedf90cf170b881e0a043bef4b5d0901d8dca0607dad87fbe1a45e2d15"
+    },
+    {
+      "file": "server/dist/promotionCouncil.js",
+      "sha256": "74b596a14034299528aa700b1d6acf2c9636328a8a6f8d2ca6d6d88548a2c347"
+    },
+    {
+      "file": "server/dist/promotionGate.js",
+      "sha256": "7dfabf3f07544fc0fe0a902f6dbcc7c830f19db037369958f99e258ee16a891e"
+    },
+    {
+      "file": "server/dist/promptArchitectureService.js",
+      "sha256": "9f0eb8578060736dae6d9f3dfec6cbb42cef37b3e34580330ab6e0a202b68758"
+    },
+    {
+      "file": "server/dist/promptManager.js",
+      "sha256": "676fddc4c3026f1a91b9130702c2979d810534b44e7f103921c5a04f8db635e7"
+    },
+    {
+      "file": "server/dist/quotaManager.js",
+      "sha256": "aa328d9b5a36d20edd11d9413aae6bb907b13672bd7a5e296c3141376fd49452"
+    },
+    {
+      "file": "server/dist/researchManager.js",
+      "sha256": "c85bfe54ff5e6f6d088644205c2139cfac07cb0c6fbc2c64a9850138587461b8"
+    },
+    {
+      "file": "server/dist/routes.js",
+      "sha256": "a61c0ae97b95ca022a47d5119ede670315607f686371b391c39cbc639474c54d"
+    },
+    {
+      "file": "server/dist/security.js",
+      "sha256": "db158be30259a74152ef2314089721a6b602065de563986e8536a6e458277cbe"
+    },
+    {
+      "file": "server/dist/selfImprovementManager.js",
+      "sha256": "9d932fe0a501aacc583072c28da0ab69818f2f2fe72ab9f9f57b2c09980f1419"
+    },
+    {
+      "file": "server/dist/selfImprovementRun.js",
+      "sha256": "39297231b7be63a4c8e0a2d01b43ea2e79d1427790fb5b8bed67c4bc10f4cf5e"
+    },
+    {
+      "file": "server/dist/sessionCircuitBreaker.js",
+      "sha256": "02e7f68bb15b8c79853b82958e937344a22e0f4b7479b1dad20bd66e94bb71ab"
+    },
+    {
+      "file": "server/dist/sessionManager.js",
+      "sha256": "2cc5acefe0ad07637b7ac799c12daf5fa24090481b281b8a344b32ae450d1755"
+    },
+    {
+      "file": "server/dist/stableBaselineResolver.js",
+      "sha256": "549ae0cffad6ccbe513476ee53d972377dc77e32a1e2192795797a47422e7c3e"
+    },
+    {
+      "file": "server/dist/systemManager.js",
+      "sha256": "f9edd26a4d866b47df6a1411b398fa0d9004a27c74bb11eafa40e0fa6b5f25c1"
+    },
+    {
+      "file": "server/dist/usageTracker.js",
+      "sha256": "1b93ab14e5e526cb7bce16fc4448e9e0f73d22d18ebb2acd9a57b9fadef061fa"
+    },
+    {
+      "file": "server/dist/workerRegistry.js",
+      "sha256": "aa26b4de083f9b373fbfa34c27d6f9f9d9e7121832b2a39f4444a64180f4645d"
+    },
+    {
+      "file": "server/dist/zoneManager.js",
+      "sha256": "118d96ef9c8226f6aedac83f83e70c06aa541fd128149a66405a02b8175fb737"
+    },
+    {
+      "file": "client/dist/assets/index-DHWT2aAX.css",
+      "sha256": "8dc3c4ea2603333a36e4b778c8a4ea97b92766d81894b9f854e169ffb7c5937b"
+    },
+    {
+      "file": "client/dist/assets/index-J3M8ZPdi.js",
+      "sha256": "d98fa3441d82cd6c49867f2f512eda45ae9e39c402f415ca1730ddf2e8a58414"
+    },
+    {
+      "file": "client/dist/index.html",
+      "sha256": "fd7d39be18f96cedb4ab5d218addc695eef3fdba1b125ec950982862227a4db6"
+    },
+    {
+      "file": "desktop/antigravityDiscovery.cjs",
+      "sha256": "1842bfdb0578aa102a95b2d35f809036901dbae7dd026f9853c33fc3f9139d04"
+    },
+    {
+      "file": "desktop/appDataPaths.cjs",
+      "sha256": "78984643d9acb92a14026c8e2d3d0d0b61d70ff9af6b55240a010ddcb29b8904"
+    },
+    {
+      "file": "desktop/assets/icon.png",
+      "sha256": "2be928abb7d428de79f013045b15ae7f7e23977491b03becca89735a13343004"
+    },
+    {
+      "file": "desktop/config.cjs",
+      "sha256": "b02fd0540b233803204a53e3928b679d98ed7739b00527ef32f00014ae67b915"
+    },
+    {
+      "file": "desktop/healthCheck.cjs",
+      "sha256": "c669649560b567c52ec124dbdc1f192987afa601b601af10cf4110c88bcf0e96"
+    },
+    {
+      "file": "desktop/logger.cjs",
+      "sha256": "4820ca8e3748a6fc1c921e89afa651200421bcb6ae5034dbf48f6f4b35215ab9"
+    },
+    {
+      "file": "desktop/main.cjs",
+      "sha256": "37e48e69dfb0aad4e7b624ee8886f2e485f9531c76c66a17fb1d66732e65b34f"
+    },
+    {
+      "file": "desktop/preload.cjs",
+      "sha256": "8fdd4fcd861e0d96d8aa6d5e71d7c6c79f5d5d03a2d1faac2dcc94158afcf7c1"
+    },
+    {
+      "file": "desktop/processManager.cjs",
+      "sha256": "ffed1d6321767cc173ee2f1b130d1ed77dcd540bfc476b2857873088830ff97f"
+    },
+    {
+      "file": "desktop/serviceManager.cjs",
+      "sha256": "6ba9da26145432763a31811a201fa2fcf698bf90f7b65dbe03d95e5989e67f26"
+    },
+    {
+      "file": "desktop/splash.html",
+      "sha256": "60b35848c434666ce6b3b9265df4fe9fdf10b1e1fc2f33ce9d81ace247df764f"
+    },
+    {
+      "file": "desktop/tray.cjs",
+      "sha256": "866da8c55ac005908ef6f204f26d67eadd87bb8adca886e0c9c27489aa109a62"
+    }
+  ],
+  "fixtureExcluded": true,
+  "installerSha256": "bc44a375bb3c9632119d45e6e9c47c2c5d3c81ce93660bde4cde9b6570e3b6d1"
+}

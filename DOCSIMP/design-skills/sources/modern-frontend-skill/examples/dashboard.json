@@ -1,0 +1,11 @@
+{
+  "name": "Fintech Dashboard",
+  "prompt": "hey so i need a dashboard for my fintech startup — we do expense tracking for small businesses. the main view should show total spend, budget remaining, and some charts for spend by category. there's a sidebar with nav, a transactions table that can be filtered, and a top bar with search and the user's profile. make it look clean and professional, like something from a YC company. i don't care what framework, just make it look good",
+  "expected": {
+    "framework": "React or Next.js",
+    "styling": "Tailwind CSS",
+    "theme": "light",
+    "sections": ["sidebar", "topbar", "metric-cards", "charts", "transactions-table"],
+    "design_notes": "Professional blue/neutral palette. Sidebar with icon + label nav. Summary metric cards with trend arrows or sparklines. Donut or bar chart for category spend. Data table with sort/filter controls. Realistic financial placeholder data (company names, dollar amounts). Loading skeleton states. Responsive — sidebar collapses on mobile."
+  }
+}

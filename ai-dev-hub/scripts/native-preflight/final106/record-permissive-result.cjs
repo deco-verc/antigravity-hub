@@ -1,0 +1,36 @@
+'use strict';
+// Read-only final evidence. No initialization or writes to either SQLite database.
+const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),assert=require('node:assert/strict'),{DatabaseSync}=require('node:sqlite');
+const {controlSnapshot}=require('./prepare-permissive.cjs');
+const hash=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+const root='C:/IA/DecoHUB-native-sandbox-20261009',repo=path.resolve(__dirname,'../../..'),config=JSON.parse(fs.readFileSync(root+'/control/native-normal-1.0.6.json'));
+const readonly=JSON.parse(fs.readFileSync(root+'/control/native106-permissive-readonly.json'));
+assert.equal(readonly.production.historicalRowsSha256,'8e29cb53e8e37eedd540d842099f7a8c6887389cda49891d5a86bded5f38a1bb');
+assert.equal(readonly.production.runningCount,31);assert.equal(readonly.production.activeLeases,0);assert.equal(readonly.production.activeWorkers,0);assert.equal(readonly.legacyPid19248Alive,false);assert.equal(readonly.decohubProcesses.length,0);
+assert.ok(readonly.transcripts.every(t=>t.done));
+const ledger=controlSnapshot(root+'/control/control.sqlite');assert.equal(ledger.creations.length,2);assert.equal(ledger.sends.length,3);assert.equal(ledger.active.length,0);assert.equal(ledger.leases.length,0);assert.equal(ledger.control[0].halt_reason,null);
+const db=new DatabaseSync(config.dataRoot+'/hub.db',{readOnly:true});
+const project=db.prepare('SELECT id,path,active_account_profile_id FROM projects WHERE id=?').get(config.binding.projectId);
+const binding=db.prepare('SELECT * FROM native_workspace_bindings WHERE project_id=?').get(config.binding.projectId);
+const choice=JSON.parse(db.prepare('SELECT choice_json FROM native_execution_policies WHERE project_id=?').get(config.binding.projectId).choice_json);
+const sessions=db.prepare('SELECT role,provider_conversation_id,status,metadata_json FROM agent_sessions ORDER BY role').all();
+const rows={runs:db.prepare('SELECT COUNT(*) n FROM autonomous_runs').get().n,tasks:db.prepare('SELECT COUNT(*) n FROM autonomous_tasks').get().n,uncertainOrActiveTurns:db.prepare("SELECT COUNT(*) n FROM agent_turn_observations WHERE phase IN ('IN_FLIGHT','UNCERTAIN')").get().n};
+db.close();assert.deepEqual(choice,config.executionPolicy);assert.equal(project.active_account_profile_id,'acc-pro-1');assert.equal(rows.runs,0);assert.equal(rows.tasks,0);assert.equal(rows.uncertainOrActiveTurns,0);
+const metadataFile=path.join(config.nativeUserProfile,'.gemini/config/projects',config.nativeProjectId+'.json'),rawMetadataHash=hash(metadataFile),official=JSON.parse(fs.readFileSync(metadataFile));
+assert.equal(binding.config_hash,rawMetadataHash);
+const effective=require('./verification-tool.cjs').assertQaProjectPolicy(official,config);
+for(const session of sessions){const m=JSON.parse(session.metadata_json);assert.equal(session.provider_conversation_id,config.normalFlow.ids[session.role]);assert.equal(session.status,'ACTIVE');assert.equal(m.accountProfileId,config.binding.accountProfileId);assert.equal(m.model,config.binding.models[session.role]);assert.equal(m.nativeProjectId,config.nativeProjectId);}
+for(const [file,expected]of Object.entries(config.normalFlow.productHashes))assert.equal(hash(file),expected);
+for(const [file,expected]of Object.entries(config.normalFlow.guardHashes))assert.equal(hash(file),expected);
+const original=path.join(repo,'dist-desktop-1.0.6');
+assert.equal(hash(original+'/win-unpacked/resources/app.asar'),'580cdf1b62ee931bc9437f4ad5535d8366c07eed0fb9f1f87e2937a12531c105');
+assert.equal(hash(original+'/DecoHUB Setup 1.0.6.exe'),'bf199fbd6d9d32d11131e507fb564a7841461689066c85f0c7f04c48cd13a4b1');
+const result={at:new Date().toISOString(),version:'1.0.6',buildRevision:config.buildRevision,artifactRoot:config.artifactRoot,policy:{status:'PASS',effective,officialMetadataHash:rawMetadataHash,cachedProofMatches:true,globalSettingsChanged:false,universalDenialsAdded:false},runtime:{status:'PASS',...readonly.runtime,accountProfileId:config.binding.accountProfileId,automaticOAuthVerified:false},legacy:{status:'PASS',pid19248Alive:false,controllerProcesses:0,production:readonly.production},sandbox:{status:'PASS',project,sessions:sessions.map(({metadata_json,...s})=>s),...rows,physicalCount:2,priorContinuations:3,remainingContinuations:6,activeCalls:0,backendLeases:0,ledgerReset:false},offline:{fullTests:'291/291',physicalCapAndIsolation:'25/25',preparationAndBudget:'8/8',typecheck:'PASS',build:'PASS',electron:'PASS — external model/tool fixtures',guardedStateAdoption:'PASS — no model fixture or calls',package:'PASS — 59 server modules / 60 installer comparisons'},originalBuildPreserved:true,workerRepairExecuted:false,newRealCalls:0,newPhysicalConversations:0,installed:false,humanIdentityAndCreditsFresh:false,nativeOutsideScopeRiskAcceptedForLive:false,liveAuthorizationPresent:fs.existsSync(root+'/control/live-approval.json'),readyForLiveAuthorization:true,readyForLiveExecution:false,readyForInstallation:false,pending:['Current human confirmation: aldxmir.s2@gmail.com / Google AI Pro, overages disabled, pro/flash listed, no working agents','Specific live authorization for revised 1.0.6, up to six send-message calls, recognizing that native ALLOW/EAGER cannot prevent outside-project access']};
+assert.equal(result.liveAuthorizationPresent,false);
+const previous=root+'/control/native106-final-preflight.json',backup=root+'/backups/before-allow-eager-1.0.6/previous-final-preflight.json';if(fs.existsSync(previous)&&!fs.existsSync(backup))fs.copyFileSync(previous,backup);
+fs.writeFileSync(previous,JSON.stringify(result,null,2));
+const manifest={...result,exeSha256:hash(config.artifactRoot+'/DecoHUB.exe'),asarSha256:hash(config.artifactRoot+'/resources/app.asar'),setupSha256:hash(path.dirname(config.artifactRoot)+'/DecoHUB Setup 1.0.6.exe'),ledgerAnchorSha256:hash(root+'/control/ledger.anchor.json')};
+fs.writeFileSync(root+'/control/native106-permissive-manifest.json',JSON.stringify(manifest,null,2));
+const plan=root+'/control/PLANO-NATIVO-1.0.6.md',oldPlan=root+'/backups/before-allow-eager-1.0.6/previous-plan.md';if(fs.existsSync(plan)&&!fs.existsSync(oldPlan))fs.copyFileSync(plan,oldPlan);
+fs.copyFileSync(path.join(repo,'docs/DECOHUB-1.0.6-ALLOW-EAGER.md'),plan);
+console.log(JSON.stringify({output:previous,policy:result.policy,physicalCount:2,remainingContinuations:6,productionPreserved:true,readyForLiveAuthorization:true,realCalls:0,readyForLiveExecution:false}));
