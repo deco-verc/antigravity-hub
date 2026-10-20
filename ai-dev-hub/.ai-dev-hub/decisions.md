@@ -390,3 +390,6 @@
 ### [20/10/2026] Decisões da Sessão #36
 - **Decisão:** Desacoplamento assíncrono em POST /api/projects respondendo 201 imediatamente com dados do projeto e delegando GitHub e binding via setImmediate
 - **Decisão:** Adição de AbortController de 12 segundos em api.createProject no cliente com feedback visual em vermelho
+- **[20/10/2026] Publicação do Repositório Raiz no GitHub: Inicializado e publicado o repositório 'antigravity-hub' como privado na conta deco-verc no GitHub (https://github.com/deco-verc/antigravity-hub), contendo a engine completa DecoHUB (ai-dev-hub), DOCSIMP, Skills, AutoAdapt, site_docs_extractor, diretrizes de agentes e scripts de inicialização, com .gitignore rigoroso protegendo segredos, bancos SQLite e grandes binários.**
+  - **Decisão:** Publicação do Repositório Raiz no GitHub: Inicializado e publicado o repositório 'antigravity-hub' como privado na conta deco-verc no GitHub (https://github.com/deco-verc/antigravity-hub), contendo a engine completa DecoHUB (ai-dev-hub), DOCSIMP, Skills, AutoAdapt, site_docs_extractor, diretrizes de agentes e scripts de inicialização, com .gitignore rigoroso protegendo segredos, bancos SQLite e grandes binários.
+  - **Motivo:** Atender à solicitação do usuário de disponibilizar todo o ecossistema do Antigravity HUB em backup privado, seguro e centralizado na nuvem GitHub.
