@@ -150,7 +150,17 @@ export class AgentBenchmarkManager {
   static setupWorkspace(task: AgentBenchmarkTask, runId: string): string {
     const workspaceDir = path.join(this.runsRootDir, runId, task.id, 'workspace');
     if (fs.existsSync(workspaceDir)) {
-      try { fs.rmSync(workspaceDir, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(workspaceDir, { recursive: true, force: true }); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "agentBenchmarkManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:agentBenchmarkManager]", err);
+      }
+    }
     }
     fs.mkdirSync(workspaceDir, { recursive: true });
 
@@ -164,7 +174,17 @@ export class AgentBenchmarkManager {
       execSync('git config user.email "benchmark@aidev.local"', { cwd: workspaceDir, stdio: 'pipe' });
       execSync('git add .', { cwd: workspaceDir, stdio: 'pipe' });
       execSync('git commit -m "Initial seed commit"', { cwd: workspaceDir, stdio: 'pipe' });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "agentBenchmarkManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:agentBenchmarkManager]", err);
+      }
+    }
 
     return workspaceDir;
   }
@@ -208,7 +228,17 @@ export class AgentBenchmarkManager {
     // Create benchmark branch
     try {
       execSync(`git checkout -b ${branchName}`, { cwd: workspace, stdio: 'pipe' });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "agentBenchmarkManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:agentBenchmarkManager]", err);
+      }
+    }
 
     // 2. Hash protected test for Golden Evaluator
     const protectedContent = fs.readFileSync(task.protectedTestPath, 'utf-8');

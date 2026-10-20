@@ -29,7 +29,17 @@ describe('FASE 7: Playwright Visual Inspector & Skill Playbooks', () => {
       if (fs.existsSync(tempTestDir)) {
         fs.rmSync(tempTestDir, { recursive: true, force: true });
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "playwrightVisualEyesAndSkillPlaybooks.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:playwrightVisualEyesAndSkillPlaybooks.test]", err);
+      }
+    }
   });
 
   describe('1. Product Matrix Recipes (DesignSkillService.getProductMatrixRecipe)', () => {

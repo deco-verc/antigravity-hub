@@ -19,7 +19,17 @@ describe('Antigravity Integration Audit Suite (20 Scenarios)', () => {
   after(() => {
     try {
       fs.rmSync(tmpProfilesDir, { recursive: true, force: true });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "antigravityIntegrationAudit.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:antigravityIntegrationAudit.test]", err);
+      }
+    }
   });
 
   // Scenario 1: Profile creation & local discovery

@@ -56,19 +56,59 @@ describe('FASE 21: Cancelamento Universal de Mensagens & Perfeição Operacional
     testProjectId = projectData.id;
 
     if (fs.existsSync(testHelperPath)) {
-      try { fs.unlinkSync(testHelperPath); } catch {}
+      try { fs.unlinkSync(testHelperPath); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "messageCancellationAndMetaChatPerfection.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:messageCancellationAndMetaChatPerfection.test]", err);
+      }
+    }
     }
     if (fs.existsSync(dirtyFilePath)) {
-      try { fs.unlinkSync(dirtyFilePath); } catch {}
+      try { fs.unlinkSync(dirtyFilePath); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "messageCancellationAndMetaChatPerfection.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:messageCancellationAndMetaChatPerfection.test]", err);
+      }
+    }
     }
   });
 
   after(async () => {
     if (fs.existsSync(testHelperPath)) {
-      try { fs.unlinkSync(testHelperPath); } catch {}
+      try { fs.unlinkSync(testHelperPath); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "messageCancellationAndMetaChatPerfection.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:messageCancellationAndMetaChatPerfection.test]", err);
+      }
+    }
     }
     if (fs.existsSync(dirtyFilePath)) {
-      try { fs.unlinkSync(dirtyFilePath); } catch {}
+      try { fs.unlinkSync(dirtyFilePath); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "messageCancellationAndMetaChatPerfection.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:messageCancellationAndMetaChatPerfection.test]", err);
+      }
+    }
     }
     MetaChatService.resetMessages();
     delete process.env.DECOHUB_OFFLINE_MODE;
@@ -289,7 +329,17 @@ describe('FASE 21: Cancelamento Universal de Mensagens & Perfeição Operacional
     assert.ok(saved.includes('clampValue'));
 
     // Limpeza
-    try { fs.unlinkSync(testHelperPath); } catch {}
+    try { fs.unlinkSync(testHelperPath); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "messageCancellationAndMetaChatPerfection.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:messageCancellationAndMetaChatPerfection.test]", err);
+      }
+    }
   });
 
   it('3.2 Parser Híbrido: Extrai corretamente blocos [FILE: ...] ... [ENDFILE] da resposta textual', () => {

@@ -28,7 +28,17 @@ describe('GitHub Integration Pipeline Suite', () => {
   after(() => {
     try {
       fs.rmSync(testRepoDir, { recursive: true, force: true });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "githubIntegrationPipeline.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:githubIntegrationPipeline.test]", err);
+      }
+    }
   });
 
   test('1. commitSelected ignora arquivos do .gitignore sem quebrar e comita arquivos rastreados', () => {

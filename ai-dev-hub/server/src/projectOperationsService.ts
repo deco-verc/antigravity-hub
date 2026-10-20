@@ -142,7 +142,17 @@ export class ProjectOperationsService {
           if (inst.staticClose) {
             inst.staticClose();
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectOperationsService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectOperationsService]", err);
+      }
+    }
       }
       this.activePreviews.clear();
     };
@@ -182,14 +192,34 @@ export class ProjectOperationsService {
     if (process.platform === 'win32') {
       try {
         spawnSync('taskkill', ['/pid', String(pid), '/f', '/t'], { stdio: 'ignore', windowsHide: true });
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectOperationsService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectOperationsService]", err);
+      }
+    }
     } else {
       try {
         process.kill(-pid, 'SIGKILL');
       } catch {
         try {
           process.kill(pid, 'SIGKILL');
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectOperationsService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectOperationsService]", err);
+      }
+    }
       }
     }
   }
@@ -295,7 +325,17 @@ export class ProjectOperationsService {
             }
           }
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectOperationsService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectOperationsService]", err);
+      }
+    }
     }
 
     if (!scriptRel) {
@@ -398,7 +438,17 @@ export class ProjectOperationsService {
           this.killProcessTree(child.pid || 0);
           try {
             child.kill('SIGKILL');
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectOperationsService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectOperationsService]", err);
+      }
+    }
           throw new Error(`O servidor encerrou prematuramente com código ${child.exitCode}.\nLogs:\n${logs.join('\n')}`);
         }
 
@@ -411,7 +461,17 @@ export class ProjectOperationsService {
             isReady = true;
             break;
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectOperationsService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectOperationsService]", err);
+      }
+    }
         await new Promise((r) => setTimeout(r, 250));
       }
 
@@ -419,7 +479,17 @@ export class ProjectOperationsService {
         this.killProcessTree(child.pid || 0);
         try {
           child.kill('SIGKILL');
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectOperationsService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectOperationsService]", err);
+      }
+    }
         throw new Error(`Timeout de ${timeoutMs}ms aguardando resposta em ${serverUrl}.\nLogs:\n${logs.join('\n')}`);
       }
     } catch (err) {
@@ -427,7 +497,17 @@ export class ProjectOperationsService {
         this.killProcessTree(child.pid);
         try {
           child.kill('SIGKILL');
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectOperationsService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectOperationsService]", err);
+      }
+    }
       }
       throw err;
     }
@@ -460,13 +540,33 @@ export class ProjectOperationsService {
       this.killProcessTree(active.child.pid);
       try {
         active.child.kill('SIGKILL');
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectOperationsService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectOperationsService]", err);
+      }
+    }
     }
 
     if (active.staticClose) {
       try {
         await active.staticClose();
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectOperationsService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectOperationsService]", err);
+      }
+    }
     }
 
     this.activePreviews.delete(projectId);
@@ -521,7 +621,17 @@ export class ProjectOperationsService {
                 return { filePath: fullHtml, rootDir: root };
               }
             }
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectOperationsService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectOperationsService]", err);
+      }
+    }
         }
       }
       return null;
@@ -632,7 +742,17 @@ export class ProjectOperationsService {
             for (const sock of sockets) {
               try {
                 sock.destroy();
-              } catch {}
+              } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectOperationsService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectOperationsService]", err);
+      }
+    }
             }
             sockets.clear();
             server.close(() => resClose());
@@ -699,7 +819,17 @@ export class ProjectOperationsService {
           allKeys.add('CLOUDFLARE_TURNSTILE_SITE_KEY');
           allKeys.add('CLOUDFLARE_TURNSTILE_SECRET_KEY');
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectOperationsService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectOperationsService]", err);
+      }
+    }
     }
 
     const items: EnvKeyItem[] = [];
@@ -926,24 +1056,64 @@ export class ProjectOperationsService {
         if (fs.existsSync(ujPath)) {
           try {
             userJourneyReport = JSON.parse(fs.readFileSync(ujPath, 'utf-8'));
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectOperationsService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectOperationsService]", err);
+      }
+    }
         }
 
         const secPath = path.join(evidenceDir, 'security-pentest-report.json');
         if (fs.existsSync(secPath)) {
           try {
             securityPentestReport = JSON.parse(fs.readFileSync(secPath, 'utf-8'));
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectOperationsService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectOperationsService]", err);
+      }
+    }
         }
 
         const visPath = path.join(evidenceDir, 'visual-inspection-report.json');
         if (fs.existsSync(visPath)) {
           try {
             visualInspectionReport = JSON.parse(fs.readFileSync(visPath, 'utf-8'));
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectOperationsService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectOperationsService]", err);
+      }
+    }
         }
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectOperationsService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectOperationsService]", err);
+      }
+    }
 
     // Descobrir Screenshots (.png)
     const rawScreenshotFiles: Array<{ filename: string; full: string; stat: fs.Stats }> = [];
@@ -958,11 +1128,31 @@ export class ProjectOperationsService {
               if (stat.isFile()) {
                 rawScreenshotFiles.push({ filename: f, full, stat });
               }
-            } catch {}
+            } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectOperationsService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectOperationsService]", err);
+      }
+    }
           }
         }
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectOperationsService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectOperationsService]", err);
+      }
+    }
 
     // Priorizar capturas reais de secções (ex: 01-Dashboard.png) sobre capturas genéricas de jornada
     const hasSectionNamedFiles = rawScreenshotFiles.some(f =>
@@ -1190,7 +1380,17 @@ export class ProjectOperationsService {
         if (meta?.screenshots && Array.isArray(meta.screenshots) && meta.screenshots.length > 0) {
           hasScreenshots = true;
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectOperationsService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectOperationsService]", err);
+      }
+    }
 
       if (hasScreenshots) {
         Logger.info(`[ProjectOperationsService] Resumo visual de conclusão já postado anteriormente para run ${runId} (msg #${existingMsg.id}).`);
@@ -1245,7 +1445,17 @@ export class ProjectOperationsService {
     try {
       const countRow: any = db.prepare("SELECT count(*) as count FROM autonomous_tasks WHERE run_id = ? AND status = 'completed'").get(runId);
       completedTasksCount = countRow?.count || 0;
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectOperationsService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectOperationsService]", err);
+      }
+    }
 
     const badgesMap = new Map((evidence.badges || []).map(b => [b.id, b]));
     const devBadge = badgesMap.get('dev_tests');
@@ -1335,7 +1545,17 @@ export class ProjectOperationsService {
         'COMPLETION_VISUAL_SUMMARY_POSTED',
         `Resumo visual final com ${evidence.screenshots.length} screenshots do Playwright e 4 selos de homologação publicado no chat do projeto.`
       );
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectOperationsService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectOperationsService]", err);
+      }
+    }
 
     const finalMessageId = existingMsg ? existingMsg.id : messageId;
     Logger.success(`[ProjectOperationsService] Resumo visual final postado no chat do projeto "${project.name}" (Run ${runId.slice(0, 8)}).`);

@@ -153,7 +153,17 @@ export class SessionCircuitBreaker {
             isTaskStorm: true
           };
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "sessionCircuitBreaker",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:sessionCircuitBreaker]", err);
+      }
+    }
     }
 
     // 2. Verificação Global do Projeto com Limite Relaxado (15 em 5 minutos)
@@ -290,7 +300,17 @@ export class SessionCircuitBreaker {
         DELETE FROM session_creation_telemetry
         WHERE project_id = ? AND task_id = ? AND event_type IN ('AGENT_CONVERSATION_CREATE_ATTEMPT', 'SESSION_CREATION_STORM', 'CREATE_BLOCKED')
       `).run(projectId, taskId);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "sessionCircuitBreaker",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:sessionCircuitBreaker]", err);
+      }
+    }
   }
 
   /**

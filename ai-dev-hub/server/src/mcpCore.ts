@@ -58,7 +58,17 @@ export class McpCore {
           INSERT INTO mcp_stats (id, tool_name, timestamp, duration_ms, status, project_id)
           VALUES (?, ?, ?, ?, 'success', ?)
         `).run(crypto.randomUUID(), name, new Date().toISOString(), duration, args?.project_id || null);
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "mcpCore",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:mcpCore]", err);
+      }
+    }
 
       return result;
     } catch (err: any) {
@@ -68,7 +78,17 @@ export class McpCore {
           INSERT INTO mcp_stats (id, tool_name, timestamp, duration_ms, status, project_id)
           VALUES (?, ?, ?, ?, 'error', ?)
         `).run(crypto.randomUUID(), name, new Date().toISOString(), duration, args?.project_id || null);
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "mcpCore",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:mcpCore]", err);
+      }
+    }
 
       Logger.error(`Erro ao executar tool MCP "${name}": ${err.message}`);
       throw err;

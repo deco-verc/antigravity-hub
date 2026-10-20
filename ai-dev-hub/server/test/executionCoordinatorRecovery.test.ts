@@ -13,7 +13,17 @@ test('ExecutionCoordinator: automatically clears dead PID reservation and acquir
   try {
     process.kill(deadPid, 0);
     deadPid = 999998;
-  } catch {}
+  } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "executionCoordinatorRecovery.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:executionCoordinatorRecovery.test]", err);
+      }
+    }
 
   // Insert a dead reservation simulating a crashed process
   db.prepare(`

@@ -413,7 +413,17 @@ export class IndependentEvaluator {
         SET contract_id = ?, evaluation_status = 'pending', updated_at = ?
         WHERE id = ?
       `).run(contract.id, nowIso, contract.taskId);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "independentEvaluator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:independentEvaluator]", err);
+      }
+    }
 
     Logger.info(
       `[Evaluator] SuccessContract #${id.slice(0, 8)} gerado para a tarefa "${params.objective}". (${protectedEvaluationFiles.length} arquivos protegidos)`
@@ -560,7 +570,17 @@ export class IndependentEvaluator {
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'ignore']
       });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "independentEvaluator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:independentEvaluator]", err);
+      }
+    }
 
     try {
       return execSync(`git show HEAD:"${normRel}"`, {
@@ -568,7 +588,17 @@ export class IndependentEvaluator {
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'ignore']
       });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "independentEvaluator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:independentEvaluator]", err);
+      }
+    }
 
     return null;
   }
@@ -616,7 +646,17 @@ export class IndependentEvaluator {
           candidateFiles.add(this.normalizeRelativePath(filePath, projectPath));
         }
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "independentEvaluator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:independentEvaluator]", err);
+      }
+    }
 
     for (const relFile of candidateFiles) {
       const fullPath = path.join(projectPath, relFile);
@@ -807,7 +847,17 @@ export class IndependentEvaluator {
               }
             }
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "independentEvaluator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:independentEvaluator]", err);
+      }
+    }
       }
     }
 
@@ -881,7 +931,17 @@ export class IndependentEvaluator {
               testFiles.push(path.relative(projectPath, full).replace(/\\/g, '/'));
             }
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "independentEvaluator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:independentEvaluator]", err);
+      }
+    }
       };
       scanTests(projectPath, 0);
     }
@@ -928,7 +988,17 @@ export class IndependentEvaluator {
             description: `Arquivo ${tf} inclui entradas anômalas mas não verifica asserções explícitas de erro (assert.throws/toThrow/status de erro).`
           });
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "independentEvaluator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:independentEvaluator]", err);
+      }
+    }
     }
 
     const adversarialCovered = foundAdversarialInputs && foundErrorAssertions;
@@ -1047,7 +1117,17 @@ export class IndependentEvaluator {
             }
           }
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "independentEvaluator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:independentEvaluator]", err);
+      }
+    }
     }
 
     const hasSlop = findings.length > 0;
@@ -1097,7 +1177,17 @@ export class IndependentEvaluator {
                 ) {
                   matchedFiles.push(relPath);
                 }
-              } catch {}
+              } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "independentEvaluator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:independentEvaluator]", err);
+      }
+    }
             }
             // 2. React / Vue / Svelte frontend components
             else if (['.jsx', '.tsx', '.vue', '.svelte'].includes(ext)) {
@@ -1118,11 +1208,31 @@ export class IndependentEvaluator {
                 ) {
                   matchedFiles.push(relPath);
                 }
-              } catch {}
+              } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "independentEvaluator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:independentEvaluator]", err);
+      }
+    }
             }
           }
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "independentEvaluator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:independentEvaluator]", err);
+      }
+    }
     };
 
     scanDir(projectPath, 0);
@@ -1177,11 +1287,31 @@ export class IndependentEvaluator {
                 ) {
                   matchedFiles.push(relPath);
                 }
-              } catch {}
+              } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "independentEvaluator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:independentEvaluator]", err);
+      }
+    }
             }
           }
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "independentEvaluator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:independentEvaluator]", err);
+      }
+    }
     };
 
     scanDir(projectPath, 0);
@@ -1243,7 +1373,17 @@ export class IndependentEvaluator {
               }
             }
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "independentEvaluator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:independentEvaluator]", err);
+      }
+    }
       }
     }
 
@@ -1295,7 +1435,17 @@ export class IndependentEvaluator {
             hasCustomScrollbar = true;
           }
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "independentEvaluator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:independentEvaluator]", err);
+      }
+    }
     }
 
     // If a modified CSS file did not contain :root or scrollbar directly, check sibling CSS files in public/
@@ -1314,7 +1464,17 @@ export class IndependentEvaluator {
               }
             }
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "independentEvaluator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:independentEvaluator]", err);
+      }
+    }
       }
     }
 
@@ -1391,7 +1551,17 @@ export class IndependentEvaluator {
               });
               break;
             }
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "independentEvaluator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:independentEvaluator]", err);
+      }
+    }
         }
       }
     }
@@ -1465,7 +1635,17 @@ export class IndependentEvaluator {
             const content = fs.readFileSync(c, 'utf-8');
             if (c.endsWith('.html') && !html) html = content;
             if ((c.endsWith('.js') || c.endsWith('.ts') || c.endsWith('.tsx')) && !js) js += '\n' + content;
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "independentEvaluator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:independentEvaluator]", err);
+      }
+    }
         }
       }
     }
@@ -1589,7 +1769,17 @@ export class IndependentEvaluator {
             fs.writeFileSync(pFile, normalized, 'utf-8');
             normalizedCount++;
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "independentEvaluator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:independentEvaluator]", err);
+      }
+    }
       }
     }
     return normalizedCount;
@@ -2431,7 +2621,17 @@ export class IndependentEvaluator {
                     tokenFound = true;
                     break;
                   }
-                } catch {}
+                } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "independentEvaluator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:independentEvaluator]", err);
+      }
+    }
               }
             }
           }
@@ -2726,7 +2926,17 @@ export class IndependentEvaluator {
         SET evaluation_status = ?, updated_at = ?
         WHERE id = ?
       `).run(newContractStatus, result.createdAt, contract.taskId);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "independentEvaluator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:independentEvaluator]", err);
+      }
+    }
   }
 
   static getContract(contractId: string): SuccessContract | null {

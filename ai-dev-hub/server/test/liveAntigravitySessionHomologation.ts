@@ -135,7 +135,17 @@ async function runLiveHomologation() {
               stableChecks = 0;
             }
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "liveAntigravitySessionHomologation",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:liveAntigravitySessionHomologation]", err);
+      }
+    }
       }
       await new Promise(r => setTimeout(r, 1500));
     }

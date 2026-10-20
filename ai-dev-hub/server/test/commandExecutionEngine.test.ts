@@ -16,7 +16,17 @@ describe('Command Execution Engine & Test Selector Suite', () => {
       if (fs.existsSync(tempDir)) {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "commandExecutionEngine.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:commandExecutionEngine.test]", err);
+      }
+    }
   });
 
   test('1. Fast command normal exit (code 0) with latencies', async () => {

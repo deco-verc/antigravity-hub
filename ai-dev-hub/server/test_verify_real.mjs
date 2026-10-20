@@ -23,7 +23,17 @@ function testProfileAuth(envPath, isDefault = false) {
           detectedUser = content['jetski.onboarding.lastLoginUsername'];
           break;
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "test_verify_real",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:test_verify_real]", err);
+      }
+    }
     }
   }
 

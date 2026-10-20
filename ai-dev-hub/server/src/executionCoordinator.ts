@@ -65,7 +65,17 @@ export class ExecutionCoordinator {
             projectId: context?.projectId,
             metadata: { scope, deadPid: owner.owner_pid, reason, priorContext: owner?.context_json }
           });
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "executionCoordinator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:executionCoordinator]", err);
+      }
+    }
 
         const retryResult = db.prepare('INSERT OR IGNORE INTO execution_reservations (scope,token,owner_pid,context_json,created_at,updated_at) VALUES (?,?,?,?,?,?)')
           .run(scope, token, process.pid, JSON.stringify(context), now, now);
@@ -81,7 +91,17 @@ export class ExecutionCoordinator {
               projectId: context?.projectId,
               metadata: { scope, token, ownerPid: process.pid, context }
             });
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "executionCoordinator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:executionCoordinator]", err);
+      }
+    }
           return token;
         }
       }
@@ -100,7 +120,17 @@ export class ExecutionCoordinator {
         projectId: context?.projectId,
         metadata: { scope, token, ownerPid: process.pid, context }
       });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "executionCoordinator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:executionCoordinator]", err);
+      }
+    }
 
     return token;
   }
@@ -143,7 +173,17 @@ export class ExecutionCoordinator {
             .run(nowIso, scope);
         }
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "executionCoordinator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:executionCoordinator]", err);
+      }
+    }
   }
 
   static release(scope: string, token: string): void {
@@ -157,7 +197,17 @@ export class ExecutionCoordinator {
         service: 'coordinator',
         metadata: { scope, token }
       });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "executionCoordinator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:executionCoordinator]", err);
+      }
+    }
   }
 
   /**
@@ -175,14 +225,34 @@ export class ExecutionCoordinator {
             const ctx = JSON.parse(res.context_json || '{}');
             if (filter.projectId && ctx.projectId === filter.projectId) match = true;
             if (filter.runId && ctx.runId === filter.runId) match = true;
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "executionCoordinator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:executionCoordinator]", err);
+      }
+    }
         }
         if (match) {
           db.prepare('DELETE FROM execution_reservations WHERE scope=? AND token=?').run(res.scope, res.token);
           cleared++;
         }
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "executionCoordinator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:executionCoordinator]", err);
+      }
+    }
     return cleared;
   }
 
@@ -260,7 +330,17 @@ export class ExecutionCoordinator {
             service: 'coordinator',
             metadata: { scope: res.scope, deadPid: res.owner_pid, token: res.token, context: res.context_json }
           });
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "executionCoordinator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:executionCoordinator]", err);
+      }
+    }
       }
     }
     return cleared;

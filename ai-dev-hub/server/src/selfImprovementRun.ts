@@ -712,7 +712,17 @@ export class AutonomousSelfImprovementEngine {
     // Prepare worktree directory
     const worktreeDir = path.join(this.worktreesBaseDir, `run-${params.runId.slice(0, 8)}`, `exp-${params.experimentNumber}`, params.candidateLabel.replace(/\s+/g, '_'));
     if (fs.existsSync(worktreeDir)) {
-      try { fs.rmSync(worktreeDir, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(worktreeDir, { recursive: true, force: true }); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "selfImprovementRun",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:selfImprovementRun]", err);
+      }
+    }
     }
     fs.mkdirSync(path.dirname(worktreeDir), { recursive: true });
 
@@ -842,16 +852,56 @@ export class AutonomousSelfImprovementEngine {
     if (!row) return null;
 
     let timeline: TimelineEvent[] = [];
-    try { timeline = JSON.parse(row.timeline_json || '[]'); } catch {}
+    try { timeline = JSON.parse(row.timeline_json || '[]'); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "selfImprovementRun",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:selfImprovementRun]", err);
+      }
+    }
 
     let config: SelfImprovementRunConfig = this.getPresetConfig('TEST_SHORT');
-    try { config = JSON.parse(row.config_json || '{}'); } catch {}
+    try { config = JSON.parse(row.config_json || '{}'); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "selfImprovementRun",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:selfImprovementRun]", err);
+      }
+    }
 
     let initialMetrics: any = null;
-    try { initialMetrics = JSON.parse(row.initial_metrics_json || 'null'); } catch {}
+    try { initialMetrics = JSON.parse(row.initial_metrics_json || 'null'); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "selfImprovementRun",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:selfImprovementRun]", err);
+      }
+    }
 
     let currentMetrics: any = null;
-    try { currentMetrics = JSON.parse(row.current_metrics_json || 'null'); } catch {}
+    try { currentMetrics = JSON.parse(row.current_metrics_json || 'null'); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "selfImprovementRun",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:selfImprovementRun]", err);
+      }
+    }
 
     return {
       id: row.id,

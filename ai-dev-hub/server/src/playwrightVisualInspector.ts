@@ -152,7 +152,17 @@ export class PlaywrightVisualInspector {
           }
         }
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "playwrightVisualInspector",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:playwrightVisualInspector]", err);
+      }
+    }
 
     return null;
   }
@@ -231,7 +241,17 @@ export class PlaywrightVisualInspector {
               spawnSync('taskkill', ['/pid', String(child.pid), '/f', '/t'], { stdio: 'ignore', windowsHide: true });
             }
             child.kill();
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "playwrightVisualInspector",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:playwrightVisualInspector]", err);
+      }
+    }
           reject(new Error('Timeout aguardando inicialização do servidor estático efêmero'));
         }
       }, 6000);
@@ -251,7 +271,17 @@ export class PlaywrightVisualInspector {
             if (isWin && pid) {
               try {
                 spawnSync('taskkill', ['/pid', String(pid), '/f', '/t'], { stdio: 'ignore', windowsHide: true });
-              } catch {}
+              } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "playwrightVisualInspector",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:playwrightVisualInspector]", err);
+      }
+    }
             }
             try {
               child.kill('SIGTERM');
@@ -259,7 +289,17 @@ export class PlaywrightVisualInspector {
               if (child.exitCode === null) {
                 child.kill('SIGKILL');
               }
-            } catch {}
+            } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "playwrightVisualInspector",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:playwrightVisualInspector]", err);
+      }
+    }
           };
 
           resolve({ url, port, close });
@@ -339,7 +379,17 @@ export class PlaywrightVisualInspector {
         if (parsed && typeof parsed === 'object' && totalInteractive === 0) {
           rootRouteHijackedByJson = true;
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "playwrightVisualInspector",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:playwrightVisualInspector]", err);
+      }
+    }
     }
 
     // Check tokens in html or linked css
@@ -364,7 +414,17 @@ export class PlaywrightVisualInspector {
               tokensFound.push('--bg', '--surface', '--accent', '--border');
               break;
             }
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "playwrightVisualInspector",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:playwrightVisualInspector]", err);
+      }
+    }
         }
       }
     }
@@ -391,7 +451,17 @@ export class PlaywrightVisualInspector {
     };
     try {
       fs.writeFileSync(offlineEvidencePath, JSON.stringify(evidenceData, null, 2), 'utf-8');
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "playwrightVisualInspector",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:playwrightVisualInspector]", err);
+      }
+    }
 
     const evidenceScreenshots: string[] = [offlineEvidencePath];
     try {
@@ -401,7 +471,17 @@ export class PlaywrightVisualInspector {
           evidenceScreenshots.push(s.fullPath);
         }
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "playwrightVisualInspector",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:playwrightVisualInspector]", err);
+      }
+    }
 
     const passed = consoleErrors.length === 0 && !isEmptyRoot && !rootRouteHijackedByJson;
     let score = 100;
@@ -559,7 +639,17 @@ export class PlaywrightVisualInspector {
             if (p && typeof p === 'object' && uiElementsCount === 0) {
               isRawJson = true;
             }
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "playwrightVisualInspector",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:playwrightVisualInspector]", err);
+      }
+    }
         }
         return JSON.stringify({
           scrollWidth,
@@ -643,7 +733,17 @@ export class PlaywrightVisualInspector {
               hasOverflow: Boolean(data.hasOverflow)
             };
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "playwrightVisualInspector",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:playwrightVisualInspector]", err);
+      }
+    }
       }
 
       // 6. Capture Mobile Screenshot
@@ -672,12 +772,32 @@ export class PlaywrightVisualInspector {
       if (ephemeralServer) {
         try {
           await ephemeralServer.close();
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "playwrightVisualInspector",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:playwrightVisualInspector]", err);
+      }
+    }
       }
       // Guaranteed cleanup of the session and temporary .playwright-cli directory
       try {
         this.runCli(['-s=' + sessionId, 'close'], projectPath, 4000);
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "playwrightVisualInspector",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:playwrightVisualInspector]", err);
+      }
+    }
       this.cleanupTempDir(projectPath);
     }
 
@@ -855,7 +975,17 @@ export class PlaywrightVisualInspector {
       if (rawJson) {
         discoveredSections = JSON.parse(rawJson[0]);
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "playwrightVisualInspector",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:playwrightVisualInspector]", err);
+      }
+    }
 
     if (discoveredSections.length === 0) {
       discoveredSections = [{ type: 'page', name: 'Dashboard', selector: null, index: 0 }];
@@ -903,7 +1033,17 @@ export class PlaywrightVisualInspector {
         if (savedFile && fs.existsSync(savedFile)) {
           sizeBytes = fs.statSync(savedFile).size;
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "playwrightVisualInspector",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:playwrightVisualInspector]", err);
+      }
+    }
 
       captured.push({
         filename,
@@ -934,7 +1074,17 @@ export class PlaywrightVisualInspector {
       if (savedMobile && fs.existsSync(savedMobile)) {
         mobileSize = fs.statSync(savedMobile).size;
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "playwrightVisualInspector",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:playwrightVisualInspector]", err);
+      }
+    }
 
     captured.push({
       filename: mobileFilename,
@@ -978,7 +1128,17 @@ export class PlaywrightVisualInspector {
             }
           }
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "playwrightVisualInspector",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:playwrightVisualInspector]", err);
+      }
+    }
     }
 
     let target = options.targetUrl;
@@ -1015,11 +1175,31 @@ export class PlaywrightVisualInspector {
       return this.performOfflineSectionCapture(resolvedHtmlFile, projectPath, evidenceDir);
     } finally {
       if (ephemeralServer) {
-        try { await ephemeralServer.close(); } catch {}
+        try { await ephemeralServer.close(); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "playwrightVisualInspector",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:playwrightVisualInspector]", err);
+      }
+    }
       }
       try {
         this.runCli(['-s=' + sessionId, 'close'], projectPath, 4000);
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "playwrightVisualInspector",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:playwrightVisualInspector]", err);
+      }
+    }
       this.cleanupTempDir(projectPath);
     }
 
@@ -1036,7 +1216,17 @@ export class PlaywrightVisualInspector {
   ): CapturedSectionItem[] {
     let htmlContent = '';
     if (targetHtmlPath && fs.existsSync(targetHtmlPath)) {
-      try { htmlContent = fs.readFileSync(targetHtmlPath, 'utf-8'); } catch {}
+      try { htmlContent = fs.readFileSync(targetHtmlPath, 'utf-8'); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "playwrightVisualInspector",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:playwrightVisualInspector]", err);
+      }
+    }
     }
 
     const seenTabs = new Set<string>();
@@ -1096,7 +1286,17 @@ export class PlaywrightVisualInspector {
         if (!fs.existsSync(fullPath)) {
           fs.writeFileSync(fullPath, this.SAMPLE_1X1_PNG_BUFFER);
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "playwrightVisualInspector",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:playwrightVisualInspector]", err);
+      }
+    }
 
       captured.push({
         filename,
@@ -1119,7 +1319,17 @@ export class PlaywrightVisualInspector {
       if (!fs.existsSync(mobileFullPath)) {
         fs.writeFileSync(mobileFullPath, this.SAMPLE_1X1_PNG_BUFFER);
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "playwrightVisualInspector",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:playwrightVisualInspector]", err);
+      }
+    }
 
     captured.push({
       filename: mobileFilename,
@@ -1144,6 +1354,16 @@ export class PlaywrightVisualInspector {
       if (fs.existsSync(tempDir)) {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "playwrightVisualInspector",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:playwrightVisualInspector]", err);
+      }
+    }
   }
 }

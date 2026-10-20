@@ -109,7 +109,17 @@ describe('Auto-Failover Multi-Conta via Rapid Switch Suite (FASE 20)', () => {
       assert.ok(event.message.includes('QUOTA'));
     } finally {
       AccountProfileManager.setVerifyProbeOverrideForTest(null);
-      try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(testDir, { recursive: true, force: true }); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountAutoFailoverRapidSwitch.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountAutoFailoverRapidSwitch.test]", err);
+      }
+    }
     }
   });
 
@@ -185,7 +195,17 @@ describe('Auto-Failover Multi-Conta via Rapid Switch Suite (FASE 20)', () => {
       assert.strictEqual(proj.active_account_profile_id, acc1.id);
     } finally {
       AccountProfileManager.setVerifyProbeOverrideForTest(null);
-      try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(testDir, { recursive: true, force: true }); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountAutoFailoverRapidSwitch.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountAutoFailoverRapidSwitch.test]", err);
+      }
+    }
     }
   });
 
@@ -264,7 +284,17 @@ describe('Auto-Failover Multi-Conta via Rapid Switch Suite (FASE 20)', () => {
       assert.strictEqual(taskRow.retry_count, 0);
     } finally {
       AccountProfileManager.setVerifyProbeOverrideForTest(null);
-      try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(testDir, { recursive: true, force: true }); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountAutoFailoverRapidSwitch.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountAutoFailoverRapidSwitch.test]", err);
+      }
+    }
     }
   });
 
@@ -320,7 +350,17 @@ describe('Auto-Failover Multi-Conta via Rapid Switch Suite (FASE 20)', () => {
       // Restaurar contas para READY
       db.prepare("UPDATE account_profiles SET auth_status = 'READY', quota_resets_at = NULL, quota_message = NULL").run();
       AccountProfileManager.setVerifyProbeOverrideForTest(null);
-      try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(testDir, { recursive: true, force: true }); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountAutoFailoverRapidSwitch.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountAutoFailoverRapidSwitch.test]", err);
+      }
+    }
     }
   });
 });

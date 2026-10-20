@@ -260,7 +260,17 @@ export class DocSimpService {
         if (domain && !newEntry.aliases.includes(domain)) {
           newEntry.aliases.push(domain);
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "docSimpService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:docSimpService]", err);
+      }
+    }
 
       // Register in catalog.json
       const catalog = this.loadCatalog(docSimpDir);

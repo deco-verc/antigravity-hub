@@ -34,7 +34,17 @@ describe('HOTFIX: Seleção de Contas Iniciais e Criação Fail-Safe de Projetos
     for (const dir of tempDirs) {
       try {
         fs.rmSync(dir, { recursive: true, force: true });
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectCreationAccountSelection.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectCreationAccountSelection.test]", err);
+      }
+    }
     }
   });
 

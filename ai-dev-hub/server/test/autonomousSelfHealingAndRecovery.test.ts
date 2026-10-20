@@ -81,7 +81,17 @@ test('Fase 3: Auto-Recovery de AGENTAPI_UNAVAILABLE restaura status de waiting_r
   createTestProject(projectId, dir);
 
   t.after(() => {
-    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousSelfHealingAndRecovery.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousSelfHealingAndRecovery.test]", err);
+      }
+    }
   });
 
   const runId = `run-rec-${crypto.randomUUID().slice(0, 8)}`;
@@ -123,7 +133,17 @@ test('Fase 3: Self-healing de verificação converte BLOCKED técnico em REWORK_
   createTestProject(projectId, dir);
 
   t.after(() => {
-    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousSelfHealingAndRecovery.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousSelfHealingAndRecovery.test]", err);
+      }
+    }
   });
 
   const runId = `run-heal-${crypto.randomUUID().slice(0, 8)}`;
@@ -247,7 +267,17 @@ test('Fase 3: Preservação de Segurança — TAMPERING_DETECTED e exaustão de 
   createTestProject(projectId, dir);
 
   t.after(() => {
-    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousSelfHealingAndRecovery.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousSelfHealingAndRecovery.test]", err);
+      }
+    }
   });
 
   const now = new Date().toISOString();

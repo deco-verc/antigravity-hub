@@ -33,7 +33,17 @@ describe('FASE 22: Onda 0 (Market Research, Reference Apps & REA Discovery)', ()
         INSERT INTO projects (id, name, path, status, created_at, updated_at)
         VALUES (?, ?, ?, 'active', ?, ?)
       `).run(testProjectId, 'Test Project Wave0', testProjectDir, new Date().toISOString(), new Date().toISOString());
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "marketDiscoveryWaveZero.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:marketDiscoveryWaveZero.test]", err);
+      }
+    }
   });
 
   afterEach(() => {
@@ -41,11 +51,31 @@ describe('FASE 22: Onda 0 (Market Research, Reference Apps & REA Discovery)', ()
       db.prepare('DELETE FROM messages WHERE project_id = ?').run(testProjectId);
       db.prepare('DELETE FROM autonomous_runs WHERE project_id = ?').run(testProjectId);
       db.prepare('DELETE FROM projects WHERE id = ?').run(testProjectId);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "marketDiscoveryWaveZero.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:marketDiscoveryWaveZero.test]", err);
+      }
+    }
 
     try {
       fs.rmSync(testProjectDir, { recursive: true, force: true });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "marketDiscoveryWaveZero.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:marketDiscoveryWaveZero.test]", err);
+      }
+    }
   });
 
   test('Deve inferir perfis de domínio de mercado com alta precisão a partir do briefing', () => {

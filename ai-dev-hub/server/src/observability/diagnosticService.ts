@@ -74,7 +74,17 @@ export class DiagnosticService {
           }
         }
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "diagnosticService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:diagnosticService]", err);
+      }
+    }
 
     // 2. Detect Stalled Tasks (in_progress without active lease or progress)
     try {
@@ -151,7 +161,17 @@ export class DiagnosticService {
           }
         }
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "diagnosticService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:diagnosticService]", err);
+      }
+    }
 
     // 3. Detect Stuck Tasks in Intermediate States (in_review for too long)
     try {
@@ -200,7 +220,17 @@ export class DiagnosticService {
           });
         }
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "diagnosticService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:diagnosticService]", err);
+      }
+    }
 
     // 4. Detect Expired Leases in active state
     try {
@@ -236,7 +266,17 @@ export class DiagnosticService {
           detectedAt: new Date(now).toISOString()
         });
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "diagnosticService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:diagnosticService]", err);
+      }
+    }
 
     // 5. Detect Orphaned Execution Reservations
     try {
@@ -275,7 +315,17 @@ export class DiagnosticService {
           });
         }
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "diagnosticService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:diagnosticService]", err);
+      }
+    }
 
     // 6. Detect State Divergences between Task and Run
     try {
@@ -307,7 +357,17 @@ export class DiagnosticService {
           detectedAt: new Date(now).toISOString()
         });
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "diagnosticService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:diagnosticService]", err);
+      }
+    }
 
     // 7. Detect Repetitive Errors and Correlate with Historical Operational Lessons
     try {
@@ -360,7 +420,17 @@ export class DiagnosticService {
           detectedAt: new Date(now).toISOString()
         });
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "diagnosticService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:diagnosticService]", err);
+      }
+    }
 
     // 8. Detect Unexecuted Verifications on Reviewed/Completed Tasks
     try {
@@ -398,7 +468,17 @@ export class DiagnosticService {
           detectedAt: new Date(now).toISOString()
         });
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "diagnosticService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:diagnosticService]", err);
+      }
+    }
 
     // 9. Detect Recurring Quota or Authentication Failures
     try {
@@ -450,7 +530,17 @@ export class DiagnosticService {
           });
         }
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "diagnosticService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:diagnosticService]", err);
+      }
+    }
 
     // Emit diagnostic event for newly detected anomalies
     for (const anomaly of anomalies) {
@@ -564,7 +654,17 @@ export class DiagnosticService {
             });
           }
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "diagnosticService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:diagnosticService]", err);
+      }
+    }
     }
 
     for (const rem of remediated) {

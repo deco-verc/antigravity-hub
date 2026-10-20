@@ -444,7 +444,17 @@ export class SelfImprovementManager {
 
     let promotionContract: PromotionContract | undefined = undefined;
     if (row.promotion_contract_json) {
-      try { promotionContract = JSON.parse(row.promotion_contract_json); } catch {}
+      try { promotionContract = JSON.parse(row.promotion_contract_json); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "selfImprovementManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:selfImprovementManager]", err);
+      }
+    }
     }
 
     return {

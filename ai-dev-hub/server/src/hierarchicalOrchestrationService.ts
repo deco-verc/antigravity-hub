@@ -659,7 +659,17 @@ export class HierarchicalOrchestrationService {
         JSON.stringify(eventMeta),
         nowIso
       );
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "hierarchicalOrchestrationService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
+      }
+    }
 
     const created: any = db.prepare('SELECT * FROM agent_communications WHERE id = ?').get(id);
     return {
@@ -1349,7 +1359,17 @@ export class HierarchicalOrchestrationService {
         nowIso,
         input.projectId
       );
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "hierarchicalOrchestrationService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
+      }
+    }
 
     try {
       db.prepare(`
@@ -1364,7 +1384,17 @@ export class HierarchicalOrchestrationService {
         nowIso,
         input.runId
       );
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "hierarchicalOrchestrationService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
+      }
+    }
 
     // Convert flatTasks into Major Tasks if majorTasks wasn't explicitly passed
     let majorTaskInputs: HierarchicalMajorTaskInput[] = [];
@@ -2671,7 +2701,17 @@ export class HierarchicalOrchestrationService {
     if (hasGitWorkspace) {
       try {
         gitInfo = GitManager.getGitInfo(params.projectPath);
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "hierarchicalOrchestrationService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
+      }
+    }
     }
 
     if (hasGitWorkspace && !task.task_commit_sha && reportFiles.length === 0 && allowedScope.length > 0 && params.supervisorVerdict !== 'BLOCKED' && evalRes?.verdict !== 'BLOCKED') {
@@ -2733,7 +2773,17 @@ export class HierarchicalOrchestrationService {
           if (/TODO:\s*implement(ar(\s+depois|\s+cálculo.*)?|\s+later)|FIXME:\s*placeholder|throw new Error\(['"]Not implemented['"]\)/i.test(content)) {
             placeholdersOrMocksDetected.push(`Placeholder não implementado detectado em ${normalized}`);
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "hierarchicalOrchestrationService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
+      }
+    }
       }
     }
 
@@ -3107,7 +3157,17 @@ export class HierarchicalOrchestrationService {
           encoding: 'utf-8',
           stdio: ['ignore', 'pipe', 'ignore']
         }).trim();
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "hierarchicalOrchestrationService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
+      }
+    }
 
       let commitSha = task.task_commit_sha || null;
       if (!commitSha && candidateFiles.length > 0) {
@@ -3122,7 +3182,17 @@ export class HierarchicalOrchestrationService {
             if (headAfter !== headBefore) {
               commitSha = headAfter;
             }
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "hierarchicalOrchestrationService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
+      }
+    }
         }
       }
 
@@ -3237,7 +3307,17 @@ export class HierarchicalOrchestrationService {
       try {
         SessionCircuitBreaker.resetTaskWindow(projectId, task.id);
         SessionCircuitBreaker.resetProjectWindow(projectId);
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "hierarchicalOrchestrationService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
+      }
+    }
 
       this.recordAgentCommunication({
         idempotencyKey: `completed:${params.runId}:${task.id}`,
@@ -4878,8 +4958,28 @@ export class HierarchicalOrchestrationService {
 
     if (params.projectPath && isSaaS) {
       try {
-        ReaSaaSMasterService.provisionReaBlueprintForProject(params.projectPath, originalDescription).catch(() => {});
-      } catch {}
+        ReaSaaSMasterService.provisionReaBlueprintForProject(params.projectPath, originalDescription).catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "hierarchicalOrchestrationService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
+      }
+    });
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "hierarchicalOrchestrationService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
+      }
+    }
     }
 
     if (params.projectPath && isSaaS) {
@@ -4891,9 +4991,39 @@ export class HierarchicalOrchestrationService {
             projectPath: params.projectPath,
             projectId: params.projectId,
             requirements: params.requirements
-          }).catch(() => {});
-        }).catch(() => {});
-      } catch {}
+          }).catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "hierarchicalOrchestrationService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
+      }
+    });
+        }).catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "hierarchicalOrchestrationService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
+      }
+    });
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "hierarchicalOrchestrationService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
+      }
+    }
     }
 
     const pName = params.projectName || 'SaaS';

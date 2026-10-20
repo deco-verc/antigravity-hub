@@ -187,7 +187,17 @@ export class ProjectAnalyzer {
           importantFiles.push(path.basename(f));
           return fs.readFileSync(f, 'utf-8').toLowerCase();
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "analyzer",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:analyzer]", err);
+      }
+    }
       return '';
     };
 
@@ -205,7 +215,17 @@ export class ProjectAnalyzer {
           const content = fs.readFileSync(fullPy, 'utf-8').slice(0, 2000).toLowerCase();
           pyCombined += ' ' + content;
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "analyzer",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:analyzer]", err);
+      }
+    }
     }
 
     if (pyCombined.trim()) {
@@ -262,7 +282,17 @@ export class ProjectAnalyzer {
           const raw = fs.readFileSync(rPath, 'utf-8');
           readmeExcerpt = raw.slice(0, 1000).trim();
           break;
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "analyzer",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:analyzer]", err);
+      }
+    }
       }
     }
 

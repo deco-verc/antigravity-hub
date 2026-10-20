@@ -40,7 +40,17 @@ describe('FASE 16: Motor Universal de Slash Commands e Arsenal de Skills', () =>
         INSERT INTO projects (id, name, path, status, created_at, updated_at)
         VALUES (?, ?, ?, 'active', ?, ?)
       `).run(testProjectId, 'Test Project Slash', testProjectDir, new Date().toISOString(), new Date().toISOString());
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "skillSlashCommands.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:skillSlashCommands.test]", err);
+      }
+    }
   });
 
   afterEach(() => {
@@ -48,11 +58,31 @@ describe('FASE 16: Motor Universal de Slash Commands e Arsenal de Skills', () =>
       db.prepare('DELETE FROM messages WHERE project_id = ?').run(testProjectId);
       db.prepare('DELETE FROM autonomous_runs WHERE project_id = ?').run(testProjectId);
       db.prepare('DELETE FROM projects WHERE id = ?').run(testProjectId);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "skillSlashCommands.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:skillSlashCommands.test]", err);
+      }
+    }
 
     try {
       fs.rmSync(testProjectDir, { recursive: true, force: true });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "skillSlashCommands.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:skillSlashCommands.test]", err);
+      }
+    }
   });
 
   test('1. Registro completo de todos os Slash Commands e resolução dos arquivos .md', () => {

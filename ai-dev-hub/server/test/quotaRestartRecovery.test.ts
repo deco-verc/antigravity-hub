@@ -36,7 +36,17 @@ describe('DecoHUB — Validação Crítica de Retomada Pós-Quota e Isolamento O
       fs.writeFileSync(path.join(testProjectDir, 'package.json'), JSON.stringify({ name: 'quota-test', version: '1.0.0' }));
       execSync('git add package.json', { cwd: testProjectDir, stdio: 'ignore' });
       execSync('git commit -m "initial commit"', { cwd: testProjectDir, stdio: 'ignore' });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "quotaRestartRecovery.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:quotaRestartRecovery.test]", err);
+      }
+    }
 
     // Setup Mock overrides to strictly count conversations
     AgentSessionManager.setProviderCreateOverride((params) => {
@@ -106,7 +116,17 @@ describe('DecoHUB — Validação Crítica de Retomada Pós-Quota e Isolamento O
     db.prepare('DELETE FROM autonomous_runs WHERE project_id = ?').run(testProjectId);
     db.prepare('DELETE FROM projects WHERE id = ?').run(testProjectId);
     db.prepare('DELETE FROM account_profiles WHERE id = ?').run(testProfileId);
-    try { fs.rmSync(testProjectDir, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(testProjectDir, { recursive: true, force: true }); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "quotaRestartRecovery.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:quotaRestartRecovery.test]", err);
+      }
+    }
   });
 
   test('Fase 4.1: Quota esgotada (RESOURCE_EXHAUSTED 429) pausa o Run sem perder IDs e preserva a Task como ready', () => {

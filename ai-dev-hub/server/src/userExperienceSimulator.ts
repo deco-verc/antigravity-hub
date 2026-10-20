@@ -134,14 +134,34 @@ export class UserExperienceSimulator {
       try {
         const unescaped = JSON.parse(quotedMatch[0]);
         return JSON.parse(unescaped);
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "userExperienceSimulator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:userExperienceSimulator]", err);
+      }
+    }
     }
     // 2. Try matching a raw JSON object or array { ... } or [ ... ]
     const objMatch = trimmed.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
     if (objMatch) {
       try {
         return JSON.parse(objMatch[1]);
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "userExperienceSimulator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:userExperienceSimulator]", err);
+      }
+    }
     }
     return {};
   }
@@ -194,7 +214,17 @@ export class UserExperienceSimulator {
             }
           }
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "userExperienceSimulator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:userExperienceSimulator]", err);
+      }
+    }
     }
 
     // 2. Fallback candidate paths
@@ -272,7 +302,17 @@ export class UserExperienceSimulator {
           try {
             if (isWin) spawnSync('taskkill', ['/pid', String(child.pid), '/f', '/t'], { stdio: 'ignore' });
             child.kill('SIGKILL');
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "userExperienceSimulator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:userExperienceSimulator]", err);
+      }
+    }
         }
         throw new Error(
           `SERVER_EARLY_EXIT: O servidor do projeto encerrou prematuramente (código: ${child.exitCode}).\nSTDERR: ${stderrBuf.slice(0, 500)}\nSTDOUT: ${stdoutBuf.slice(0, 500)}`
@@ -300,7 +340,17 @@ export class UserExperienceSimulator {
         try {
           if (isWin) spawnSync('taskkill', ['/pid', String(child.pid), '/f', '/t'], { stdio: 'ignore' });
           child.kill('SIGKILL');
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "userExperienceSimulator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:userExperienceSimulator]", err);
+      }
+    }
       }
       throw new Error(
         `SERVER_START_TIMEOUT: O servidor em "${serverScriptRel}" não respondeu em ${serverUrl} após ${timeoutMs}ms.\nSTDERR: ${stderrBuf.slice(0, 500)}`
@@ -314,7 +364,17 @@ export class UserExperienceSimulator {
         if (isWin && pid) {
           try {
             spawnSync('taskkill', ['/pid', String(pid), '/f', '/t'], { stdio: 'ignore', windowsHide: true });
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "userExperienceSimulator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:userExperienceSimulator]", err);
+      }
+    }
         }
         try {
           child.kill('SIGTERM');
@@ -322,8 +382,28 @@ export class UserExperienceSimulator {
           if (child.exitCode === null) {
             child.kill('SIGKILL');
           }
-        } catch {}
-      } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "userExperienceSimulator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:userExperienceSimulator]", err);
+      }
+    }
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "userExperienceSimulator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:userExperienceSimulator]", err);
+      }
+    }
     };
 
     return {
@@ -347,7 +427,17 @@ export class UserExperienceSimulator {
       if (server.pid && process.platform === 'win32') {
         try {
           spawnSync('taskkill', ['/pid', String(server.pid), '/f', '/t'], { stdio: 'ignore', windowsHide: true });
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "userExperienceSimulator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:userExperienceSimulator]", err);
+      }
+    }
       }
       await server.close();
     } catch (err: any) {
@@ -365,7 +455,17 @@ export class UserExperienceSimulator {
     const htmlCandidate = PlaywrightVisualInspector.findCandidateHtmlFile(projectPath);
     let htmlContent = '';
     if (htmlCandidate && fs.existsSync(htmlCandidate)) {
-      try { htmlContent = fs.readFileSync(htmlCandidate, 'utf-8'); } catch {}
+      try { htmlContent = fs.readFileSync(htmlCandidate, 'utf-8'); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "userExperienceSimulator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:userExperienceSimulator]", err);
+      }
+    }
     }
 
     const hasForm = /<form\b/i.test(htmlContent) || /<(input|select|textarea)\b/i.test(htmlContent);
@@ -394,7 +494,17 @@ export class UserExperienceSimulator {
     };
 
     const reportPath = path.join(evidenceDir, 'user-journey-report.json');
-    try { fs.writeFileSync(reportPath, JSON.stringify(report, null, 2), 'utf-8'); } catch {}
+    try { fs.writeFileSync(reportPath, JSON.stringify(report, null, 2), 'utf-8'); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "userExperienceSimulator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:userExperienceSimulator]", err);
+      }
+    }
 
     const evidenceScreenshots: string[] = [];
     try {
@@ -404,7 +514,17 @@ export class UserExperienceSimulator {
           evidenceScreenshots.push(s.fullPath);
         }
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "userExperienceSimulator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:userExperienceSimulator]", err);
+      }
+    }
 
     return {
       passed,
@@ -537,7 +657,17 @@ export class UserExperienceSimulator {
               const cloned = res.clone();
               const url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url) || '';
               let bodyText = '';
-              try { bodyText = await cloned.text(); } catch {}
+              try { bodyText = await cloned.text(); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "userExperienceSimulator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:userExperienceSimulator]", err);
+      }
+    }
               window.__uxNetworkLog.push({
                 type: 'fetch',
                 url,
@@ -611,7 +741,17 @@ export class UserExperienceSimulator {
 
         // Click through tabs
         for (const el of navItems.slice(0, 4)) {
-          try { el.click(); } catch {}
+          try { el.click(); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "userExperienceSimulator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:userExperienceSimulator]", err);
+      }
+    }
         }
 
         return ({
@@ -685,7 +825,17 @@ export class UserExperienceSimulator {
             if (parentPane && parentPane.id) {
               const tabBtn = document.querySelector(\`[data-tab="\${parentPane.id.replace('pane-', '')}"], [href="#\${parentPane.id}"]\`);
               if (tabBtn) {
-                try { tabBtn.click(); } catch {}
+                try { tabBtn.click(); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "userExperienceSimulator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:userExperienceSimulator]", err);
+      }
+    }
               }
             }
             form = anyForm;
@@ -759,7 +909,17 @@ export class UserExperienceSimulator {
           try {
             submitBtn.click();
             buttonClicked = true;
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "userExperienceSimulator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:userExperienceSimulator]", err);
+      }
+    }
         }
 
         return ({
@@ -841,7 +1001,17 @@ export class UserExperienceSimulator {
         // If there are tabs, click through them briefly so content panes render
         const tabs = Array.from(document.querySelectorAll('nav button, [role="tab"], .tab, .tab-btn'));
         for (const t of tabs) {
-          try { t.click(); } catch {}
+          try { t.click(); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "userExperienceSimulator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:userExperienceSimulator]", err);
+      }
+    }
         }
         const bodyText = (document.body ? document.body.innerText : '');
         const itemPersisted = bodyText.includes('${testItemName}');
@@ -939,7 +1109,17 @@ export class UserExperienceSimulator {
 
           try {
             btn.click();
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "userExperienceSimulator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:userExperienceSimulator]", err);
+      }
+    }
 
           const currentBodyHtmlLen = document.body ? document.body.innerHTML.length : 0;
           const currentLogCount = (window.__uxNetworkLog || []).length;
@@ -1003,7 +1183,17 @@ export class UserExperienceSimulator {
         Logger.info(`[UserExperienceSimulator] Encerrando servidor alvo em porta ${targetServer.port}...`);
         try {
           await this.stopTargetServer(targetServer);
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "userExperienceSimulator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:userExperienceSimulator]", err);
+      }
+    }
       }
     }
 
@@ -1051,7 +1241,17 @@ export class UserExperienceSimulator {
     const evidenceReportPath = path.join(evidenceDir, 'user-journey-report.json');
     try {
       fs.writeFileSync(evidenceReportPath, JSON.stringify(finalReport, null, 2), 'utf-8');
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "userExperienceSimulator",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:userExperienceSimulator]", err);
+      }
+    }
 
     return {
       passed: overallPassed,

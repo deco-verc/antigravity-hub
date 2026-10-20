@@ -225,7 +225,17 @@ test('Reengenharia Semântica de Tarefas e Extração Fiel de Requisitos', async
           { name: 'SimpleApp', path: 'C:/fake/path', objective: 'Simple' },
           { multiPass: false }
         );
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "semanticTaskDecompositionAndRequirements.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:semanticTaskDecompositionAndRequirements.test]", err);
+      }
+    }
 
       assert.equal(calledTwoPass, false, 'Não deve acionar planTwoPassHierarchy quando multiPass: false for explícito');
     } finally {

@@ -20,7 +20,17 @@ test('Contextual & Adaptive Prompt Architecture Suite (15 Scenarios)', async (t)
   t.after(() => {
     try {
       fs.rmSync(testDbDir, { recursive: true, force: true });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "contextualPromptArchitecture.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:contextualPromptArchitecture.test]", err);
+      }
+    }
   });
 
   // Scenario 1: Projeto simples gera planejamento proporcional (1 a 3 tarefas)

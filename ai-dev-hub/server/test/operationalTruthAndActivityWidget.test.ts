@@ -43,11 +43,31 @@ describe('VERDADE OPERACIONAL: Metadados de Skill, Roteamento e Sincronia de Est
       db.prepare('DELETE FROM autonomous_tasks WHERE run_id = ?').run(testRunId);
       db.prepare('DELETE FROM autonomous_runs WHERE id = ?').run(testRunId);
       db.prepare('DELETE FROM projects WHERE id = ?').run(testProjectId);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "operationalTruthAndActivityWidget.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:operationalTruthAndActivityWidget.test]", err);
+      }
+    }
 
     try {
       fs.rmSync(testProjectDir, { recursive: true, force: true });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "operationalTruthAndActivityWidget.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:operationalTruthAndActivityWidget.test]", err);
+      }
+    }
   });
 
   test('1. resolveRunSkillsMetadata identifica Slash Commands, skills em disco e especialidade do Worker', () => {

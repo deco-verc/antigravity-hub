@@ -34,7 +34,17 @@ describe('FASE 20: Sincronização Total do Ecossistema de Skills (DecoHUB)', ()
         INSERT INTO projects (id, name, path, status, created_at, updated_at)
         VALUES (?, ?, ?, 'active', ?, ?)
       `).run(testProjectId, 'Skill Sync Test Project', testProjectDir, new Date().toISOString(), new Date().toISOString());
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "skillEcosystemSynchronization.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:skillEcosystemSynchronization.test]", err);
+      }
+    }
 
     SkillRouter.clearPhysicalSkillsCache();
   });
@@ -44,11 +54,31 @@ describe('FASE 20: Sincronização Total do Ecossistema de Skills (DecoHUB)', ()
       db.prepare('DELETE FROM autonomous_tasks WHERE run_id IN (SELECT id FROM autonomous_runs WHERE project_id = ?)').run(testProjectId);
       db.prepare('DELETE FROM autonomous_runs WHERE project_id = ?').run(testProjectId);
       db.prepare('DELETE FROM projects WHERE id = ?').run(testProjectId);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "skillEcosystemSynchronization.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:skillEcosystemSynchronization.test]", err);
+      }
+    }
 
     try {
       fs.rmSync(testProjectDir, { recursive: true, force: true });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "skillEcosystemSynchronization.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:skillEcosystemSynchronization.test]", err);
+      }
+    }
 
     SkillRouter.clearPhysicalSkillsCache();
   });

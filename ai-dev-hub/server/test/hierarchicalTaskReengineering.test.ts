@@ -723,7 +723,17 @@ class FinanceStore {
   }
   _load() {
     if (fs.existsSync(this.filePath)) {
-      try { this.state = JSON.parse(fs.readFileSync(this.filePath, 'utf-8')); } catch {}
+      try { this.state = JSON.parse(fs.readFileSync(this.filePath, 'utf-8')); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "hierarchicalTaskReengineering.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:hierarchicalTaskReengineering.test]", err);
+      }
+    }
     }
   }
   save() {

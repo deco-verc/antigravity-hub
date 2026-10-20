@@ -32,7 +32,17 @@ test('DAG Auto-Healer & Graph Normalizer Regression Suite (Production Resilience
       db.prepare('DELETE FROM autonomous_runs WHERE project_id = ?').run(projId);
       db.prepare('DELETE FROM projects WHERE id = ?').run(projId);
       fs.rmSync(tmpRoot, { recursive: true, force: true });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "dagAutoHealerRegression.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:dagAutoHealerRegression.test]", err);
+      }
+    }
   });
 
   await t.test('1. Resolução Multi-Chave: Referência a códigos de Grandes Tarefas (GT-1, GT-2)', () => {

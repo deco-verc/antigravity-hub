@@ -68,7 +68,17 @@ describe('Multi-Account & Rapid Switch Final Connection Suite', () => {
     assert.strictEqual(updatedRecord.accountProfileId, 'profile-2');
 
     // Limpeza
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "multiAccountRapidSwitchConnection.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:multiAccountRapidSwitchConnection.test]", err);
+      }
+    }
   });
 
   test('2. profileUserDataDirectory e selectProfileRuntime aceitam caminho canônico e raiz de perfil', () => {
@@ -178,7 +188,17 @@ describe('Multi-Account & Rapid Switch Final Connection Suite', () => {
       assert.strictEqual(updatedRun.status, 'running');
     } finally {
       AccountProfileManager.setVerifyProbeOverrideForTest(null);
-      try { fs.rmSync(testProjectDir, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(testProjectDir, { recursive: true, force: true }); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "multiAccountRapidSwitchConnection.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:multiAccountRapidSwitchConnection.test]", err);
+      }
+    }
     }
   });
 

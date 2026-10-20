@@ -263,7 +263,17 @@ export class ConversationManager {
       try {
         const projRow = db.prepare('SELECT name FROM projects WHERE id = ?').get(projectId) as any;
         if (projRow?.name) projectName = projRow.name;
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "conversationManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:conversationManager]", err);
+      }
+    }
     }
 
     // Determine clean user-facing title
@@ -381,7 +391,17 @@ export class ConversationManager {
             nowIso,
             JSON.stringify({ model, title, accountProfileId })
           );
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "conversationManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:conversationManager]", err);
+      }
+    }
       }
 
       db.exec('COMMIT');
@@ -522,7 +542,17 @@ export class ConversationManager {
         SET last_used_at = ?, last_successful_turn_at = ?, context_estimate = context_estimate + ?
         WHERE provider_conversation_id = ?
       `).run(nowIso, nowIso, charIncrement, conversationId);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "conversationManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:conversationManager]", err);
+      }
+    }
   }
 
   /**

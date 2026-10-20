@@ -99,7 +99,17 @@ export class ObservabilityService {
     // 1. Output to file logger
     try {
       this.fileLogger.appendEvent(event);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "observabilityService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:observabilityService]", err);
+      }
+    }
 
     // 2. Persist to SQLite database with safe recursion prevention and fallback buffer
     if (!this.isWritingToDb) {
@@ -159,7 +169,17 @@ export class ObservabilityService {
                 fb.durationMs ?? null, fb.status ?? null, fb.error ? JSON.stringify(fb.error) : null,
                 fb.metadata ? JSON.stringify(fb.metadata) : null, fb.createdAt
               );
-            } catch {}
+            } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "observabilityService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:observabilityService]", err);
+      }
+    }
           }
         }
       } catch (dbErr: any) {
@@ -357,7 +377,17 @@ export class ObservabilityService {
           try {
             const parsed = JSON.parse(row.error_json);
             errKey = `${parsed.name || 'Error'}: ${parsed.message || row.message}`;
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "observabilityService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:observabilityService]", err);
+      }
+    }
         }
 
         const existing = map.get(errKey);
@@ -449,11 +479,31 @@ export class ObservabilityService {
   private static mapRowToEvent(r: any): ObservabilityEvent {
     let error: any = null;
     if (r.error_json) {
-      try { error = JSON.parse(r.error_json); } catch {}
+      try { error = JSON.parse(r.error_json); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "observabilityService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:observabilityService]", err);
+      }
+    }
     }
     let metadata: any = null;
     if (r.metadata_json) {
-      try { metadata = JSON.parse(r.metadata_json); } catch {}
+      try { metadata = JSON.parse(r.metadata_json); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "observabilityService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:observabilityService]", err);
+      }
+    }
     }
 
     return {

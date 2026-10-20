@@ -540,7 +540,17 @@ export class BenchmarkService {
         }
         return headContent.slice(0, 8);
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "benchmarkService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:benchmarkService]", err);
+      }
+    }
     return 'f18-prod';
   }
 
@@ -1666,7 +1676,17 @@ export class BenchmarkService {
         let details: any = {};
         try {
           details = row.details_json ? JSON.parse(row.details_json) : {};
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "benchmarkService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:benchmarkService]", err);
+      }
+    }
 
         const spec = PROMPT_ARENA_VARIANTS.find(s => s.id === row.variant_id) || {
           id: row.variant_id,
@@ -1713,7 +1733,17 @@ export class BenchmarkService {
       let summaryData: any = {};
       try {
         summaryData = runRow.summary_json ? JSON.parse(runRow.summary_json) : {};
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "benchmarkService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:benchmarkService]", err);
+      }
+    }
 
       const ablationGainOverNative = summaryData.ablationGainOverNative || {
         iqGain: Number((champion.decoHubIqScore - nativeVariant.decoHubIqScore).toFixed(1)),

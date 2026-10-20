@@ -728,7 +728,17 @@ export class AntiSlopBenchmarkRunner {
       // Cleanup temporary directory
       try {
         fs.rmSync(tmpDir, { recursive: true, force: true });
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "antiSlopBenchmark",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:antiSlopBenchmark]", err);
+      }
+    }
     }
   }
 

@@ -43,7 +43,17 @@ test('Sequential Orchestration, Idempotency & Intelligent Evaluation Suite (24 S
       db.prepare('DELETE FROM autonomous_runs WHERE project_id = ?').run(projId);
       db.prepare('DELETE FROM projects WHERE id = ?').run(projId);
       fs.rmSync(tmpRoot, { recursive: true, force: true });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "sequentialOrchestrator.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:sequentialOrchestrator.test]", err);
+      }
+    }
   });
 
   // -------------------------------------------------------------

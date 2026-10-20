@@ -38,7 +38,17 @@ test('Karpathy Critical Review & Surgical Refinement Suite', async (t) => {
   t.after(() => {
     try {
       fs.rmSync(tmpRoot, { recursive: true, force: true });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "karpathyCriticalReview.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:karpathyCriticalReview.test]", err);
+      }
+    }
   });
 
   await t.test('1. Contexto Inteligente: Seleciona decisões por relevância sem cortes arbitrários de 8 linhas', () => {

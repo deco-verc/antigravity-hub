@@ -352,7 +352,17 @@ test('validação básica de CPF', () => {
   // Cleanup
   try {
     fs.rmSync(tempBase, { recursive: true, force: true });
-  } catch {}
+  } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "liveAdaptivePromptsValidation",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:liveAdaptivePromptsValidation]", err);
+      }
+    }
 
   console.log('\n=== HOMOLOGAÇÃO COMPLETA: TODOS OS 8 PASSOS CONCLUÍDOS COM SUCESSO TOTAL! ===');
 }

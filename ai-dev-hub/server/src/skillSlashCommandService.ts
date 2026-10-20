@@ -618,7 +618,17 @@ export class SkillSlashCommandService {
       let sizeBytes = 0;
       try {
         sizeBytes = fs.statSync(sPath).size;
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "skillSlashCommandService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:skillSlashCommandService]", err);
+      }
+    }
 
       const numPrefixMatch = filename.match(/^(\d{2})-([a-zA-Z0-9_\-]+)\.(png|jpe?g)$/i);
       let label = filename;
@@ -742,7 +752,17 @@ export class SkillSlashCommandService {
           if (existingPngs.length > 0) {
             evidenceScreenshots = existingPngs;
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "skillSlashCommandService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:skillSlashCommandService]", err);
+      }
+    }
       }
 
       if (evidenceScreenshots.length === 0) {
@@ -1254,7 +1274,17 @@ export class SkillSlashCommandService {
             version = pkg.version.startsWith('v') ? pkg.version : `v${pkg.version}`;
           }
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "skillSlashCommandService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:skillSlashCommandService]", err);
+      }
+    }
     }
     if (!version) {
       version = 'v1.0.0';
@@ -1282,7 +1312,17 @@ export class SkillSlashCommandService {
         name: context.projectName || path.basename(resolvedPath),
         path: resolvedPath
       });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "skillSlashCommandService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:skillSlashCommandService]", err);
+      }
+    }
 
     const badges = homologation?.badges || [];
     const badgesMap = new Map<string, any>(badges.map((b: any) => [b.id, b]));
@@ -1304,7 +1344,17 @@ export class SkillSlashCommandService {
       if (rows && rows.length > 0) {
         completedTasks = rows;
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "skillSlashCommandService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:skillSlashCommandService]", err);
+      }
+    }
 
     // 6. Calculate verdict
     const blockingIssues: string[] = [];
@@ -1453,7 +1503,17 @@ export class SkillSlashCommandService {
       });
 
       setTimeout(() => {
-        AutonomousRunnerService.schedulerTick().catch(() => {});
+        AutonomousRunnerService.schedulerTick().catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "skillSlashCommandService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:skillSlashCommandService]", err);
+      }
+    });
       }, 100);
     }
 
@@ -1562,7 +1622,17 @@ export class SkillSlashCommandService {
     });
 
     setTimeout(() => {
-      AutonomousRunnerService.schedulerTick().catch(() => {});
+      AutonomousRunnerService.schedulerTick().catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "skillSlashCommandService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:skillSlashCommandService]", err);
+      }
+    });
     }, 100);
 
     return {
@@ -1595,14 +1665,34 @@ export class SkillSlashCommandService {
     ) {
       try {
         await DesignSkillService.provisionDesignSkillsForProject(args || 'design premium', context.projectPath);
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "skillSlashCommandService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:skillSlashCommandService]", err);
+      }
+    }
     }
 
     // 4. If command is /rea, ensure REA blueprint is copied
     if (def.command === '/rea') {
       try {
         await ReaSaaSMasterService.analyzeAndApplyReaBlueprint('saas-master', context.projectPath);
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "skillSlashCommandService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:skillSlashCommandService]", err);
+      }
+    }
     }
 
     const objective = `${def.title}: ${args ? args.slice(0, 100) : 'Execução sob demanda'}`;
@@ -1622,7 +1712,17 @@ export class SkillSlashCommandService {
     });
 
     setTimeout(() => {
-      AutonomousRunnerService.schedulerTick().catch(() => {});
+      AutonomousRunnerService.schedulerTick().catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "skillSlashCommandService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:skillSlashCommandService]", err);
+      }
+    });
     }, 100);
 
     return {

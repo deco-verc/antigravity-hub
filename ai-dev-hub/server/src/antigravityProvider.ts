@@ -244,7 +244,17 @@ export class AntigravityProvider implements AgentProvider {
             if (parsedMeta?.accountProfileId && parsedMeta.accountProfileId !== options.accountProfileId) {
               sessionMatchesAccount = false;
             }
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "antigravityProvider",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:antigravityProvider]", err);
+      }
+    }
         }
 
         if (sessionMatchesAccount) {
@@ -478,7 +488,17 @@ export class AntigravityProvider implements AgentProvider {
               if (typeof args === 'string') {
                 try {
                   args = JSON.parse(args);
-                } catch {}
+                } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "antigravityProvider",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:antigravityProvider]", err);
+      }
+    }
               }
 
               if (
@@ -531,12 +551,32 @@ export class AntigravityProvider implements AgentProvider {
                       break;
                     }
                   }
-                } catch {}
+                } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "antigravityProvider",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:antigravityProvider]", err);
+      }
+    }
               }
             }
             finalResponse = fullContent;
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "antigravityProvider",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:antigravityProvider]", err);
+      }
+    }
       }
     } catch (err: any) {
       Logger.error(`[AntigravityProvider] Erro ao parsear transcript: ${err.message}`);
@@ -603,9 +643,29 @@ export class AntigravityProvider implements AgentProvider {
             if (parsed.thinkBeforeCoding && !thinkBeforeCoding) thinkBeforeCoding = parsed.thinkBeforeCoding;
             if (parsed.simplicityCheck && !simplicityCheck) simplicityCheck = parsed.simplicityCheck;
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "antigravityProvider",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:antigravityProvider]", err);
       }
-    } catch {}
+    }
+      }
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "antigravityProvider",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:antigravityProvider]", err);
+      }
+    }
 
     return {
       status: isSuccess ? 'success' : 'failure',
@@ -640,11 +700,31 @@ export class AntigravityProvider implements AgentProvider {
     TurnCancellationManager.requestCancellation(sessionId);
     try {
       AgentTurnState.setPhase(sessionId, 'CONSUMED');
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "antigravityProvider",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:antigravityProvider]", err);
+      }
+    }
     try {
       const { ExecutionCoordinator } = await import('./executionCoordinator.js');
       ExecutionCoordinator.releaseByContext({ scope: sessionId });
       ExecutionCoordinator.reconcileDeadReservations();
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "antigravityProvider",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:antigravityProvider]", err);
+      }
+    }
   }
 }

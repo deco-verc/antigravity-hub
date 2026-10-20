@@ -15,7 +15,17 @@ test('GSD & GStack Architectural Integration Test Suite', async (t) => {
   t.after(() => {
     try {
       fs.rmSync(tmpRoot, { recursive: true, force: true });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "gsdAndGstackIntegration.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:gsdAndGstackIntegration.test]", err);
+      }
+    }
   });
 
   // ---------------------------------------------------------------------------

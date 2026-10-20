@@ -81,7 +81,17 @@ export class AntigravityConversationalService {
         if (profile) {
           effectiveEnv = AccountProfileManager.getExecutionEnvForProfile(profile, projectId);
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "antigravityConversationalService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:antigravityConversationalService]", err);
+      }
+    }
     }
 
     // 1. Get or create the persistent CONVERSATIONAL session for this project
@@ -174,7 +184,17 @@ export class AntigravityConversationalService {
                 break;
               }
             }
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "antigravityConversationalService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:antigravityConversationalService]", err);
+      }
+    }
         }
 
         // Send physical message to the Antigravity conversation
@@ -231,7 +251,17 @@ export class AntigravityConversationalService {
               Logger.info(`[ConversationalService] Auto-Failover efetuado: "${failover.previousProfileId}" -> "${failover.activeProfile.display_name}".`);
             }
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "antigravityConversationalService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:antigravityConversationalService]", err);
+      }
+    }
         liveWarning = `[AVISO: Runtime nativo do Antigravity indisponível (${liveErr.message || 'falha de execução'}) — resposta gerada via síntese contextual do DecoHUB]`;
         Logger.warn(`[ConversationalService] Erro ao aguardar agente Antigravity: ${liveErr.message}. Usando síntese contextual.`);
       }
@@ -361,7 +391,17 @@ export class AntigravityConversationalService {
                         return fullEntry.content;
                       }
                     }
-                  } catch {}
+                  } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "antigravityConversationalService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:antigravityConversationalService]", err);
+      }
+    }
                 }
                 return entry.content;
               }

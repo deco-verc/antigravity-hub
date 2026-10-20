@@ -29,7 +29,17 @@ describe('FASE 9: UserExperienceSimulator', () => {
       if (fs.existsSync(tempTestDir)) {
         fs.rmSync(tempTestDir, { recursive: true, force: true });
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "userExperienceSimulator.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:userExperienceSimulator.test]", err);
+      }
+    }
   });
 
   describe('1. Port Allocation & Server Lifecycle', () => {

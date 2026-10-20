@@ -18,7 +18,17 @@ test('Karpathy Native Engineering Layer Suite', async (t) => {
   t.after(() => {
     try {
       fs.rmSync(tmpRoot, { recursive: true, force: true });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "karpathyEngineeringLayer.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:karpathyEngineeringLayer.test]", err);
+      }
+    }
   });
 
   await t.test('TESTE A — Constituição automática (program.md idempotente)', async () => {

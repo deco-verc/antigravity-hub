@@ -1,18 +1,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { runSelfHealingLoop, parseTestOutput, diagnoseFailure, MAX_ALLOWED_ITERATIONS } from './selfHealingLoop.js';
-import { validateWorktreeSandbox } from './ephemeralWorktrees.js';
+import { fileURLToPath } from 'node:url';
+import { runSelfHealingLoop, MAX_ALLOWED_ITERATIONS } from './selfHealingLoop.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const AUTOADAPT_ROOT = path.resolve(__dirname, '..');
 
 /**
  * Executa simulação comparativa entre a Baseline (v0.1.0) e a Versão com Melhorias (v0.2.0).
- * @returns {object}
+ * @returns {Promise<object>}
  */
 export async function runComparativeBenchmark() {
   const startTime = Date.now();
 
-  // -------------------------------------------------------------
-  // Teste Comparativo 1: Resolução de Falhas de Código
-  // -------------------------------------------------------------
   const defectScenarios = [
     {
       id: 'DEF-01',
@@ -36,20 +36,17 @@ export async function runComparativeBenchmark() {
       id: 'DEF-04',
       name: 'Defeito Irrecuperável (Timeout / Dependência Externa Ausente)',
       simulatedError: 'Error: timed out after 5000ms',
-      fixIteration: null // Não corrigível
+      fixIteration: null
     }
   ];
 
-  // Baseline: sem autocorreção (fail-stop imediato)
   let baselineSuccesses = 0;
   for (const scenario of defectScenarios) {
-    // Na baseline, qualquer falha inicial interrompe a execução com erro
     const hasInitialError = Boolean(scenario.simulatedError);
     if (!hasInitialError) baselineSuccesses++;
   }
   const baselineResolutionRatePct = Math.round((baselineSuccesses / defectScenarios.length) * 100);
 
-  // Melhoria: com Self-Healing Loop
   let improvedSuccesses = 0;
   const selfHealingResults = [];
 
@@ -59,7 +56,7 @@ export async function runComparativeBenchmark() {
       runTestFn: () => {
         currentIteration++;
         if (scenario.fixIteration && currentIteration >= scenario.fixIteration) {
-          return { stdout: '✔ Todos os 10 testes passaram', stderr: '', exitCode: 0 };
+          return { stdout: '✔ Todos os 10 testes passaram\nℹ pass 10\nℹ fail 0', stderr: '', exitCode: 0 };
         }
         return {
           stdout: '',
@@ -67,10 +64,7 @@ export async function runComparativeBenchmark() {
           exitCode: 1
         };
       },
-      applyPatchFn: async (diag, iter) => {
-        // Simula aplicação de patch bem-sucedida se o cenário for corrigível
-        return Boolean(scenario.fixIteration);
-      },
+      applyPatchFn: async () => Boolean(scenario.fixIteration),
       maxIterations: MAX_ALLOWED_ITERATIONS
     });
 
@@ -88,17 +82,8 @@ export async function runComparativeBenchmark() {
   }
   const improvedResolutionRatePct = Math.round((improvedSuccesses / defectScenarios.length) * 100);
 
-  // -------------------------------------------------------------
-  // Teste Comparativo 2: Confiabilidade e Contenção de Worktrees
-  // -------------------------------------------------------------
-  // Baseline: 1 único worktree estático; risco de colisão concorrente = 100% se 2 agentes tentarem usar
   const baselineWorktreeCollisionRisk = '100% (Colisão se concorrente)';
-  const baselineCleanupGuaranteed = false;
-
-  // Melhoria: Efêmeros com RAII; risco de colisão = 0%
   const improvedWorktreeCollisionRisk = '0% (Prefixos dinâmicos únicos)';
-  const improvedCleanupGuaranteed = true;
-
   const benchmarkDurationMs = Date.now() - startTime;
 
   return {
@@ -134,10 +119,10 @@ export async function runComparativeBenchmark() {
 /**
  * Gera o relatório oficial em Markdown da validação comparativa.
  * @param {object} benchmarkData
- * @param {string} [outputPath]
+ * @param {string|null} [outputPath]
  * @returns {string}
  */
-export function generateComparativeReport(benchmarkData, outputPath = 'docs/relatorio-validacao-comparativa.md') {
+export function generateComparativeReport(benchmarkData, outputPath = path.join(AUTOADAPT_ROOT, 'docs/relatorio-validacao-comparativa.md')) {
   const content = `# Relatório de Validação Comparativa (Antes vs Depois)
 
 **Projeto:** AutoAdapt  
@@ -172,7 +157,7 @@ A validação comprova que o AutoAdapt adquiriu capacidade autônoma de autocorr
 
 ## 3. Evidências dos Cenários de Teste
 
-${benchmarkData.scenarios.map(s => `- **[${s.scenarioId}] ${s.name}:** ${s.success ? '✔ RECUPERADO COM SUCESSO' : '✖ FALHA NÃO CORRIGÍVEL (ESCALADA CORRETAMENTE)'} (${s.iterations} iterações, motivo: \`${s.reason}\`)`).join('\n')}
+${benchmarkData.scenarios.map(s => `- **[${s.scenarioId}]${s.name}:** ${s.success ? '✔ RECUPERADO COM SUCESSO' : '✖ FALHA NÃO CORRIGÍVEL (ESCALADA CORRETAMENTE)'} (${s.iterations} iterações, motivo: \`${s.reason}\`)`).join('\n')}
 
 ---
 
@@ -191,7 +176,6 @@ ${benchmarkData.scenarios.map(s => `- **[${s.scenarioId}] ${s.name}:** ${s.succe
   return content;
 }
 
-// Execução direta CLI
 if (process.argv[1] && (process.argv[1].endsWith('comparativeBenchmark.js') || process.argv[1].endsWith('comparativeBenchmark'))) {
   const data = await runComparativeBenchmark();
   const report = generateComparativeReport(data);

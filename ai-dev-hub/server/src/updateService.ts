@@ -66,7 +66,17 @@ export class UpdateService {
         const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
         if (pkg.version) return pkg.version;
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "updateService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:updateService]", err);
+      }
+    }
     return '1.0.7';
   }
 
@@ -281,7 +291,17 @@ export class UpdateService {
       if (manifest.sha256) {
         const expectedSha = manifest.sha256.trim().toLowerCase();
         if (calculatedSha.toLowerCase() !== expectedSha) {
-          try { await fs.promises.unlink(tempFilePath); } catch {}
+          try { await fs.promises.unlink(tempFilePath); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "updateService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:updateService]", err);
+      }
+    }
           throw new Error(`Falha de integridade da atualização (SHA-256 divergente: esperado ${expectedSha}, obtido ${calculatedSha})`);
         }
       }
@@ -310,7 +330,17 @@ export class UpdateService {
     } catch (err: any) {
       try {
         if (fs.existsSync(tempFilePath)) await fs.promises.unlink(tempFilePath);
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "updateService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:updateService]", err);
+      }
+    }
 
       this.state.status = 'ERROR';
       this.state.error = err.message;
@@ -341,7 +371,17 @@ export class UpdateService {
       `).get() as any;
 
       if (activeReservation && activeReservation.c > 0) return true;
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "updateService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:updateService]", err);
+      }
+    }
     return false;
   }
 
@@ -440,7 +480,17 @@ export class UpdateService {
     if (this.state.autoCheck && this.state.checkIntervalMinutes > 0) {
       const ms = this.state.checkIntervalMinutes * 60 * 1000;
       this.checkTimer = setInterval(() => {
-        this.checkForUpdates().catch(() => {});
+        this.checkForUpdates().catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "updateService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:updateService]", err);
+      }
+    });
       }, ms);
       if (this.checkTimer && typeof this.checkTimer.unref === 'function') {
         this.checkTimer.unref();
@@ -459,7 +509,17 @@ export class UpdateService {
     this.resetTimer();
     if (this.state.autoCheck && this.state.feedUrl) {
       const initTimer = setTimeout(() => {
-        this.checkForUpdates().catch(() => {});
+        this.checkForUpdates().catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "updateService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:updateService]", err);
+      }
+    });
       }, 5000);
       if (initTimer && typeof initTimer.unref === 'function') {
         initTimer.unref();

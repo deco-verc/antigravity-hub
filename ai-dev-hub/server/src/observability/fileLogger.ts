@@ -57,7 +57,17 @@ export class RotatingFileLogger {
         try {
           const stat = fs.statSync(path.join(this.logsDir, file));
           totalSize += stat.size;
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "fileLogger",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:fileLogger]", err);
+      }
+    }
       }
       return {
         directory: this.logsDir,
@@ -82,18 +92,48 @@ export class RotatingFileLogger {
         const newer = `${filePath}.${i + 1}`;
         if (fs.existsSync(older)) {
           if (i === this.maxRotations - 1 && fs.existsSync(newer)) {
-            try { fs.unlinkSync(newer); } catch {}
+            try { fs.unlinkSync(newer); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "fileLogger",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:fileLogger]", err);
+      }
+    }
           }
           try {
             fs.renameSync(older, newer);
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "fileLogger",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:fileLogger]", err);
+      }
+    }
         }
       }
 
       // Rename current file to .1
       const targetFirst = `${filePath}.1`;
       if (fs.existsSync(targetFirst)) {
-        try { fs.unlinkSync(targetFirst); } catch {}
+        try { fs.unlinkSync(targetFirst); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "fileLogger",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:fileLogger]", err);
+      }
+    }
       }
       fs.renameSync(filePath, targetFirst);
       this.lastRotationTimestamp = new Date().toISOString();
@@ -127,7 +167,17 @@ export class RotatingFileLogger {
       const timeStr = event.timestamp ? new Date(event.timestamp).toISOString() : new Date().toISOString();
       const humanLine = `[${timeStr}] [${event.level}] [${event.service}] [${event.event}] ${event.message}${event.error ? ` | ERROR: ${event.error.message}` : ''}`;
       this.appendLine('backend.log', humanLine);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "fileLogger",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:fileLogger]", err);
+      }
+    }
   }
 }
 

@@ -848,7 +848,17 @@ export class DesignSkillService {
           matchedSkills.add(path.basename(doc.file_path));
         }
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "designSkillService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:designSkillService]", err);
+      }
+    }
 
     // Scan design-skills folder and its immediate subdirectories
     const designSkillsRoot = this.getDesignSkillsDir();
@@ -868,7 +878,17 @@ export class DesignSkillService {
             }
           }
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "designSkillService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:designSkillService]", err);
+      }
+    }
     };
 
     scanSkillsFolder(designSkillsRoot, 0);

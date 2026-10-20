@@ -1,6 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const AUTOADAPT_ROOT = path.resolve(__dirname, '..');
+const REPO_ROOT = path.resolve(AUTOADAPT_ROOT, '..');
 
 /**
  * Normaliza caminhos para comparação independente de separadores de SO ou case.
@@ -18,6 +24,7 @@ export function normalizePath(p) {
  * @returns {Array<{ worktree: string, head: string, branch: string, bare?: boolean }>}
  */
 export function parseWorktreePorcelain(porcelainOutput) {
+  if (!porcelainOutput || typeof porcelainOutput !== 'string') return [];
   const entries = [];
   const blocks = porcelainOutput.trim().split(/\r?\n\r?\n/);
 
@@ -69,21 +76,23 @@ export function getWorktrees(repoPath) {
  * @param {string} options.baseRepo - Repositório base
  * @param {string} options.worktreePath - Caminho esperado do worktree
  * @param {string} [options.expectedBranch] - Branch esperado (ex: 'audit/self-improvement')
- * @returns {{ exists: boolean, branch: string|null, head: string|null, isGitPointerValid: boolean }}
+ * @returns {{ exists: boolean, dirExists: boolean, registeredInGit: boolean, branch: string|null, head: string|null, isGitPointerValid: boolean }}
  */
 export function verifyWorktree({ baseRepo, worktreePath, expectedBranch }) {
   const normWorktreePath = normalizePath(worktreePath);
-  const dirExists = fs.existsSync(worktreePath);
+  const dirExists = Boolean(worktreePath && fs.existsSync(worktreePath));
 
   let isGitPointerValid = false;
-  const gitPath = path.join(worktreePath, '.git');
-  if (fs.existsSync(gitPath)) {
-    const gitStat = fs.statSync(gitPath);
-    if (gitStat.isFile()) {
-      const gitContent = fs.readFileSync(gitPath, 'utf8');
-      isGitPointerValid = gitContent.includes('gitdir:');
-    } else if (gitStat.isDirectory()) {
-      isGitPointerValid = true;
+  if (dirExists) {
+    const gitPath = path.join(worktreePath, '.git');
+    if (fs.existsSync(gitPath)) {
+      const gitStat = fs.statSync(gitPath);
+      if (gitStat.isFile()) {
+        const gitContent = fs.readFileSync(gitPath, 'utf8');
+        isGitPointerValid = gitContent.includes('gitdir:');
+      } else if (gitStat.isDirectory()) {
+        isGitPointerValid = true;
+      }
     }
   }
 
@@ -98,7 +107,7 @@ export function verifyWorktree({ baseRepo, worktreePath, expectedBranch }) {
   }
 
   return {
-    exists: dirExists && Boolean(matched) && branchMatches,
+    exists: dirExists && Boolean(matched) && branchMatches && isGitPointerValid,
     dirExists,
     registeredInGit: Boolean(matched),
     branch: matched?.branch ?? null,
@@ -108,9 +117,10 @@ export function verifyWorktree({ baseRepo, worktreePath, expectedBranch }) {
 }
 
 /**
- * Verifica se o npm install foi executado com sucesso e as dependências existem no diretório.
+ * Verifica se as dependências do package.json estão satisfeitas no diretório.
+ * Suporta pacotes zero-dependencies nativamente.
  * @param {string} targetDir
- * @returns {{ installed: boolean, packageJsonExists: boolean, nodeModulesExists: boolean, packageCount: number }}
+ * @returns {{ installed: boolean, packageJsonExists: boolean, nodeModulesExists: boolean, packageCount: number, zeroDependencies: boolean }}
  */
 export function verifyNpmInstalled(targetDir) {
   const pkgJsonPath = path.join(targetDir, 'package.json');
@@ -119,37 +129,56 @@ export function verifyNpmInstalled(targetDir) {
   const packageJsonExists = fs.existsSync(pkgJsonPath);
   const nodeModulesExists = fs.existsSync(nodeModulesPath);
 
+  let zeroDependencies = false;
+  if (packageJsonExists) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+      const deps = Object.keys(pkg.dependencies || {}).length;
+      const devDeps = Object.keys(pkg.devDependencies || {}).length;
+      zeroDependencies = (deps + devDeps) === 0;
+    } catch {
+      zeroDependencies = false;
+    }
+  }
+
   let packageCount = 0;
   if (nodeModulesExists) {
     try {
       const entries = fs.readdirSync(nodeModulesPath);
-      // Filtra entradas válidas (diretórios, excluindo .bin e .package-lock.json)
       packageCount = entries.filter(e => !e.startsWith('.')).length;
     } catch {
       packageCount = 0;
     }
   }
 
+  const installed = packageJsonExists && (
+    (nodeModulesExists && packageCount > 0) || zeroDependencies
+  );
+
   return {
-    installed: packageJsonExists && nodeModulesExists && packageCount > 0,
+    installed,
     packageJsonExists,
     nodeModulesExists,
-    packageCount
+    packageCount,
+    zeroDependencies
   };
 }
 
 /**
- * Executa a auditoria completa de isolamento do worktree ai-dev-hub-self-improvement.
+ * Executa a auditoria completa de isolamento do worktree.
  * @param {object} [options]
  * @returns {{ success: boolean, worktree: object, npm: object }}
  */
 export function auditWorktreeIsolation(options = {}) {
-  const baseRepo = options.baseRepo || path.resolve('C:/IA/Antigravity HUB/ai-dev-hub');
-  const worktreePath = options.worktreePath || path.resolve('C:/IA/Antigravity HUB/ai-dev-hub-self-improvement');
-  const expectedBranch = options.expectedBranch || 'audit/self-improvement';
+  const baseRepo = options.baseRepo || process.env.AUTOADAPT_BASE_REPO || REPO_ROOT;
+  const worktreePath = options.worktreePath || process.env.AUTOADAPT_WORKTREE_PATH || REPO_ROOT;
+  const expectedBranch = options.expectedBranch || process.env.AUTOADAPT_EXPECTED_BRANCH || undefined;
 
   const worktreeResult = verifyWorktree({ baseRepo, worktreePath, expectedBranch });
-  const npmResult = verifyNpmInstalled(worktreePath);
+  const npmTarget = fs.existsSync(path.join(worktreePath, 'package.json'))
+    ? worktreePath
+    : AUTOADAPT_ROOT;
+  const npmResult = verifyNpmInstalled(npmTarget);
 
   return {
     success: worktreeResult.exists && npmResult.installed,

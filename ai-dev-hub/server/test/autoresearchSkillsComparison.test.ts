@@ -20,7 +20,17 @@ test('Autoresearch & Skills Integration Suite: Controlled Strategy Comparison & 
     execSync('git init -b main', { cwd: tmpRoot, stdio: 'pipe' });
     execSync('git config user.name "DecoHUB Tester"', { cwd: tmpRoot, stdio: 'pipe' });
     execSync('git config user.email "test@decohub.local"', { cwd: tmpRoot, stdio: 'pipe' });
-  } catch {}
+  } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autoresearchSkillsComparison.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autoresearchSkillsComparison.test]", err);
+      }
+    }
 
   // 1. Initial baseline code: slow document search
   const baseCode = `// Baseline search
@@ -62,7 +72,17 @@ console.log('latency_ms: ' + duration);
       db.prepare('DELETE FROM projects WHERE id = ?').run(projId);
       SkillRouter.clearExternalSkillKnowledge();
       fs.rmSync(tmpRoot, { recursive: true, force: true });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autoresearchSkillsComparison.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autoresearchSkillsComparison.test]", err);
+      }
+    }
   });
 
   await t.test('1. Metodologias Reais: SkillRouter expõe atribuição de BMAD, Superpowers, wshobson e agency-agents', () => {

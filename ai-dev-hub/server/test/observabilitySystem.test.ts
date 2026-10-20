@@ -41,7 +41,17 @@ describe('Observability & Diagnostic System — Core Suite', () => {
       if (fs.existsSync(tempLogsDir)) {
         fs.rmSync(tempLogsDir, { recursive: true, force: true });
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "observabilitySystem.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:observabilitySystem.test]", err);
+      }
+    }
   });
 
   describe('1. Sanitizer Security & Privacy Guard', () => {

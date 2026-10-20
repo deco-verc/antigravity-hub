@@ -121,7 +121,17 @@ describe('FASE 14: Entrega Automática de Screenshots do Playwright no Chat', ()
       if (fs.existsSync(tempTestDir)) {
         fs.rmSync(tempTestDir, { recursive: true, force: true });
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "chatCompletionScreenshots.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:chatCompletionScreenshots.test]", err);
+      }
+    }
   });
 
   it('1. Deve registrar automaticamente a mensagem de conclusão no chat com screenshots e 4 selos de homologação', async () => {

@@ -1,24 +1,29 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const AUTOADAPT_ROOT = path.resolve(__dirname, '..');
+
+function resolveDocPath(inputPath, defaultRelPath) {
+  const target = inputPath || defaultRelPath;
+  const fromCwd = path.resolve(target);
+  if (fs.existsSync(fromCwd)) return fromCwd;
+  return path.resolve(AUTOADAPT_ROOT, target);
+}
 
 /**
  * Valida os requisitos de entrega da versão candidata:
  * 1. Diagnóstico e diff agrupados (docs/entrega-versao-candidata.md)
  * 2. Plano de rollback gerado sem merge em master (docs/plano-de-rollback.md)
- * 3. Proibição de merge automático em master
- * @param {object} [options]
- * @returns {{
- *   valid: boolean,
- *   deliveryReportValid: boolean,
- *   rollbackPlanValid: boolean,
- *   isMasterUntouched: boolean,
- *   errors: string[]
- * }}
+ * 3. Relatório comparativo presente (docs/relatorio-validacao-comparativa.md)
+ * 4. Proibição de merge automático em master
  */
 export function validateCandidateDelivery(options = {}) {
-  const deliveryPath = path.resolve(options.deliveryPath || 'docs/entrega-versao-candidata.md');
-  const rollbackPath = path.resolve(options.rollbackPath || 'docs/plano-de-rollback.md');
-  const comparativePath = path.resolve(options.comparativePath || 'docs/relatorio-validacao-comparativa.md');
+  const deliveryPath = resolveDocPath(options.deliveryPath, 'docs/entrega-versao-candidata.md');
+  const rollbackPath = resolveDocPath(options.rollbackPath, 'docs/plano-de-rollback.md');
+  const comparativePath = resolveDocPath(options.comparativePath, 'docs/relatorio-validacao-comparativa.md');
 
   const errors = [];
 
@@ -68,15 +73,36 @@ export function validateCandidateDelivery(options = {}) {
     }
   }
 
-  // 3. Confirmar que a regra de não fazer merge em master é explícita
+  // 3. Validar existência do relatório comparativo
+  if (!fs.existsSync(comparativePath)) {
+    errors.push(`Relatório de validação comparativa não encontrado: ${comparativePath}`);
+  }
+
+  // 4. Confirmar que a regra de não fazer merge em master é explícita na documentação e no Git
   let isMasterUntouched = false;
   if (deliveryReportValid && rollbackPlanValid) {
     const deliveryContent = fs.readFileSync(deliveryPath, 'utf8');
     const rollbackContent = fs.readFileSync(rollbackPath, 'utf8');
-    isMasterUntouched = deliveryContent.includes('Sem merge em master') &&
+    const docsDeclareNoMerge =
+      deliveryContent.includes('Sem merge em master') &&
       rollbackContent.includes('Proibido merge automático em master/main');
+
+    let gitBranchSafe = true;
+    if (options.enforceGitBranchCheck) {
+      try {
+        const currentBranch = execFileSync('git', ['-C', AUTOADAPT_ROOT, 'rev-parse', '--abbrev-ref', 'HEAD'], {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe']
+        }).trim();
+        gitBranchSafe = currentBranch !== 'master' && currentBranch !== 'main';
+      } catch {
+        gitBranchSafe = true;
+      }
+    }
+
+    isMasterUntouched = docsDeclareNoMerge && gitBranchSafe;
     if (!isMasterUntouched) {
-      errors.push('A garantia de não realização de merge automático não está declarada explicitamente.');
+      errors.push('A garantia de não realização de merge automático em master/main foi violada ou omitida.');
     }
   }
 
@@ -91,7 +117,6 @@ export function validateCandidateDelivery(options = {}) {
   };
 }
 
-// Execução direta CLI
 if (process.argv[1] && (process.argv[1].endsWith('candidateDelivery.js') || process.argv[1].endsWith('candidateDelivery'))) {
   const result = validateCandidateDelivery();
   console.log('[AutoAdapt] Validação de Entrega da Versão Candidata:');

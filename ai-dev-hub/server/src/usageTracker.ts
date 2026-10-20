@@ -69,7 +69,17 @@ export class UsageTracker {
               WHERE id = ?
             `).run(params.accountProfileId);
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "usageTracker",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:usageTracker]", err);
+      }
+    }
       }
 
       Logger.info(`[UsageTracker] Execução registrada: Modelo ${params.modelId} (${role}) - ${durationMs}ms`);

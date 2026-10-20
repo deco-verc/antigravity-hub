@@ -21,7 +21,17 @@ test('Cross-Project Isolation & Safety Boundaries Suite', async (t) => {
   t.after(() => {
     try {
       fs.rmSync(tmpRoot, { recursive: true, force: true });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "crossProjectIsolation.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:crossProjectIsolation.test]", err);
+      }
+    }
   });
 
   await t.test('1. Test DB Isolation: Running tests uses temp database and does NOT touch user home hub.db', () => {

@@ -48,7 +48,17 @@ export class TestSelector {
             testFiles.push(rel);
           }
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "testSelector",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:testSelector]", err);
+      }
+    }
     };
 
     for (const d of testDirs) {
@@ -79,7 +89,17 @@ export class TestSelector {
         if (pkg.scripts?.test) {
           fullSuiteCommand = 'npm test';
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "testSelector",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:testSelector]", err);
+      }
+    }
     }
 
     // 1. Mandatory Full Suite Gates

@@ -1,16 +1,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-/**
- * Lê o conteúdo do plano de evolução com tratamento defensivo.
- * @param {string} [filePath]
- * @returns {string}
- */
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const AUTOADAPT_ROOT = path.resolve(__dirname, '..');
+
 export function loadEvolutionPlan(filePath = 'docs/plano-de-evolucao.md') {
   if (!filePath || typeof filePath !== 'string') {
     throw new Error('Caminho de arquivo inválido para o plano de evolução.');
   }
-  const resolved = path.resolve(filePath);
+  let resolved = path.resolve(filePath);
+  if (!fs.existsSync(resolved)) {
+    resolved = path.resolve(AUTOADAPT_ROOT, filePath);
+  }
   if (!fs.existsSync(resolved)) {
     throw new Error(`Arquivo do plano de evolução não encontrado: ${resolved}`);
   }

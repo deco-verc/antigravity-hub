@@ -152,7 +152,17 @@ export class ReaSaaSMasterService {
     if (!fs.existsSync(candidate)) {
       try {
         fs.mkdirSync(candidate, { recursive: true });
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "reaSaaSMasterService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:reaSaaSMasterService]", err);
+      }
+    }
     }
     return candidate;
   }
@@ -242,7 +252,17 @@ export class ReaSaaSMasterService {
             sections.push(content);
             loadedFilesCount++;
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "reaSaaSMasterService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:reaSaaSMasterService]", err);
+      }
+    }
       }
     }
 
@@ -288,7 +308,17 @@ export class ReaSaaSMasterService {
           fromCache = true;
           Logger.info(`[ReaSaaSMasterService] Blueprint REA recuperado do cache: ${path.basename(cacheFile)}`);
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "reaSaaSMasterService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:reaSaaSMasterService]", err);
+      }
+    }
     }
 
     // 2. If not cached, inspect target with rea CLI or synthesize from Master Blueprints

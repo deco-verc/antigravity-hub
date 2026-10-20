@@ -157,7 +157,17 @@ export class AccountProfileManager {
       if (selected && selected.trim().length > 0) {
         return path.resolve(selected);
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
     return path.join(environmentPath, 'AppData', 'Roaming', 'Antigravity');
   }
 
@@ -237,7 +247,17 @@ export class AccountProfileManager {
               validSourceStorage = candidate;
               break;
             }
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
         }
       }
 
@@ -250,11 +270,31 @@ export class AccountProfileManager {
           if (path.resolve(target) !== path.resolve(validSourceStorage) && !fs.existsSync(target)) {
             try {
               fs.copyFileSync(validSourceStorage, target);
-            } catch {}
+            } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
           }
         }
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
 
     return canonicalUserDataDir;
   }
@@ -319,7 +359,17 @@ export class AccountProfileManager {
         if (content['jetski.onboarding.lastLoginUsername']) {
           detectedUser = content['jetski.onboarding.lastLoginUsername'];
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
     }
 
     // Check Account A
@@ -445,7 +495,17 @@ export class AccountProfileManager {
         const p = this.getProfile(setting.value);
         if (p) return p;
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
     const all = this.getAllProfiles();
     const ready = all.find(p => p.auth_status === 'READY') || all[0];
     return (
@@ -493,7 +553,17 @@ export class AccountProfileManager {
         db.prepare('UPDATE projects SET active_account_profile_id = ?, updated_at = ? WHERE id = ?')
           .run(defaultProf.id, new Date().toISOString(), projectId);
         return defaultProf;
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
     }
     return this.getGlobalActiveProfile();
   }
@@ -610,9 +680,29 @@ export class AccountProfileManager {
       if (runningInstance && runningInstance.pid) {
         try {
           process.kill(runningInstance.pid, 'SIGTERM');
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
       }
-    } catch {}
+    }
+      }
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
 
     db.prepare(`DELETE FROM account_project_sessions WHERE account_profile_id = ?`).run(profileId);
     db.prepare(`DELETE FROM account_profiles WHERE id = ?`).run(profileId);
@@ -789,7 +879,17 @@ export class AccountProfileManager {
           detected.add(content['jetski.onboarding.lastLoginUsername']);
         }
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
 
     try {
       const rows: any[] = db
@@ -806,7 +906,17 @@ export class AccountProfileManager {
           }
         }
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
 
     return Array.from(detected);
   }
@@ -859,7 +969,17 @@ export class AccountProfileManager {
             matchedStoragePath = storagePath;
             break;
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
       }
     }
 
@@ -893,7 +1013,17 @@ export class AccountProfileManager {
           matchedStoragePath = cliSettingsPath;
         }
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
 
     const hasAuthEvidence = Boolean(detectedUser && detectedUser.includes('@'));
     return {
@@ -986,7 +1116,17 @@ export class AccountProfileManager {
               detectedUser,
               profile.id
             );
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
         }
       }
     }
@@ -1042,7 +1182,17 @@ export class AccountProfileManager {
             delete content['jetski.onboarding.lastLoginMethod'];
             delete content['antigravity.onboarding.lastLoginUsername'];
             fs.writeFileSync(storagePath, JSON.stringify(content, null, 2), 'utf-8');
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
         }
       }
 
@@ -1052,7 +1202,17 @@ export class AccountProfileManager {
           const pbtxt = fs.readFileSync(stateFile, 'utf-8');
           const cleaned = pbtxt.replace(/.*AGENT_ONBOARDING_STATE_COMPLETED.*\r?\n?/g, '');
           fs.writeFileSync(stateFile, cleaned, 'utf-8');
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
       }
     }
 
@@ -1061,9 +1221,29 @@ export class AccountProfileManager {
       if (runningInstance && runningInstance.pid) {
         try {
           process.kill(runningInstance.pid, 'SIGTERM');
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
       }
-    } catch {}
+    }
+      }
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
 
     db.prepare(`
       UPDATE account_profiles
@@ -1082,7 +1262,17 @@ export class AccountProfileManager {
         WHERE status = 'ACTIVE' AND json_valid(metadata_json) AND json_extract(metadata_json, '$.accountProfileId') = ?
       `).run(now, profileId);
       db.prepare('DELETE FROM account_project_sessions WHERE account_profile_id = ?').run(profileId);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
 
     let switchedToProfileId: string | null = null;
     const all = this.getAllProfiles();
@@ -1191,7 +1381,17 @@ export class AccountProfileManager {
       ) {
         languageServerExecutable = discovered.languageServerExe;
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
     return selectProfileRuntime({
       profilePath: envPath,
       defaultPath: this.defaultRoamingPath,
@@ -1396,7 +1596,17 @@ export class AccountProfileManager {
                 AND json_extract(metadata_json, '$.accountProfileId') IS NOT NULL
                 AND json_extract(metadata_json, '$.accountProfileId') != ?
             `).run(new Date().toISOString(), projectId, targetProfile.id);
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
 
           // Ensure WorkerRegistry workers for this project/profile are aligned
           try {
@@ -1405,7 +1615,17 @@ export class AccountProfileManager {
               SET account_profile_id = ?, status = CASE WHEN status = 'COOLDOWN' THEN 'READY' ELSE status END, updated_at = ?
               WHERE id = 'worker-1'
             `).run(targetProfile.id, new Date().toISOString());
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
         }
       }
     }
@@ -1419,7 +1639,17 @@ export class AccountProfileManager {
             SET status = 'ARCHIVED', last_used_at = ?, rotation_reason = 'GLOBAL_ACCOUNT_SWITCH'
             WHERE status = 'ACTIVE' AND json_valid(metadata_json) AND json_extract(metadata_json, '$.accountProfileId') = ?
           `).run(new Date().toISOString(), previousProfile.id);
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
 
         try {
           db.prepare(`
@@ -1427,7 +1657,17 @@ export class AccountProfileManager {
             SET account_profile_id = ?, status = CASE WHEN status = 'COOLDOWN' THEN 'READY' ELSE status END, updated_at = ?
             WHERE id = 'worker-1'
           `).run(targetProfile.id, new Date().toISOString());
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
       }
     }
 
@@ -1521,7 +1761,17 @@ export class AccountProfileManager {
             AND (last_error LIKE '%RESOURCE_EXHAUSTED%' OR last_error LIKE '%429%' OR last_error LIKE '%cota%' OR last_error LIKE '%AGENTAPI_UNAVAILABLE%')
         `).run(`Rapid Switch global concluído para "${targetProfile.display_name}". Retomando execução.`, nowIso);
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
 
     const refreshedTarget = this.getProfile(targetProfile.id) || targetProfile;
     const message = `Rapid Switch concluído: "${currentProfile.display_name}" -> "${refreshedTarget.display_name}"${instance ? ` (Runtime online em ${instance.address})` : ''}.`;
@@ -1659,7 +1909,17 @@ export class AccountProfileManager {
                 AND json_extract(metadata_json, '$.accountProfileId') IS NOT NULL
                 AND json_extract(metadata_json, '$.accountProfileId') != ?
             `).run(new Date().toISOString(), projectId, targetProfile.id);
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
 
           try {
             db.prepare(`
@@ -1667,7 +1927,17 @@ export class AccountProfileManager {
               SET account_profile_id = ?, status = CASE WHEN status = 'COOLDOWN' THEN 'READY' ELSE status END, updated_at = ?
               WHERE id = 'worker-1'
             `).run(targetProfile.id, new Date().toISOString());
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
         }
       }
     }
@@ -1681,7 +1951,17 @@ export class AccountProfileManager {
             SET status = 'ARCHIVED', last_used_at = ?, rotation_reason = 'GLOBAL_ACCOUNT_SWITCH'
             WHERE status = 'ACTIVE' AND json_valid(metadata_json) AND json_extract(metadata_json, '$.accountProfileId') = ?
           `).run(new Date().toISOString(), previousProfile.id);
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
 
         try {
           db.prepare(`
@@ -1689,7 +1969,17 @@ export class AccountProfileManager {
             SET account_profile_id = ?, status = CASE WHEN status = 'COOLDOWN' THEN 'READY' ELSE status END, updated_at = ?
             WHERE id = 'worker-1'
           `).run(targetProfile.id, new Date().toISOString());
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
       }
     }
 
@@ -1779,7 +2069,17 @@ export class AccountProfileManager {
             AND (last_error LIKE '%RESOURCE_EXHAUSTED%' OR last_error LIKE '%429%' OR last_error LIKE '%cota%' OR last_error LIKE '%AGENTAPI_UNAVAILABLE%')
         `).run(`Rapid Switch global concluído para "${targetProfile.display_name}". Retomando execução.`, nowIso);
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
 
     const refreshedTarget = this.getProfile(targetProfile.id) || targetProfile;
     const message = `Rapid Switch concluído: "${currentProfile.display_name}" -> "${refreshedTarget.display_name}"${instance ? ` (Runtime online em ${instance.address})` : ''}.`;
@@ -1815,7 +2115,17 @@ export class AccountProfileManager {
       try {
         const activeProj = this.getActiveProfileForProject(params.projectId);
         failedProfileId = activeProj?.id;
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
     }
     if (!failedProfileId) {
       failedProfileId = this.getGlobalActiveProfile().id;
@@ -1861,7 +2171,17 @@ export class AccountProfileManager {
           SET account_profile_id = ?, status = 'READY', current_task_id = NULL, current_run_id = NULL, current_issue_number = NULL, updated_at = ?
           WHERE account_profile_id = ?
         `).run(newProfileId, nowIso, failedProfileId);
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
 
       if (params.runId) {
         try {
@@ -1872,7 +2192,17 @@ export class AccountProfileManager {
                 updated_at = ?
             WHERE id = ?
           `).run(`Failover automático executado: alternado para "${switchRes.activeProfile.display_name}".`, nowIso, params.runId);
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
       }
 
       Logger.success(
@@ -1904,7 +2234,17 @@ export class AccountProfileManager {
       try {
         const activeProj = this.getActiveProfileForProject(params.projectId);
         failedProfileId = activeProj?.id;
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
     }
     if (!failedProfileId) {
       failedProfileId = this.getGlobalActiveProfile().id;
@@ -1976,7 +2316,17 @@ export class AccountProfileManager {
               reason: classification.reason
             }
           );
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
       }
 
       Logger.success(
@@ -2033,7 +2383,17 @@ export class AccountProfileManager {
         SET status = 'COOLDOWN', updated_at = ?
         WHERE account_profile_id = ?
       `).run(nowIso, profileId);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
 
     Logger.warn(
       `[AccountProfileManager] Conta ${profileId} marcada como QUOTA_EXHAUSTED (Reseta às ${resetTime.toLocaleTimeString()}).`
@@ -2061,7 +2421,17 @@ export class AccountProfileManager {
             SET status = 'WAITING', updated_at = ?
             WHERE account_profile_id = ? AND status = 'COOLDOWN'
           `).run(now, profileId);
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
 
         Logger.info(
           `[AccountProfileManager] Cooldown expirou para "${profile.display_name}". Elegível para nova tentativa; quota permanece desconhecida.`
@@ -2088,7 +2458,17 @@ export class AccountProfileManager {
       if (this._verifyProbeOverride || (!this.isAutomatedTestRuntime() && !this.isOfflineMode())) {
         try {
           profile = this.verifyProfile(profileId).profile;
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "accountProfileManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:accountProfileManager]", err);
+      }
+    }
       }
     }
 

@@ -829,7 +829,17 @@ export class SkillRouter {
           verification: routedSkill.suggestedVerification
         }
       );
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "skillRouter",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:skillRouter]", err);
+      }
+    }
 
     Logger.info(`[SkillRouter] Tarefa "${taskId.slice(0, 8)}" roteada para [${routedSkill.skill}]: ${routedSkill.displayName}`);
   }

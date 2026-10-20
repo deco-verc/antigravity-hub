@@ -111,7 +111,17 @@ export class ProjectContextBridge {
     let gitInfo: { branch: string | null; lastCommit: any; changedFiles: any[] } = { branch: 'main', lastCommit: null, changedFiles: [] };
     try {
       gitInfo = GitManager.getGitInfo(project.path);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectContextBridge",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectContextBridge]", err);
+      }
+    }
 
     // 3. Autonomous Run (Active or Latest)
     const activeRun = AutonomousManager.getActiveRunForProject(projectId);
@@ -140,12 +150,32 @@ export class ProjectContextBridge {
         let criteria: string[] = [];
         try {
           if (t.criteria_json) criteria = JSON.parse(t.criteria_json);
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectContextBridge",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectContextBridge]", err);
+      }
+    }
 
         let dependencies: string[] = [];
         try {
           if (t.dependencies_json) dependencies = JSON.parse(t.dependencies_json);
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectContextBridge",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectContextBridge]", err);
+      }
+    }
 
         taskList.push({
           id: t.id,
@@ -189,9 +219,39 @@ export class ProjectContextBridge {
         let failedCrit: string[] = [];
         let passedCrit: string[] = [];
         let execCmds: string[] = [];
-        try { if (evalRow.failed_criteria_json) failedCrit = JSON.parse(evalRow.failed_criteria_json); } catch {}
-        try { if (evalRow.passed_criteria_json) passedCrit = JSON.parse(evalRow.passed_criteria_json); } catch {}
-        try { if (evalRow.executed_commands_json) execCmds = JSON.parse(evalRow.executed_commands_json); } catch {}
+        try { if (evalRow.failed_criteria_json) failedCrit = JSON.parse(evalRow.failed_criteria_json); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectContextBridge",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectContextBridge]", err);
+      }
+    }
+        try { if (evalRow.passed_criteria_json) passedCrit = JSON.parse(evalRow.passed_criteria_json); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectContextBridge",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectContextBridge]", err);
+      }
+    }
+        try { if (evalRow.executed_commands_json) execCmds = JSON.parse(evalRow.executed_commands_json); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectContextBridge",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectContextBridge]", err);
+      }
+    }
 
         latestEvaluation = {
           verdict: evalRow.verdict,

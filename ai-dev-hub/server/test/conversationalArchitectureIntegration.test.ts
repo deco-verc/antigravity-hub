@@ -69,11 +69,61 @@ describe('Arquitetura Conversacional Integrada com Antigravity', () => {
   });
 
   after(() => {
-    try { fs.rmSync(tempDir1, { recursive: true, force: true }); } catch {}
-    try { fs.rmSync(tempDir2, { recursive: true, force: true }); } catch {}
-    try { db.prepare('DELETE FROM projects WHERE id IN (?, ?)').run(project1Id, project2Id); } catch {}
-    try { db.prepare('DELETE FROM autonomous_runs WHERE project_id IN (?, ?)').run(project1Id, project2Id); } catch {}
-    try { db.prepare('DELETE FROM agent_sessions WHERE project_id IN (?, ?)').run(project1Id, project2Id); } catch {}
+    try { fs.rmSync(tempDir1, { recursive: true, force: true }); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "conversationalArchitectureIntegration.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:conversationalArchitectureIntegration.test]", err);
+      }
+    }
+    try { fs.rmSync(tempDir2, { recursive: true, force: true }); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "conversationalArchitectureIntegration.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:conversationalArchitectureIntegration.test]", err);
+      }
+    }
+    try { db.prepare('DELETE FROM projects WHERE id IN (?, ?)').run(project1Id, project2Id); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "conversationalArchitectureIntegration.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:conversationalArchitectureIntegration.test]", err);
+      }
+    }
+    try { db.prepare('DELETE FROM autonomous_runs WHERE project_id IN (?, ?)').run(project1Id, project2Id); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "conversationalArchitectureIntegration.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:conversationalArchitectureIntegration.test]", err);
+      }
+    }
+    try { db.prepare('DELETE FROM agent_sessions WHERE project_id IN (?, ?)').run(project1Id, project2Id); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "conversationalArchitectureIntegration.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:conversationalArchitectureIntegration.test]", err);
+      }
+    }
     AgentApiGateway.restoreLiveGateway();
   });
 
@@ -285,8 +335,28 @@ describe('Arquitetura Conversacional Integrada com Antigravity', () => {
         assert.ok(!reviewRes.justification.includes('aprovada com nota 10/10'), 'Justificativa de reprovação não pode conter elogio contraditório');
         assert.ok(reviewRes.justification.includes('Critério A não atendido') || reviewRes.justification.includes('Reprovado'), 'Justificativa deve conter o motivo real da falha');
       } finally {
-        try { db.prepare('DELETE FROM autonomous_tasks WHERE id = ?').run(taskId); } catch {}
-        try { db.prepare('DELETE FROM autonomous_runs WHERE id = ?').run(runId); } catch {}
+        try { db.prepare('DELETE FROM autonomous_tasks WHERE id = ?').run(taskId); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "conversationalArchitectureIntegration.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:conversationalArchitectureIntegration.test]", err);
+      }
+    }
+        try { db.prepare('DELETE FROM autonomous_runs WHERE id = ?').run(runId); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "conversationalArchitectureIntegration.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:conversationalArchitectureIntegration.test]", err);
+      }
+    }
       }
     });
   });

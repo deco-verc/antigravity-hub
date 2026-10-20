@@ -75,7 +75,17 @@ export class ResearchManager {
           }
         }
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "researchManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:researchManager]", err);
+      }
+    }
 
     // 3. Try standard metric labels (e.g. "val_bpb: 0.99", "latency_ms: 120", "score: 95.5")
     const standardMatches = [
@@ -266,7 +276,17 @@ export class ResearchManager {
         linesRemoved += parseInt(del, 10) || 0;
         if (!filesChanged.includes(file)) filesChanged.push(file);
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "researchManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:researchManager]", err);
+      }
+    }
 
     const complexityDelta = linesAdded - linesRemoved;
 
@@ -276,7 +296,17 @@ export class ResearchManager {
     if (violatedProtected.length > 0) {
       Logger.error(`🚨 [ResearchManager] Violação de arquivo protegido detectada: ${violatedProtected.join(', ')}`);
       // Revert immediately
-      try { execSync(`git reset --hard ${bestCommitBefore}`, { cwd: params.projectPath }); } catch {}
+      try { execSync(`git reset --hard ${bestCommitBefore}`, { cwd: params.projectPath }); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "researchManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:researchManager]", err);
+      }
+    }
       const crashRecord: ResearchExperimentRecord = {
         id: crypto.randomUUID(),
         researchRunId: params.runId,
@@ -350,7 +380,17 @@ export class ResearchManager {
       try {
         Logger.info(`[ResearchManager] Revertendo CRASH para commit estável ${bestCommitBefore.slice(0, 7)}...`);
         execSync(`git reset --hard ${bestCommitBefore}`, { cwd: params.projectPath });
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "researchManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:researchManager]", err);
+      }
+    }
     } else {
       delta = measuredMetric - bestMetricBefore;
 
@@ -367,7 +407,17 @@ export class ResearchManager {
             reason = `DISCARD (Simplicity Penalty): Ganho marginal de apenas ${improvementPct.toFixed(2)}% acompanhado de alta complexidade (+${complexityDelta} LOC). Princípio Simplicity First violado. Revertido.`;
             try {
               execSync(`git reset --hard ${bestCommitBefore}`, { cwd: params.projectPath });
-            } catch {}
+            } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "researchManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:researchManager]", err);
+      }
+    }
           } else {
             status = 'KEEP';
             reason = `KEEP: Métrica otimizada com sucesso! (${bestMetricBefore} -> ${measuredMetric}, ganho de ${improvementPct.toFixed(2)}%). Commit mantido.`;
@@ -377,7 +427,17 @@ export class ResearchManager {
           reason = `DISCARD: Métrica piorou ou estagnou (${measuredMetric} vs melhor ${bestMetricBefore}). Código revertido.`;
           try {
             execSync(`git reset --hard ${bestCommitBefore}`, { cwd: params.projectPath });
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "researchManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:researchManager]", err);
+      }
+    }
         }
       } else {
         // MAXIMIZE (higher is better)
@@ -390,7 +450,17 @@ export class ResearchManager {
             reason = `DISCARD (Simplicity Penalty): Ganho marginal de apenas ${improvementPct.toFixed(2)}% com complexidade excessiva (+${complexityDelta} LOC). Revertido.`;
             try {
               execSync(`git reset --hard ${bestCommitBefore}`, { cwd: params.projectPath });
-            } catch {}
+            } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "researchManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:researchManager]", err);
+      }
+    }
           } else {
             status = 'KEEP';
             reason = `KEEP: Métrica maximizada com sucesso! (${bestMetricBefore} -> ${measuredMetric}, ganho de ${improvementPct.toFixed(2)}%). Commit mantido.`;
@@ -400,7 +470,17 @@ export class ResearchManager {
           reason = `DISCARD: Métrica piorou ou estagnou (${measuredMetric} vs melhor ${bestMetricBefore}). Código revertido.`;
           try {
             execSync(`git reset --hard ${bestCommitBefore}`, { cwd: params.projectPath });
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "researchManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:researchManager]", err);
+      }
+    }
         }
       }
     }
@@ -530,7 +610,17 @@ export class ResearchManager {
       try {
         Logger.info(`[ResearchManager] Run finalizado. Garantindo que o working tree está no melhor commit ${run.best_commit.slice(0, 7)}...`);
         execSync(`git reset --hard ${run.best_commit}`, { cwd: projectPath });
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "researchManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:researchManager]", err);
+      }
+    }
     }
 
     return this.getResearchRun(runId);
@@ -690,7 +780,17 @@ export class ResearchManager {
       execSync(`git reset --hard ${baselineCommit}`, { cwd: params.projectPath, stdio: 'pipe' });
       db.prepare('UPDATE research_runs SET best_metric = ?, best_commit = ? WHERE id = ?')
         .run(baselineMetric, baselineCommit, researchRun.id);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "researchManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:researchManager]", err);
+      }
+    }
 
     // 4. Executar Experimento B (Candidato B) a partir do mesmo baseline
     const expB = await this.executeExperimentStep({
@@ -745,7 +845,17 @@ export class ResearchManager {
     // 6. Assegurar que o workspace físico reflete o vencedor final
     try {
       execSync(`git reset --hard ${winningCommit}`, { cwd: params.projectPath, stdio: 'pipe' });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "researchManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:researchManager]", err);
+      }
+    }
 
     // 7. Atualizar status final do Run de pesquisa
     const nowIso = new Date().toISOString();

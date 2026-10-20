@@ -60,16 +60,46 @@ export class SystemManager {
     } catch {
       try {
         npmVer = execSync('npm -v', { encoding: 'utf-8', timeout: 3000 }).trim();
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "systemManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:systemManager]", err);
+      }
+    }
     }
 
     try {
       pythonVer = execSync('python --version', { encoding: 'utf-8', timeout: 3000 }).trim();
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "systemManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:systemManager]", err);
+      }
+    }
 
     try {
       gitVer = execSync('git --version', { encoding: 'utf-8', timeout: 3000 }).trim();
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "systemManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:systemManager]", err);
+      }
+    }
 
     // 2. DB Info
     const dbPath = this.getDbPath();

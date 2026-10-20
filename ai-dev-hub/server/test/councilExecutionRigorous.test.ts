@@ -28,7 +28,17 @@ test('Council Rigorous Verification Suite: Defective Plan Rejection, Anti-Slop G
       db.prepare('DELETE FROM autonomous_runs WHERE project_id = ?').run(projId);
       db.prepare('DELETE FROM projects WHERE id = ?').run(projId);
       fs.rmSync(tmpRoot, { recursive: true, force: true });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "councilExecutionRigorous.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:councilExecutionRigorous.test]", err);
+      }
+    }
   });
 
   await t.test('1. Council Plan Critique: Reprova plano com critérios ausentes (CHANGES_REQUESTED)', async () => {

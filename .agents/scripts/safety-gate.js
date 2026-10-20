@@ -5,19 +5,19 @@
  */
 
 const RED_PATTERNS = [
-  /(?:drop\s+database|rmdir\s+\/s|rm\s+-rf\s+[\/\*]|del\s+\/s\s+\/q)/i,
-  /(?:git\s+push\s+(?:origin\s+)?(?:main|master|prod|production)|git\s+push\s+--force)/i,
-  /(?:vercel\s+--prod|netlify\s+deploy\s+--prod|aws\s+s3\s+sync.*prod|terraform\s+apply)/i,
-  /(?:stripe|payment|credit_card|buy|purchase|checkout_session|checkout_api|billing)/i,
-  /(?:api_key|secret_key|private_key|token|password|credentials\.json|\.env\.production)/i,
-  /(?:route53|cloudflare\s+dns|dns\s+record|nameserver)/i
+  /\b(?:drop\s+database|rmdir\s+\/s|rm\s+-rf\s+(?:\/|\*|--no-preserve-root)|del\s+\/s\s+\/q)\b/i,
+  /\bgit\s+push\s+(?:--force|-f|(?:origin\s+)?(?:main|master|prod|production)\s+--force)\b/i,
+  /\b(?:vercel\s+--prod|netlify\s+deploy\s+--prod|aws\s+s3\s+sync\b.*--delete.*prod|terraform\s+apply\s+-auto-approve)\b/i,
+  /\b(?:stripe\s+charges\s+create|checkout_session|billing\s+override)\b/i,
+  /(?:--api[-_]?key|--secret[-_]?key|--private[-_]?key|--password|credentials\.json|\.env\.production)\b/i,
+  /\b(?:route53\s+change-resource-record-sets|cloudflare\s+dns\s+delete)\b/i
 ];
 
 const ORANGE_PATTERNS = [
-  /(?:alter\s+table.*drop\s+column|migrate\s+down|prisma\s+migrate\s+reset)/i,
-  /(?:switch\s+framework|rewrite\s+in\s+vue|rewrite\s+in\s+angular)/i,
-  /(?:openai|anthropic|replicate|elevenlabs|aws-sdk|@google\/genai).*install/i,
-  /(?:remove\s+feature|deprecate\s+requirement)/i
+  /\b(?:alter\s+table\b.*\bdrop\s+column|migrate\s+down|prisma\s+migrate\s+reset)\b/i,
+  /\b(?:git\s+push\s+(?:origin\s+)?(?:main|master|prod|production))\b/i,
+  /\b(?:npm|pnpm|yarn|bun)\s+(?:install|add|i)\s+.*\b(?:openai|anthropic|replicate|elevenlabs|aws-sdk|@google\/genai)\b/i,
+  /\b(?:terraform\s+apply|remove\s+feature|deprecate\s+requirement)\b/i
 ];
 
 let inputData = '';
@@ -27,20 +27,41 @@ process.stdin.on('data', chunk => {
   inputData += chunk;
 });
 
+function extractCommand(payload) {
+  if (!payload || typeof payload !== 'object') return '';
+  const args = payload.toolCall?.args || payload.tool_input || payload.input || payload.args || {};
+  return String(
+    args.CommandLine ||
+    args.command ||
+    args.cmd ||
+    args.script ||
+    payload.command ||
+    ''
+  ).trim();
+}
+
 process.stdin.on('end', () => {
   try {
-    const payload = JSON.parse(inputData || '{}');
-    const toolCall = payload.toolCall || {};
-    const cmd = toolCall.args?.CommandLine || '';
+    if (!inputData.trim()) {
+      process.stdout.write(JSON.stringify({ decision: 'allow' }));
+      return;
+    }
+
+    const payload = JSON.parse(inputData);
+    const cmd = extractCommand(payload);
+
+    if (!cmd) {
+      process.stdout.write(JSON.stringify({ decision: 'allow' }));
+      return;
+    }
 
     // Check RED
     for (const p of RED_PATTERNS) {
       if (p.test(cmd)) {
-        const response = {
+        process.stdout.write(JSON.stringify({
           decision: 'deny',
           reason: `[AI DEV HUB SECURITY RED] Operação estritamente bloqueada pela política de segurança: "${cmd.slice(0, 80)}"`
-        };
-        process.stdout.write(JSON.stringify(response));
+        }));
         return;
       }
     }
@@ -48,22 +69,21 @@ process.stdin.on('end', () => {
     // Check ORANGE
     for (const p of ORANGE_PATTERNS) {
       if (p.test(cmd)) {
-        const response = {
+        process.stdout.write(JSON.stringify({
           decision: 'ask',
           reason: `[AI DEV HUB SECURITY ORANGE] Requer autorização manual na Approval Inbox: "${cmd.slice(0, 80)}"`
-        };
-        process.stdout.write(JSON.stringify(response));
+        }));
         return;
       }
     }
 
     // GREEN / YELLOW allow
-    const response = {
-      decision: 'allow'
-    };
-    process.stdout.write(JSON.stringify(response));
-  } catch (err) {
-    // Fallback safe allow if payload wasn't parsed
     process.stdout.write(JSON.stringify({ decision: 'allow' }));
+  } catch (err) {
+    // Fail-safe: solicita confirmação manual se o payload for corrompido/inválido
+    process.stdout.write(JSON.stringify({
+      decision: 'ask',
+      reason: `[AI DEV HUB SECURITY] Não foi possível validar o payload do comando (${err.message}). Confirme manualmente.`
+    }));
   }
 });

@@ -378,7 +378,17 @@ export class EngineeringContextService {
             }
           }
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "engineeringContextService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:engineeringContextService]", err);
+      }
+    }
     }
 
     const totalSignaturesCount =
@@ -970,7 +980,17 @@ export class EngineeringContextService {
           if (deps.length > 0) {
             notes.push(`Dependências existentes no projeto: ${deps.slice(0, 6).join(', ')}`);
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "engineeringContextService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:engineeringContextService]", err);
+      }
+    }
       }
 
       // Scan existing source files to discover reusable functions/classes so the Worker avoids duplicating utilities
@@ -1003,7 +1023,17 @@ export class EngineeringContextService {
         if (reusableFunctions.length > 0) {
           notes.push(`Funções/módulos existentes para reuso (não duplicar): ${reusableFunctions.slice(0, 10).join(', ')}`);
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "engineeringContextService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:engineeringContextService]", err);
+      }
+    }
     }
 
     const titleAndDesc = `${taskDetails?.title || ''} ${taskDetails?.description || ''}`.toLowerCase();
@@ -1250,7 +1280,17 @@ export class EngineeringContextService {
     if (params.projectPath) {
       try {
         MemoryManager.syncLessonsMd(params.projectPath, lessons);
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "engineeringContextService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:engineeringContextService]", err);
+      }
+    }
     }
 
     return (
@@ -1319,7 +1359,17 @@ export class EngineeringContextService {
       if (params.projectPath) {
         try {
           MemoryManager.syncLessonsMd(params.projectPath, lessons);
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "engineeringContextService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:engineeringContextService]", err);
+      }
+    }
       }
 
       return lessons.find(l => l.id === openLesson.id) || null;

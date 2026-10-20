@@ -123,7 +123,17 @@ export class AgentSessionManager {
     while (this._lockMap.has(key)) {
       try {
         await this._lockMap.get(key);
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "agentSessionManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:agentSessionManager]", err);
+      }
+    }
     }
     let resolveLock!: () => void;
     const lockPromise = new Promise<void>(resolve => { resolveLock = resolve; });
@@ -399,7 +409,17 @@ export class AgentSessionManager {
             nowIso,
             nextGeneration
           );
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "agentSessionManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:agentSessionManager]", err);
+      }
+    }
 
         db.prepare('DELETE FROM agent_creation_reservations WHERE operation_id=?').run(operationId);
         db.exec('COMMIT');
@@ -464,7 +484,17 @@ export class AgentSessionManager {
         SET last_used_at = ?, turn_count = turn_count + 1
         WHERE conversation_id = ?
       `).run(nowIso, session.provider_conversation_id);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "agentSessionManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:agentSessionManager]", err);
+      }
+    }
 
     this.logEvent(
       session.id,
@@ -577,7 +607,17 @@ export class AgentSessionManager {
       try {
         db.prepare("UPDATE conversations SET status = 'retired', rotation_reason = ? WHERE conversation_id = ?")
           .run(reason, active.provider_conversation_id);
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "agentSessionManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:agentSessionManager]", err);
+      }
+    }
 
       this.logEvent(active.id, projectId, role, 'SESSION_ARCHIVED', active.generation, `Sessão anterior arquivada após handoff para Geração ${newSession.generation}.`);
       this.logEvent(newSession.id, projectId, role, 'SESSION_ROTATED', newSession.generation, `Rotação concluída com sucesso: [${role} gen ${active.generation}] -> [${role} gen ${newSession.generation}]. Handoff: ${handoffFileName}`);
@@ -626,10 +666,30 @@ export class AgentSessionManager {
           try {
             const crits = JSON.parse(t.criteria_json);
             if (Array.isArray(crits)) acceptanceCriteria.push(...crits);
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "agentSessionManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:agentSessionManager]", err);
+      }
+    }
         }
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "agentSessionManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:agentSessionManager]", err);
+      }
+    }
 
     // Extract decisions from decisions.md or program.md
     const projectDecisions: string[] = [];
@@ -687,7 +747,17 @@ export class AgentSessionManager {
     try {
       db.prepare("UPDATE conversations SET status = 'retired', rotation_reason = ? WHERE conversation_id = ?")
         .run(reason, session.provider_conversation_id);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "agentSessionManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:agentSessionManager]", err);
+      }
+    }
 
     this.logEvent(sessionId, session.project_id, session.role, status === 'ARCHIVED' ? 'SESSION_ARCHIVED' : 'SESSION_INVALID', session.generation, `Sessão marcada como ${status}. Motivo: ${reason}`);
     Logger.info(`[AgentSessionManager] Sessão ${sessionId} (${session.provider_conversation_id.slice(0, 8)}) marcada como ${status} (${reason})`);
@@ -801,6 +871,16 @@ export class AgentSessionManager {
         metadata ? JSON.stringify(metadata) : null,
         new Date().toISOString()
       );
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "agentSessionManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:agentSessionManager]", err);
+      }
+    }
   }
 }

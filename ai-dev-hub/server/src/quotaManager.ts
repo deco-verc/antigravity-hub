@@ -223,7 +223,17 @@ export class QuotaManager {
           row.quota_resets_at = null;
           row.quota_message = 'Cooldown expirou. Elegível para tentativa; quota e OAuth ainda não confirmados.';
           this.cache.delete(profileId);
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "quotaManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:quotaManager]", err);
+      }
+    }
       }
 
       return row;
@@ -350,7 +360,17 @@ export class QuotaManager {
           return r.id;
         }
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "quotaManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:quotaManager]", err);
+      }
+    }
     return null;
   }
 }

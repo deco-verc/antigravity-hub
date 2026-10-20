@@ -57,7 +57,17 @@ describe('Auditoria Forense e Hardening do Backend (server/src/)', () => {
       await new Promise<void>(resolve => server.close(() => resolve()));
     }
     if (fs.existsSync(testProjectFolder)) {
-      try { fs.rmSync(testProjectFolder, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(testProjectFolder, { recursive: true, force: true }); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "backendForensicHardening.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:backendForensicHardening.test]", err);
+      }
+    }
     }
   });
 
@@ -252,7 +262,17 @@ describe('Auditoria Forense e Hardening do Backend (server/src/)', () => {
       const hijackedFinding = result.findings.find(f => f.type === 'ROOT_ROUTE_HIJACKED_BY_JSON');
       assert.ok(hijackedFinding, 'Deve detectar que GET / retorna JSON apesar de blocos multilinhas intermediários');
     } finally {
-      try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "backendForensicHardening.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:backendForensicHardening.test]", err);
+      }
+    }
     }
   });
 
@@ -277,7 +297,17 @@ describe('Auditoria Forense e Hardening do Backend (server/src/)', () => {
       assert.equal(result.lastStep, 1);
       assert.deepEqual(result.pendingTools, ['read_file']);
     } finally {
-      try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "backendForensicHardening.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:backendForensicHardening.test]", err);
+      }
+    }
     }
   });
 });

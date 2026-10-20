@@ -79,7 +79,17 @@ test('Agent Session & Context Management Suite — Scenarios A through L', async
       db.prepare('DELETE FROM projects WHERE id IN (?, ?)').run(projIdA, projIdB);
       fs.rmSync(tmpRootA, { recursive: true, force: true });
       fs.rmSync(tmpRootB, { recursive: true, force: true });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "agentSessionManagement.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:agentSessionManagement.test]", err);
+      }
+    }
   });
 
   // -----------------------------------------------------------------

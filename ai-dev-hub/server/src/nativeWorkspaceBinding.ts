@@ -50,7 +50,17 @@ export class NativeWorkspaceBinding {
             new Date().toISOString(),
             projectId
           );
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "nativeWorkspaceBinding",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:nativeWorkspaceBinding]", err);
+      }
+    }
       }
     }
 
@@ -72,7 +82,17 @@ export class NativeWorkspaceBinding {
             projectId
           );
           project.active_account_profile_id = accountProfileId;
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "nativeWorkspaceBinding",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:nativeWorkspaceBinding]", err);
+      }
+    }
       }
     }
 
@@ -86,7 +106,17 @@ export class NativeWorkspaceBinding {
         try {
           this.inspect(userProfileDir, id, project.path, NativeExecutionPolicy.get(projectId));
           candidates.push(id);
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "nativeWorkspaceBinding",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:nativeWorkspaceBinding]", err);
+      }
+    }
       }
     }
 
@@ -128,7 +158,17 @@ export class NativeWorkspaceBinding {
             new Date().toISOString(),
             projectId
           );
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "nativeWorkspaceBinding",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:nativeWorkspaceBinding]", err);
+      }
+    }
       }
     }
 
@@ -141,7 +181,17 @@ export class NativeWorkspaceBinding {
       try {
         const parsed = JSON.parse(existingPolicyRow.choice_json);
         if (!options?.mode && parsed.mode) targetMode = parsed.mode;
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "nativeWorkspaceBinding",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:nativeWorkspaceBinding]", err);
+      }
+    }
     } else {
       targetMode = project.full_dev_autonomy === 1 || project.is_trusted === 1 ? 'permissive' : 'restricted';
       const hasActiveRun = db
@@ -195,7 +245,17 @@ export class NativeWorkspaceBinding {
         if (normalizeRuntimePath(existing.userProfileDir) === normalizeRuntimePath(userProfileDir)) {
           return existing;
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "nativeWorkspaceBinding",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:nativeWorkspaceBinding]", err);
+      }
+    }
     }
 
     const directory = path.join(userProfileDir, '.gemini', 'config', 'projects');
@@ -210,7 +270,17 @@ export class NativeWorkspaceBinding {
       try {
         this.inspect(userProfileDir, id, project.path, currentPolicy);
         candidates.push(id);
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "nativeWorkspaceBinding",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:nativeWorkspaceBinding]", err);
+      }
+    }
     }
 
     let nativeProjectId: string;
@@ -266,7 +336,17 @@ export class NativeWorkspaceBinding {
     let policy: any = null;
     try {
       policy = NativeExecutionPolicy.get(projectId);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "nativeWorkspaceBinding",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:nativeWorkspaceBinding]", err);
+      }
+    }
     if (!row) {
       return { isBound: false, project, policy, binding: null, error: 'NATIVE_WORKSPACE_UNBOUND' };
     }
@@ -346,12 +426,32 @@ export class NativeWorkspaceBinding {
           new Date().toISOString(),
           record.projectId
         );
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "nativeWorkspaceBinding",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:nativeWorkspaceBinding]", err);
+      }
+    }
       try {
         db.prepare(
           "UPDATE agent_sessions SET status='ARCHIVED', rotation_reason='ACCOUNT_SWITCH' WHERE project_id=? AND status='ACTIVE'"
         ).run(record.projectId);
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "nativeWorkspaceBinding",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:nativeWorkspaceBinding]", err);
+      }
+    }
     }
 
     if (
@@ -456,7 +556,17 @@ export class NativeWorkspaceBinding {
       const targetHome = env?.USERPROFILE || activeProf?.environment_path || record.userProfileDir;
       try {
         record = this.resolve(projectId, effectiveAccount, targetHome, true);
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "nativeWorkspaceBinding",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:nativeWorkspaceBinding]", err);
+      }
+    }
     }
 
     if (

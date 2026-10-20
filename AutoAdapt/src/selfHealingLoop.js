@@ -1,6 +1,4 @@
 import fs from 'node:fs';
-import path from 'node:path';
-import { execSync } from 'node:child_process';
 
 /**
  * Limite estrito de iterações do loop de autocorreção (RLVR Simplicity First).
@@ -22,17 +20,6 @@ export const FailureTypes = {
 
 /**
  * Faz o parse da saída de execução de testes (stdout/stderr).
- * @param {string} stdout
- * @param {string} stderr
- * @returns {{
- *   hasFailure: boolean,
- *   failureType: string,
- *   errorMessage: string,
- *   failedTests: string[],
- *   passCount: number,
- *   failCount: number,
- *   stackTrace: string
- * }}
  */
 export function parseTestOutput(stdout = '', stderr = '') {
   const combined = `${stdout}\n${stderr}`;
@@ -42,27 +29,29 @@ export function parseTestOutput(stdout = '', stderr = '') {
   let failureType = FailureTypes.UNKNOWN;
   let errorMessage = '';
   const failedTests = [];
-  let passCount = 0;
-  let failCount = 0;
+  let summaryPassCount = null;
+  let summaryFailCount = null;
+  let linePassCount = 0;
+  let lineFailCount = 0;
   const stackLines = [];
 
   for (const line of lines) {
-    // Detecção de testes no Node.js test runner nativo
-    const passMatch = line.match(/(?:pass|ok)\s+(\d+)/);
-    if (passMatch) {
-      passCount += parseInt(passMatch[1], 10);
-    } else if (line.includes('✔') || line.includes('ok ')) {
-      passCount++;
+    const passSummaryMatch = line.match(/^(?:ℹ|#)?\s*(?:pass|ok)\s+(\d+)\s*$/i);
+    if (passSummaryMatch) {
+      summaryPassCount = (summaryPassCount ?? 0) + parseInt(passSummaryMatch[1], 10);
+    } else if (/^\s*(?:✔|ok\s+\d+\b)/.test(line)) {
+      linePassCount++;
     }
 
-    const failMatch = line.match(/fail\s+(\d+)/);
-    if (failMatch && parseInt(failMatch[1], 10) > 0) {
-      failCount += parseInt(failMatch[1], 10);
+    const failSummaryMatch = line.match(/^(?:ℹ|#)?\s*fail\s+(\d+)\s*$/i);
+    if (failSummaryMatch) {
+      const fCount = parseInt(failSummaryMatch[1], 10);
+      summaryFailCount = (summaryFailCount ?? 0) + fCount;
+      if (fCount > 0) hasFailure = true;
+    } else if (/^\s*(?:✖|not ok\s+\d+\b)/.test(line)) {
+      lineFailCount++;
       hasFailure = true;
-    } else if (line.includes('✖') || line.includes('not ok ')) {
-      failCount++;
-      hasFailure = true;
-      const testNameMatch = line.match(/(?:✖|not ok \d+ -)\s*(.+)/);
+      const testNameMatch = line.match(/(?:✖|not ok\s+\d+\s*-?)\s*(.+)/);
       if (testNameMatch) {
         failedTests.push(testNameMatch[1].trim());
       }
@@ -86,17 +75,20 @@ export function parseTestOutput(stdout = '', stderr = '') {
       if (!errorMessage) errorMessage = line.trim();
     }
 
-    if (line.trim().startsWith('at ') || line.includes('Error:')) {
+    if (line.trim().startsWith('at ') || /\b\w*Error:/.test(line)) {
       stackLines.push(line.trim());
-      if (!errorMessage && line.includes('Error:')) {
+      if (!errorMessage && /\b\w*Error:/.test(line)) {
         errorMessage = line.trim();
       }
     }
   }
 
-  if (failCount > 0 || stderr.includes('Error') || combined.includes('fail 1')) {
+  const passCount = summaryPassCount !== null ? summaryPassCount : linePassCount;
+  const failCount = summaryFailCount !== null ? summaryFailCount : lineFailCount;
+
+  if (failCount > 0 || failureType !== FailureTypes.UNKNOWN || /\b\w*Error:/.test(stderr)) {
     hasFailure = true;
-    if (failureType === FailureTypes.UNKNOWN && errorMessage) {
+    if (failureType === FailureTypes.UNKNOWN) {
       failureType = FailureTypes.RUNTIME_EXCEPTION;
     }
   }
@@ -114,8 +106,6 @@ export function parseTestOutput(stdout = '', stderr = '') {
 
 /**
  * Diagnostica a causa raiz e sugere ação de remediação pontual.
- * @param {object} parsedOutput
- * @returns {{ diagnosis: string, remediation: string, canSelfHeal: boolean }}
  */
 export function diagnoseFailure(parsedOutput) {
   if (!parsedOutput.hasFailure) {
@@ -167,11 +157,7 @@ export function diagnoseFailure(parsedOutput) {
 }
 
 /**
- * Valida a integridade dos arquivos de teste para garantir a inviolabilidade da suite de testes.
- * Impede que agentes de autocorreção enfraqueçam ou excluam testes para simular aprovação.
- * @param {string[]} testFilePaths
- * @param {Map<string, string>} originalSnapshots
- * @returns {{ intact: boolean, violations: string[] }}
+ * Valida a integridade dos arquivos de teste para garantir a inviolabilidade da suíte.
  */
 export function verifyTestSuiteIntegrity(testFilePaths, originalSnapshots) {
   const violations = [];
@@ -187,8 +173,16 @@ export function verifyTestSuiteIntegrity(testFilePaths, originalSnapshots) {
       continue;
     }
     const original = originalSnapshots.get(filePath);
-    if (original && currentContent.length < original.length * 0.5) {
-      violations.push(`Arquivo de teste significativamente reduzido ou truncado: ${filePath}`);
+    if (original) {
+      if (currentContent.length < original.trim().length * 0.5) {
+        violations.push(`Arquivo de teste significativamente reduzido ou truncado: ${filePath}`);
+        continue;
+      }
+      const origAssertions = (original.match(/\bassert\b/g) || []).length;
+      const currAssertions = (currentContent.match(/\bassert\b/g) || []).length;
+      if (origAssertions > 0 && currAssertions < origAssertions) {
+        violations.push(`Remoção de asserções detectada no arquivo de teste: ${filePath}`);
+      }
     }
   }
 
@@ -200,24 +194,6 @@ export function verifyTestSuiteIntegrity(testFilePaths, originalSnapshots) {
 
 /**
  * Executa o loop fechado de autocorreção (RLVR Self-Healing Debug Loop).
- * Executa testes, analisa saídas, aplica patches cirúrgicos até sucesso ou limite de 5 iterações.
- * Realiza rollback integral caso o ciclo não convirja.
- * 
- * @param {object} options
- * @param {() => { stdout: string, stderr: string, exitCode: number }} options.runTestFn
- * @param {(diagnostic: object, iteration: number) => Promise<boolean> | boolean} options.applyPatchFn
- * @param {() => void} [options.snapshotFn]
- * @param {() => void} [options.rollbackFn]
- * @param {string[]} [options.protectedTestFiles]
- * @param {number} [options.maxIterations=5]
- * @returns {Promise<{
- *   success: boolean,
- *   converged: boolean,
- *   iterations: number,
- *   rolledBack: boolean,
- *   reason: string,
- *   history: Array<object>
- * }>}
  */
 export async function runSelfHealingLoop({
   runTestFn,
@@ -236,7 +212,6 @@ export async function runSelfHealingLoop({
 
   const effectiveMaxIterations = Math.min(Math.max(1, maxIterations), MAX_ALLOWED_ITERATIONS);
 
-  // Capturar snapshot dos testes protegidos para verificar integridade
   const testSnapshots = new Map();
   for (const tf of protectedTestFiles) {
     if (fs.existsSync(tf)) {
@@ -244,7 +219,6 @@ export async function runSelfHealingLoop({
     }
   }
 
-  // Snapshot inicial do workspace se fornecido
   if (snapshotFn) {
     snapshotFn();
   }
@@ -296,7 +270,6 @@ export async function runSelfHealingLoop({
       };
     }
 
-    // Aplica patch corretivo
     const patchApplied = await applyPatchFn(diagnosis, iteration);
     if (!patchApplied) {
       if (rollbackFn) rollbackFn();
@@ -310,7 +283,6 @@ export async function runSelfHealingLoop({
       };
     }
 
-    // Verificar se o patch violou a integridade dos testes
     if (protectedTestFiles.length > 0) {
       const integrity = verifyTestSuiteIntegrity(protectedTestFiles, testSnapshots);
       if (!integrity.intact) {
@@ -327,7 +299,6 @@ export async function runSelfHealingLoop({
     }
   }
 
-  // Limite atingido sem convergência -> Rollback automático de segurança
   if (rollbackFn) {
     rollbackFn();
   }
@@ -342,7 +313,6 @@ export async function runSelfHealingLoop({
   };
 }
 
-// Execução direta CLI para diagnóstico
 if (process.argv[1] && (process.argv[1].endsWith('selfHealingLoop.js') || process.argv[1].endsWith('selfHealingLoop'))) {
   console.log('[AutoAdapt] Módulo de Self-Healing Loop (IMP-01) carregado com sucesso.');
   console.log(`[AutoAdapt] Limite estrito de iterações: ${MAX_ALLOWED_ITERATIONS}`);

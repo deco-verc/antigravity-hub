@@ -666,7 +666,17 @@ apiRouter.post('/autonomous/runs', async (req, res) => {
     const run = await AutonomousManager.createRun(req.body);
     // Immediate trigger for autonomous runner
     setTimeout(() => {
-      AutonomousRunnerService.schedulerTick().catch(() => {});
+      AutonomousRunnerService.schedulerTick().catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "routes",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:routes]", err);
+      }
+    });
     }, 100);
     res.status(201).json(run);
   } catch (err: any) {
@@ -728,7 +738,17 @@ apiRouter.post('/autonomous/runs/:id/resume', async (req, res) => {
   try {
     const run = await AutonomousManager.resumeRun(req.params.id);
     setTimeout(() => {
-      AutonomousRunnerService.schedulerTick().catch(() => {});
+      AutonomousRunnerService.schedulerTick().catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "routes",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:routes]", err);
+      }
+    });
     }, 50);
     res.json(run);
   } catch (err: any) {
@@ -796,7 +816,17 @@ apiRouter.post('/autonomous/runs/:id/loop/start', async (req, res) => {
       await AutonomousManager.resumeRun(req.params.id);
     }
     setTimeout(() => {
-      AutonomousRunnerService.schedulerTick().catch(() => {});
+      AutonomousRunnerService.schedulerTick().catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "routes",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:routes]", err);
+      }
+    });
     }, 50);
     res.json({ success: true, message: 'Loop contínuo autônomo iniciado.' });
   } catch (err: any) {
@@ -821,7 +851,17 @@ apiRouter.post('/autonomous/approvals/:id/resolve', (req, res) => {
     }
     const run = AutonomousManager.resolveHumanApproval(req.params.id, decision);
     setTimeout(() => {
-      AutonomousRunnerService.schedulerTick().catch(() => {});
+      AutonomousRunnerService.schedulerTick().catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "routes",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:routes]", err);
+      }
+    });
     }, 50);
     res.json(run);
   } catch (err: any) {
@@ -1162,7 +1202,17 @@ apiRouter.post('/fs/validate-path', (req, res) => {
           .filter(d => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'node_modules')
           .slice(0, 15)
           .map(d => d.name);
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "routes",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:routes]", err);
+      }
+    }
     }
 
     res.json({
@@ -1319,7 +1369,17 @@ apiRouter.post('/projects', async (req, res) => {
             try {
               execSync('git init', { cwd: val.resolvedPath, stdio: 'pipe', timeout: 3000 });
               execSync('git branch -M main', { cwd: val.resolvedPath, stdio: 'pipe', timeout: 3000 });
-            } catch {}
+            } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "routes",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:routes]", err);
+      }
+    }
             Logger.info(`Git inicializado em ${val.resolvedPath}`);
           }
         }
@@ -1343,7 +1403,17 @@ apiRouter.post('/projects', async (req, res) => {
             try {
               execSync('git config user.email "agent@decohub.local" && git config user.name "DecoHUB Agent"', { cwd: val.resolvedPath, stdio: 'pipe', timeout: 3000 });
               execSync('git commit -m "chore: initial project structure with DecoHUB memory"', { cwd: val.resolvedPath, stdio: 'pipe', timeout: 5000 });
-            } catch {}
+            } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "routes",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:routes]", err);
+      }
+    }
           }
         }
       } catch (gitErr: any) {
@@ -2263,7 +2333,17 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
       try{submission=ChatSubmission.begin(id,requestId,content);}catch(e:any){return res.status(409).json({error:e.message});}
       if(!submission.isNew){
         if (!submission.persisted) {
-          try { db.prepare('DELETE FROM chat_submissions WHERE project_id=? AND request_id=?').run(id, requestId); } catch {}
+          try { db.prepare('DELETE FROM chat_submissions WHERE project_id=? AND request_id=?').run(id, requestId); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "routes",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:routes]", err);
+      }
+    }
           return res.status(409).json({
             error: 'Mensagem anterior não foi confirmada no banco de dados. Seu texto foi preservado para reenvio seguro.',
             code: 'CHAT_REQUEST_UNCONFIRMED',
@@ -2511,7 +2591,17 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
               autonomyMode: 'autonomous'
             });
             setTimeout(() => {
-              AutonomousRunnerService.schedulerTick().catch(() => {});
+              AutonomousRunnerService.schedulerTick().catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "routes",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:routes]", err);
+      }
+    });
             }, 100);
             execution = { status: 'started' };
             replyContent = `Estou organizando o trabalho em etapas e verificando as dependências. Criei um plano com ${autonomousRun.tasks.length} etapas estruturadas para atender ao seu objetivo.`;
@@ -2567,13 +2657,33 @@ apiRouter.post('/projects/:id/messages/cancel', async (req, res) => {
         TurnCancellationManager.requestCancellation(activeSession.provider_conversation_id);
         AgentTurnState.setPhase(activeSession.provider_conversation_id, 'CONSUMED');
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "routes",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:routes]", err);
+      }
+    }
 
     // 3. Release any execution reservations for this project
     try {
       ExecutionCoordinator.releaseByContext({ projectId: id });
       ExecutionCoordinator.reconcileDeadReservations();
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "routes",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:routes]", err);
+      }
+    }
 
     // 4. Cancel or dequeue any queued instruction
     let dequeued = false;
@@ -2607,14 +2717,34 @@ apiRouter.post('/projects/:id/messages/cancel', async (req, res) => {
             WHERE id = ?
           `).run(row.id);
           dequeued = true;
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "routes",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:routes]", err);
+      }
+    }
       }
     }
 
     // 6. Clear chat submissions that might be in flight
     try {
       ChatSubmission.cancel(id);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "routes",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:routes]", err);
+      }
+    }
 
     res.json({
       cancelled: true,
@@ -2645,7 +2775,17 @@ apiRouter.delete('/projects/:id/messages/:messageId', (req, res) => {
     // Release any orphan locks in execution reservations
     try {
       ExecutionCoordinator.releaseByContext({ projectId: id });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "routes",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:routes]", err);
+      }
+    }
 
     res.json({ success: true, message: 'Mensagem removida com sucesso.' });
   } catch (err: any) {
@@ -2998,7 +3138,17 @@ apiRouter.get('/projects/:id/files', (req, res) => {
           });
         } else {
           let size = 0;
-          try { size = fs.statSync(full).size; } catch {}
+          try { size = fs.statSync(full).size; } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "routes",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:routes]", err);
+      }
+    }
           list.push({
             name: entry.name,
             relativePath: rel,
@@ -3093,7 +3243,17 @@ apiRouter.post('/projects/:id/agent-stop', (req, res) => {
     for (const r of runs) {
       try {
         AutonomousManager.stopRun(r.id);
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "routes",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:routes]", err);
+      }
+    }
     }
 
     Logger.info(`[AgentStop] Cancelamento solicitado para o projeto "${project.name}"`);
@@ -3139,7 +3299,17 @@ apiRouter.get('/projects/:id/terminal-logs', (req, res) => {
     let gitLog = '';
     try {
       gitLog = execSync('git log -5 --oneline', { cwd: project.path, encoding: 'utf-8', timeout: 3000 });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "routes",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:routes]", err);
+      }
+    }
 
     res.json({
       project: project.name,

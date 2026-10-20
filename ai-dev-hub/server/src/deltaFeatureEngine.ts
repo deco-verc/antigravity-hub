@@ -60,7 +60,17 @@ export class DeltaFeatureEngine {
             completedRunCount
           };
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "deltaFeatureEngine",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:deltaFeatureEngine]", err);
+      }
+    }
     }
 
     if (!fs.existsSync(projectPath)) {
@@ -81,7 +91,17 @@ export class DeltaFeatureEngine {
       try {
         const files = fs.readdirSync(srcDir, { recursive: true });
         srcFilesCount = files.filter(f => /\.(js|ts|jsx|tsx|mjs|cjs)$/i.test(String(f))).length;
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "deltaFeatureEngine",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:deltaFeatureEngine]", err);
+      }
+    }
     }
 
     let testFilesCount = 0;
@@ -92,7 +112,17 @@ export class DeltaFeatureEngine {
           ...(fs.existsSync(testsDir) && fs.statSync(testsDir).isDirectory() ? fs.readdirSync(testsDir, { recursive: true }) : [])
         ];
         testFilesCount = testEntries.filter(f => /\.(js|ts|jsx|tsx|mjs|cjs)$/i.test(String(f))).length;
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "deltaFeatureEngine",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:deltaFeatureEngine]", err);
+      }
+    }
     }
 
     let publicFilesCount = 0;
@@ -100,7 +130,17 @@ export class DeltaFeatureEngine {
       try {
         const pubEntries = fs.readdirSync(publicDir, { recursive: true });
         publicFilesCount = pubEntries.filter(f => /\.(html|js|css|json|svg)$/i.test(String(f))).length;
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "deltaFeatureEngine",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:deltaFeatureEngine]", err);
+      }
+    }
     }
 
     if (hasPackageJson && ((hasSrc && srcFilesCount >= 1) || (hasPublic && publicFilesCount >= 1) || (hasTests && testFilesCount >= 1))) {
@@ -166,7 +206,17 @@ export class DeltaFeatureEngine {
               targetArray.push(relEntry);
             }
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "deltaFeatureEngine",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:deltaFeatureEngine]", err);
+      }
+    }
       }
     };
 
@@ -185,7 +235,17 @@ export class DeltaFeatureEngine {
         while ((match = tableRegex.exec(content)) !== null) {
           tables.add(match[1]);
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "deltaFeatureEngine",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:deltaFeatureEngine]", err);
+      }
+    }
     }
 
     // Também verifica schema.sql se houver
@@ -197,7 +257,17 @@ export class DeltaFeatureEngine {
         while ((match = tableRegex.exec(content)) !== null) {
           tables.add(match[1]);
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "deltaFeatureEngine",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:deltaFeatureEngine]", err);
+      }
+    }
     }
 
     // 3. Extração de Endpoints REST
@@ -228,7 +298,17 @@ export class DeltaFeatureEngine {
         if (/seedIfEmpty|seedDatabase|populateInitialData/i.test(content)) {
           hasSeed = true;
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "deltaFeatureEngine",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:deltaFeatureEngine]", err);
+      }
+    }
     }
 
     // 4. Componentes UI / Views

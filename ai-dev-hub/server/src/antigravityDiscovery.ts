@@ -149,7 +149,17 @@ export class AntigravityDiscovery {
       if (firstLine && fs.existsSync(firstLine)) {
         return { ...this.validateBinary(firstLine, brainDir, 'PATH', forceRefresh), agyCliExe };
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "antigravityDiscovery",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:antigravityDiscovery]", err);
+      }
+    }
 
     // Not found
     return {
@@ -175,7 +185,17 @@ export class AntigravityDiscovery {
     let mtimeMs = 0;
     try {
       mtimeMs = fs.statSync(exePath).mtimeMs;
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "antigravityDiscovery",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:antigravityDiscovery]", err);
+      }
+    }
 
     const cached = this.validationCache.get(exePath);
     if (

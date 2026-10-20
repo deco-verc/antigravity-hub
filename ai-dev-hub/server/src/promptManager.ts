@@ -131,7 +131,17 @@ export class PromptManager {
     let currentMtimeMs = 0;
     try {
       currentMtimeMs = fs.statSync(filePath).mtimeMs;
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "promptManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:promptManager]", err);
+      }
+    }
 
     const cached = this.promptCache.get(promptId);
     if (cached && cached.filePath === filePath && cached.mtimeMs === currentMtimeMs) {
@@ -253,7 +263,17 @@ export class PromptManager {
             }
           }
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "promptManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:promptManager]", err);
+      }
+    }
     }
 
     if (input.memorySummary) {
@@ -345,7 +365,17 @@ export class PromptManager {
             'É estritamente proibido criar arquivos intermediários em `.ai-dev-hub/notes/` ou inventar rotas e tabelas divergentes.'
           ].join('\n');
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "promptManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:promptManager]", err);
+      }
+    }
     }
 
     // Full rule content for directory-level file (.agents/rules/decohub-worker.md)

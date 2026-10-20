@@ -32,7 +32,17 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
     after(() => {
       AccountProfileManager.setVerifyProbeOverrideForTest(null);
       if (createdProfileId) {
-        try { AccountProfileManager.deleteProfile(createdProfileId); } catch {}
+        try { AccountProfileManager.deleteProfile(createdProfileId); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "coreReliability.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:coreReliability.test]", err);
+      }
+    }
       }
     });
 
@@ -130,10 +140,30 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
     after(() => {
       WorkerRegistry.setProbeOverrideForTest(null);
       if (createdWorkerId) {
-        try { WorkerRegistry.deleteWorker(createdWorkerId); } catch {}
+        try { WorkerRegistry.deleteWorker(createdWorkerId); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "coreReliability.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:coreReliability.test]", err);
+      }
+    }
       }
       if (testProfileId) {
-        try { AccountProfileManager.deleteProfile(testProfileId); } catch {}
+        try { AccountProfileManager.deleteProfile(testProfileId); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "coreReliability.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:coreReliability.test]", err);
+      }
+    }
       }
     });
 
@@ -649,7 +679,17 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
       ConversationManager.setValidationOverride(null);
       ConversationManager.setCreateOverride(null);
       for (const id of createdConvIds) {
-        try { db.prepare('DELETE FROM conversations WHERE conversation_id = ?').run(id); } catch {}
+        try { db.prepare('DELETE FROM conversations WHERE conversation_id = ?').run(id); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "coreReliability.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:coreReliability.test]", err);
+      }
+    }
       }
     });
 
@@ -1012,7 +1052,17 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
         db.prepare('DELETE FROM autonomous_tasks WHERE id = ?').run(testTaskId);
         db.prepare('DELETE FROM autonomous_runs WHERE id = ?').run(testRunId);
         AccountProfileManager.deleteProfile(testProfileId);
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "coreReliability.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:coreReliability.test]", err);
+      }
+    }
     });
 
     test('stale lease automatically resets task to ready and clears worker assignment to OFFLINE', () => {
@@ -1098,7 +1148,17 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
     });
 
     after(() => {
-      try { fs.rmSync(tempBrainDir, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(tempBrainDir, { recursive: true, force: true }); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "coreReliability.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:coreReliability.test]", err);
+      }
+    }
     });
 
     test('waitForResponse ignores old responses prior to minStepIndex', async () => {
@@ -1434,7 +1494,17 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
     after(() => {
       try {
         fs.rmSync(testTempRoot, { recursive: true, force: true });
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "coreReliability.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:coreReliability.test]", err);
+      }
+    }
     });
 
     test('Test 1 — Prompt ID and deterministic hash for each variant', async () => {
@@ -1576,7 +1646,17 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
     after(() => {
       try {
         fs.rmSync(testTempRoot, { recursive: true, force: true });
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "coreReliability.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:coreReliability.test]", err);
+      }
+    }
     });
 
     test('Test 1 — V2 Loader: fable-worker-v2-flash loads completely with deterministic SHA256', async () => {
@@ -1803,7 +1883,17 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
     after(() => {
       try {
         fs.rmSync(testTempRoot, { recursive: true, force: true });
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "coreReliability.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:coreReliability.test]", err);
+      }
+    }
     });
 
     test('Test 1 — Native prompt loader returns empty instructions and native hash', async () => {

@@ -1708,7 +1708,17 @@ O simulador de pentest Red Team executará asserções contra todas as mutaçõe
               metadata,
               nowIso
             );
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectLivingSpecService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectLivingSpecService]", err);
+      }
+    }
         }
 
         Logger.info(`[ProjectLivingSpecService] Card executivo da Onda 0 publicado no chat do projeto ${projectId} (msg #${messageId}).`);
@@ -2024,7 +2034,17 @@ O simulador de pentest Red Team executará asserções contra todas as mutaçõe
               candidateFiles.push(fullPath);
             }
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectLivingSpecService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectLivingSpecService]", err);
+      }
+    }
       };
       walkDir(srcDir);
     }

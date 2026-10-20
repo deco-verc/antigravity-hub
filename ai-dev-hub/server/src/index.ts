@@ -87,12 +87,32 @@ const server = app.listen(Number(PORT), HOST, () => {
     if (recovered > 0) {
       Logger.info(`[AI DEV HUB] ${recovered} execuções de comandos órfãs foram reconciliadas no startup.`);
     }
-  }).catch(() => {});
+  }).catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "index",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:index]", err);
+      }
+    });
 
   // Initialize Auto-Update background verification service
   import('./updateService.js').then(({ UpdateService }) => {
     UpdateService.init();
-  }).catch(() => {});
+  }).catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "index",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:index]", err);
+      }
+    });
 
   // Recover any pending Autonomous Self-Improvement runs on startup
   import('./selfImprovementRun.js').then(({ AutonomousSelfImprovementEngine }) => {
@@ -106,7 +126,17 @@ function gracefulShutdown() {
   Logger.info('[AI DEV HUB] Encerrando servidor e Autonomous Runner...');
   try {
     AutonomousRunnerService.stop();
-  } catch {}
+  } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "index",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:index]", err);
+      }
+    }
   server.close(() => {
     process.exit(0);
   });

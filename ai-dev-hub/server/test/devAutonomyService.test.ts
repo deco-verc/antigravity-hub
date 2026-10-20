@@ -18,7 +18,17 @@ describe('DevAutonomyService — Development Autonomy & Trust Suite', () => {
   after(() => {
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "devAutonomyService.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:devAutonomyService.test]", err);
+      }
+    }
   });
 
   test('1. detectEnvironment identifies npm, package.json scripts and stack', () => {

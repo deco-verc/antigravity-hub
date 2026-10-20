@@ -245,7 +245,17 @@ export class DevAutonomyService {
         if (testScript && !testScript.includes('no test specified')) {
           hasTests = true;
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "devAutonomyService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:devAutonomyService]", err);
+      }
+    }
     } else if (packageManager === 'pip' || packageManager === 'poetry') {
       stack = 'python';
       if (fs.existsSync(path.join(projectPath, 'test')) || fs.existsSync(path.join(projectPath, 'tests'))) {

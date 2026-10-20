@@ -118,7 +118,17 @@ try {
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec('PRAGMA busy_timeout = 10000;');
   db.exec('PRAGMA synchronous = NORMAL;');
-} catch {}
+} catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "db",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:db]", err);
+      }
+    }
 
 export function initDatabase() {
   db.exec(`CREATE TABLE IF NOT EXISTS native_execution_policies (
@@ -1080,7 +1090,17 @@ export function initDatabase() {
   ]) {
     try {
       db.exec(`ALTER TABLE evaluation_results ADD COLUMN ${col} ${colType};`);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "db",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:db]", err);
+      }
+    }
   }
 
   for (const [col, colType] of [
@@ -1092,7 +1112,17 @@ export function initDatabase() {
   ]) {
     try {
       db.exec(`ALTER TABLE projects ADD COLUMN ${col} ${colType};`);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "db",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:db]", err);
+      }
+    }
   }
 
   for (const [col, colType] of [
@@ -1106,7 +1136,17 @@ export function initDatabase() {
   ]) {
     try {
       db.exec(`ALTER TABLE autonomous_runs ADD COLUMN ${col} ${colType};`);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "db",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:db]", err);
+      }
+    }
   }
 
   for (const [col, colType] of [
@@ -1117,7 +1157,17 @@ export function initDatabase() {
   ]) {
     try {
       db.exec(`ALTER TABLE autonomous_major_tasks ADD COLUMN ${col} ${colType};`);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "db",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:db]", err);
+      }
+    }
   }
 
   for (const [col, colType] of [
@@ -1151,7 +1201,17 @@ export function initDatabase() {
   ]) {
     try {
       db.exec(`ALTER TABLE autonomous_tasks ADD COLUMN ${col} ${colType};`);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "db",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:db]", err);
+      }
+    }
   }
 
   // Safe migration for conversations table prompt versioning
@@ -1162,7 +1222,17 @@ export function initDatabase() {
   for (const [col, colType] of conversationCols) {
     try {
       db.exec(`ALTER TABLE conversations ADD COLUMN ${col} ${colType};`);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "db",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:db]", err);
+      }
+    }
   }
 
   // Safe migration for workers table columns
@@ -1173,19 +1243,59 @@ export function initDatabase() {
   for (const [col, colType] of workerCols) {
     try {
       db.exec(`ALTER TABLE workers ADD COLUMN ${col} ${colType};`);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "db",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:db]", err);
+      }
+    }
   }
 
   // Safe migration for projects table active account profile
   try {
     db.exec(`ALTER TABLE projects ADD COLUMN active_account_profile_id TEXT;`);
-  } catch {}
+  } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "db",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:db]", err);
+      }
+    }
   try {
     db.exec(`ALTER TABLE projects ADD COLUMN selected_model TEXT DEFAULT 'auto';`);
-  } catch {}
+  } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "db",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:db]", err);
+      }
+    }
   try {
     db.exec(`ALTER TABLE projects ADD COLUMN reasoning_level TEXT DEFAULT 'HIGH';`);
-  } catch {}
+  } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "db",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:db]", err);
+      }
+    }
 
   // Safe migration for sessions table lifecycle columns
   const sessionCols = ['agent_name', 'start_time', 'end_time', 'initial_git_head', 'final_git_head', 'status'];
@@ -1235,7 +1345,17 @@ export function initDatabase() {
   for (const [col, colType] of projectCols) {
     try {
       db.exec(`ALTER TABLE projects ADD COLUMN ${col} ${colType};`);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "db",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:db]", err);
+      }
+    }
   }
 
   // GitHub & Karpathy Layer integration columns for autonomous_tasks
@@ -1272,13 +1392,33 @@ export function initDatabase() {
   for (const [col, colType] of taskCols) {
     try {
       db.exec(`ALTER TABLE autonomous_tasks ADD COLUMN ${col} ${colType};`);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "db",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:db]", err);
+      }
+    }
   }
 
   // Safe migration for benchmark tables Level 2 (AGENT BENCHMARK)
   try {
     db.exec(`ALTER TABLE benchmark_runs ADD COLUMN benchmark_level TEXT DEFAULT 'FAST';`);
-  } catch {}
+  } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "db",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:db]", err);
+      }
+    }
 
   const benchResultCols: Array<[string, string]> = [
     ['supervisor_session_id', 'TEXT'],
@@ -1292,7 +1432,17 @@ export function initDatabase() {
   for (const [col, colType] of benchResultCols) {
     try {
       db.exec(`ALTER TABLE benchmark_task_results ADD COLUMN ${col} ${colType};`);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "db",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:db]", err);
+      }
+    }
   }
 
   const expCols: Array<[string, string]> = [
@@ -1315,7 +1465,17 @@ export function initDatabase() {
   for (const [col, colType] of expCols) {
     try {
       db.exec(`ALTER TABLE self_improvement_experiments ADD COLUMN ${col} ${colType};`);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "db",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:db]", err);
+      }
+    }
   }
   // Safe migration for account_profiles table quota tracking
   const profileCols: Array<[string, string]> = [
@@ -1325,10 +1485,30 @@ export function initDatabase() {
   for (const [col, colType] of profileCols) {
     try {
       db.exec(`ALTER TABLE account_profiles ADD COLUMN ${col} ${colType};`);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "db",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:db]", err);
+      }
+    }
   }
 
-  try { db.exec("ALTER TABLE model_preferences ADD COLUMN intelligence_level TEXT NOT NULL DEFAULT 'HIGH';"); } catch {}
+  try { db.exec("ALTER TABLE model_preferences ADD COLUMN intelligence_level TEXT NOT NULL DEFAULT 'HIGH';"); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "db",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:db]", err);
+      }
+    }
   ensureDefensiveMigrations(db);
 
   if (process.env.MCP_STDIO !== 'true') {
@@ -1484,7 +1664,17 @@ export function ensureDefensiveMigrations(targetDb: any = db): void {
       if (tableInfo.length > 0 && !tableInfo.some((c: any) => c.name === col)) {
         targetDb.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${colType};`);
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "db",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:db]", err);
+      }
+    }
   }
 
   try {
@@ -1507,7 +1697,17 @@ export function ensureDefensiveMigrations(targetDb: any = db): void {
       CREATE INDEX IF NOT EXISTS idx_meta_chat_thread_id
         ON meta_chat_messages(thread_id, created_at ASC);
     `);
-  } catch {}
+  } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "db",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:db]", err);
+      }
+    }
 
   // Auto-migrate legacy meta_chat_messages without thread_id into thread-default
   try {
@@ -1520,7 +1720,17 @@ export function ensureDefensiveMigrations(targetDb: any = db): void {
       `).run(now, now);
       targetDb.prepare("UPDATE meta_chat_messages SET thread_id = 'thread-default' WHERE thread_id IS NULL OR thread_id = ''").run();
     }
-  } catch {}
+  } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "db",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:db]", err);
+      }
+    }
 }
 
 initDatabase();

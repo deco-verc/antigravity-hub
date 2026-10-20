@@ -526,7 +526,17 @@ export class PromptArchitectureService {
         if (specBlock) {
           sections.push(`\n${specBlock}\n`);
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "promptArchitectureService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:promptArchitectureService]", err);
+      }
+    }
     }
     sections.push(`=== FIM DO CONTEXTO REAL ===`);
 
@@ -774,7 +784,17 @@ export class PromptArchitectureService {
           sections.push(`- Aplique os tokens :root, tipografia (tabular-nums) e SVGs Lucide inline de DESIGN.md;`);
           sections.push(`- Cumpra as invariantes Karpathy, PORT_GUARD (faixa 4000-4999) e AppSec de PRINCIPIOS.md.\n`);
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "promptArchitectureService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:promptArchitectureService]", err);
+      }
+    }
     }
     sections.push(`=== FIM DO CONTEXTO REAL ===`);
 
@@ -881,7 +901,17 @@ export class PromptArchitectureService {
           sections.push(specBlock);
           sections.push(`Incorpore rigorosamente as seções de CONTEUDO.md, schemas de BACKEND.md, tokens de DESIGN.md e invariantes de PRINCIPIOS.md nas Grandes Tarefas.\n`);
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "promptArchitectureService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:promptArchitectureService]", err);
+      }
+    }
     }
     sections.push(`=== FIM DO CONTEXTO ===`);
 
@@ -988,7 +1018,17 @@ export class PromptArchitectureService {
           sections.push(specBlock);
           sections.push(`Ao expandir esta Grande Tarefa em microtarefas, garanta que os contratos de teste, atributos de tela (role="tab", data-tab), schemas SQLite e rotas REST reflitam exatamente os 4 arquivos canônicos.\n`);
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "promptArchitectureService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:promptArchitectureService]", err);
+      }
+    }
     }
     sections.push(`=== FIM DO CONTEXTO ===`);
 

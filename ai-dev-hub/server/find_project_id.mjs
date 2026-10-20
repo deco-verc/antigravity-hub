@@ -21,10 +21,30 @@ function searchDir(dir, maxDepth = 4, depth = 0) {
           if (content.includes(targetId)) {
             console.log('FOUND IN FILE:', full);
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "find_project_id",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:find_project_id]", err);
       }
     }
-  } catch {}
+      }
+    }
+  } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "find_project_id",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:find_project_id]", err);
+      }
+    }
 }
 
 searchDir(geminiDir);

@@ -76,7 +76,17 @@ describe('DecoHUB — Homologação de Autorização de Runtime e Provedor Simul
     AgentApiGateway.installDefaultMock();
     db.prepare('DELETE FROM agent_sessions WHERE project_id IN (?, ?, ?)').run(authorizedProjId, trustedOnlyProjId, untrustedProjId);
     db.prepare('DELETE FROM projects WHERE id IN (?, ?, ?)').run(authorizedProjId, trustedOnlyProjId, untrustedProjId);
-    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "runtimeAuthorizationAndSimulation.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:runtimeAuthorizationAndSimulation.test]", err);
+      }
+    }
   });
 
   test('1. Isolamento de Autorização: Projeto não confiável é terminantemente bloqueado', () => {

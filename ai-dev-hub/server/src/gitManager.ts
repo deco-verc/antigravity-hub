@@ -184,7 +184,17 @@ export class GitManager {
       if (fs.existsSync(path.join(root, '.decohub-data'))) {
         try {
           execFileSync('git', ['reset', 'HEAD', '--', '.decohub-data'], { cwd: root, stdio: 'pipe', timeout: 5000 });
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "gitManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:gitManager]", err);
+      }
+    }
       }
       const diff = execFileSync('git', ['diff', '--cached', '--name-only'], { cwd: root, encoding: 'utf-8', timeout: 5000 }).trim();
       if (!diff) return true;
@@ -308,13 +318,33 @@ export class GitManager {
         for (const file of selected) {
           try {
             execFileSync('git', ['add', '--ignore-errors', '--', file], { cwd: root, timeout: 5000, stdio: 'ignore' });
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "gitManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:gitManager]", err);
+      }
+    }
         }
       }
 
       try {
         execFileSync('git', ['diff', '--cached', '--check'], { cwd: root, timeout: 10000 });
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "gitManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:gitManager]", err);
+      }
+    }
 
       const staged = execFileSync('git', ['diff', '--cached', '--name-only'], { cwd: root, encoding: 'utf-8', timeout: 10000 }).trim();
       if (!staged) return false;
@@ -489,7 +519,17 @@ export class GitManager {
                   const content = fs.readFileSync(fullP, 'utf-8');
                   lineCount = content.split('\n').length;
                 }
-              } catch {}
+              } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "gitManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:gitManager]", err);
+      }
+    }
               files.push({ file: u, additions: lineCount, deletions: 0, status: 'untracked' });
 
               if (!filePath || filePath === u) {
@@ -499,12 +539,32 @@ export class GitManager {
                     const c = fs.readFileSync(fullP, 'utf-8');
                     diff += `\n--- /dev/null\n+++ b/${u}\n@@ -0,0 +1,${lineCount} @@\n` + c.split('\n').map(l => `+${l}`).join('\n');
                   }
-                } catch {}
+                } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "gitManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:gitManager]", err);
+      }
+    }
               }
             }
           }
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "gitManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:gitManager]", err);
+      }
+    }
 
       let rawSummary = '';
       try {
@@ -565,7 +625,17 @@ export class GitManager {
     try {
       const token = execSync('gh auth token', { encoding: 'utf-8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
       if (token && token.length > 5) return token;
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "gitManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:gitManager]", err);
+      }
+    }
 
     // 2. Fallback to encrypted stored token in system_settings
     try {
@@ -574,7 +644,17 @@ export class GitManager {
         const decrypted = this.decryptToken(row.value);
         if (decrypted) return decrypted;
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "gitManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:gitManager]", err);
+      }
+    }
 
     // 3. Fallback to environment variables
     if (process.env.GITHUB_PERSONAL_ACCESS_TOKEN) {
@@ -597,7 +677,17 @@ export class GitManager {
         token = this.decryptToken(row.value);
         if (token) source = 'STORED_TOKEN';
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "gitManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:gitManager]", err);
+      }
+    }
 
     if (!token && process.env.GITHUB_PERSONAL_ACCESS_TOKEN) {
       token = process.env.GITHUB_PERSONAL_ACCESS_TOKEN.trim();
@@ -611,7 +701,17 @@ export class GitManager {
           token = ghToken;
           source = 'GH_CLI';
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "gitManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:gitManager]", err);
+      }
+    }
     }
 
     if (!token) {
@@ -625,7 +725,17 @@ export class GitManager {
       try {
         const res = execSync('gh api user --jq .login', { encoding: 'utf-8', timeout: 5000, env: { ...process.env, GITHUB_TOKEN: token }, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
         if (res) username = res;
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "gitManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:gitManager]", err);
+      }
+    }
 
       return {
         configured: true,
@@ -705,7 +815,17 @@ export class GitManager {
         try {
           const userOut = execSync('gh api user --jq .login', { encoding: 'utf-8', timeout: 6000, env: envWithToken, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
           if (userOut) ghUser = userOut;
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "gitManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:gitManager]", err);
+      }
+    }
 
         const cleanRepoName = repoFullName.includes('/') ? repoFullName.split('/')[1] : repoFullName;
         repoFullName = `${ghUser}/${cleanRepoName}`;
@@ -730,7 +850,17 @@ export class GitManager {
         execSync('git add .', { cwd: projectPath, stdio: 'pipe' });
         try {
           execSync('git commit -m "chore: initial project structure with DecoHUB memory"', { cwd: projectPath, stdio: 'pipe' });
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "gitManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:gitManager]", err);
+      }
+    }
 
         // Push to main WITHOUT --force
         try {
@@ -770,7 +900,17 @@ export class GitManager {
         execSync('git add .', { cwd: projectPath, stdio: 'pipe' });
         try {
           execSync('git commit -m "chore: link project with DecoHUB"', { cwd: projectPath, stdio: 'pipe' });
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "gitManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:gitManager]", err);
+      }
+    }
 
         return {
           success: true,
@@ -817,7 +957,17 @@ export class GitManager {
             return { prNumber: parsed[0].number, prUrl: parsed[0].url };
           }
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "gitManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:gitManager]", err);
+      }
+    }
 
       // 2. Create PR
       const createOut = execFileSync('gh', [

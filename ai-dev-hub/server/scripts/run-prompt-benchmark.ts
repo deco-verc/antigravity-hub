@@ -410,9 +410,29 @@ async function runScenarioExecution(
               lastTestFailed = true;
             }
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "run-prompt-benchmark",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:run-prompt-benchmark]", err);
       }
-    } catch {}
+    }
+      }
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "run-prompt-benchmark",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:run-prompt-benchmark]", err);
+      }
+    }
   }
 
   // 9. Independent Evaluation
@@ -443,7 +463,17 @@ async function runScenarioExecution(
   } catch {
     try {
       commitSha = execSync('git rev-parse HEAD', { cwd: workspacePath, encoding: 'utf-8' }).trim();
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "run-prompt-benchmark",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:run-prompt-benchmark]", err);
+      }
+    }
   }
 
   const filesChanged = agentResult.filesChanged && agentResult.filesChanged.length > 0

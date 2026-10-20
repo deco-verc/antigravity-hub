@@ -212,7 +212,17 @@ export class AutonomousManager {
           try {
             const metadata = JSON.parse(event.metadata_json);
             db.prepare('UPDATE autonomous_events SET metadata_json=? WHERE id=?').run(JSON.stringify({...metadata, consumed:true, consumedAt:nowIso, targetRunId:runId}),id);
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }
         }
       }
       db.exec('COMMIT');
@@ -273,7 +283,17 @@ export class AutonomousManager {
   static getQueuedContinuation(runId:string): {ids:string[];text:string} {
     const ids:string[]=[], texts:string[]=[];
     for(const event of db.prepare("SELECT id,metadata_json FROM autonomous_events WHERE run_id=? AND event_type='QUEUED_USER_INSTRUCTION' ORDER BY created_at,id").all(runId) as any[]){
-      try {const meta=JSON.parse(event.metadata_json);if(typeof meta.content==='string'&&meta.content&&!meta.consumed&&!meta.cancelled&&meta.durableContinuation===true){ids.push(event.id);texts.push(meta.content);}}catch{}
+      try {const meta=JSON.parse(event.metadata_json);if(typeof meta.content==='string'&&meta.content&&!meta.consumed&&!meta.cancelled&&meta.durableContinuation===true){ids.push(event.id);texts.push(meta.content);}}catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }
     }
     return {ids,text:texts.join('\n\n')};
   }
@@ -293,7 +313,17 @@ export class AutonomousManager {
             db.prepare('UPDATE autonomous_events SET metadata_json = ? WHERE id = ?').run(JSON.stringify(meta), ev.id);
             cancelledCount++;
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }
       }
     }
     return { cancelledCount };
@@ -316,7 +346,17 @@ export class AutonomousManager {
     try {
       const { SessionCircuitBreaker } = await import('./sessionCircuitBreaker.js');
       SessionCircuitBreaker.resetProjectWindow(project.id);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }
     ExecutionCoordinator.forceClean({ scope: 'global-agent-execution', includeGlobal: true });
     ExecutionCoordinator.reconcileDeadReservations('global-agent-execution');
     const reservation = ExecutionCoordinator.acquire('global-agent-execution', { projectId: project.id, runId, phase: 'planning' });
@@ -368,7 +408,17 @@ export class AutonomousManager {
       try {
         db.prepare('UPDATE autonomous_runs SET research_summary_json = ? WHERE id = ?')
           .run(JSON.stringify({ findings: researchResult.findings, safeToAdopt: researchResult.safeToAdopt }), runId);
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }
     }
 
     // 1.5. Detect if project is greenfield or an existing structured project (DELTA_EVOLUTION mode)
@@ -469,7 +519,17 @@ export class AutonomousManager {
           try {
             db.prepare('UPDATE autonomous_runs SET plan_deliberation_id = ? WHERE id = ?')
               .run(planDeliberation.id, runId);
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }
 
           let activePlanDeliberation = planDeliberation;
 
@@ -506,7 +566,17 @@ export class AutonomousManager {
                 try {
                   db.prepare('UPDATE autonomous_runs SET plan_deliberation_id = ? WHERE id = ?')
                     .run(reDeliberation.id, runId);
-                } catch {}
+                } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }
                 this.logEvent(
                   runId,
                   null,
@@ -742,7 +812,17 @@ export class AutonomousManager {
       } catch (hierErr: any) {
         Logger.warn(`[AutonomousManager] Aviso ao enriquecer hierarquia do plano: ${hierErr.message}`);
       }
-    } catch (err) { try { db.exec('ROLLBACK'); } catch {} throw err; }
+    } catch (err) { try { db.exec('ROLLBACK'); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    } throw err; }
   }
 
   /**
@@ -756,7 +836,17 @@ export class AutonomousManager {
         INSERT INTO autonomous_events (id, run_id, task_id, agent_role, event_type, message, metadata_json, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(id, runId, taskId, agentRole, eventType, message, metadata ? JSON.stringify(metadata) : null, nowIso);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }
   }
 
   /**
@@ -896,7 +986,17 @@ export class AutonomousManager {
             const clean = f.replace(/\.md$/i, '');
             if (clean && clean !== 'README') skillsSet.add(clean);
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }
       }
     }
 
@@ -950,7 +1050,17 @@ export class AutonomousManager {
       let reqIds: string[] = [];
       try {
         reqIds = t.requirement_ids_json ? JSON.parse(t.requirement_ids_json) : [];
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }
       return {
         ...t,
         lifecycle_state: effectiveLifecycle,
@@ -1020,7 +1130,17 @@ export class AutonomousManager {
     let complexityAnalysis: any = null;
     try {
       complexityAnalysis = run.complexity_analysis_json ? JSON.parse(run.complexity_analysis_json) : null;
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }
 
     const skillsMetadata = this.resolveRunSkillsMetadata(run, parsedTasks, project?.path);
 
@@ -1325,7 +1445,17 @@ export class AutonomousManager {
         repo,
         task.github_issue_number,
         `[WORKER] **${agentName}** assumiu a execução desta issue no branch \`${task.github_branch || 'ai/' + task.github_issue_number}\`.`
-      ).catch(() => {});
+      ).catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    });
     }
 
     return this.getRun(runId);
@@ -1426,7 +1556,17 @@ export class AutonomousManager {
     let attemptHistory: any[] = [];
     try {
       attemptHistory = task.attempt_history_json ? JSON.parse(task.attempt_history_json) : [];
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }
     attemptHistory.push({
       attempt,
       reportId,
@@ -1561,7 +1701,17 @@ export class AutonomousManager {
           commandOutput: input.evaluation?.commandOutputSummary,
           failedCriteria: input.evaluation?.failedCriteria
         });
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }
     }
 
     return { reportId, status: newStatus, taskStatus: newStatus, lifecycleState: targetLifecycle, needsApproval, highestRisk, approvalReason };
@@ -1756,13 +1906,33 @@ export class AutonomousManager {
         try {
           HierarchicalOrchestrationService.transitionTaskState(input.taskId, 'READY', 'system', 'Sincronização de estado (PLANNED -> READY)');
           currentLifecycle = 'READY';
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }
       }
       if (currentLifecycle === 'READY' || currentLifecycle === 'REWORK_REQUIRED') {
         try {
           HierarchicalOrchestrationService.transitionTaskState(input.taskId, 'IN_PROGRESS', 'system', 'Sincronização de estado para execução verificada');
           currentLifecycle = 'IN_PROGRESS';
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }
       }
       if (currentLifecycle === 'IN_PROGRESS' || currentLifecycle === 'BLOCKED') {
         try {
@@ -1772,7 +1942,17 @@ export class AutonomousManager {
             'system',
             'Sincronização de estado para revisão independente'
           );
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }
       }
 
       // Transition REVIEW_PENDING -> APPROVED
@@ -1850,7 +2030,17 @@ export class AutonomousManager {
           workingStrategy: input.feedback || latestRep?.recommendation || 'Implementação corrigida e validada pela verificação independente.',
           filesChanged: reportFiles
         });
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }
 
       // Release any active worker leases for this task
       try {
@@ -1863,7 +2053,17 @@ export class AutonomousManager {
             current_issue_number: null
           });
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }
 
       // Resolve DAG and promote dependent tasks
       this.getAvailableTasks(input.runId);
@@ -1959,7 +2159,17 @@ export class AutonomousManager {
           commandOutput: evaluation?.evidence?.output,
           failedCriteria: evaluation?.failedCriteria
         });
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }
 
       // Watchdog check for max iterations per task
       if (currentRetry >= maxRetries) {
@@ -1984,7 +2194,17 @@ export class AutonomousManager {
             currentExpected = Array.isArray(task.expected_files)
               ? task.expected_files
               : (task.expected_files_json ? JSON.parse(task.expected_files_json) : []);
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }
 
           const projectPath = run.project?.path || '.';
           const reconciledExpected = currentExpected.map(expFile => {
@@ -2019,7 +2239,17 @@ export class AutonomousManager {
               `Auto-Unblock concedido: ${autoUnblockFeedback}`,
               { retryCount: currentRetry, maxRetries: extraMaxRetries, reviewId, autoUnblock: true }
             );
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }
 
           db.prepare(`
             UPDATE autonomous_tasks
@@ -2082,7 +2312,17 @@ export class AutonomousManager {
             `Limite de ${maxRetries} tentativas atingido sem aprovação. Último feedback: ${input.feedback}`,
             { retryCount: currentRetry, maxRetries, reviewId }
           );
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }
         db.prepare("UPDATE autonomous_tasks SET status = 'blocked', lifecycle_state = 'BLOCKED', retry_count = ?, updated_at = ? WHERE id = ?")
           .run(currentRetry, nowIso, input.taskId);
 
@@ -2129,7 +2369,17 @@ export class AutonomousManager {
             `Correções solicitadas na tentativa ${currentRetry}/${maxRetries}: ${input.feedback}`,
             { retryCount: currentRetry, maxRetries, reviewId }
           );
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }
         db.prepare("UPDATE autonomous_tasks SET status = 'needs_changes', lifecycle_state = 'REWORK_REQUIRED', retry_count = ?, updated_at = ? WHERE id = ?")
           .run(currentRetry, nowIso, input.taskId);
 
@@ -2424,10 +2674,40 @@ export class AutonomousManager {
             const runRow: any = db.prepare('SELECT project_id FROM autonomous_runs WHERE id = ?').get(approval.run_id);
             if (runRow?.project_id) {
               import('./projectOperationsService.js').then(({ ProjectOperationsService }) => {
-                ProjectOperationsService.postCompletionVisualSummaryToChat(runRow.project_id, approval.run_id).catch(() => {});
-              }).catch(() => {});
+                ProjectOperationsService.postCompletionVisualSummaryToChat(runRow.project_id, approval.run_id).catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    });
+              }).catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    });
             }
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }
         } else {
           db.prepare("UPDATE autonomous_runs SET status = 'running', last_error = NULL, next_action = 'Retomando execução autônoma', updated_at = ? WHERE id = ? AND status IN ('waiting_approval', 'blocked', 'paused')")
             .run(nowIso, approval.run_id);
@@ -2612,7 +2892,17 @@ export class AutonomousManager {
       const reconciled = await AutonomousRunnerService.reconcileCompletedTurn(runId, { allowInsideCycle: true });
       if (reconciled) {
         db.prepare("UPDATE autonomous_runs SET status = 'running', last_error = NULL, next_action = 'Turno reconciliado com sucesso; prosseguindo', updated_at = ? WHERE id = ?").run(new Date().toISOString(), runId);
-        setTimeout(() => { AutonomousRunnerService.triggerTick().catch(() => {}); }, 50);
+        setTimeout(() => { AutonomousRunnerService.triggerTick().catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }); }, 50);
         return this.getRun(runId);
       }
     } catch (e: any) {
@@ -2638,7 +2928,17 @@ export class AutonomousManager {
     try {
       const { SessionCircuitBreaker } = await import('./sessionCircuitBreaker.js');
       SessionCircuitBreaker.resetProjectWindow(run.project_id);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }
 
     if (/^(TURN|LEASE|CRASH|NATIVE_WORKSPACE_SESSION)_RECONCILIATION_REQUIRED|EXECUTION_(BUSY|RECOVERY_REQUIRED)|SESSION_CREATION_STORM|SESSION_CREATION_UNCERTAIN/.test(run.last_error || '')) {
       db.prepare("UPDATE autonomous_runs SET last_error = NULL, updated_at = ? WHERE id = ?").run(new Date().toISOString(), runId);
@@ -2798,7 +3098,17 @@ export class AutonomousManager {
     this.syncRunProgress(runId);
     const { AutonomousRunnerService: Runner } = await import('./autonomousRunnerService.js');
     setTimeout(() => {
-      Runner.triggerTick().catch(() => {});
+      Runner.triggerTick().catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    });
     }, 50);
     return this.getRun(runId);
   }
@@ -2900,14 +3210,34 @@ export class AutonomousManager {
       try {
         const { SessionCircuitBreaker } = await import('./sessionCircuitBreaker.js');
         SessionCircuitBreaker.resetProjectWindow(r.project_id);
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }
 
       AutonomousManager.logEvent(r.id, null, 'system', 'FORCE_UNLOCK_APPLIED', 'Execução destravada via Force-Unlock; bloqueios e reservas órfãs limpos.');
     }
 
     if (unlockedRuns.length > 0) {
       setTimeout(() => {
-        AutonomousRunnerService.schedulerTick().catch(() => {});
+        AutonomousRunnerService.schedulerTick().catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    });
       }, 50);
     }
 
@@ -2968,7 +3298,17 @@ export class AutonomousManager {
           contract.reworkContext.problemsFound.unshift(`[EVALUATOR_NOTES] ${noteStr.trim()}`);
         }
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousManager",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousManager]", err);
+      }
+    }
     return contract;
   }
 

@@ -607,9 +607,29 @@ export class ModelRegistry {
         if (proj?.reasoning_level) {
           try {
             result.intelligence_level = this.normalizeIntelligenceLevel(proj.reasoning_level);
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "modelRegistry",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:modelRegistry]", err);
+      }
+    }
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "modelRegistry",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:modelRegistry]", err);
+      }
+    }
     }
 
     const scopeRank = (row: any) => (row.project_id ? 20 : 0) + (row.account_profile_id ? 10 : 0);
@@ -634,7 +654,17 @@ export class ModelRegistry {
         if (roleRows[0].intelligence_level) {
           try {
             result[`${role}_intelligence_level`] = this.normalizeIntelligenceLevel(roleRows[0].intelligence_level);
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "modelRegistry",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:modelRegistry]", err);
+      }
+    }
         }
       } else {
         result[role] = result.default;
@@ -695,7 +725,17 @@ export class ModelRegistry {
           nowIso,
           projectId
         );
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "modelRegistry",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:modelRegistry]", err);
+      }
+    }
     }
 
     Logger.info(

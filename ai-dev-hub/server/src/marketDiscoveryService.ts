@@ -343,7 +343,17 @@ export class MarketDiscoveryService {
         'Node.js + native SQLite + Vanilla SPA',
         'medium'
       );
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "marketDiscoveryService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:marketDiscoveryService]", err);
+      }
+    }
 
     // 5. Persist dossier in .ai-dev-hub/market-research-rea.md
     if (!fs.existsSync(aiDevHubDir)) {

@@ -25,7 +25,17 @@ process.env.DECOHUB_ALLOW_LIVE_AGENTAPI = 'false';
       if (fs.existsSync(isolatedDir)) {
         fs.rmSync(isolatedDir, { recursive: true, force: true });
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "testSetup",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:testSetup]", err);
+      }
+    }
   });
 }
 

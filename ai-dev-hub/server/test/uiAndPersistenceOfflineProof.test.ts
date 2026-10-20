@@ -32,7 +32,17 @@ test('UI & Persistence Offline Proof: Council Visibility, Skill Accuracy, Restar
       db.prepare('DELETE FROM council_deliberations WHERE project_id = ?').run(projId);
       db.prepare('DELETE FROM projects WHERE id = ?').run(projId);
       fs.rmSync(tmpRoot, { recursive: true, force: true });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "uiAndPersistenceOfflineProof.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:uiAndPersistenceOfflineProof.test]", err);
+      }
+    }
   });
 
   await t.test('1. Especialidades Corretas: Roteamento mapeia estritamente cada domínio técnico', async () => {

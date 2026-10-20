@@ -235,7 +235,17 @@ export class MetaChatService {
     try {
       ExecutionCoordinator.releaseByContext({ scope: 'metachat' });
       ExecutionCoordinator.reconcileDeadReservations();
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "metaChatService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:metaChatService]", err);
+      }
+    }
 
     if (this._currentExecution) {
       this._currentExecution.cancelRequested = true;
@@ -244,7 +254,17 @@ export class MetaChatService {
         TurnCancellationManager.requestCancellation(convId);
         try {
           ExecutionCoordinator.releaseByContext({ scope: convId });
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "metaChatService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:metaChatService]", err);
+      }
+    }
       }
 
       // Rollback files that were changed or diffed
@@ -627,12 +647,32 @@ export class MetaChatService {
                       }
                     }
                   }
-                } catch {}
+                } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "metaChatService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:metaChatService]", err);
+      }
+    }
               }
               this._currentExecution.lastTranscriptLineCount = lines.length;
             }
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "metaChatService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:metaChatService]", err);
+      }
+    }
       }
 
       // Check git diff against baseline
@@ -645,7 +685,17 @@ export class MetaChatService {
           for (const f of currentDiff) {
             this._currentExecution.filesChanged.add(f);
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "metaChatService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:metaChatService]", err);
+      }
+    }
       }
 
       return {
@@ -679,14 +729,34 @@ export class MetaChatService {
         if (lastRow.executed_steps_json) {
           try {
             liveSteps = JSON.parse(lastRow.executed_steps_json);
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "metaChatService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:metaChatService]", err);
+      }
+    }
         }
         if (lastRow.metadata) {
           try {
             const meta = JSON.parse(lastRow.metadata);
             if (Array.isArray(meta.pipelineTasks)) pipelineTasks = meta.pipelineTasks;
             if (liveSteps.length === 0 && Array.isArray(meta.executedSteps)) liveSteps = meta.executedSteps;
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "metaChatService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:metaChatService]", err);
+      }
+    }
         }
 
         if (pipelineTasks.length === 0 && liveSteps.length > 0) {
@@ -713,7 +783,17 @@ export class MetaChatService {
           filesModified: []
         };
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "metaChatService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:metaChatService]", err);
+      }
+    }
 
     return {
       isExecuting: false,
@@ -1101,7 +1181,17 @@ export class MetaChatService {
           return e.step_index;
         }
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "metaChatService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:metaChatService]", err);
+      }
+    }
     return -1;
   }
 
@@ -1165,7 +1255,17 @@ export class MetaChatService {
                         return fullEntry.content;
                       }
                     }
-                  } catch {}
+                  } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "metaChatService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:metaChatService]", err);
+      }
+    }
                 }
                 return entry.content;
               }
@@ -1245,7 +1345,17 @@ export class MetaChatService {
             const ext = path.extname(att.name).replace('.', '') || 'text';
             lines.push(`  Conteúdo de ${att.name}:\n  \`\`\`${ext}\n${content.slice(0, 3000)}\n  \`\`\``);
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "metaChatService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:metaChatService]", err);
+      }
+    }
       }
     }
 
@@ -1287,9 +1397,29 @@ export class MetaChatService {
           } else {
             map.set(file, { size: -1, mtime: 0, content: null });
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "metaChatService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:metaChatService]", err);
       }
-    } catch {}
+    }
+      }
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "metaChatService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:metaChatService]", err);
+      }
+    }
     return map;
   }
 
@@ -1360,7 +1490,17 @@ export class MetaChatService {
                   changedInTurn.add(rel);
                 }
               }
-            } catch {}
+            } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "metaChatService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:metaChatService]", err);
+      }
+    }
           }
         }
       }
@@ -1397,9 +1537,29 @@ export class MetaChatService {
       const before = beforeBaseline?.get(file);
       if (before) {
         if (before.content === null || before.size === -1) {
-          try { if (fs.existsSync(full)) fs.unlinkSync(full); } catch {}
+          try { if (fs.existsSync(full)) fs.unlinkSync(full); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "metaChatService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:metaChatService]", err);
+      }
+    }
         } else if (typeof before.content === 'string') {
-          try { fs.writeFileSync(full, before.content, 'utf-8'); } catch {}
+          try { fs.writeFileSync(full, before.content, 'utf-8'); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "metaChatService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:metaChatService]", err);
+      }
+    }
         }
       } else {
         try {
@@ -1409,7 +1569,17 @@ export class MetaChatService {
             if (fs.existsSync(full)) {
               fs.unlinkSync(full);
             }
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "metaChatService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:metaChatService]", err);
+      }
+    }
         }
       }
     }
@@ -1430,12 +1600,32 @@ export class MetaChatService {
     if (accountProfileId) {
       try {
         profile = AccountProfileManager.getProfile(accountProfileId);
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "metaChatService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:metaChatService]", err);
+      }
+    }
     }
     if (!profile) {
       try {
         profile = AccountProfileManager.getGlobalActiveProfile();
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "metaChatService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:metaChatService]", err);
+      }
+    }
     }
     if (!profile) {
       const all = AccountProfileManager.getAllProfiles();
@@ -1489,7 +1679,17 @@ export class MetaChatService {
       if (!AgentApiGateway.isOfflineMode() && !AccountProfileManager.isAutomatedTestRuntime()) {
         try {
           AccountProfileManager.ensureProfileRuntimeRunningSync(profile, 14000);
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "metaChatService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:metaChatService]", err);
+      }
+    }
       }
       env = AccountProfileManager.getExecutionEnvForProfile(profile, proj.id);
     } catch {
@@ -1840,11 +2040,31 @@ export class MetaChatService {
               if (originalContent === null) {
                 try {
                   fs.unlinkSync(fullPath);
-                } catch {}
+                } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "metaChatService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:metaChatService]", err);
+      }
+    }
               } else {
                 try {
                   fs.writeFileSync(fullPath, originalContent, 'utf-8');
-                } catch {}
+                } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "metaChatService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:metaChatService]", err);
+      }
+    }
               }
             }
             selfHealed = true;
@@ -2022,7 +2242,17 @@ export class MetaChatService {
                 .trim()
                 .split('\n')
                 .filter(Boolean).length;
-            } catch {}
+            } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "metaChatService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:metaChatService]", err);
+      }
+    }
           }
 
           if (this._currentExecution) {
@@ -2107,7 +2337,17 @@ export class MetaChatService {
               if (fromTranscript && fromTranscript.trim()) {
                 agentReport = fromTranscript.trim();
               }
-            } catch {}
+            } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "metaChatService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:metaChatService]", err);
+      }
+    }
           }
 
           if (!agentReport && turnResult.agentThoughts) {

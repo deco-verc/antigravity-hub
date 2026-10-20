@@ -195,7 +195,17 @@ O sistema deve conter:
         }
       }
     } finally {
-      try { fs.rmSync(tmpAuthDir, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(tmpAuthDir, { recursive: true, force: true }); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "systemForensicAuditAndHardening.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:systemForensicAuditAndHardening.test]", err);
+      }
+    }
     }
   });
 

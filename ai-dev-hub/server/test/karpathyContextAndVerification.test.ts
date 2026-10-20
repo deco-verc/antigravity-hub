@@ -35,7 +35,17 @@ test('Karpathy Context Efficiency & Verification Principles Suite', async (t) =>
   t.after(() => {
     try {
       fs.rmSync(tmpRoot, { recursive: true, force: true });
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "karpathyContextAndVerification.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:karpathyContextAndVerification.test]", err);
+      }
+    }
   });
 
   await t.test('1. Isolamento de Contexto entre Projetos: Tarefa nunca recebe contexto de outro projeto', () => {

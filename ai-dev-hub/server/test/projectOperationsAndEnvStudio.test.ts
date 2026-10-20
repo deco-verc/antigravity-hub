@@ -27,7 +27,17 @@ describe('FASE 11: ProjectOperationsService, Preview Launcher & .env Studio', ()
       if (fs.existsSync(tempTestDir)) {
         fs.rmSync(tempTestDir, { recursive: true, force: true });
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "projectOperationsAndEnvStudio.test",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:projectOperationsAndEnvStudio.test]", err);
+      }
+    }
   });
 
   describe('1. Port Allocation & Preview Process Lifecycle', () => {

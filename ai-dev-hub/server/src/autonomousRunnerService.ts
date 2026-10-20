@@ -105,7 +105,17 @@ export class AutonomousRunnerService {
       if (typeof (ExecutionCoordinator as any).touch === 'function') {
         (ExecutionCoordinator as any).touch('global-agent-execution', this.activeExecutionToken);
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
   }
 
   /**
@@ -184,7 +194,17 @@ export class AutonomousRunnerService {
     }
 
     setTimeout(() => {
-      AutonomousRunnerService.schedulerTick().catch(() => {});
+      AutonomousRunnerService.schedulerTick().catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    });
     }, 50);
 
     return true;
@@ -240,7 +260,17 @@ export class AutonomousRunnerService {
         AutonomousManager.logEvent(runId, null, 'system', 'RUN_COMPLETED_ON_RECONCILIATION', 'Run reconciliado e encerrado como concluído pois todas as tarefas já estavam finalizadas.');
         try {
           await ProjectOperationsService.postCompletionVisualSummaryToChat(run.project_id, runId);
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
       } else if (!RunControl.apply(runId, true)) {
         db.prepare("UPDATE autonomous_runs SET status = 'running', last_error = NULL, next_action = 'Estado de reconciliação limpo; retomando execução autônoma', updated_at = ? WHERE id = ?")
           .run(nowIso, runId);
@@ -571,7 +601,17 @@ export class AutonomousRunnerService {
       });
       try {
         DiagnosticService.remediateAnomalies();
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
     }, 30000);
 
     Logger.success('[Autonomous Runner] Scheduler, Heartbeat (15s), Multi-Worker Pool e Watchdog (30s) ativos.');
@@ -711,7 +751,17 @@ export class AutonomousRunnerService {
           WorkerRegistry.releaseAllLeases(l.worker_id);
           WorkerRegistry.updateWorkerStatus(l.worker_id, 'READY');
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
 
       for (const run of pendingRuns) {
         const project: any = db.prepare('SELECT path FROM projects WHERE id=?').get(run.project_id);
@@ -816,7 +866,17 @@ export class AutonomousRunnerService {
                   break;
                 }
               }
-            } catch {}
+            } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
           }
 
           if (recoveredSha) {
@@ -1013,7 +1073,17 @@ export class AutonomousRunnerService {
           Logger.success(`[Autonomous Runner Scheduler] Run "${pr.name}" retomado automaticamente após término do cooldown de cota.`);
         }
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
 
     // 0.1 Auto-recover runs waiting for resources (Antigravity runtime / accounts)
     try {
@@ -1059,7 +1129,17 @@ export class AutonomousRunnerService {
             try {
               const ctx = JSON.parse(res.context_json || '{}');
               if (ctx.runId === pr.id) ExecutionCoordinator.release('global-agent-execution', res.token);
-            } catch {}
+            } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
           }
           db.prepare("UPDATE worker_leases SET status = 'expired', released_at = ? WHERE run_id = ? AND status = 'active'").run(nowIso, pr.id);
           db.prepare("UPDATE agent_turn_observations SET phase = 'CONSUMED' WHERE task_id IN (SELECT id FROM autonomous_tasks WHERE run_id = ?) AND phase IN ('IN_FLIGHT','UNCERTAIN')").run(pr.id);
@@ -1248,7 +1328,17 @@ export class AutonomousRunnerService {
                     candidateFrontendFiles.push(p);
                   }
                 }
-              } catch {}
+              } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
             }
           };
 
@@ -1261,7 +1351,17 @@ export class AutonomousRunnerService {
           for (const f of candidateFrontendFiles) {
             try {
               combinedFrontendCode += ' ' + fs.readFileSync(f, 'utf-8');
-            } catch {}
+            } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
           }
           const lowerCode = combinedFrontendCode.toLowerCase();
 
@@ -1305,7 +1405,17 @@ export class AutonomousRunnerService {
                     candidateBackendFiles.push(p);
                   }
                 }
-              } catch {}
+              } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
             };
             gatherSrc(srcDir);
           }
@@ -1318,7 +1428,17 @@ export class AutonomousRunnerService {
           for (const f of candidateBackendFiles) {
             try {
               combinedBackendCode += ' ' + fs.readFileSync(f, 'utf-8');
-            } catch {}
+            } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
           }
           const lowerBackend = combinedBackendCode.toLowerCase();
 
@@ -1464,7 +1584,17 @@ export class AutonomousRunnerService {
             error: err
           });
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
       Logger.warn(`[Autonomous Runner] Auto-replanejamento incremental não pôde ser concluído: ${err.message}`);
       return false;
     }
@@ -1636,7 +1766,17 @@ export class AutonomousRunnerService {
 
           Logger.success(`[APPROVED] [Supervisor] Tarefa "${inReviewTask.title}" aprovada após avaliação independente.`);
           setTimeout(() => {
-            AutonomousRunnerService.schedulerTick().catch(() => {});
+            AutonomousRunnerService.schedulerTick().catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    });
           }, 50);
         } else {
           this.consecutiveFailures++;
@@ -1648,7 +1788,17 @@ export class AutonomousRunnerService {
 
           Logger.warn(`[REWORK] [Supervisor] Solicitação de correções enviada para "${inReviewTask.title}": ${reviewResult.feedback || 'Revisão reprovada'}`);
           setTimeout(() => {
-            AutonomousRunnerService.schedulerTick().catch(() => {});
+            AutonomousRunnerService.schedulerTick().catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    });
           }, 50);
         }
         return;
@@ -1656,7 +1806,17 @@ export class AutonomousRunnerService {
         // Tarefa está in_review sem report válido (anomalia de estado): reset para ready
         db.prepare("UPDATE autonomous_tasks SET status = 'ready', updated_at = ? WHERE id = ?").run(nowIso, inReviewTask.id);
         setTimeout(() => {
-          AutonomousRunnerService.schedulerTick().catch(() => {});
+          AutonomousRunnerService.schedulerTick().catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    });
         }, 50);
         return;
       }
@@ -1719,7 +1879,17 @@ export class AutonomousRunnerService {
             });
             if (failoverRes.switched) {
               setTimeout(() => {
-                AutonomousRunnerService.schedulerTick().catch(() => {});
+                AutonomousRunnerService.schedulerTick().catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    });
               }, 50);
               return;
             }
@@ -1845,7 +2015,17 @@ export class AutonomousRunnerService {
       }
       if (recoveredOrphan) {
         setTimeout(() => {
-          AutonomousRunnerService.schedulerTick().catch(() => {});
+          AutonomousRunnerService.schedulerTick().catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    });
         }, 50);
         return;
       }
@@ -1916,7 +2096,17 @@ export class AutonomousRunnerService {
               WHERE id = ?
             `).run(`Failover automático concluído para "${failoverRes.activeProfile.display_name}". Retomando execução.`, nowIso, runId);
             setTimeout(() => {
-              AutonomousRunnerService.schedulerTick().catch(() => {});
+              AutonomousRunnerService.schedulerTick().catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    });
             }, 50);
             return;
           }
@@ -2154,7 +2344,17 @@ export class AutonomousRunnerService {
             `).run(`Auto-Failover (${failoverRes.kind}) concluído para "${failoverRes.activeProfile.display_name}". Retomando execução.`, nowIso, runId);
 
             setTimeout(() => {
-              AutonomousRunnerService.schedulerTick().catch(() => {});
+              AutonomousRunnerService.schedulerTick().catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    });
             }, 100);
             return;
           }
@@ -2348,7 +2548,17 @@ export class AutonomousRunnerService {
       this.currentWorker = null;
 
       setTimeout(() => {
-        AutonomousRunnerService.schedulerTick().catch(() => {});
+        AutonomousRunnerService.schedulerTick().catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    });
       }, 50);
 
       return;
@@ -2391,7 +2601,17 @@ export class AutonomousRunnerService {
 
       Logger.success(`[APPROVED] [Supervisor] Tarefa "${nextTask.title}" aprovada após avaliação independente.`);
       setTimeout(() => {
-        AutonomousRunnerService.schedulerTick().catch(() => {});
+        AutonomousRunnerService.schedulerTick().catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    });
       }, 50);
     } else {
       this.consecutiveFailures++;
@@ -2403,7 +2623,17 @@ export class AutonomousRunnerService {
 
       Logger.warn(`[REWORK] [Supervisor] Solicitação de correções enviada para "${nextTask.title}": ${reviewResult.feedback || 'Revisão reprovada'}`);
       setTimeout(() => {
-        AutonomousRunnerService.schedulerTick().catch(() => {});
+        AutonomousRunnerService.schedulerTick().catch((err) => {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    });
       }, 50);
     }
   }
@@ -2494,7 +2724,17 @@ export class AutonomousRunnerService {
       try {
         db.prepare('UPDATE autonomous_tasks SET slop_preflight_json = ? WHERE id = ?')
           .run(JSON.stringify(slopPreflight), task.id);
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
 
       // Skill Router: Route task to specialized technical persona
       const { SkillRouter } = await import('./skillRouter.js');
@@ -2517,7 +2757,17 @@ export class AutonomousRunnerService {
         try {
           db.prepare('UPDATE autonomous_tasks SET research_findings_json = ? WHERE id = ?')
             .run(JSON.stringify({ findings: taskResearch.findings, safeToAdopt: taskResearch.safeToAdopt, sourceReliability: taskResearch.sourceReliability }), task.id);
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
       }
 
       // Model and intelligence selection via centralized ModelRegistry
@@ -2548,7 +2798,17 @@ export class AutonomousRunnerService {
         } else if (process.env.DECOHUB_WORKER_PROMPT_VARIANT) {
           workerPromptVariant = process.env.DECOHUB_WORKER_PROMPT_VARIANT;
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
 
       if (!workerPromptVariant) {
         const { AgentApiGateway } = await import('./agentApiGateway.js');
@@ -2660,7 +2920,17 @@ export class AutonomousRunnerService {
         let gitLog = '';
         try {
           gitLog = execSync(`git -C "${projectPath}" log -n 5 --oneline`, { encoding: 'utf-8' }).trim();
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
 
         resumeContext = [
           `[HANDOFF / RESUME MODE]`,
@@ -2694,7 +2964,17 @@ export class AutonomousRunnerService {
           new Date().toISOString(),
           task.id
         );
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
 
       AutonomousManager.logEvent(
         run.id,
@@ -2733,7 +3013,17 @@ export class AutonomousRunnerService {
       let workerExecutionContract: any = null;
       try {
         workerExecutionContract = AutonomousManager.buildWorkerExecutionContract(task.id);
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
 
       const structuredReworkPrompt = workerExecutionContract?.reworkContext
         ? [
@@ -2758,7 +3048,17 @@ export class AutonomousRunnerService {
           : task.requirement_ids_json
           ? JSON.parse(task.requirement_ids_json)
           : [];
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
       const taskDeps: string[] = Array.isArray(task.dependencies)
         ? task.dependencies
         : safeJsonParse(task.dependencies_json, []);
@@ -3003,7 +3303,17 @@ export class AutonomousRunnerService {
                   SET status = 'approved', decision = 'auto_approved_by_evaluator', decided_at = ?
                   WHERE run_id = ? AND task_id = ? AND status = 'pending'
                 `).run(new Date().toISOString(), run.id, task.id);
-              } catch {}
+              } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
 
               evaluationResult = probeEval;
             } else {
@@ -3049,7 +3359,17 @@ export class AutonomousRunnerService {
                 SET status = 'approved', decision = 'auto_approved_by_evaluator', decided_at = ?
                 WHERE run_id = ? AND task_id = ? AND status = 'pending'
               `).run(new Date().toISOString(), run.id, task.id);
-            } catch {}
+            } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
 
             evaluationResult = timeoutProbe;
           } else {
@@ -3182,7 +3502,17 @@ export class AutonomousRunnerService {
             JSON.stringify(evaluationResult.evidence?.evidenceSummary || null),
             task.id
           );
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
       } finally {
         AutonomousRunnerService.releaseExecutionLock();
       }
@@ -3217,7 +3547,17 @@ export class AutonomousRunnerService {
           db.prepare('UPDATE autonomous_tasks SET council_deliberation_id = ? WHERE id = ?')
             .run(councilDeliberation.id, task.id);
           task.council_deliberation_id = councilDeliberation.id;
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
 
         AutonomousManager.logEvent(
           run.id,
@@ -3247,7 +3587,17 @@ export class AutonomousRunnerService {
           db.prepare('UPDATE autonomous_tasks SET council_deliberation_id = NULL WHERE id = ?')
             .run(task.id);
           task.council_deliberation_id = null;
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
       }
 
       // 5. NOTE (Section 9): Git commit and remote push are strictly executed AFTER Review approval
@@ -3359,7 +3709,17 @@ export class AutonomousRunnerService {
           actualModel: modelEvidence.actualModel || resolvedBuilderModel,
           effortLevel: engineeringPackage?.adaptiveEffort?.effortLevel || 'STANDARD'
         });
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
     }
   }
 
@@ -3514,7 +3874,17 @@ export class AutonomousRunnerService {
             feedback = `${feedback}\n[AI DEV Council]: Aprovado com nota ${taskDeliberation.scores?.final ?? 9}/10 (Simplicidade: ${taskDeliberation.scores?.simplicity ?? 9}/10, Corretude: ${taskDeliberation.scores?.correctness ?? 9}/10).`;
           }
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
 
       // Correction loop: Log Evaluator feedback if failed or tampered
       if (!report.evaluation || !report.evaluation.taskIsDone) {
@@ -3603,7 +3973,17 @@ export class AutonomousRunnerService {
               db.prepare('UPDATE autonomous_tasks SET github_pr_number = ?, github_pr_url = ? WHERE id = ?')
                 .run(matching.number, matching.html_url || null, task.id);
             }
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
         }
 
         if (verdict === 'CHANGES_REQUESTED') {
@@ -3646,7 +4026,17 @@ export class AutonomousRunnerService {
               await GitHubMcpClient.mergePullRequest(owner, repo, prNumber, `[AI Merge] ${task.title}`);
               try {
                 db.prepare("UPDATE autonomous_tasks SET pr_merged = 1 WHERE id = ?").run(task.id);
-              } catch {}
+              } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "autonomousRunnerService",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:autonomousRunnerService]", err);
+      }
+    }
             }
             if (task.github_issue_number) {
               await GitHubMcpClient.updateIssue(owner, repo, task.github_issue_number, { state: 'closed' });

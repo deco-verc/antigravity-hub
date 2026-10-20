@@ -83,7 +83,17 @@ export class GeminiSupervisorProvider {
           if (metadata?.rootConversationId === this.lastConversationId) {
             actualModel = metadata?.staticConfig?.cascadeConfig?.plannerConfig?.planModel || null;
           }
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "geminiSupervisorProvider",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:geminiSupervisorProvider]", err);
+      }
+    }
       }
     }
     return {
@@ -111,7 +121,17 @@ export class GeminiSupervisorProvider {
           return entry.step_index;
         }
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "geminiSupervisorProvider",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:geminiSupervisorProvider]", err);
+      }
+    }
     return -1;
   }
 
@@ -370,7 +390,17 @@ export class GeminiSupervisorProvider {
       if (lessonsBlock) {
         existingMemorySnippet += `\nLIÇÕES OPERACIONAIS APRENDIDAS (NÃO REPETIR FALHAS ANTERIORES):\n${lessonsBlock}`;
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "geminiSupervisorProvider",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:geminiSupervisorProvider]", err);
+      }
+    }
 
     const {
       docSimpContextBlock,
@@ -757,7 +787,17 @@ export class GeminiSupervisorProvider {
           t.skillGuidelines = routed.guidelines || routed.priorityInvariants;
         }
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "geminiSupervisorProvider",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:geminiSupervisorProvider]", err);
+      }
+    }
     return healed;
   }
 
@@ -1284,7 +1324,17 @@ export class GeminiSupervisorProvider {
         if (memory.decisionsMd) existingMemorySnippet += ` DECISÕES TÉCNICAS A RESPEITAR: ${memory.decisionsMd}.`;
         if (memory.programMd) constitutionSnippet = memory.programMd;
         existingMemorySnippet += `\nARQUITETURA: ${memory.architectureMd || ''}\nGIT: ${JSON.stringify(GitManager.getGitInfo(projectContext.path))}\nARQUIVOS E STACK: ${JSON.stringify(ProjectAnalyzer.analyze(projectContext.path))}`;
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "geminiSupervisorProvider",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:geminiSupervisorProvider]", err);
+      }
+    }
 
       const preResolvedBlocks = await this.resolveContextualSkillBlocks(briefing, projectContext.path, projectContext.name, options?.requirements);
       Logger.info(`[GeminiSupervisor] Onda 0: Estudo de Mercado, Referências e Engenharia Reversa REA concluído.`);
@@ -1408,7 +1458,17 @@ export class GeminiSupervisorProvider {
     if (task.skill_guidelines_json) {
       try {
         skillGuidelines = JSON.parse(task.skill_guidelines_json);
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "geminiSupervisorProvider",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:geminiSupervisorProvider]", err);
+      }
+    }
     } else if (Array.isArray(task.skillGuidelines)) {
       skillGuidelines = task.skillGuidelines;
     }
@@ -1420,7 +1480,17 @@ export class GeminiSupervisorProvider {
         if (skillGuidelines.length === 0) {
           skillGuidelines = routed.guidelines || routed.priorityInvariants;
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "geminiSupervisorProvider",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:geminiSupervisorProvider]", err);
+      }
+    }
     }
 
     const effectiveProjectId = this.projectId || projectContext?.id || 'default-project';
@@ -1726,14 +1796,34 @@ export class GeminiSupervisorProvider {
         const parsed = JSON.parse(rawBlock);
         const unwrapped = this.unwrapArrayFromParsed<T>(parsed);
         if (unwrapped) return unwrapped;
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "geminiSupervisorProvider",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:geminiSupervisorProvider]", err);
+      }
+    }
     }
 
     try {
       const parsed = JSON.parse(text.trim());
       const unwrapped = this.unwrapArrayFromParsed<T>(parsed);
       if (unwrapped) return unwrapped;
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "geminiSupervisorProvider",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:geminiSupervisorProvider]", err);
+      }
+    }
 
     // Fallback: search for valid JSON array candidates ending at the last ']'
     const lastBracket = text.lastIndexOf(']');
@@ -1746,7 +1836,17 @@ export class GeminiSupervisorProvider {
           const candidate = text.substring(bracketIdx, lastBracket + 1);
           const parsed = JSON.parse(candidate);
           if (Array.isArray(parsed)) return parsed;
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "geminiSupervisorProvider",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:geminiSupervisorProvider]", err);
+      }
+    }
         searchFrom = bracketIdx + 1;
       }
     }
@@ -1761,13 +1861,33 @@ export class GeminiSupervisorProvider {
       try {
         const parsed = JSON.parse(fencedMatches[i][1].trim());
         if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) return parsed;
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "geminiSupervisorProvider",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:geminiSupervisorProvider]", err);
+      }
+    }
     }
 
     try {
       const parsed = JSON.parse(text.trim());
       if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) return parsed;
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "geminiSupervisorProvider",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:geminiSupervisorProvider]", err);
+      }
+    }
 
     // Fallback: search for valid JSON object candidates ending at the last '}'
     const lastBrace = text.lastIndexOf('}');
@@ -1780,7 +1900,17 @@ export class GeminiSupervisorProvider {
           const candidate = text.substring(braceIdx, lastBrace + 1);
           const parsed = JSON.parse(candidate);
           if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) return parsed;
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "geminiSupervisorProvider",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:geminiSupervisorProvider]", err);
+      }
+    }
         searchFrom = braceIdx + 1;
       }
     }

@@ -62,7 +62,17 @@ export class CommandExecutionEngine {
   private static getLogDir(): string {
     const dir = path.join(HUB_DATA_DIR, 'command-logs');
     if (!fs.existsSync(dir)) {
-      try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+      try { fs.mkdirSync(dir, { recursive: true }); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "commandExecutionEngine",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:commandExecutionEngine]", err);
+      }
+    }
     }
     return dir;
   }
@@ -144,10 +154,30 @@ export class CommandExecutionEngine {
 
   private static rowToRecord(row: any): CommandExecutionRecord {
     let args: string[] = [];
-    try { args = JSON.parse(row.args_json || '[]'); } catch {}
+    try { args = JSON.parse(row.args_json || '[]'); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "commandExecutionEngine",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:commandExecutionEngine]", err);
+      }
+    }
 
     let metadata: Record<string, any> | null = null;
-    try { metadata = row.metadata_json ? JSON.parse(row.metadata_json) : null; } catch {}
+    try { metadata = row.metadata_json ? JSON.parse(row.metadata_json) : null; } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "commandExecutionEngine",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:commandExecutionEngine]", err);
+      }
+    }
 
     const logFile = path.join(this.getLogDir(), `${row.id}.log`);
     let fullStdout = row.stdout || row.stdout_preview || '';
@@ -175,7 +205,17 @@ export class CommandExecutionEngine {
           }
           fullStderr = err;
         }
-      } catch {}
+      } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "commandExecutionEngine",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:commandExecutionEngine]", err);
+      }
+    }
     }
 
     return {
@@ -323,7 +363,17 @@ export class CommandExecutionEngine {
         const logFile = path.join(this.getLogDir(), `${id}.log`);
         try {
           fs.writeFileSync(logFile, `--- [STDOUT] ---\n${stdoutBuffer}\n--- [STDERR] ---\n${stderrBuffer}\n`, 'utf-8');
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "commandExecutionEngine",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:commandExecutionEngine]", err);
+      }
+    }
 
         // Update record in SQLite
         try {
@@ -417,7 +467,17 @@ export class CommandExecutionEngine {
               queue_latency_ms = ?
             WHERE id = ?
           `).run(pid, startedAt, queueLatencyMs, id);
-        } catch {}
+        } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "commandExecutionEngine",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:commandExecutionEngine]", err);
+      }
+    }
 
         // Timeout handler
         const timer = setTimeout(() => {
@@ -430,10 +490,30 @@ export class CommandExecutionEngine {
             } else {
               child.kill('SIGTERM');
               setTimeout(() => {
-                try { child.kill('SIGKILL'); } catch {}
+                try { child.kill('SIGKILL'); } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "commandExecutionEngine",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:commandExecutionEngine]", err);
+      }
+    }
               }, 2000).unref();
             }
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "commandExecutionEngine",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:commandExecutionEngine]", err);
+      }
+    }
         }, timeoutMs);
 
         timer.unref();
@@ -490,7 +570,17 @@ export class CommandExecutionEngine {
       } else {
         active.child.kill('SIGTERM');
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "commandExecutionEngine",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:commandExecutionEngine]", err);
+      }
+    }
 
     const now = new Date().toISOString();
     try {
@@ -501,7 +591,17 @@ export class CommandExecutionEngine {
           completed_at = ?
         WHERE id = ?
       `).run(reason, now, id);
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "commandExecutionEngine",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:commandExecutionEngine]", err);
+      }
+    }
 
     return true;
   }

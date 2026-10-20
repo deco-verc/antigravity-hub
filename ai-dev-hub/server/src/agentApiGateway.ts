@@ -223,7 +223,17 @@ export class AgentApiGateway {
           }
         }
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "agentApiGateway",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:agentApiGateway]", err);
+      }
+    }
   }
 
   /**
@@ -260,7 +270,17 @@ export class AgentApiGateway {
       if (row?.path && fs.existsSync(row.path)) {
         return row.path;
       }
-    } catch {}
+    } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "agentApiGateway",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:agentApiGateway]", err);
+      }
+    }
     return undefined;
   }
 
@@ -590,7 +610,17 @@ export class AgentApiGateway {
               currentExe = rediscovery.languageServerExe;
             }
             this.tryRefreshProfileConnectionEnv(cleanEnv, projectId);
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "agentApiGateway",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:agentApiGateway]", err);
+      }
+    }
           continue;
         }
       }
@@ -834,7 +864,17 @@ export class AgentApiGateway {
               currentExe = rediscovery.languageServerExe;
             }
             this.tryRefreshProfileConnectionEnv(cleanEnv, options.projectId);
-          } catch {}
+          } catch (err) {
+      if (typeof logger !== "undefined" && logger.warn) {
+        logger.warn({
+          event: "server.handled_exception",
+          file: "agentApiGateway",
+          error: err?.message || String(err)
+        });
+      } else {
+        console.warn("[WARN][server:agentApiGateway]", err);
+      }
+    }
           continue;
         }
       }
