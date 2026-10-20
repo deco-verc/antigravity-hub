@@ -213,11 +213,11 @@ export class AutonomousManager {
             const metadata = JSON.parse(event.metadata_json);
             db.prepare('UPDATE autonomous_events SET metadata_json=? WHERE id=?').run(JSON.stringify({...metadata, consumed:true, consumedAt:nowIso, targetRunId:runId}),id);
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -284,11 +284,11 @@ export class AutonomousManager {
     const ids:string[]=[], texts:string[]=[];
     for(const event of db.prepare("SELECT id,metadata_json FROM autonomous_events WHERE run_id=? AND event_type='QUEUED_USER_INSTRUCTION' ORDER BY created_at,id").all(runId) as any[]){
       try {const meta=JSON.parse(event.metadata_json);if(typeof meta.content==='string'&&meta.content&&!meta.consumed&&!meta.cancelled&&meta.durableContinuation===true){ids.push(event.id);texts.push(meta.content);}}catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -314,11 +314,11 @@ export class AutonomousManager {
             cancelledCount++;
           }
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -347,11 +347,11 @@ export class AutonomousManager {
       const { SessionCircuitBreaker } = await import('./sessionCircuitBreaker.js');
       SessionCircuitBreaker.resetProjectWindow(project.id);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -409,11 +409,11 @@ export class AutonomousManager {
         db.prepare('UPDATE autonomous_runs SET research_summary_json = ? WHERE id = ?')
           .run(JSON.stringify({ findings: researchResult.findings, safeToAdopt: researchResult.safeToAdopt }), runId);
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -520,11 +520,11 @@ export class AutonomousManager {
             db.prepare('UPDATE autonomous_runs SET plan_deliberation_id = ? WHERE id = ?')
               .run(planDeliberation.id, runId);
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -567,11 +567,11 @@ export class AutonomousManager {
                   db.prepare('UPDATE autonomous_runs SET plan_deliberation_id = ? WHERE id = ?')
                     .run(reDeliberation.id, runId);
                 } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -813,11 +813,11 @@ export class AutonomousManager {
         Logger.warn(`[AutonomousManager] Aviso ao enriquecer hierarquia do plano: ${hierErr.message}`);
       }
     } catch (err) { try { db.exec('ROLLBACK'); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -837,11 +837,11 @@ export class AutonomousManager {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(id, runId, taskId, agentRole, eventType, message, metadata ? JSON.stringify(metadata) : null, nowIso);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -987,11 +987,11 @@ export class AutonomousManager {
             if (clean && clean !== 'README') skillsSet.add(clean);
           }
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -1051,11 +1051,11 @@ export class AutonomousManager {
       try {
         reqIds = t.requirement_ids_json ? JSON.parse(t.requirement_ids_json) : [];
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -1131,11 +1131,11 @@ export class AutonomousManager {
     try {
       complexityAnalysis = run.complexity_analysis_json ? JSON.parse(run.complexity_analysis_json) : null;
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -1446,11 +1446,11 @@ export class AutonomousManager {
         task.github_issue_number,
         `[WORKER] **${agentName}** assumiu a execução desta issue no branch \`${task.github_branch || 'ai/' + task.github_issue_number}\`.`
       ).catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -1557,11 +1557,11 @@ export class AutonomousManager {
     try {
       attemptHistory = task.attempt_history_json ? JSON.parse(task.attempt_history_json) : [];
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -1702,11 +1702,11 @@ export class AutonomousManager {
           failedCriteria: input.evaluation?.failedCriteria
         });
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -1907,11 +1907,11 @@ export class AutonomousManager {
           HierarchicalOrchestrationService.transitionTaskState(input.taskId, 'READY', 'system', 'Sincronização de estado (PLANNED -> READY)');
           currentLifecycle = 'READY';
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -1923,11 +1923,11 @@ export class AutonomousManager {
           HierarchicalOrchestrationService.transitionTaskState(input.taskId, 'IN_PROGRESS', 'system', 'Sincronização de estado para execução verificada');
           currentLifecycle = 'IN_PROGRESS';
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -1943,11 +1943,11 @@ export class AutonomousManager {
             'Sincronização de estado para revisão independente'
           );
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -2031,11 +2031,11 @@ export class AutonomousManager {
           filesChanged: reportFiles
         });
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -2054,11 +2054,11 @@ export class AutonomousManager {
           });
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -2160,11 +2160,11 @@ export class AutonomousManager {
           failedCriteria: evaluation?.failedCriteria
         });
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -2195,11 +2195,11 @@ export class AutonomousManager {
               ? task.expected_files
               : (task.expected_files_json ? JSON.parse(task.expected_files_json) : []);
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -2240,11 +2240,11 @@ export class AutonomousManager {
               { retryCount: currentRetry, maxRetries: extraMaxRetries, reviewId, autoUnblock: true }
             );
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -2313,11 +2313,11 @@ export class AutonomousManager {
             { retryCount: currentRetry, maxRetries, reviewId }
           );
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -2370,11 +2370,11 @@ export class AutonomousManager {
             { retryCount: currentRetry, maxRetries, reviewId }
           );
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -2675,22 +2675,22 @@ export class AutonomousManager {
             if (runRow?.project_id) {
               import('./projectOperationsService.js').then(({ ProjectOperationsService }) => {
                 ProjectOperationsService.postCompletionVisualSummaryToChat(runRow.project_id, approval.run_id).catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
       }
     });
               }).catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -2698,11 +2698,11 @@ export class AutonomousManager {
     });
             }
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -2893,11 +2893,11 @@ export class AutonomousManager {
       if (reconciled) {
         db.prepare("UPDATE autonomous_runs SET status = 'running', last_error = NULL, next_action = 'Turno reconciliado com sucesso; prosseguindo', updated_at = ? WHERE id = ?").run(new Date().toISOString(), runId);
         setTimeout(() => { AutonomousRunnerService.triggerTick().catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -2929,11 +2929,11 @@ export class AutonomousManager {
       const { SessionCircuitBreaker } = await import('./sessionCircuitBreaker.js');
       SessionCircuitBreaker.resetProjectWindow(run.project_id);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -3099,11 +3099,11 @@ export class AutonomousManager {
     const { AutonomousRunnerService: Runner } = await import('./autonomousRunnerService.js');
     setTimeout(() => {
       Runner.triggerTick().catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -3211,11 +3211,11 @@ export class AutonomousManager {
         const { SessionCircuitBreaker } = await import('./sessionCircuitBreaker.js');
         SessionCircuitBreaker.resetProjectWindow(r.project_id);
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -3228,11 +3228,11 @@ export class AutonomousManager {
     if (unlockedRuns.length > 0) {
       setTimeout(() => {
         AutonomousRunnerService.schedulerTick().catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);
@@ -3299,11 +3299,11 @@ export class AutonomousManager {
         }
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousManager]", err);

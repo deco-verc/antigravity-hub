@@ -59,11 +59,11 @@ export class McpCore {
           VALUES (?, ?, ?, ?, 'success', ?)
         `).run(crypto.randomUUID(), name, new Date().toISOString(), duration, args?.project_id || null);
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "mcpCore",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:mcpCore]", err);
@@ -79,11 +79,11 @@ export class McpCore {
           VALUES (?, ?, ?, ?, 'error', ?)
         `).run(crypto.randomUUID(), name, new Date().toISOString(), duration, args?.project_id || null);
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "mcpCore",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:mcpCore]", err);

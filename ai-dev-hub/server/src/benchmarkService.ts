@@ -541,11 +541,11 @@ export class BenchmarkService {
         return headContent.slice(0, 8);
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "benchmarkService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:benchmarkService]", err);
@@ -1677,11 +1677,11 @@ export class BenchmarkService {
         try {
           details = row.details_json ? JSON.parse(row.details_json) : {};
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "benchmarkService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:benchmarkService]", err);
@@ -1734,11 +1734,11 @@ export class BenchmarkService {
       try {
         summaryData = runRow.summary_json ? JSON.parse(runRow.summary_json) : {};
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "benchmarkService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:benchmarkService]", err);

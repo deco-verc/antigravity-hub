@@ -88,11 +88,11 @@ const server = app.listen(Number(PORT), HOST, () => {
       Logger.info(`[AI DEV HUB] ${recovered} execuções de comandos órfãs foram reconciliadas no startup.`);
     }
   }).catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "index",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:index]", err);
@@ -103,11 +103,11 @@ const server = app.listen(Number(PORT), HOST, () => {
   import('./updateService.js').then(({ UpdateService }) => {
     UpdateService.init();
   }).catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "index",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:index]", err);
@@ -127,11 +127,11 @@ function gracefulShutdown() {
   try {
     AutonomousRunnerService.stop();
   } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "index",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:index]", err);

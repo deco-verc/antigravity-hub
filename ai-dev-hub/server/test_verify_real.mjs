@@ -24,8 +24,8 @@ function testProfileAuth(envPath, isDefault = false) {
           break;
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof globalThis.logger !== "undefined" && globalThis.logger?.warn) {
+        globalThis.logger.warn({
           event: "server.handled_exception",
           file: "test_verify_real",
           error: err?.message || String(err)

@@ -28,11 +28,11 @@ describe('FASE 11: ProjectOperationsService, Preview Launcher & .env Studio', ()
         fs.rmSync(tempTestDir, { recursive: true, force: true });
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "projectOperationsAndEnvStudio.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:projectOperationsAndEnvStudio.test]", err);

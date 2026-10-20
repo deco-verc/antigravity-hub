@@ -33,11 +33,11 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
       AccountProfileManager.setVerifyProbeOverrideForTest(null);
       if (createdProfileId) {
         try { AccountProfileManager.deleteProfile(createdProfileId); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "coreReliability.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:coreReliability.test]", err);
@@ -141,11 +141,11 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
       WorkerRegistry.setProbeOverrideForTest(null);
       if (createdWorkerId) {
         try { WorkerRegistry.deleteWorker(createdWorkerId); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "coreReliability.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:coreReliability.test]", err);
@@ -154,11 +154,11 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
       }
       if (testProfileId) {
         try { AccountProfileManager.deleteProfile(testProfileId); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "coreReliability.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:coreReliability.test]", err);
@@ -680,11 +680,11 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
       ConversationManager.setCreateOverride(null);
       for (const id of createdConvIds) {
         try { db.prepare('DELETE FROM conversations WHERE conversation_id = ?').run(id); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "coreReliability.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:coreReliability.test]", err);
@@ -1053,11 +1053,11 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
         db.prepare('DELETE FROM autonomous_runs WHERE id = ?').run(testRunId);
         AccountProfileManager.deleteProfile(testProfileId);
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "coreReliability.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:coreReliability.test]", err);
@@ -1149,11 +1149,11 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
 
     after(() => {
       try { fs.rmSync(tempBrainDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "coreReliability.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:coreReliability.test]", err);
@@ -1495,11 +1495,11 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
       try {
         fs.rmSync(testTempRoot, { recursive: true, force: true });
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "coreReliability.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:coreReliability.test]", err);
@@ -1647,11 +1647,11 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
       try {
         fs.rmSync(testTempRoot, { recursive: true, force: true });
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "coreReliability.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:coreReliability.test]", err);
@@ -1884,11 +1884,11 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
       try {
         fs.rmSync(testTempRoot, { recursive: true, force: true });
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "coreReliability.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:coreReliability.test]", err);

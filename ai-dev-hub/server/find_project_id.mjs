@@ -22,8 +22,8 @@ function searchDir(dir, maxDepth = 4, depth = 0) {
             console.log('FOUND IN FILE:', full);
           }
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof globalThis.logger !== "undefined" && globalThis.logger?.warn) {
+        globalThis.logger.warn({
           event: "server.handled_exception",
           file: "find_project_id",
           error: err?.message || String(err)
@@ -35,8 +35,8 @@ function searchDir(dir, maxDepth = 4, depth = 0) {
       }
     }
   } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof globalThis.logger !== "undefined" && globalThis.logger?.warn) {
+        globalThis.logger.warn({
           event: "server.handled_exception",
           file: "find_project_id",
           error: err?.message || String(err)

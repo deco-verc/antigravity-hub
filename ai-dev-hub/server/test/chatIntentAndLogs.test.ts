@@ -214,11 +214,11 @@ test('ProjectChatService — Respostas factuais com contexto real do projeto', a
       db.prepare('DELETE FROM projects WHERE id = ?').run(projId);
       fs.rmSync(tempDir, { recursive: true, force: true });
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "chatIntentAndLogs.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:chatIntentAndLogs.test]", err);
@@ -269,11 +269,11 @@ test('Chat Integration — Prevenção de fila indesejada quando Run está em er
       db.prepare('DELETE FROM projects WHERE id = ?').run(projId);
       fs.rmSync(tempDir, { recursive: true, force: true });
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "chatIntentAndLogs.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:chatIntentAndLogs.test]", err);
@@ -342,11 +342,11 @@ test('Review Regression — Justificativa de reprovação não exibe elogios con
       db.prepare('DELETE FROM projects WHERE id = ?').run(projId);
       fs.rmSync(tempDir, { recursive: true, force: true });
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "chatIntentAndLogs.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:chatIntentAndLogs.test]", err);

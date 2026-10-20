@@ -61,11 +61,11 @@ export class SystemManager {
       try {
         npmVer = execSync('npm -v', { encoding: 'utf-8', timeout: 3000 }).trim();
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "systemManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:systemManager]", err);
@@ -76,11 +76,11 @@ export class SystemManager {
     try {
       pythonVer = execSync('python --version', { encoding: 'utf-8', timeout: 3000 }).trim();
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "systemManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:systemManager]", err);
@@ -90,11 +90,11 @@ export class SystemManager {
     try {
       gitVer = execSync('git --version', { encoding: 'utf-8', timeout: 3000 }).trim();
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "systemManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:systemManager]", err);

@@ -70,6 +70,7 @@
 - [ ] Próximas fases de evolução autônoma e homologação de ponta a ponta do DecoHUB
 - [ ] Próximas fases de evolução autônoma e homologação de novos projetos com especificações vivas ativas
 - [ ] Monitorar a telemetria de criação de projetos em produção e prosseguir para próximas expansões do roadmap DecoHUB
+- [ ] Commit das correções de tratamento seguro de exceções ou execução da suíte completa de testes
 
 ## Concluído
 - [x] FASE 3: Resiliência Autônoma — Auto-Recovery de AGENTAPI_UNAVAILABLE e Self-Healing de Verificação: Implementação de retry transiente no AgentApiGateway com até 2 tentativas e re-descoberta dinâmica de binário do Antigravity (AntigravityDiscovery.discover({ forceRefresh: true })); implementação de watchdog de auto-recuperação (attemptResourceRecovery e integração em schedulerTick) para runs em waiting_resource que restaura status para running, zera falhas transitórias, registra RUNTIME_RECOVERED_AUTOMATICALLY e aciona o ciclo autônomo sem intervenção manual; implementação do Self-Healing de verificação no AutonomousRunnerService convertendo veredictos técnicos BLOCKED em REWORK_REQUIRED com feedback diagnóstico estruturado para o Worker e normalização de comandos via normalizeOrRecoverVerificationCommand enquanto retry_count < maxRetries sem pausar o run; preservação estrita de travas de segurança para TAMPERING_DETECTED e exaustão de retries (pauseForVerification mantido); criação do arquivo de teste test/autonomousSelfHealingAndRecovery.test.ts cobrindo os 3 cenários; integração no package.json elevando a suíte oficial para 53 arquivos de teste e 511 testes passando 100% (0 falhas) com TypeScript build limpo.
@@ -442,3 +443,5 @@
 - [x] Timeout de 12 segundos via AbortController no cliente e tratamento explícito de AbortError com mensagem em português
 - [x] Garantia de reset de isSubmitting no bloco finally e alerta visual claro de erro no modal NewProjectModal
 - [x] Espelhamento dos builds compilados para os diretórios unpacked e app.asar.unpacked da distribuição desktop
+- [x] Correção de tipo nos blocos catch com verificação segura de logger e cast do erro para TS com strict: true
+- [x] npm run typecheck e npm run build validados com 0 erros

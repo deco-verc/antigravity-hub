@@ -211,11 +211,11 @@ Analisar arquivos existentes ou iniciar desenvolvimento da primeira funcionalida
     try {
       this.updateMemoryFile(projectPath, 'lessons.md', lines.join('\n'));
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "memoryManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:memoryManager]", err);

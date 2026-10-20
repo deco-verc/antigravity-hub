@@ -713,11 +713,11 @@ export class AutonomousSelfImprovementEngine {
     const worktreeDir = path.join(this.worktreesBaseDir, `run-${params.runId.slice(0, 8)}`, `exp-${params.experimentNumber}`, params.candidateLabel.replace(/\s+/g, '_'));
     if (fs.existsSync(worktreeDir)) {
       try { fs.rmSync(worktreeDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "selfImprovementRun",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:selfImprovementRun]", err);
@@ -853,11 +853,11 @@ export class AutonomousSelfImprovementEngine {
 
     let timeline: TimelineEvent[] = [];
     try { timeline = JSON.parse(row.timeline_json || '[]'); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "selfImprovementRun",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:selfImprovementRun]", err);
@@ -866,11 +866,11 @@ export class AutonomousSelfImprovementEngine {
 
     let config: SelfImprovementRunConfig = this.getPresetConfig('TEST_SHORT');
     try { config = JSON.parse(row.config_json || '{}'); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "selfImprovementRun",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:selfImprovementRun]", err);
@@ -879,11 +879,11 @@ export class AutonomousSelfImprovementEngine {
 
     let initialMetrics: any = null;
     try { initialMetrics = JSON.parse(row.initial_metrics_json || 'null'); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "selfImprovementRun",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:selfImprovementRun]", err);
@@ -892,11 +892,11 @@ export class AutonomousSelfImprovementEngine {
 
     let currentMetrics: any = null;
     try { currentMetrics = JSON.parse(row.current_metrics_json || 'null'); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "selfImprovementRun",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:selfImprovementRun]", err);

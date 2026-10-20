@@ -1709,11 +1709,11 @@ O simulador de pentest Red Team executará asserções contra todas as mutaçõe
               nowIso
             );
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "projectLivingSpecService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:projectLivingSpecService]", err);
@@ -2035,11 +2035,11 @@ O simulador de pentest Red Team executará asserções contra todas as mutaçõe
             }
           }
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "projectLivingSpecService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:projectLivingSpecService]", err);

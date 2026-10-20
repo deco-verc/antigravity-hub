@@ -753,3 +753,8 @@
 - `ai-dev-hub/client/src/components/NewProjectModal.tsx`
 - `ai-dev-hub/server/test/projectCreationAccountSelection.test.ts`
 *Nota:* Suíte completa de 85 suítes e 751 testes do servidor validada com 100% de aprovação e zero regressões.
+
+### [20/10/2026] Sessão #38 (Antigravity Agent)
+- `ai-dev-hub/server/fix-silent-errors.mjs`
+- `ai-dev-hub/server/src/*`
+- `ai-dev-hub/server/test/*`

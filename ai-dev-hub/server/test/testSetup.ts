@@ -26,11 +26,11 @@ process.env.DECOHUB_ALLOW_LIVE_AGENTAPI = 'false';
         fs.rmSync(isolatedDir, { recursive: true, force: true });
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "testSetup",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:testSetup]", err);

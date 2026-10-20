@@ -77,11 +77,11 @@ describe('DecoHUB — Homologação de Autorização de Runtime e Provedor Simul
     db.prepare('DELETE FROM agent_sessions WHERE project_id IN (?, ?, ?)').run(authorizedProjId, trustedOnlyProjId, untrustedProjId);
     db.prepare('DELETE FROM projects WHERE id IN (?, ?, ?)').run(authorizedProjId, trustedOnlyProjId, untrustedProjId);
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "runtimeAuthorizationAndSimulation.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:runtimeAuthorizationAndSimulation.test]", err);

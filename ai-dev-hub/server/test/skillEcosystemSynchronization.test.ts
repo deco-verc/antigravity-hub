@@ -35,11 +35,11 @@ describe('FASE 20: Sincronização Total do Ecossistema de Skills (DecoHUB)', ()
         VALUES (?, ?, ?, 'active', ?, ?)
       `).run(testProjectId, 'Skill Sync Test Project', testProjectDir, new Date().toISOString(), new Date().toISOString());
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "skillEcosystemSynchronization.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:skillEcosystemSynchronization.test]", err);
@@ -55,11 +55,11 @@ describe('FASE 20: Sincronização Total do Ecossistema de Skills (DecoHUB)', ()
       db.prepare('DELETE FROM autonomous_runs WHERE project_id = ?').run(testProjectId);
       db.prepare('DELETE FROM projects WHERE id = ?').run(testProjectId);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "skillEcosystemSynchronization.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:skillEcosystemSynchronization.test]", err);
@@ -69,11 +69,11 @@ describe('FASE 20: Sincronização Total do Ecossistema de Skills (DecoHUB)', ()
     try {
       fs.rmSync(testProjectDir, { recursive: true, force: true });
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "skillEcosystemSynchronization.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:skillEcosystemSynchronization.test]", err);

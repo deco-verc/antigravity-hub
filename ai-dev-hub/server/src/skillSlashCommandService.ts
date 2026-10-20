@@ -619,11 +619,11 @@ export class SkillSlashCommandService {
       try {
         sizeBytes = fs.statSync(sPath).size;
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "skillSlashCommandService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:skillSlashCommandService]", err);
@@ -753,11 +753,11 @@ export class SkillSlashCommandService {
             evidenceScreenshots = existingPngs;
           }
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "skillSlashCommandService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:skillSlashCommandService]", err);
@@ -1275,11 +1275,11 @@ export class SkillSlashCommandService {
           }
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "skillSlashCommandService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:skillSlashCommandService]", err);
@@ -1313,11 +1313,11 @@ export class SkillSlashCommandService {
         path: resolvedPath
       });
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "skillSlashCommandService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:skillSlashCommandService]", err);
@@ -1345,11 +1345,11 @@ export class SkillSlashCommandService {
         completedTasks = rows;
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "skillSlashCommandService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:skillSlashCommandService]", err);
@@ -1504,11 +1504,11 @@ export class SkillSlashCommandService {
 
       setTimeout(() => {
         AutonomousRunnerService.schedulerTick().catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "skillSlashCommandService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:skillSlashCommandService]", err);
@@ -1623,11 +1623,11 @@ export class SkillSlashCommandService {
 
     setTimeout(() => {
       AutonomousRunnerService.schedulerTick().catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "skillSlashCommandService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:skillSlashCommandService]", err);
@@ -1666,11 +1666,11 @@ export class SkillSlashCommandService {
       try {
         await DesignSkillService.provisionDesignSkillsForProject(args || 'design premium', context.projectPath);
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "skillSlashCommandService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:skillSlashCommandService]", err);
@@ -1683,11 +1683,11 @@ export class SkillSlashCommandService {
       try {
         await ReaSaaSMasterService.analyzeAndApplyReaBlueprint('saas-master', context.projectPath);
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "skillSlashCommandService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:skillSlashCommandService]", err);
@@ -1713,11 +1713,11 @@ export class SkillSlashCommandService {
 
     setTimeout(() => {
       AutonomousRunnerService.schedulerTick().catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "skillSlashCommandService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:skillSlashCommandService]", err);

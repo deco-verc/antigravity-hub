@@ -58,11 +58,11 @@ describe('Auditoria Forense e Hardening do Backend (server/src/)', () => {
     }
     if (fs.existsSync(testProjectFolder)) {
       try { fs.rmSync(testProjectFolder, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "backendForensicHardening.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:backendForensicHardening.test]", err);
@@ -263,11 +263,11 @@ describe('Auditoria Forense e Hardening do Backend (server/src/)', () => {
       assert.ok(hijackedFinding, 'Deve detectar que GET / retorna JSON apesar de blocos multilinhas intermediários');
     } finally {
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "backendForensicHardening.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:backendForensicHardening.test]", err);
@@ -298,11 +298,11 @@ describe('Auditoria Forense e Hardening do Backend (server/src/)', () => {
       assert.deepEqual(result.pendingTools, ['read_file']);
     } finally {
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "backendForensicHardening.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:backendForensicHardening.test]", err);

@@ -69,11 +69,11 @@ describe('Multi-Account & Rapid Switch Final Connection Suite', () => {
 
     // Limpeza
     try { fs.rmSync(testDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "multiAccountRapidSwitchConnection.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:multiAccountRapidSwitchConnection.test]", err);
@@ -189,11 +189,11 @@ describe('Multi-Account & Rapid Switch Final Connection Suite', () => {
     } finally {
       AccountProfileManager.setVerifyProbeOverrideForTest(null);
       try { fs.rmSync(testProjectDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "multiAccountRapidSwitchConnection.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:multiAccountRapidSwitchConnection.test]", err);

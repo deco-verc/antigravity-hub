@@ -67,11 +67,11 @@ export class UpdateService {
         if (pkg.version) return pkg.version;
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "updateService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:updateService]", err);
@@ -292,11 +292,11 @@ export class UpdateService {
         const expectedSha = manifest.sha256.trim().toLowerCase();
         if (calculatedSha.toLowerCase() !== expectedSha) {
           try { await fs.promises.unlink(tempFilePath); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "updateService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:updateService]", err);
@@ -331,11 +331,11 @@ export class UpdateService {
       try {
         if (fs.existsSync(tempFilePath)) await fs.promises.unlink(tempFilePath);
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "updateService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:updateService]", err);
@@ -372,11 +372,11 @@ export class UpdateService {
 
       if (activeReservation && activeReservation.c > 0) return true;
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "updateService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:updateService]", err);
@@ -481,11 +481,11 @@ export class UpdateService {
       const ms = this.state.checkIntervalMinutes * 60 * 1000;
       this.checkTimer = setInterval(() => {
         this.checkForUpdates().catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "updateService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:updateService]", err);
@@ -510,11 +510,11 @@ export class UpdateService {
     if (this.state.autoCheck && this.state.feedUrl) {
       const initTimer = setTimeout(() => {
         this.checkForUpdates().catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "updateService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:updateService]", err);

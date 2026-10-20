@@ -153,11 +153,11 @@ export class PlaywrightVisualInspector {
         }
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "playwrightVisualInspector",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:playwrightVisualInspector]", err);
@@ -242,11 +242,11 @@ export class PlaywrightVisualInspector {
             }
             child.kill();
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "playwrightVisualInspector",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:playwrightVisualInspector]", err);
@@ -272,11 +272,11 @@ export class PlaywrightVisualInspector {
               try {
                 spawnSync('taskkill', ['/pid', String(pid), '/f', '/t'], { stdio: 'ignore', windowsHide: true });
               } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "playwrightVisualInspector",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:playwrightVisualInspector]", err);
@@ -290,11 +290,11 @@ export class PlaywrightVisualInspector {
                 child.kill('SIGKILL');
               }
             } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "playwrightVisualInspector",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:playwrightVisualInspector]", err);
@@ -380,11 +380,11 @@ export class PlaywrightVisualInspector {
           rootRouteHijackedByJson = true;
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "playwrightVisualInspector",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:playwrightVisualInspector]", err);
@@ -415,11 +415,11 @@ export class PlaywrightVisualInspector {
               break;
             }
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "playwrightVisualInspector",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:playwrightVisualInspector]", err);
@@ -452,11 +452,11 @@ export class PlaywrightVisualInspector {
     try {
       fs.writeFileSync(offlineEvidencePath, JSON.stringify(evidenceData, null, 2), 'utf-8');
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "playwrightVisualInspector",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:playwrightVisualInspector]", err);
@@ -472,11 +472,11 @@ export class PlaywrightVisualInspector {
         }
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "playwrightVisualInspector",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:playwrightVisualInspector]", err);
@@ -640,11 +640,11 @@ export class PlaywrightVisualInspector {
               isRawJson = true;
             }
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "playwrightVisualInspector",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:playwrightVisualInspector]", err);
@@ -734,11 +734,11 @@ export class PlaywrightVisualInspector {
             };
           }
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "playwrightVisualInspector",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:playwrightVisualInspector]", err);
@@ -773,11 +773,11 @@ export class PlaywrightVisualInspector {
         try {
           await ephemeralServer.close();
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "playwrightVisualInspector",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:playwrightVisualInspector]", err);
@@ -788,11 +788,11 @@ export class PlaywrightVisualInspector {
       try {
         this.runCli(['-s=' + sessionId, 'close'], projectPath, 4000);
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "playwrightVisualInspector",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:playwrightVisualInspector]", err);
@@ -976,11 +976,11 @@ export class PlaywrightVisualInspector {
         discoveredSections = JSON.parse(rawJson[0]);
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "playwrightVisualInspector",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:playwrightVisualInspector]", err);
@@ -1034,11 +1034,11 @@ export class PlaywrightVisualInspector {
           sizeBytes = fs.statSync(savedFile).size;
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "playwrightVisualInspector",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:playwrightVisualInspector]", err);
@@ -1075,11 +1075,11 @@ export class PlaywrightVisualInspector {
         mobileSize = fs.statSync(savedMobile).size;
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "playwrightVisualInspector",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:playwrightVisualInspector]", err);
@@ -1129,11 +1129,11 @@ export class PlaywrightVisualInspector {
           }
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "playwrightVisualInspector",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:playwrightVisualInspector]", err);
@@ -1176,11 +1176,11 @@ export class PlaywrightVisualInspector {
     } finally {
       if (ephemeralServer) {
         try { await ephemeralServer.close(); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "playwrightVisualInspector",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:playwrightVisualInspector]", err);
@@ -1190,11 +1190,11 @@ export class PlaywrightVisualInspector {
       try {
         this.runCli(['-s=' + sessionId, 'close'], projectPath, 4000);
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "playwrightVisualInspector",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:playwrightVisualInspector]", err);
@@ -1217,11 +1217,11 @@ export class PlaywrightVisualInspector {
     let htmlContent = '';
     if (targetHtmlPath && fs.existsSync(targetHtmlPath)) {
       try { htmlContent = fs.readFileSync(targetHtmlPath, 'utf-8'); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "playwrightVisualInspector",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:playwrightVisualInspector]", err);
@@ -1287,11 +1287,11 @@ export class PlaywrightVisualInspector {
           fs.writeFileSync(fullPath, this.SAMPLE_1X1_PNG_BUFFER);
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "playwrightVisualInspector",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:playwrightVisualInspector]", err);
@@ -1320,11 +1320,11 @@ export class PlaywrightVisualInspector {
         fs.writeFileSync(mobileFullPath, this.SAMPLE_1X1_PNG_BUFFER);
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "playwrightVisualInspector",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:playwrightVisualInspector]", err);
@@ -1355,11 +1355,11 @@ export class PlaywrightVisualInspector {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "playwrightVisualInspector",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:playwrightVisualInspector]", err);

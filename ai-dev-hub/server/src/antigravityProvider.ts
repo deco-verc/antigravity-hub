@@ -245,11 +245,11 @@ export class AntigravityProvider implements AgentProvider {
               sessionMatchesAccount = false;
             }
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "antigravityProvider",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:antigravityProvider]", err);
@@ -489,11 +489,11 @@ export class AntigravityProvider implements AgentProvider {
                 try {
                   args = JSON.parse(args);
                 } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "antigravityProvider",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:antigravityProvider]", err);
@@ -552,11 +552,11 @@ export class AntigravityProvider implements AgentProvider {
                     }
                   }
                 } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "antigravityProvider",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:antigravityProvider]", err);
@@ -567,11 +567,11 @@ export class AntigravityProvider implements AgentProvider {
             finalResponse = fullContent;
           }
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "antigravityProvider",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:antigravityProvider]", err);
@@ -644,11 +644,11 @@ export class AntigravityProvider implements AgentProvider {
             if (parsed.simplicityCheck && !simplicityCheck) simplicityCheck = parsed.simplicityCheck;
           }
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "antigravityProvider",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:antigravityProvider]", err);
@@ -656,11 +656,11 @@ export class AntigravityProvider implements AgentProvider {
     }
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "antigravityProvider",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:antigravityProvider]", err);
@@ -701,11 +701,11 @@ export class AntigravityProvider implements AgentProvider {
     try {
       AgentTurnState.setPhase(sessionId, 'CONSUMED');
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "antigravityProvider",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:antigravityProvider]", err);
@@ -716,11 +716,11 @@ export class AntigravityProvider implements AgentProvider {
       ExecutionCoordinator.releaseByContext({ scope: sessionId });
       ExecutionCoordinator.reconcileDeadReservations();
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "antigravityProvider",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:antigravityProvider]", err);

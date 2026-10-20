@@ -106,11 +106,11 @@ export class AutonomousRunnerService {
         (ExecutionCoordinator as any).touch('global-agent-execution', this.activeExecutionToken);
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -195,11 +195,11 @@ export class AutonomousRunnerService {
 
     setTimeout(() => {
       AutonomousRunnerService.schedulerTick().catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -261,11 +261,11 @@ export class AutonomousRunnerService {
         try {
           await ProjectOperationsService.postCompletionVisualSummaryToChat(run.project_id, runId);
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -602,11 +602,11 @@ export class AutonomousRunnerService {
       try {
         DiagnosticService.remediateAnomalies();
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -752,11 +752,11 @@ export class AutonomousRunnerService {
           WorkerRegistry.updateWorkerStatus(l.worker_id, 'READY');
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -867,11 +867,11 @@ export class AutonomousRunnerService {
                 }
               }
             } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -1074,11 +1074,11 @@ export class AutonomousRunnerService {
         }
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -1130,11 +1130,11 @@ export class AutonomousRunnerService {
               const ctx = JSON.parse(res.context_json || '{}');
               if (ctx.runId === pr.id) ExecutionCoordinator.release('global-agent-execution', res.token);
             } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -1329,11 +1329,11 @@ export class AutonomousRunnerService {
                   }
                 }
               } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -1352,11 +1352,11 @@ export class AutonomousRunnerService {
             try {
               combinedFrontendCode += ' ' + fs.readFileSync(f, 'utf-8');
             } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -1406,11 +1406,11 @@ export class AutonomousRunnerService {
                   }
                 }
               } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -1429,11 +1429,11 @@ export class AutonomousRunnerService {
             try {
               combinedBackendCode += ' ' + fs.readFileSync(f, 'utf-8');
             } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -1585,11 +1585,11 @@ export class AutonomousRunnerService {
           });
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -1767,11 +1767,11 @@ export class AutonomousRunnerService {
           Logger.success(`[APPROVED] [Supervisor] Tarefa "${inReviewTask.title}" aprovada após avaliação independente.`);
           setTimeout(() => {
             AutonomousRunnerService.schedulerTick().catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -1789,11 +1789,11 @@ export class AutonomousRunnerService {
           Logger.warn(`[REWORK] [Supervisor] Solicitação de correções enviada para "${inReviewTask.title}": ${reviewResult.feedback || 'Revisão reprovada'}`);
           setTimeout(() => {
             AutonomousRunnerService.schedulerTick().catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -1807,11 +1807,11 @@ export class AutonomousRunnerService {
         db.prepare("UPDATE autonomous_tasks SET status = 'ready', updated_at = ? WHERE id = ?").run(nowIso, inReviewTask.id);
         setTimeout(() => {
           AutonomousRunnerService.schedulerTick().catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -1880,11 +1880,11 @@ export class AutonomousRunnerService {
             if (failoverRes.switched) {
               setTimeout(() => {
                 AutonomousRunnerService.schedulerTick().catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -2016,11 +2016,11 @@ export class AutonomousRunnerService {
       if (recoveredOrphan) {
         setTimeout(() => {
           AutonomousRunnerService.schedulerTick().catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -2097,11 +2097,11 @@ export class AutonomousRunnerService {
             `).run(`Failover automático concluído para "${failoverRes.activeProfile.display_name}". Retomando execução.`, nowIso, runId);
             setTimeout(() => {
               AutonomousRunnerService.schedulerTick().catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -2345,11 +2345,11 @@ export class AutonomousRunnerService {
 
             setTimeout(() => {
               AutonomousRunnerService.schedulerTick().catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -2549,11 +2549,11 @@ export class AutonomousRunnerService {
 
       setTimeout(() => {
         AutonomousRunnerService.schedulerTick().catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -2602,11 +2602,11 @@ export class AutonomousRunnerService {
       Logger.success(`[APPROVED] [Supervisor] Tarefa "${nextTask.title}" aprovada após avaliação independente.`);
       setTimeout(() => {
         AutonomousRunnerService.schedulerTick().catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -2624,11 +2624,11 @@ export class AutonomousRunnerService {
       Logger.warn(`[REWORK] [Supervisor] Solicitação de correções enviada para "${nextTask.title}": ${reviewResult.feedback || 'Revisão reprovada'}`);
       setTimeout(() => {
         AutonomousRunnerService.schedulerTick().catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -2725,11 +2725,11 @@ export class AutonomousRunnerService {
         db.prepare('UPDATE autonomous_tasks SET slop_preflight_json = ? WHERE id = ?')
           .run(JSON.stringify(slopPreflight), task.id);
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -2758,11 +2758,11 @@ export class AutonomousRunnerService {
           db.prepare('UPDATE autonomous_tasks SET research_findings_json = ? WHERE id = ?')
             .run(JSON.stringify({ findings: taskResearch.findings, safeToAdopt: taskResearch.safeToAdopt, sourceReliability: taskResearch.sourceReliability }), task.id);
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -2799,11 +2799,11 @@ export class AutonomousRunnerService {
           workerPromptVariant = process.env.DECOHUB_WORKER_PROMPT_VARIANT;
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -2921,11 +2921,11 @@ export class AutonomousRunnerService {
         try {
           gitLog = execSync(`git -C "${projectPath}" log -n 5 --oneline`, { encoding: 'utf-8' }).trim();
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -2965,11 +2965,11 @@ export class AutonomousRunnerService {
           task.id
         );
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -3014,11 +3014,11 @@ export class AutonomousRunnerService {
       try {
         workerExecutionContract = AutonomousManager.buildWorkerExecutionContract(task.id);
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -3049,11 +3049,11 @@ export class AutonomousRunnerService {
           ? JSON.parse(task.requirement_ids_json)
           : [];
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -3304,11 +3304,11 @@ export class AutonomousRunnerService {
                   WHERE run_id = ? AND task_id = ? AND status = 'pending'
                 `).run(new Date().toISOString(), run.id, task.id);
               } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -3360,11 +3360,11 @@ export class AutonomousRunnerService {
                 WHERE run_id = ? AND task_id = ? AND status = 'pending'
               `).run(new Date().toISOString(), run.id, task.id);
             } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -3503,11 +3503,11 @@ export class AutonomousRunnerService {
             task.id
           );
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -3548,11 +3548,11 @@ export class AutonomousRunnerService {
             .run(councilDeliberation.id, task.id);
           task.council_deliberation_id = councilDeliberation.id;
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -3588,11 +3588,11 @@ export class AutonomousRunnerService {
             .run(task.id);
           task.council_deliberation_id = null;
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -3710,11 +3710,11 @@ export class AutonomousRunnerService {
           effortLevel: engineeringPackage?.adaptiveEffort?.effortLevel || 'STANDARD'
         });
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -3875,11 +3875,11 @@ export class AutonomousRunnerService {
           }
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -3974,11 +3974,11 @@ export class AutonomousRunnerService {
                 .run(matching.number, matching.html_url || null, task.id);
             }
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);
@@ -4027,11 +4027,11 @@ export class AutonomousRunnerService {
               try {
                 db.prepare("UPDATE autonomous_tasks SET pr_merged = 1 WHERE id = ?").run(task.id);
               } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousRunnerService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousRunnerService]", err);

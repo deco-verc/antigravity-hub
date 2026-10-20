@@ -21,11 +21,11 @@ test('Autoresearch & Skills Integration Suite: Controlled Strategy Comparison & 
     execSync('git config user.name "DecoHUB Tester"', { cwd: tmpRoot, stdio: 'pipe' });
     execSync('git config user.email "test@decohub.local"', { cwd: tmpRoot, stdio: 'pipe' });
   } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autoresearchSkillsComparison.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autoresearchSkillsComparison.test]", err);
@@ -73,11 +73,11 @@ console.log('latency_ms: ' + duration);
       SkillRouter.clearExternalSkillKnowledge();
       fs.rmSync(tmpRoot, { recursive: true, force: true });
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autoresearchSkillsComparison.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autoresearchSkillsComparison.test]", err);

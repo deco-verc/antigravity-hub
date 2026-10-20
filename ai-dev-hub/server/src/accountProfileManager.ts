@@ -158,11 +158,11 @@ export class AccountProfileManager {
         return path.resolve(selected);
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -248,11 +248,11 @@ export class AccountProfileManager {
               break;
             }
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -271,11 +271,11 @@ export class AccountProfileManager {
             try {
               fs.copyFileSync(validSourceStorage, target);
             } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -285,11 +285,11 @@ export class AccountProfileManager {
         }
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -360,11 +360,11 @@ export class AccountProfileManager {
           detectedUser = content['jetski.onboarding.lastLoginUsername'];
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -496,11 +496,11 @@ export class AccountProfileManager {
         if (p) return p;
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -554,11 +554,11 @@ export class AccountProfileManager {
           .run(defaultProf.id, new Date().toISOString(), projectId);
         return defaultProf;
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -681,11 +681,11 @@ export class AccountProfileManager {
         try {
           process.kill(runningInstance.pid, 'SIGTERM');
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -693,11 +693,11 @@ export class AccountProfileManager {
     }
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -880,11 +880,11 @@ export class AccountProfileManager {
         }
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -907,11 +907,11 @@ export class AccountProfileManager {
         }
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -970,11 +970,11 @@ export class AccountProfileManager {
             break;
           }
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -1014,11 +1014,11 @@ export class AccountProfileManager {
         }
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -1117,11 +1117,11 @@ export class AccountProfileManager {
               profile.id
             );
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -1183,11 +1183,11 @@ export class AccountProfileManager {
             delete content['antigravity.onboarding.lastLoginUsername'];
             fs.writeFileSync(storagePath, JSON.stringify(content, null, 2), 'utf-8');
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -1203,11 +1203,11 @@ export class AccountProfileManager {
           const cleaned = pbtxt.replace(/.*AGENT_ONBOARDING_STATE_COMPLETED.*\r?\n?/g, '');
           fs.writeFileSync(stateFile, cleaned, 'utf-8');
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -1222,11 +1222,11 @@ export class AccountProfileManager {
         try {
           process.kill(runningInstance.pid, 'SIGTERM');
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -1234,11 +1234,11 @@ export class AccountProfileManager {
     }
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -1263,11 +1263,11 @@ export class AccountProfileManager {
       `).run(now, profileId);
       db.prepare('DELETE FROM account_project_sessions WHERE account_profile_id = ?').run(profileId);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -1382,11 +1382,11 @@ export class AccountProfileManager {
         languageServerExecutable = discovered.languageServerExe;
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -1597,11 +1597,11 @@ export class AccountProfileManager {
                 AND json_extract(metadata_json, '$.accountProfileId') != ?
             `).run(new Date().toISOString(), projectId, targetProfile.id);
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -1616,11 +1616,11 @@ export class AccountProfileManager {
               WHERE id = 'worker-1'
             `).run(targetProfile.id, new Date().toISOString());
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -1640,11 +1640,11 @@ export class AccountProfileManager {
             WHERE status = 'ACTIVE' AND json_valid(metadata_json) AND json_extract(metadata_json, '$.accountProfileId') = ?
           `).run(new Date().toISOString(), previousProfile.id);
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -1658,11 +1658,11 @@ export class AccountProfileManager {
             WHERE id = 'worker-1'
           `).run(targetProfile.id, new Date().toISOString());
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -1762,11 +1762,11 @@ export class AccountProfileManager {
         `).run(`Rapid Switch global concluído para "${targetProfile.display_name}". Retomando execução.`, nowIso);
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -1910,11 +1910,11 @@ export class AccountProfileManager {
                 AND json_extract(metadata_json, '$.accountProfileId') != ?
             `).run(new Date().toISOString(), projectId, targetProfile.id);
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -1928,11 +1928,11 @@ export class AccountProfileManager {
               WHERE id = 'worker-1'
             `).run(targetProfile.id, new Date().toISOString());
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -1952,11 +1952,11 @@ export class AccountProfileManager {
             WHERE status = 'ACTIVE' AND json_valid(metadata_json) AND json_extract(metadata_json, '$.accountProfileId') = ?
           `).run(new Date().toISOString(), previousProfile.id);
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -1970,11 +1970,11 @@ export class AccountProfileManager {
             WHERE id = 'worker-1'
           `).run(targetProfile.id, new Date().toISOString());
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -2070,11 +2070,11 @@ export class AccountProfileManager {
         `).run(`Rapid Switch global concluído para "${targetProfile.display_name}". Retomando execução.`, nowIso);
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -2116,11 +2116,11 @@ export class AccountProfileManager {
         const activeProj = this.getActiveProfileForProject(params.projectId);
         failedProfileId = activeProj?.id;
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -2172,11 +2172,11 @@ export class AccountProfileManager {
           WHERE account_profile_id = ?
         `).run(newProfileId, nowIso, failedProfileId);
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -2193,11 +2193,11 @@ export class AccountProfileManager {
             WHERE id = ?
           `).run(`Failover automático executado: alternado para "${switchRes.activeProfile.display_name}".`, nowIso, params.runId);
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -2235,11 +2235,11 @@ export class AccountProfileManager {
         const activeProj = this.getActiveProfileForProject(params.projectId);
         failedProfileId = activeProj?.id;
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -2317,11 +2317,11 @@ export class AccountProfileManager {
             }
           );
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -2384,11 +2384,11 @@ export class AccountProfileManager {
         WHERE account_profile_id = ?
       `).run(nowIso, profileId);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -2422,11 +2422,11 @@ export class AccountProfileManager {
             WHERE account_profile_id = ? AND status = 'COOLDOWN'
           `).run(now, profileId);
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);
@@ -2459,11 +2459,11 @@ export class AccountProfileManager {
         try {
           profile = this.verifyProfile(profileId).profile;
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountProfileManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountProfileManager]", err);

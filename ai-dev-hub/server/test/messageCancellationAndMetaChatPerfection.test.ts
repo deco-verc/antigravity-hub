@@ -57,11 +57,11 @@ describe('FASE 21: Cancelamento Universal de Mensagens & Perfeição Operacional
 
     if (fs.existsSync(testHelperPath)) {
       try { fs.unlinkSync(testHelperPath); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "messageCancellationAndMetaChatPerfection.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:messageCancellationAndMetaChatPerfection.test]", err);
@@ -70,11 +70,11 @@ describe('FASE 21: Cancelamento Universal de Mensagens & Perfeição Operacional
     }
     if (fs.existsSync(dirtyFilePath)) {
       try { fs.unlinkSync(dirtyFilePath); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "messageCancellationAndMetaChatPerfection.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:messageCancellationAndMetaChatPerfection.test]", err);
@@ -86,11 +86,11 @@ describe('FASE 21: Cancelamento Universal de Mensagens & Perfeição Operacional
   after(async () => {
     if (fs.existsSync(testHelperPath)) {
       try { fs.unlinkSync(testHelperPath); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "messageCancellationAndMetaChatPerfection.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:messageCancellationAndMetaChatPerfection.test]", err);
@@ -99,11 +99,11 @@ describe('FASE 21: Cancelamento Universal de Mensagens & Perfeição Operacional
     }
     if (fs.existsSync(dirtyFilePath)) {
       try { fs.unlinkSync(dirtyFilePath); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "messageCancellationAndMetaChatPerfection.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:messageCancellationAndMetaChatPerfection.test]", err);
@@ -330,11 +330,11 @@ describe('FASE 21: Cancelamento Universal de Mensagens & Perfeição Operacional
 
     // Limpeza
     try { fs.unlinkSync(testHelperPath); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "messageCancellationAndMetaChatPerfection.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:messageCancellationAndMetaChatPerfection.test]", err);

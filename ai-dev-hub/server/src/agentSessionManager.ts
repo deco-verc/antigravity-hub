@@ -124,11 +124,11 @@ export class AgentSessionManager {
       try {
         await this._lockMap.get(key);
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "agentSessionManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:agentSessionManager]", err);
@@ -410,11 +410,11 @@ export class AgentSessionManager {
             nextGeneration
           );
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "agentSessionManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:agentSessionManager]", err);
@@ -485,11 +485,11 @@ export class AgentSessionManager {
         WHERE conversation_id = ?
       `).run(nowIso, session.provider_conversation_id);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "agentSessionManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:agentSessionManager]", err);
@@ -608,11 +608,11 @@ export class AgentSessionManager {
         db.prepare("UPDATE conversations SET status = 'retired', rotation_reason = ? WHERE conversation_id = ?")
           .run(reason, active.provider_conversation_id);
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "agentSessionManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:agentSessionManager]", err);
@@ -667,11 +667,11 @@ export class AgentSessionManager {
             const crits = JSON.parse(t.criteria_json);
             if (Array.isArray(crits)) acceptanceCriteria.push(...crits);
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "agentSessionManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:agentSessionManager]", err);
@@ -680,11 +680,11 @@ export class AgentSessionManager {
         }
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "agentSessionManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:agentSessionManager]", err);
@@ -748,11 +748,11 @@ export class AgentSessionManager {
       db.prepare("UPDATE conversations SET status = 'retired', rotation_reason = ? WHERE conversation_id = ?")
         .run(reason, session.provider_conversation_id);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "agentSessionManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:agentSessionManager]", err);
@@ -872,11 +872,11 @@ export class AgentSessionManager {
         new Date().toISOString()
       );
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "agentSessionManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:agentSessionManager]", err);

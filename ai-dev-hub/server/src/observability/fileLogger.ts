@@ -58,11 +58,11 @@ export class RotatingFileLogger {
           const stat = fs.statSync(path.join(this.logsDir, file));
           totalSize += stat.size;
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "fileLogger",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:fileLogger]", err);
@@ -93,11 +93,11 @@ export class RotatingFileLogger {
         if (fs.existsSync(older)) {
           if (i === this.maxRotations - 1 && fs.existsSync(newer)) {
             try { fs.unlinkSync(newer); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "fileLogger",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:fileLogger]", err);
@@ -107,11 +107,11 @@ export class RotatingFileLogger {
           try {
             fs.renameSync(older, newer);
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "fileLogger",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:fileLogger]", err);
@@ -124,11 +124,11 @@ export class RotatingFileLogger {
       const targetFirst = `${filePath}.1`;
       if (fs.existsSync(targetFirst)) {
         try { fs.unlinkSync(targetFirst); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "fileLogger",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:fileLogger]", err);
@@ -168,11 +168,11 @@ export class RotatingFileLogger {
       const humanLine = `[${timeStr}] [${event.level}] [${event.service}] [${event.event}] ${event.message}${event.error ? ` | ERROR: ${event.error.message}` : ''}`;
       this.appendLine('backend.log', humanLine);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "fileLogger",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:fileLogger]", err);

@@ -379,11 +379,11 @@ export class EngineeringContextService {
           }
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "engineeringContextService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:engineeringContextService]", err);
@@ -981,11 +981,11 @@ export class EngineeringContextService {
             notes.push(`Dependências existentes no projeto: ${deps.slice(0, 6).join(', ')}`);
           }
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "engineeringContextService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:engineeringContextService]", err);
@@ -1024,11 +1024,11 @@ export class EngineeringContextService {
           notes.push(`Funções/módulos existentes para reuso (não duplicar): ${reusableFunctions.slice(0, 10).join(', ')}`);
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "engineeringContextService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:engineeringContextService]", err);
@@ -1281,11 +1281,11 @@ export class EngineeringContextService {
       try {
         MemoryManager.syncLessonsMd(params.projectPath, lessons);
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "engineeringContextService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:engineeringContextService]", err);
@@ -1360,11 +1360,11 @@ export class EngineeringContextService {
         try {
           MemoryManager.syncLessonsMd(params.projectPath, lessons);
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "engineeringContextService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:engineeringContextService]", err);

@@ -63,11 +63,11 @@ export class CommandExecutionEngine {
     const dir = path.join(HUB_DATA_DIR, 'command-logs');
     if (!fs.existsSync(dir)) {
       try { fs.mkdirSync(dir, { recursive: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "commandExecutionEngine",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:commandExecutionEngine]", err);
@@ -155,11 +155,11 @@ export class CommandExecutionEngine {
   private static rowToRecord(row: any): CommandExecutionRecord {
     let args: string[] = [];
     try { args = JSON.parse(row.args_json || '[]'); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "commandExecutionEngine",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:commandExecutionEngine]", err);
@@ -168,11 +168,11 @@ export class CommandExecutionEngine {
 
     let metadata: Record<string, any> | null = null;
     try { metadata = row.metadata_json ? JSON.parse(row.metadata_json) : null; } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "commandExecutionEngine",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:commandExecutionEngine]", err);
@@ -206,11 +206,11 @@ export class CommandExecutionEngine {
           fullStderr = err;
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "commandExecutionEngine",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:commandExecutionEngine]", err);
@@ -364,11 +364,11 @@ export class CommandExecutionEngine {
         try {
           fs.writeFileSync(logFile, `--- [STDOUT] ---\n${stdoutBuffer}\n--- [STDERR] ---\n${stderrBuffer}\n`, 'utf-8');
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "commandExecutionEngine",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:commandExecutionEngine]", err);
@@ -468,11 +468,11 @@ export class CommandExecutionEngine {
             WHERE id = ?
           `).run(pid, startedAt, queueLatencyMs, id);
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "commandExecutionEngine",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:commandExecutionEngine]", err);
@@ -491,11 +491,11 @@ export class CommandExecutionEngine {
               child.kill('SIGTERM');
               setTimeout(() => {
                 try { child.kill('SIGKILL'); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "commandExecutionEngine",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:commandExecutionEngine]", err);
@@ -504,11 +504,11 @@ export class CommandExecutionEngine {
               }, 2000).unref();
             }
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "commandExecutionEngine",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:commandExecutionEngine]", err);
@@ -571,11 +571,11 @@ export class CommandExecutionEngine {
         active.child.kill('SIGTERM');
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "commandExecutionEngine",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:commandExecutionEngine]", err);
@@ -592,11 +592,11 @@ export class CommandExecutionEngine {
         WHERE id = ?
       `).run(reason, now, id);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "commandExecutionEngine",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:commandExecutionEngine]", err);

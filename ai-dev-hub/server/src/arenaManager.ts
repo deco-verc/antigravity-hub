@@ -278,11 +278,11 @@ export class ArenaManager {
     const arenaDir = path.join(projectPath, '.ai-dev-arena');
     if (!fs.existsSync(arenaDir)) {
       try { fs.mkdirSync(arenaDir, { recursive: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "arenaManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:arenaManager]", err);
@@ -373,11 +373,11 @@ export class ArenaManager {
       try {
         execSync(`git worktree remove "${workspacePath}" --force`, { cwd: projectPath, stdio: 'pipe' });
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "arenaManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:arenaManager]", err);
@@ -386,11 +386,11 @@ export class ArenaManager {
       try {
         fs.rmSync(workspacePath, { recursive: true, force: true });
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "arenaManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:arenaManager]", err);
@@ -403,11 +403,11 @@ export class ArenaManager {
     try {
       execSync(`git branch -D "${branchName}"`, { cwd: projectPath, stdio: 'pipe' });
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "arenaManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:arenaManager]", err);
@@ -440,11 +440,11 @@ export class ArenaManager {
           const destFile = path.join(destTestDir, tf);
           if (fs.statSync(srcFile).isFile() && !fs.existsSync(destFile)) {
             try { fs.copyFileSync(srcFile, destFile); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "arenaManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:arenaManager]", err);

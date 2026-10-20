@@ -61,11 +61,11 @@ export class DeltaFeatureEngine {
           };
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "deltaFeatureEngine",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:deltaFeatureEngine]", err);
@@ -92,11 +92,11 @@ export class DeltaFeatureEngine {
         const files = fs.readdirSync(srcDir, { recursive: true });
         srcFilesCount = files.filter(f => /\.(js|ts|jsx|tsx|mjs|cjs)$/i.test(String(f))).length;
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "deltaFeatureEngine",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:deltaFeatureEngine]", err);
@@ -113,11 +113,11 @@ export class DeltaFeatureEngine {
         ];
         testFilesCount = testEntries.filter(f => /\.(js|ts|jsx|tsx|mjs|cjs)$/i.test(String(f))).length;
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "deltaFeatureEngine",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:deltaFeatureEngine]", err);
@@ -131,11 +131,11 @@ export class DeltaFeatureEngine {
         const pubEntries = fs.readdirSync(publicDir, { recursive: true });
         publicFilesCount = pubEntries.filter(f => /\.(html|js|css|json|svg)$/i.test(String(f))).length;
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "deltaFeatureEngine",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:deltaFeatureEngine]", err);
@@ -207,11 +207,11 @@ export class DeltaFeatureEngine {
             }
           }
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "deltaFeatureEngine",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:deltaFeatureEngine]", err);
@@ -236,11 +236,11 @@ export class DeltaFeatureEngine {
           tables.add(match[1]);
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "deltaFeatureEngine",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:deltaFeatureEngine]", err);
@@ -258,11 +258,11 @@ export class DeltaFeatureEngine {
           tables.add(match[1]);
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "deltaFeatureEngine",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:deltaFeatureEngine]", err);
@@ -299,11 +299,11 @@ export class DeltaFeatureEngine {
           hasSeed = true;
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "deltaFeatureEngine",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:deltaFeatureEngine]", err);

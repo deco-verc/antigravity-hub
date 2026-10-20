@@ -73,11 +73,11 @@ describe('ProjectLivingSpecService - Motor Autônomo de Especificação Viva na 
       assert.ok(principios.includes('DOMContentLoaded'), 'Deve exigir hidratação pós-F5');
     } finally {
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "projectLivingSpecs.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:projectLivingSpecs.test]", err);
@@ -127,11 +127,11 @@ describe('ProjectLivingSpecService - Motor Autônomo de Especificação Viva na 
       assert.ok(supervisorCtx.length <= 3800, `Supervisor context deve ter <= 3800 chars (obtido: ${supervisorCtx.length})`);
     } finally {
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "projectLivingSpecs.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:projectLivingSpecs.test]", err);
@@ -157,11 +157,11 @@ describe('ProjectLivingSpecService - Motor Autônomo de Especificação Viva na 
       assert.ok(healthConteudo.includes('Pacientes'), 'Domínio saúde deve gerar seção de Pacientes');
     } finally {
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "projectLivingSpecs.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:projectLivingSpecs.test]", err);
@@ -193,11 +193,11 @@ describe('ProjectLivingSpecService - Motor Autônomo de Especificação Viva na 
       assert.equal(firstStat.size, secondStat.size, 'Tamanho do arquivo deve ser consistente na re-execução');
     } finally {
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "projectLivingSpecs.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:projectLivingSpecs.test]", err);
@@ -245,11 +245,11 @@ describe('ProjectLivingSpecService - Motor Autônomo de Especificação Viva na 
       assert.ok(instructions.fullRuleContent.includes('@.ai-dev-hub/specs/BACKEND.md'), 'fullRuleContent deve listar os 4 arquivos canônicos');
     } finally {
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "projectLivingSpecs.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:projectLivingSpecs.test]", err);
@@ -304,11 +304,11 @@ describe('ProjectLivingSpecService - Motor Autônomo de Especificação Viva na 
       assert.ok(backendPrompt.length < 24000, `Prompt Backend deve ter < 24000 chars (obtido: ${backendPrompt.length})`);
     } finally {
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "projectLivingSpecs.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:projectLivingSpecs.test]", err);
@@ -393,11 +393,11 @@ describe('ProjectLivingSpecService - Motor Autônomo de Especificação Viva na 
       assert.ok(supervisorRes.prompt.length <= 23900, `Supervisor prompt deve ter <= 23900 chars (obtido: ${supervisorRes.prompt.length})`);
     } finally {
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "projectLivingSpecs.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:projectLivingSpecs.test]", err);
@@ -415,11 +415,11 @@ describe('ProjectLivingSpecService - Motor Autônomo de Especificação Viva na 
           projectId, 'Finanças Pro', tempDir, 'Aplicativo de finanças', new Date().toISOString(), new Date().toISOString()
         );
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "projectLivingSpecs.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:projectLivingSpecs.test]", err);
@@ -468,11 +468,11 @@ describe('ProjectLivingSpecService - Motor Autônomo de Especificação Viva na 
       assert.ok(majorCodes.has('GT-7'), 'Deve conter GT-7 (Blindagem e Homologação)');
     } finally {
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "projectLivingSpecs.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:projectLivingSpecs.test]", err);
@@ -529,11 +529,11 @@ describe('ProjectLivingSpecService - Motor Autônomo de Especificação Viva na 
       assert.equal(repeatRes.updatedFiles.length, 0, 'Re-execução idempotente não deve duplicar seções');
     } finally {
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "projectLivingSpecs.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:projectLivingSpecs.test]", err);
@@ -573,11 +573,11 @@ describe('ProjectLivingSpecService - Motor Autônomo de Especificação Viva na 
       assert.ok(backend.includes('metas'), 'BACKEND.md deve conter tabela/rota com metas');
     } finally {
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "projectLivingSpecs.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:projectLivingSpecs.test]", err);
@@ -626,11 +626,11 @@ describe('ProjectLivingSpecService - Motor Autônomo de Especificação Viva na 
       assert.ok(testContext.length >= 1500 && testContext.length <= 3800, `Contexto deve respeitar faixa segura (obtido: ${testContext.length})`);
     } finally {
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "projectLivingSpecs.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:projectLivingSpecs.test]", err);
@@ -702,11 +702,11 @@ describe('ProjectLivingSpecService - Motor Autônomo de Especificação Viva na 
       assert.equal(matches.length, 1, 'Deve conter exatamente 1 ocorrência do cabeçalho sem duplicação');
     } finally {
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "projectLivingSpecs.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:projectLivingSpecs.test]", err);
@@ -772,11 +772,11 @@ describe('ProjectLivingSpecService - Motor Autônomo de Especificação Viva na 
       assert.equal(checkComplete.missingAspects.length, 0, 'missingAspects deve estar vazio');
     } finally {
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "projectLivingSpecs.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:projectLivingSpecs.test]", err);
@@ -803,11 +803,11 @@ describe('ProjectLivingSpecService - Motor Autônomo de Especificação Viva na 
       assert.ok(backendMd.includes('HEALTHCARE_APPOINTMENTS') || backendMd.includes('HEALTHCARE'), 'BACKEND.md deve identificar domínio de saúde/consultas');
     } finally {
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "projectLivingSpecs.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:projectLivingSpecs.test]", err);
@@ -847,22 +847,22 @@ describe('ProjectLivingSpecService - Motor Autônomo de Especificação Viva na 
       try {
         db.prepare('DELETE FROM projects WHERE id = ?').run(testProjectId);
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "projectLivingSpecs.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:projectLivingSpecs.test]", err);
       }
     }
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "projectLivingSpecs.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:projectLivingSpecs.test]", err);

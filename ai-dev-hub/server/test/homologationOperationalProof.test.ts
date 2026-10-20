@@ -65,11 +65,11 @@ class HeadlessCdpClient {
           }
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "homologationOperationalProof.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:homologationOperationalProof.test]", err);
@@ -115,11 +115,11 @@ class HeadlessCdpClient {
 
   async stop() {
     if(this.browser)try{await this.browser.disconnect();}catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "homologationOperationalProof.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:homologationOperationalProof.test]", err);
@@ -127,11 +127,11 @@ class HeadlessCdpClient {
     }
     if (this.chromeProc) {
       try { this.chromeProc.kill(); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "homologationOperationalProof.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:homologationOperationalProof.test]", err);
@@ -140,11 +140,11 @@ class HeadlessCdpClient {
     }
     if (this.tmpUserData) {
       try { fs.rmSync(this.tmpUserData, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "homologationOperationalProof.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:homologationOperationalProof.test]", err);
@@ -214,11 +214,11 @@ test('DECOHUB — Homologação Operacional Final de Autonomia e Camada Karpathy
       AutonomousRunnerService.releaseExecutionLock();
       if (appHttpServer) {
         try { appHttpServer.close(); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "homologationOperationalProof.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:homologationOperationalProof.test]", err);
@@ -230,11 +230,11 @@ test('DECOHUB — Homologação Operacional Final de Autonomia e Camada Karpathy
       db.prepare('DELETE FROM projects WHERE id = ?').run(projId);
       fs.rmSync(tmpRoot, { recursive: true, force: true });
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "homologationOperationalProof.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:homologationOperationalProof.test]", err);

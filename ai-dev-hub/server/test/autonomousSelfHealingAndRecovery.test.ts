@@ -82,11 +82,11 @@ test('Fase 3: Auto-Recovery de AGENTAPI_UNAVAILABLE restaura status de waiting_r
 
   t.after(() => {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousSelfHealingAndRecovery.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousSelfHealingAndRecovery.test]", err);
@@ -134,11 +134,11 @@ test('Fase 3: Self-healing de verificação converte BLOCKED técnico em REWORK_
 
   t.after(() => {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousSelfHealingAndRecovery.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousSelfHealingAndRecovery.test]", err);
@@ -268,11 +268,11 @@ test('Fase 3: Preservação de Segurança — TAMPERING_DETECTED e exaustão de 
 
   t.after(() => {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "autonomousSelfHealingAndRecovery.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:autonomousSelfHealingAndRecovery.test]", err);

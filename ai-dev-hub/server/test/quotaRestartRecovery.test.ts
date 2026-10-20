@@ -37,11 +37,11 @@ describe('DecoHUB — Validação Crítica de Retomada Pós-Quota e Isolamento O
       execSync('git add package.json', { cwd: testProjectDir, stdio: 'ignore' });
       execSync('git commit -m "initial commit"', { cwd: testProjectDir, stdio: 'ignore' });
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "quotaRestartRecovery.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:quotaRestartRecovery.test]", err);
@@ -117,11 +117,11 @@ describe('DecoHUB — Validação Crítica de Retomada Pós-Quota e Isolamento O
     db.prepare('DELETE FROM projects WHERE id = ?').run(testProjectId);
     db.prepare('DELETE FROM account_profiles WHERE id = ?').run(testProfileId);
     try { fs.rmSync(testProjectDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "quotaRestartRecovery.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:quotaRestartRecovery.test]", err);

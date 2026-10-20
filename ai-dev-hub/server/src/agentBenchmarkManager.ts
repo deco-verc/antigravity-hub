@@ -151,11 +151,11 @@ export class AgentBenchmarkManager {
     const workspaceDir = path.join(this.runsRootDir, runId, task.id, 'workspace');
     if (fs.existsSync(workspaceDir)) {
       try { fs.rmSync(workspaceDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "agentBenchmarkManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:agentBenchmarkManager]", err);
@@ -175,11 +175,11 @@ export class AgentBenchmarkManager {
       execSync('git add .', { cwd: workspaceDir, stdio: 'pipe' });
       execSync('git commit -m "Initial seed commit"', { cwd: workspaceDir, stdio: 'pipe' });
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "agentBenchmarkManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:agentBenchmarkManager]", err);
@@ -229,11 +229,11 @@ export class AgentBenchmarkManager {
     try {
       execSync(`git checkout -b ${branchName}`, { cwd: workspace, stdio: 'pipe' });
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "agentBenchmarkManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:agentBenchmarkManager]", err);

@@ -667,11 +667,11 @@ apiRouter.post('/autonomous/runs', async (req, res) => {
     // Immediate trigger for autonomous runner
     setTimeout(() => {
       AutonomousRunnerService.schedulerTick().catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "routes",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:routes]", err);
@@ -739,11 +739,11 @@ apiRouter.post('/autonomous/runs/:id/resume', async (req, res) => {
     const run = await AutonomousManager.resumeRun(req.params.id);
     setTimeout(() => {
       AutonomousRunnerService.schedulerTick().catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "routes",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:routes]", err);
@@ -817,11 +817,11 @@ apiRouter.post('/autonomous/runs/:id/loop/start', async (req, res) => {
     }
     setTimeout(() => {
       AutonomousRunnerService.schedulerTick().catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "routes",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:routes]", err);
@@ -852,11 +852,11 @@ apiRouter.post('/autonomous/approvals/:id/resolve', (req, res) => {
     const run = AutonomousManager.resolveHumanApproval(req.params.id, decision);
     setTimeout(() => {
       AutonomousRunnerService.schedulerTick().catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "routes",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:routes]", err);
@@ -1203,11 +1203,11 @@ apiRouter.post('/fs/validate-path', (req, res) => {
           .slice(0, 15)
           .map(d => d.name);
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "routes",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:routes]", err);
@@ -1370,11 +1370,11 @@ apiRouter.post('/projects', async (req, res) => {
               execSync('git init', { cwd: val.resolvedPath, stdio: 'pipe', timeout: 3000 });
               execSync('git branch -M main', { cwd: val.resolvedPath, stdio: 'pipe', timeout: 3000 });
             } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "routes",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:routes]", err);
@@ -1404,11 +1404,11 @@ apiRouter.post('/projects', async (req, res) => {
               execSync('git config user.email "agent@decohub.local" && git config user.name "DecoHUB Agent"', { cwd: val.resolvedPath, stdio: 'pipe', timeout: 3000 });
               execSync('git commit -m "chore: initial project structure with DecoHUB memory"', { cwd: val.resolvedPath, stdio: 'pipe', timeout: 5000 });
             } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "routes",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:routes]", err);
@@ -2334,11 +2334,11 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
       if(!submission.isNew){
         if (!submission.persisted) {
           try { db.prepare('DELETE FROM chat_submissions WHERE project_id=? AND request_id=?').run(id, requestId); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "routes",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:routes]", err);
@@ -2592,11 +2592,11 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
             });
             setTimeout(() => {
               AutonomousRunnerService.schedulerTick().catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "routes",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:routes]", err);
@@ -2658,11 +2658,11 @@ apiRouter.post('/projects/:id/messages/cancel', async (req, res) => {
         AgentTurnState.setPhase(activeSession.provider_conversation_id, 'CONSUMED');
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "routes",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:routes]", err);
@@ -2674,11 +2674,11 @@ apiRouter.post('/projects/:id/messages/cancel', async (req, res) => {
       ExecutionCoordinator.releaseByContext({ projectId: id });
       ExecutionCoordinator.reconcileDeadReservations();
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "routes",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:routes]", err);
@@ -2718,11 +2718,11 @@ apiRouter.post('/projects/:id/messages/cancel', async (req, res) => {
           `).run(row.id);
           dequeued = true;
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "routes",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:routes]", err);
@@ -2735,11 +2735,11 @@ apiRouter.post('/projects/:id/messages/cancel', async (req, res) => {
     try {
       ChatSubmission.cancel(id);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "routes",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:routes]", err);
@@ -2776,11 +2776,11 @@ apiRouter.delete('/projects/:id/messages/:messageId', (req, res) => {
     try {
       ExecutionCoordinator.releaseByContext({ projectId: id });
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "routes",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:routes]", err);
@@ -3139,11 +3139,11 @@ apiRouter.get('/projects/:id/files', (req, res) => {
         } else {
           let size = 0;
           try { size = fs.statSync(full).size; } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "routes",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:routes]", err);
@@ -3244,11 +3244,11 @@ apiRouter.post('/projects/:id/agent-stop', (req, res) => {
       try {
         AutonomousManager.stopRun(r.id);
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "routes",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:routes]", err);
@@ -3300,11 +3300,11 @@ apiRouter.get('/projects/:id/terminal-logs', (req, res) => {
     try {
       gitLog = execSync('git log -5 --oneline', { cwd: project.path, encoding: 'utf-8', timeout: 3000 });
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "routes",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:routes]", err);

@@ -153,11 +153,11 @@ export class ReaSaaSMasterService {
       try {
         fs.mkdirSync(candidate, { recursive: true });
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "reaSaaSMasterService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:reaSaaSMasterService]", err);
@@ -253,11 +253,11 @@ export class ReaSaaSMasterService {
             loadedFilesCount++;
           }
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "reaSaaSMasterService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:reaSaaSMasterService]", err);
@@ -309,11 +309,11 @@ export class ReaSaaSMasterService {
           Logger.info(`[ReaSaaSMasterService] Blueprint REA recuperado do cache: ${path.basename(cacheFile)}`);
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "reaSaaSMasterService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:reaSaaSMasterService]", err);

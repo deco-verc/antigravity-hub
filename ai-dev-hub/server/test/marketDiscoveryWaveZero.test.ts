@@ -34,11 +34,11 @@ describe('FASE 22: Onda 0 (Market Research, Reference Apps & REA Discovery)', ()
         VALUES (?, ?, ?, 'active', ?, ?)
       `).run(testProjectId, 'Test Project Wave0', testProjectDir, new Date().toISOString(), new Date().toISOString());
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "marketDiscoveryWaveZero.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:marketDiscoveryWaveZero.test]", err);
@@ -52,11 +52,11 @@ describe('FASE 22: Onda 0 (Market Research, Reference Apps & REA Discovery)', ()
       db.prepare('DELETE FROM autonomous_runs WHERE project_id = ?').run(testProjectId);
       db.prepare('DELETE FROM projects WHERE id = ?').run(testProjectId);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "marketDiscoveryWaveZero.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:marketDiscoveryWaveZero.test]", err);
@@ -66,11 +66,11 @@ describe('FASE 22: Onda 0 (Market Research, Reference Apps & REA Discovery)', ()
     try {
       fs.rmSync(testProjectDir, { recursive: true, force: true });
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "marketDiscoveryWaveZero.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:marketDiscoveryWaveZero.test]", err);

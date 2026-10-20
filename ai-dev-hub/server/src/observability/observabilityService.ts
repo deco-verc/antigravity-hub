@@ -100,11 +100,11 @@ export class ObservabilityService {
     try {
       this.fileLogger.appendEvent(event);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "observabilityService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:observabilityService]", err);
@@ -170,11 +170,11 @@ export class ObservabilityService {
                 fb.metadata ? JSON.stringify(fb.metadata) : null, fb.createdAt
               );
             } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "observabilityService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:observabilityService]", err);
@@ -378,11 +378,11 @@ export class ObservabilityService {
             const parsed = JSON.parse(row.error_json);
             errKey = `${parsed.name || 'Error'}: ${parsed.message || row.message}`;
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "observabilityService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:observabilityService]", err);
@@ -480,11 +480,11 @@ export class ObservabilityService {
     let error: any = null;
     if (r.error_json) {
       try { error = JSON.parse(r.error_json); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "observabilityService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:observabilityService]", err);
@@ -494,11 +494,11 @@ export class ObservabilityService {
     let metadata: any = null;
     if (r.metadata_json) {
       try { metadata = JSON.parse(r.metadata_json); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "observabilityService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:observabilityService]", err);

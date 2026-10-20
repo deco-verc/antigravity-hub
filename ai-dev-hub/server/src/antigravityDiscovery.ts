@@ -150,11 +150,11 @@ export class AntigravityDiscovery {
         return { ...this.validateBinary(firstLine, brainDir, 'PATH', forceRefresh), agyCliExe };
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "antigravityDiscovery",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:antigravityDiscovery]", err);
@@ -186,11 +186,11 @@ export class AntigravityDiscovery {
     try {
       mtimeMs = fs.statSync(exePath).mtimeMs;
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "antigravityDiscovery",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:antigravityDiscovery]", err);

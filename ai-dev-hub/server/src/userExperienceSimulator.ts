@@ -135,11 +135,11 @@ export class UserExperienceSimulator {
         const unescaped = JSON.parse(quotedMatch[0]);
         return JSON.parse(unescaped);
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "userExperienceSimulator",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:userExperienceSimulator]", err);
@@ -152,11 +152,11 @@ export class UserExperienceSimulator {
       try {
         return JSON.parse(objMatch[1]);
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "userExperienceSimulator",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:userExperienceSimulator]", err);
@@ -215,11 +215,11 @@ export class UserExperienceSimulator {
           }
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "userExperienceSimulator",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:userExperienceSimulator]", err);
@@ -303,11 +303,11 @@ export class UserExperienceSimulator {
             if (isWin) spawnSync('taskkill', ['/pid', String(child.pid), '/f', '/t'], { stdio: 'ignore' });
             child.kill('SIGKILL');
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "userExperienceSimulator",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:userExperienceSimulator]", err);
@@ -341,11 +341,11 @@ export class UserExperienceSimulator {
           if (isWin) spawnSync('taskkill', ['/pid', String(child.pid), '/f', '/t'], { stdio: 'ignore' });
           child.kill('SIGKILL');
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "userExperienceSimulator",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:userExperienceSimulator]", err);
@@ -365,11 +365,11 @@ export class UserExperienceSimulator {
           try {
             spawnSync('taskkill', ['/pid', String(pid), '/f', '/t'], { stdio: 'ignore', windowsHide: true });
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "userExperienceSimulator",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:userExperienceSimulator]", err);
@@ -383,22 +383,22 @@ export class UserExperienceSimulator {
             child.kill('SIGKILL');
           }
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "userExperienceSimulator",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:userExperienceSimulator]", err);
       }
     }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "userExperienceSimulator",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:userExperienceSimulator]", err);
@@ -428,11 +428,11 @@ export class UserExperienceSimulator {
         try {
           spawnSync('taskkill', ['/pid', String(server.pid), '/f', '/t'], { stdio: 'ignore', windowsHide: true });
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "userExperienceSimulator",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:userExperienceSimulator]", err);
@@ -456,11 +456,11 @@ export class UserExperienceSimulator {
     let htmlContent = '';
     if (htmlCandidate && fs.existsSync(htmlCandidate)) {
       try { htmlContent = fs.readFileSync(htmlCandidate, 'utf-8'); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "userExperienceSimulator",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:userExperienceSimulator]", err);
@@ -495,11 +495,11 @@ export class UserExperienceSimulator {
 
     const reportPath = path.join(evidenceDir, 'user-journey-report.json');
     try { fs.writeFileSync(reportPath, JSON.stringify(report, null, 2), 'utf-8'); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "userExperienceSimulator",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:userExperienceSimulator]", err);
@@ -515,11 +515,11 @@ export class UserExperienceSimulator {
         }
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "userExperienceSimulator",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:userExperienceSimulator]", err);
@@ -658,11 +658,11 @@ export class UserExperienceSimulator {
               const url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url) || '';
               let bodyText = '';
               try { bodyText = await cloned.text(); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "userExperienceSimulator",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:userExperienceSimulator]", err);
@@ -742,11 +742,11 @@ export class UserExperienceSimulator {
         // Click through tabs
         for (const el of navItems.slice(0, 4)) {
           try { el.click(); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "userExperienceSimulator",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:userExperienceSimulator]", err);
@@ -826,11 +826,11 @@ export class UserExperienceSimulator {
               const tabBtn = document.querySelector(\`[data-tab="\${parentPane.id.replace('pane-', '')}"], [href="#\${parentPane.id}"]\`);
               if (tabBtn) {
                 try { tabBtn.click(); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "userExperienceSimulator",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:userExperienceSimulator]", err);
@@ -910,11 +910,11 @@ export class UserExperienceSimulator {
             submitBtn.click();
             buttonClicked = true;
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "userExperienceSimulator",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:userExperienceSimulator]", err);
@@ -1002,11 +1002,11 @@ export class UserExperienceSimulator {
         const tabs = Array.from(document.querySelectorAll('nav button, [role="tab"], .tab, .tab-btn'));
         for (const t of tabs) {
           try { t.click(); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "userExperienceSimulator",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:userExperienceSimulator]", err);
@@ -1110,11 +1110,11 @@ export class UserExperienceSimulator {
           try {
             btn.click();
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "userExperienceSimulator",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:userExperienceSimulator]", err);
@@ -1184,11 +1184,11 @@ export class UserExperienceSimulator {
         try {
           await this.stopTargetServer(targetServer);
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "userExperienceSimulator",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:userExperienceSimulator]", err);
@@ -1242,11 +1242,11 @@ export class UserExperienceSimulator {
     try {
       fs.writeFileSync(evidenceReportPath, JSON.stringify(finalReport, null, 2), 'utf-8');
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "userExperienceSimulator",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:userExperienceSimulator]", err);

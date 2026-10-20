@@ -70,22 +70,22 @@ test('HOMOLOGAÇÃO OPERACIONAL REAL — Orquestração Hierárquica Autônoma d
 
   t.after(() => {
     try { fs.rmSync(workspaceDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "operationalHomologationReal.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:operationalHomologationReal.test]", err);
       }
     }
     try { fs.rmSync(ISOLATED_DATA_DIR, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "operationalHomologationReal.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:operationalHomologationReal.test]", err);
@@ -352,11 +352,11 @@ test('HOMOLOGAÇÃO OPERACIONAL REAL — Orquestração Hierárquica Autônoma d
       '    };',
       '    transactions.push(entry);',
       '    try { fs.writeFileSync("transactions.json", JSON.stringify(transactions)); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "operationalHomologationReal.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:operationalHomologationReal.test]", err);
@@ -641,11 +641,11 @@ test('HOMOLOGAÇÃO OPERACIONAL REAL — Orquestração Hierárquica Autônoma d
       '    };',
       '    transactions.push(entry);',
       '    try { fs.writeFileSync("transactions.json", JSON.stringify(transactions)); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "operationalHomologationReal.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:operationalHomologationReal.test]", err);

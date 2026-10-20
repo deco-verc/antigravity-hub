@@ -23,11 +23,11 @@ describe('FASE 15: DecoHUB Meta-Chat — Auto-Evolução & Self-Healing Guard', 
     MetaChatService.resetMessages();
     if (fs.existsSync(testHelperPath)) {
       try { fs.unlinkSync(testHelperPath); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "metaChatSelfEvolution.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:metaChatSelfEvolution.test]", err);
@@ -40,11 +40,11 @@ describe('FASE 15: DecoHUB Meta-Chat — Auto-Evolução & Self-Healing Guard', 
     // Limpeza de artefatos de teste
     if (fs.existsSync(testHelperPath)) {
       try { fs.unlinkSync(testHelperPath); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "metaChatSelfEvolution.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:metaChatSelfEvolution.test]", err);
@@ -162,11 +162,11 @@ describe('FASE 15: DecoHUB Meta-Chat — Auto-Evolução & Self-Healing Guard', 
 
     // Limpeza após o teste
     try { fs.unlinkSync(testHelperPath); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "metaChatSelfEvolution.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:metaChatSelfEvolution.test]", err);
@@ -192,11 +192,11 @@ export const META_CHAT_TEST_CONSTANT = 42;
     // Limpeza do arquivo criado pela diretiva
     if (fs.existsSync(testHelperPath)) {
       try { fs.unlinkSync(testHelperPath); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "metaChatSelfEvolution.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:metaChatSelfEvolution.test]", err);
@@ -266,11 +266,11 @@ export const META_CHAT_TEST_CONSTANT = 42;
     for (const f of filesInUploads) {
       if (f.includes('screenshot-test') || f.includes('helper')) {
         try { fs.unlinkSync(path.join(uploadsDir, f)); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "metaChatSelfEvolution.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:metaChatSelfEvolution.test]", err);

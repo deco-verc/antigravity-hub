@@ -41,11 +41,11 @@ describe('FASE 16: Motor Universal de Slash Commands e Arsenal de Skills', () =>
         VALUES (?, ?, ?, 'active', ?, ?)
       `).run(testProjectId, 'Test Project Slash', testProjectDir, new Date().toISOString(), new Date().toISOString());
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "skillSlashCommands.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:skillSlashCommands.test]", err);
@@ -59,11 +59,11 @@ describe('FASE 16: Motor Universal de Slash Commands e Arsenal de Skills', () =>
       db.prepare('DELETE FROM autonomous_runs WHERE project_id = ?').run(testProjectId);
       db.prepare('DELETE FROM projects WHERE id = ?').run(testProjectId);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "skillSlashCommands.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:skillSlashCommands.test]", err);
@@ -73,11 +73,11 @@ describe('FASE 16: Motor Universal de Slash Commands e Arsenal de Skills', () =>
     try {
       fs.rmSync(testProjectDir, { recursive: true, force: true });
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "skillSlashCommands.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:skillSlashCommands.test]", err);

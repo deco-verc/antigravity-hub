@@ -76,11 +76,11 @@ export class ResearchManager {
         }
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "researchManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:researchManager]", err);
@@ -277,11 +277,11 @@ export class ResearchManager {
         if (!filesChanged.includes(file)) filesChanged.push(file);
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "researchManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:researchManager]", err);
@@ -297,11 +297,11 @@ export class ResearchManager {
       Logger.error(`🚨 [ResearchManager] Violação de arquivo protegido detectada: ${violatedProtected.join(', ')}`);
       // Revert immediately
       try { execSync(`git reset --hard ${bestCommitBefore}`, { cwd: params.projectPath }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "researchManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:researchManager]", err);
@@ -381,11 +381,11 @@ export class ResearchManager {
         Logger.info(`[ResearchManager] Revertendo CRASH para commit estável ${bestCommitBefore.slice(0, 7)}...`);
         execSync(`git reset --hard ${bestCommitBefore}`, { cwd: params.projectPath });
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "researchManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:researchManager]", err);
@@ -408,11 +408,11 @@ export class ResearchManager {
             try {
               execSync(`git reset --hard ${bestCommitBefore}`, { cwd: params.projectPath });
             } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "researchManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:researchManager]", err);
@@ -428,11 +428,11 @@ export class ResearchManager {
           try {
             execSync(`git reset --hard ${bestCommitBefore}`, { cwd: params.projectPath });
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "researchManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:researchManager]", err);
@@ -451,11 +451,11 @@ export class ResearchManager {
             try {
               execSync(`git reset --hard ${bestCommitBefore}`, { cwd: params.projectPath });
             } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "researchManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:researchManager]", err);
@@ -471,11 +471,11 @@ export class ResearchManager {
           try {
             execSync(`git reset --hard ${bestCommitBefore}`, { cwd: params.projectPath });
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "researchManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:researchManager]", err);
@@ -611,11 +611,11 @@ export class ResearchManager {
         Logger.info(`[ResearchManager] Run finalizado. Garantindo que o working tree está no melhor commit ${run.best_commit.slice(0, 7)}...`);
         execSync(`git reset --hard ${run.best_commit}`, { cwd: projectPath });
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "researchManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:researchManager]", err);
@@ -781,11 +781,11 @@ export class ResearchManager {
       db.prepare('UPDATE research_runs SET best_metric = ?, best_commit = ? WHERE id = ?')
         .run(baselineMetric, baselineCommit, researchRun.id);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "researchManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:researchManager]", err);
@@ -846,11 +846,11 @@ export class ResearchManager {
     try {
       execSync(`git reset --hard ${winningCommit}`, { cwd: params.projectPath, stdio: 'pipe' });
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "researchManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:researchManager]", err);

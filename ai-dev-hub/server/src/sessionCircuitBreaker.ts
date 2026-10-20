@@ -154,11 +154,11 @@ export class SessionCircuitBreaker {
           };
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "sessionCircuitBreaker",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:sessionCircuitBreaker]", err);
@@ -301,11 +301,11 @@ export class SessionCircuitBreaker {
         WHERE project_id = ? AND task_id = ? AND event_type IN ('AGENT_CONVERSATION_CREATE_ATTEMPT', 'SESSION_CREATION_STORM', 'CREATE_BLOCKED')
       `).run(projectId, taskId);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "sessionCircuitBreaker",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:sessionCircuitBreaker]", err);

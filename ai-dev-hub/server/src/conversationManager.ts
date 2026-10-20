@@ -264,11 +264,11 @@ export class ConversationManager {
         const projRow = db.prepare('SELECT name FROM projects WHERE id = ?').get(projectId) as any;
         if (projRow?.name) projectName = projRow.name;
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "conversationManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:conversationManager]", err);
@@ -392,11 +392,11 @@ export class ConversationManager {
             JSON.stringify({ model, title, accountProfileId })
           );
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "conversationManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:conversationManager]", err);
@@ -543,11 +543,11 @@ export class ConversationManager {
         WHERE provider_conversation_id = ?
       `).run(nowIso, nowIso, charIncrement, conversationId);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "conversationManager",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:conversationManager]", err);

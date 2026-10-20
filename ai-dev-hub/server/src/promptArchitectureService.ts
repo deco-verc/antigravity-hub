@@ -527,11 +527,11 @@ export class PromptArchitectureService {
           sections.push(`\n${specBlock}\n`);
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "promptArchitectureService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:promptArchitectureService]", err);
@@ -785,11 +785,11 @@ export class PromptArchitectureService {
           sections.push(`- Cumpra as invariantes Karpathy, PORT_GUARD (faixa 4000-4999) e AppSec de PRINCIPIOS.md.\n`);
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "promptArchitectureService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:promptArchitectureService]", err);
@@ -902,11 +902,11 @@ export class PromptArchitectureService {
           sections.push(`Incorpore rigorosamente as seções de CONTEUDO.md, schemas de BACKEND.md, tokens de DESIGN.md e invariantes de PRINCIPIOS.md nas Grandes Tarefas.\n`);
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "promptArchitectureService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:promptArchitectureService]", err);
@@ -1019,11 +1019,11 @@ export class PromptArchitectureService {
           sections.push(`Ao expandir esta Grande Tarefa em microtarefas, garanta que os contratos de teste, atributos de tela (role="tab", data-tab), schemas SQLite e rotas REST reflitam exatamente os 4 arquivos canônicos.\n`);
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "promptArchitectureService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:promptArchitectureService]", err);

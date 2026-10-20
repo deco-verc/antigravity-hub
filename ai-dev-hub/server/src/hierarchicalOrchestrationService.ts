@@ -660,11 +660,11 @@ export class HierarchicalOrchestrationService {
         nowIso
       );
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "hierarchicalOrchestrationService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
@@ -1360,11 +1360,11 @@ export class HierarchicalOrchestrationService {
         input.projectId
       );
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "hierarchicalOrchestrationService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
@@ -1385,11 +1385,11 @@ export class HierarchicalOrchestrationService {
         input.runId
       );
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "hierarchicalOrchestrationService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
@@ -2702,11 +2702,11 @@ export class HierarchicalOrchestrationService {
       try {
         gitInfo = GitManager.getGitInfo(params.projectPath);
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "hierarchicalOrchestrationService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
@@ -2774,11 +2774,11 @@ export class HierarchicalOrchestrationService {
             placeholdersOrMocksDetected.push(`Placeholder não implementado detectado em ${normalized}`);
           }
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "hierarchicalOrchestrationService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
@@ -3158,11 +3158,11 @@ export class HierarchicalOrchestrationService {
           stdio: ['ignore', 'pipe', 'ignore']
         }).trim();
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "hierarchicalOrchestrationService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
@@ -3183,11 +3183,11 @@ export class HierarchicalOrchestrationService {
               commitSha = headAfter;
             }
           } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "hierarchicalOrchestrationService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
@@ -3308,11 +3308,11 @@ export class HierarchicalOrchestrationService {
         SessionCircuitBreaker.resetTaskWindow(projectId, task.id);
         SessionCircuitBreaker.resetProjectWindow(projectId);
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "hierarchicalOrchestrationService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
@@ -4959,22 +4959,22 @@ export class HierarchicalOrchestrationService {
     if (params.projectPath && isSaaS) {
       try {
         ReaSaaSMasterService.provisionReaBlueprintForProject(params.projectPath, originalDescription).catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "hierarchicalOrchestrationService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
       }
     });
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "hierarchicalOrchestrationService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
@@ -4992,33 +4992,33 @@ export class HierarchicalOrchestrationService {
             projectId: params.projectId,
             requirements: params.requirements
           }).catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "hierarchicalOrchestrationService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
       }
     });
         }).catch((err) => {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "hierarchicalOrchestrationService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
       }
     });
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "hierarchicalOrchestrationService",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:hierarchicalOrchestrationService]", err);

@@ -84,11 +84,11 @@ export class GeminiSupervisorProvider {
             actualModel = metadata?.staticConfig?.cascadeConfig?.plannerConfig?.planModel || null;
           }
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "geminiSupervisorProvider",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:geminiSupervisorProvider]", err);
@@ -122,11 +122,11 @@ export class GeminiSupervisorProvider {
         }
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "geminiSupervisorProvider",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:geminiSupervisorProvider]", err);
@@ -391,11 +391,11 @@ export class GeminiSupervisorProvider {
         existingMemorySnippet += `\nLIÇÕES OPERACIONAIS APRENDIDAS (NÃO REPETIR FALHAS ANTERIORES):\n${lessonsBlock}`;
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "geminiSupervisorProvider",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:geminiSupervisorProvider]", err);
@@ -788,11 +788,11 @@ export class GeminiSupervisorProvider {
         }
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "geminiSupervisorProvider",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:geminiSupervisorProvider]", err);
@@ -1325,11 +1325,11 @@ export class GeminiSupervisorProvider {
         if (memory.programMd) constitutionSnippet = memory.programMd;
         existingMemorySnippet += `\nARQUITETURA: ${memory.architectureMd || ''}\nGIT: ${JSON.stringify(GitManager.getGitInfo(projectContext.path))}\nARQUIVOS E STACK: ${JSON.stringify(ProjectAnalyzer.analyze(projectContext.path))}`;
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "geminiSupervisorProvider",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:geminiSupervisorProvider]", err);
@@ -1459,11 +1459,11 @@ export class GeminiSupervisorProvider {
       try {
         skillGuidelines = JSON.parse(task.skill_guidelines_json);
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "geminiSupervisorProvider",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:geminiSupervisorProvider]", err);
@@ -1481,11 +1481,11 @@ export class GeminiSupervisorProvider {
           skillGuidelines = routed.guidelines || routed.priorityInvariants;
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "geminiSupervisorProvider",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:geminiSupervisorProvider]", err);
@@ -1797,11 +1797,11 @@ export class GeminiSupervisorProvider {
         const unwrapped = this.unwrapArrayFromParsed<T>(parsed);
         if (unwrapped) return unwrapped;
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "geminiSupervisorProvider",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:geminiSupervisorProvider]", err);
@@ -1814,11 +1814,11 @@ export class GeminiSupervisorProvider {
       const unwrapped = this.unwrapArrayFromParsed<T>(parsed);
       if (unwrapped) return unwrapped;
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "geminiSupervisorProvider",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:geminiSupervisorProvider]", err);
@@ -1837,11 +1837,11 @@ export class GeminiSupervisorProvider {
           const parsed = JSON.parse(candidate);
           if (Array.isArray(parsed)) return parsed;
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "geminiSupervisorProvider",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:geminiSupervisorProvider]", err);
@@ -1862,11 +1862,11 @@ export class GeminiSupervisorProvider {
         const parsed = JSON.parse(fencedMatches[i][1].trim());
         if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) return parsed;
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "geminiSupervisorProvider",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:geminiSupervisorProvider]", err);
@@ -1878,11 +1878,11 @@ export class GeminiSupervisorProvider {
       const parsed = JSON.parse(text.trim());
       if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) return parsed;
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "geminiSupervisorProvider",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:geminiSupervisorProvider]", err);
@@ -1901,11 +1901,11 @@ export class GeminiSupervisorProvider {
           const parsed = JSON.parse(candidate);
           if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) return parsed;
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "geminiSupervisorProvider",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:geminiSupervisorProvider]", err);

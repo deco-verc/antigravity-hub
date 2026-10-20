@@ -26,14 +26,16 @@ function getContext(filePath) {
   };
 }
 
-function createCatchLogger(ctx, errVar = 'error') {
+function createCatchLogger(ctx, errVar = 'error', isTs = true) {
+  const loggerRef = isTs ? '(globalThis as any).logger' : 'globalThis.logger';
+  const errRef = isTs ? `(${errVar} as any)?.message` : `${errVar}?.message`;
   return [
     ' {',
-    '      if (typeof logger !== "undefined" && logger.warn) {',
-    '        logger.warn({',
+    '      if (typeof ' + loggerRef + ' !== "undefined" && ' + loggerRef + '?.warn) {',
+    '        ' + loggerRef + '.warn({',
     '          event: "' + ctx.service + '.handled_exception",',
     '          file: "' + ctx.file + '",',
-    '          error: ' + errVar + '?.message || String(' + errVar + ')',
+    '          error: ' + errRef + ' || String(' + errVar + ')',
     '        });',
     '      } else {',
     '        console.warn("[WARN][' + ctx.service + ':' + ctx.file + ']", ' + errVar + ');',
@@ -44,7 +46,18 @@ function createCatchLogger(ctx, errVar = 'error') {
 
 function processSourceCode(content, filePath) {
   const ctx = getContext(filePath);
+  const isTs = filePath.endsWith('.ts');
   let modified = content;
+
+  if (isTs) {
+    // Migra padrões quebrados injetados anteriormente em arquivos TS
+    modified = modified.replace(/typeof logger !== "undefined" && logger\.warn/g, 'typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn');
+    modified = modified.replace(/(?<!\.)logger\.warn\(\{/g, '(globalThis as any).logger.warn({');
+    modified = modified.replace(/error:\s*([a-zA-Z0-9_$]+)\?\.message\s*\|\|\s*String\(\1\)/g, 'error: ($1 as any)?.message || String($1)');
+  } else {
+    modified = modified.replace(/typeof logger !== "undefined" && logger\.warn/g, 'typeof globalThis.logger !== "undefined" && globalThis.logger?.warn');
+    modified = modified.replace(/(?<!\.)logger\.warn\(\{/g, 'globalThis.logger.warn({');
+  }
 
   // 1. Corrige promessas silenciosas: .catch(() => {}) ou .catch((err) => {})
   const dotCatchRegex = /\.catch\s*\(\s*(?:\((?:[a-zA-Z0-9_$]+)?\)|[a-zA-Z0-9_$]+)?\s*=>\s*\{(?:\s*;\s*)?\}\s*\)/g;
@@ -52,7 +65,7 @@ function processSourceCode(content, filePath) {
   if (dotCatchRegex.test(modified)) {
     modified = modified.replace(dotCatchRegex, () => {
       totalDotCatchesFixed++;
-      return '.catch((err) =>' + createCatchLogger(ctx, 'err') + ')';
+      return '.catch((err) =>' + createCatchLogger(ctx, 'err', isTs) + ')';
     });
   }
 
@@ -63,7 +76,7 @@ function processSourceCode(content, filePath) {
     modified = modified.replace(emptyCatchRegex, (_, varName) => {
       totalTryCatchesFixed++;
       const errIdentifier = varName || 'err';
-      return 'catch (' + errIdentifier + ')' + createCatchLogger(ctx, errIdentifier);
+      return 'catch (' + errIdentifier + ')' + createCatchLogger(ctx, errIdentifier, isTs);
     });
   }
 

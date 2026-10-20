@@ -51,11 +51,11 @@ export class NativeWorkspaceBinding {
             projectId
           );
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "nativeWorkspaceBinding",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:nativeWorkspaceBinding]", err);
@@ -83,11 +83,11 @@ export class NativeWorkspaceBinding {
           );
           project.active_account_profile_id = accountProfileId;
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "nativeWorkspaceBinding",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:nativeWorkspaceBinding]", err);
@@ -107,11 +107,11 @@ export class NativeWorkspaceBinding {
           this.inspect(userProfileDir, id, project.path, NativeExecutionPolicy.get(projectId));
           candidates.push(id);
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "nativeWorkspaceBinding",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:nativeWorkspaceBinding]", err);
@@ -159,11 +159,11 @@ export class NativeWorkspaceBinding {
             projectId
           );
         } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "nativeWorkspaceBinding",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:nativeWorkspaceBinding]", err);
@@ -182,11 +182,11 @@ export class NativeWorkspaceBinding {
         const parsed = JSON.parse(existingPolicyRow.choice_json);
         if (!options?.mode && parsed.mode) targetMode = parsed.mode;
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "nativeWorkspaceBinding",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:nativeWorkspaceBinding]", err);
@@ -246,11 +246,11 @@ export class NativeWorkspaceBinding {
           return existing;
         }
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "nativeWorkspaceBinding",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:nativeWorkspaceBinding]", err);
@@ -271,11 +271,11 @@ export class NativeWorkspaceBinding {
         this.inspect(userProfileDir, id, project.path, currentPolicy);
         candidates.push(id);
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "nativeWorkspaceBinding",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:nativeWorkspaceBinding]", err);
@@ -337,11 +337,11 @@ export class NativeWorkspaceBinding {
     try {
       policy = NativeExecutionPolicy.get(projectId);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "nativeWorkspaceBinding",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:nativeWorkspaceBinding]", err);
@@ -427,11 +427,11 @@ export class NativeWorkspaceBinding {
           record.projectId
         );
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "nativeWorkspaceBinding",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:nativeWorkspaceBinding]", err);
@@ -442,11 +442,11 @@ export class NativeWorkspaceBinding {
           "UPDATE agent_sessions SET status='ARCHIVED', rotation_reason='ACCOUNT_SWITCH' WHERE project_id=? AND status='ACTIVE'"
         ).run(record.projectId);
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "nativeWorkspaceBinding",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:nativeWorkspaceBinding]", err);
@@ -557,11 +557,11 @@ export class NativeWorkspaceBinding {
       try {
         record = this.resolve(projectId, effectiveAccount, targetHome, true);
       } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "nativeWorkspaceBinding",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:nativeWorkspaceBinding]", err);

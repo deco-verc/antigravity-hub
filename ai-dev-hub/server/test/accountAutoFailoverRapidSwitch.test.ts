@@ -110,11 +110,11 @@ describe('Auto-Failover Multi-Conta via Rapid Switch Suite (FASE 20)', () => {
     } finally {
       AccountProfileManager.setVerifyProbeOverrideForTest(null);
       try { fs.rmSync(testDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountAutoFailoverRapidSwitch.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountAutoFailoverRapidSwitch.test]", err);
@@ -196,11 +196,11 @@ describe('Auto-Failover Multi-Conta via Rapid Switch Suite (FASE 20)', () => {
     } finally {
       AccountProfileManager.setVerifyProbeOverrideForTest(null);
       try { fs.rmSync(testDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountAutoFailoverRapidSwitch.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountAutoFailoverRapidSwitch.test]", err);
@@ -285,11 +285,11 @@ describe('Auto-Failover Multi-Conta via Rapid Switch Suite (FASE 20)', () => {
     } finally {
       AccountProfileManager.setVerifyProbeOverrideForTest(null);
       try { fs.rmSync(testDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountAutoFailoverRapidSwitch.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountAutoFailoverRapidSwitch.test]", err);
@@ -351,11 +351,11 @@ describe('Auto-Failover Multi-Conta via Rapid Switch Suite (FASE 20)', () => {
       db.prepare("UPDATE account_profiles SET auth_status = 'READY', quota_resets_at = NULL, quota_message = NULL").run();
       AccountProfileManager.setVerifyProbeOverrideForTest(null);
       try { fs.rmSync(testDir, { recursive: true, force: true }); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "accountAutoFailoverRapidSwitch.test",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:accountAutoFailoverRapidSwitch.test]", err);

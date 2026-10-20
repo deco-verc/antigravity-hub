@@ -119,11 +119,11 @@ try {
   db.exec('PRAGMA busy_timeout = 10000;');
   db.exec('PRAGMA synchronous = NORMAL;');
 } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "db",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:db]", err);
@@ -1091,11 +1091,11 @@ export function initDatabase() {
     try {
       db.exec(`ALTER TABLE evaluation_results ADD COLUMN ${col} ${colType};`);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "db",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:db]", err);
@@ -1113,11 +1113,11 @@ export function initDatabase() {
     try {
       db.exec(`ALTER TABLE projects ADD COLUMN ${col} ${colType};`);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "db",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:db]", err);
@@ -1137,11 +1137,11 @@ export function initDatabase() {
     try {
       db.exec(`ALTER TABLE autonomous_runs ADD COLUMN ${col} ${colType};`);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "db",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:db]", err);
@@ -1158,11 +1158,11 @@ export function initDatabase() {
     try {
       db.exec(`ALTER TABLE autonomous_major_tasks ADD COLUMN ${col} ${colType};`);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "db",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:db]", err);
@@ -1202,11 +1202,11 @@ export function initDatabase() {
     try {
       db.exec(`ALTER TABLE autonomous_tasks ADD COLUMN ${col} ${colType};`);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "db",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:db]", err);
@@ -1223,11 +1223,11 @@ export function initDatabase() {
     try {
       db.exec(`ALTER TABLE conversations ADD COLUMN ${col} ${colType};`);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "db",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:db]", err);
@@ -1244,11 +1244,11 @@ export function initDatabase() {
     try {
       db.exec(`ALTER TABLE workers ADD COLUMN ${col} ${colType};`);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "db",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:db]", err);
@@ -1260,11 +1260,11 @@ export function initDatabase() {
   try {
     db.exec(`ALTER TABLE projects ADD COLUMN active_account_profile_id TEXT;`);
   } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "db",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:db]", err);
@@ -1273,11 +1273,11 @@ export function initDatabase() {
   try {
     db.exec(`ALTER TABLE projects ADD COLUMN selected_model TEXT DEFAULT 'auto';`);
   } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "db",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:db]", err);
@@ -1286,11 +1286,11 @@ export function initDatabase() {
   try {
     db.exec(`ALTER TABLE projects ADD COLUMN reasoning_level TEXT DEFAULT 'HIGH';`);
   } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "db",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:db]", err);
@@ -1346,11 +1346,11 @@ export function initDatabase() {
     try {
       db.exec(`ALTER TABLE projects ADD COLUMN ${col} ${colType};`);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "db",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:db]", err);
@@ -1393,11 +1393,11 @@ export function initDatabase() {
     try {
       db.exec(`ALTER TABLE autonomous_tasks ADD COLUMN ${col} ${colType};`);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "db",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:db]", err);
@@ -1409,11 +1409,11 @@ export function initDatabase() {
   try {
     db.exec(`ALTER TABLE benchmark_runs ADD COLUMN benchmark_level TEXT DEFAULT 'FAST';`);
   } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "db",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:db]", err);
@@ -1433,11 +1433,11 @@ export function initDatabase() {
     try {
       db.exec(`ALTER TABLE benchmark_task_results ADD COLUMN ${col} ${colType};`);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "db",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:db]", err);
@@ -1466,11 +1466,11 @@ export function initDatabase() {
     try {
       db.exec(`ALTER TABLE self_improvement_experiments ADD COLUMN ${col} ${colType};`);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "db",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:db]", err);
@@ -1486,11 +1486,11 @@ export function initDatabase() {
     try {
       db.exec(`ALTER TABLE account_profiles ADD COLUMN ${col} ${colType};`);
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "db",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:db]", err);
@@ -1499,11 +1499,11 @@ export function initDatabase() {
   }
 
   try { db.exec("ALTER TABLE model_preferences ADD COLUMN intelligence_level TEXT NOT NULL DEFAULT 'HIGH';"); } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "db",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:db]", err);
@@ -1665,11 +1665,11 @@ export function ensureDefensiveMigrations(targetDb: any = db): void {
         targetDb.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${colType};`);
       }
     } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "db",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:db]", err);
@@ -1698,11 +1698,11 @@ export function ensureDefensiveMigrations(targetDb: any = db): void {
         ON meta_chat_messages(thread_id, created_at ASC);
     `);
   } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "db",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:db]", err);
@@ -1721,11 +1721,11 @@ export function ensureDefensiveMigrations(targetDb: any = db): void {
       targetDb.prepare("UPDATE meta_chat_messages SET thread_id = 'thread-default' WHERE thread_id IS NULL OR thread_id = ''").run();
     }
   } catch (err) {
-      if (typeof logger !== "undefined" && logger.warn) {
-        logger.warn({
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
           event: "server.handled_exception",
           file: "db",
-          error: err?.message || String(err)
+          error: (err as any)?.message || String(err)
         });
       } else {
         console.warn("[WARN][server:db]", err);
