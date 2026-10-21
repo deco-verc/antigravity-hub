@@ -7,6 +7,7 @@ import {
   HomologationEvidenceData
 } from '../types';
 import { api } from '../services/api';
+import { createProjectSseClient } from '../services/sseClient';
 import { DecoHubCurrentActivityWidget } from './DecoHubCurrentActivityWidget';
 import { resolveRunProgressPct } from '../services/progressUtils';
 import {
@@ -148,15 +149,52 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
 
   useEffect(() => {
     fetchActiveRun();
-    const intervalMs = activeRun && ['running', 'building', 'reviewing', 'planning', 'waiting_for_worker'].includes(activeRun.status)
-      ? 3000
-      : 7000;
 
-    const timer = setInterval(() => {
-      fetchActiveRun();
-    }, intervalMs);
-    return () => clearInterval(timer);
-  }, [project.id, activeRun?.status, agentStatus]);
+    const sseClient = createProjectSseClient(project.id);
+
+    sseClient.on('message', async (data) => {
+      if (currentProjectRef.current !== project.id) return;
+      if (onRefreshMessages) {
+        await onRefreshMessages();
+      }
+      if (data.autonomousRun) {
+        setActiveRun(data.autonomousRun);
+      }
+      setIsSubmitting(false);
+    });
+
+    sseClient.on('activity', (data) => {
+      if (currentProjectRef.current !== project.id) return;
+      if (data.run) {
+        setActiveRun(data.run);
+      } else if (data.status) {
+        setActiveRun(prev => prev ? { ...prev, status: data.status, next_action: data.message || prev.next_action } : prev);
+      }
+    });
+
+    sseClient.on('tool_call', () => {
+      if (currentProjectRef.current !== project.id) return;
+      fetchEvidence();
+    });
+
+    sseClient.on('done', async () => {
+      if (currentProjectRef.current !== project.id) return;
+      setIsSubmitting(false);
+      await fetchActiveRun();
+      if (onRefreshMessages) {
+        await onRefreshMessages();
+      }
+    });
+
+    sseClient.on('error', () => {
+      if (currentProjectRef.current !== project.id) return;
+      setIsSubmitting(false);
+    });
+
+    return () => {
+      sseClient.close();
+    };
+  }, [project.id]);
 
   // Handle scroll detection for smart scrolling
   const handleScroll = () => {
@@ -224,25 +262,45 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
   };
 
   const handleCancelInFlight = async () => {
+    // 1. Abort controller immediately
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
     const savedPrompt = pendingRequestRef.current?.content || inputText;
+    const reqProjectId = pendingRequestRef.current?.projectId || project.id;
     try {
-      await api.cancelProjectMessage(project.id);
+      localStorage.removeItem('decohub.pendingSubmission:' + reqProjectId);
+    } catch {}
+    pendingRequestRef.current = null;
+
+    // 2. 0ms Immediate UI unlock: restore prompt and set submitting false before any await
+    setIsSubmitting(false);
+    submissionRef.current = false;
+    if (savedPrompt) {
+      setInputText(savedPrompt);
+    }
+    setTimeout(() => textareaRef.current?.focus(), 50);
+
+    // 3. Notify backend and stop agent asynchronously in background
+    try {
+      const cancelPromise = api.cancelProjectMessage(project.id);
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), 3000));
+      await Promise.race([cancelPromise, timeoutPromise]);
     } catch (err) {
-      console.warn('Erro ao cancelar mensagem no servidor:', err);
-    } finally {
-      setIsSubmitting(false);
-      submissionRef.current = false;
-      if (savedPrompt) {
-        setInputText(savedPrompt);
-      }
+      console.warn('Erro ou timeout ao cancelar mensagem no servidor:', err);
+    }
+
+    if (onStopAgent) {
+      try {
+        await onStopAgent();
+      } catch {}
+    }
+
+    try {
       await onRefreshMessages?.();
       await fetchActiveRun();
-      setTimeout(() => textareaRef.current?.focus(), 100);
-    }
+    } catch {}
   };
 
   const handleCancelQueuedMessage = async (messageId: string) => {
@@ -319,6 +377,50 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
       setActiveRun(updated);
     } catch (err: any) {
       alert(`Falha ao resolver aprovação: ${err.message}`);
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
+  const handleStartNewPlan = async () => {
+    if (isActionLoading) return;
+    setIsActionLoading(true);
+    try {
+      const text = inputText.trim();
+      if (text) {
+        setInputText('');
+        await api.sendMessage(project.id, text, crypto.randomUUID(), { forceNew: true });
+      } else {
+        const objective = activeRun?.objective || `Novo Plano de Desenvolvimento para ${project.name}`;
+        const newRun = await api.createAutonomousRun({
+          projectId: project.id,
+          name: `Novo Plano #${new Date().toLocaleTimeString('pt-BR')}`,
+          objective,
+          briefing: objective,
+          forceNew: true,
+          autonomyMode: 'autonomous'
+        });
+        setActiveRun(newRun);
+      }
+      await fetchActiveRun();
+      await onRefreshMessages?.();
+    } catch (err: any) {
+      alert(`Falha ao iniciar novo plano: ${err.message}`);
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
+  const handleRetryRun = async () => {
+    if (!activeRun || isActionLoading) return;
+    setIsActionLoading(true);
+    try {
+      const updated = await api.resumeAutonomousRun(activeRun.id);
+      setActiveRun(updated);
+      await fetchActiveRun();
+      await onRefreshMessages?.();
+    } catch (err: any) {
+      alert(`Falha ao tentar novamente: ${err.message}`);
     } finally {
       setIsActionLoading(false);
     }
@@ -421,6 +523,33 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
             <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-medium">
               <span className="w-2 h-2 rounded-full bg-emerald-400" />
               <span>Pronto</span>
+            </div>
+          )}
+
+          {(isRunBlocked || isRunError) && (
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleRetryRun}
+                disabled={isActionLoading}
+                aria-label="Tentar novamente a execução"
+                className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 text-xs font-medium transition-colors disabled:opacity-50"
+                title="Tentar retomar a execução do plano atual"
+              >
+                <RotateCw className={`w-3.5 h-3.5 ${isActionLoading ? 'animate-spin' : ''}`} />
+                <span>Tentar Novamente</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleStartNewPlan}
+                disabled={isActionLoading}
+                aria-label="Iniciar novo plano"
+                className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-sm transition-colors disabled:opacity-50"
+                title="Iniciar um novo plano autônomo com forceNew"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Iniciar Novo Plano</span>
+              </button>
             </div>
           )}
 

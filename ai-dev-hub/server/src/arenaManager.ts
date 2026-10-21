@@ -8,6 +8,7 @@ import { WorkerRegistry, Worker } from './workerRegistry.js';
 import { AccountProfileManager } from './accountProfileManager.js';
 import { IndependentEvaluator, SuccessContract, EvaluationResult } from './independentEvaluator.js';
 import { CouncilManager } from './councilManager.js';
+import { EphemeralWorktreeService } from './ephemeralWorktreeService.js';
 
 export interface ArenaActivityEvent {
   time: string;
@@ -368,56 +369,13 @@ export class ArenaManager {
    * Provisions isolated workspace using git worktree (fallback to clean directory copy if needed)
    */
   private static provisionWorkspace(projectPath: string, workspacePath: string, branchName: string, baselineCommit: string): void {
-    // If worktree already exists, remove it cleanly first
-    if (fs.existsSync(workspacePath)) {
-      try {
-        execSync(`git worktree remove "${workspacePath}" --force`, { cwd: projectPath, stdio: 'pipe' });
-      } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "arenaManager",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:arenaManager]", err);
-      }
-    }
-      try {
-        fs.rmSync(workspacePath, { recursive: true, force: true });
-      } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "arenaManager",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:arenaManager]", err);
-      }
-    }
-    }
-
-    // Try git worktree add
     let worktreeOk = false;
     try {
-      execSync(`git branch -D "${branchName}"`, { cwd: projectPath, stdio: 'pipe' });
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "arenaManager",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:arenaManager]", err);
-      }
-    }
-
-    try {
-      execSync(`git worktree add -b "${branchName}" "${workspacePath}" ${baselineCommit}`, {
-        cwd: projectPath,
-        stdio: 'pipe'
+      EphemeralWorktreeService.createEphemeralWorktree({
+        baseRepo: projectPath,
+        targetDir: workspacePath,
+        branchName,
+        baseCommit: baselineCommit
       });
       worktreeOk = true;
     } catch (err: any) {
@@ -440,16 +398,16 @@ export class ArenaManager {
           const destFile = path.join(destTestDir, tf);
           if (fs.statSync(srcFile).isFile() && !fs.existsSync(destFile)) {
             try { fs.copyFileSync(srcFile, destFile); } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "arenaManager",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:arenaManager]", err);
-      }
-    }
+              if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+                (globalThis as any).logger.warn({
+                  event: "server.handled_exception",
+                  file: "arenaManager",
+                  error: (err as any)?.message || String(err)
+                });
+              } else {
+                console.warn("[WARN][server:arenaManager]", err);
+              }
+            }
           }
         }
       }
@@ -861,6 +819,16 @@ export class ArenaManager {
     db.prepare("UPDATE arena_candidates SET status = 'DISCARDED' WHERE arena_run_id = ? AND id != ?").run(arenaRunId, winner.id);
     db.prepare("UPDATE arena_runs SET status = 'COMPLETED', completed_at = ? WHERE id = ?").run(nowIso, arenaRunId);
 
+    // Clean up discarded candidates' ephemeral worktrees safely
+    const discardedCandidates = this.getArenaCandidates(arenaRunId).filter(c => c.id !== winner.id);
+    for (const dc of discardedCandidates) {
+      try {
+        EphemeralWorktreeService.removeWorktree(dc.workspace, { baseRepo: projectPath, deleteBranch: true });
+      } catch (err: any) {
+        Logger.warn(`[AI DEV ARENA] Falha não bloqueante ao remover worktree de candidato descartado (${dc.candidateLabel}): ${err.message}`);
+      }
+    }
+
     this.logActivity(arenaRunId, `🎉 AI DEV ARENA CONCLUÍDA: ${winner.candidateLabel} PROMOVIDO COM SUCESSO!`, 'winner');
 
     return {
@@ -1060,5 +1028,14 @@ export class ArenaManager {
 
     db.prepare("UPDATE arena_runs SET status = 'CANCELLED' WHERE id = ?").run(arenaRunId);
     this.logActivity(arenaRunId, 'Arena cancelada pelo usuário.', 'error');
+
+    // Clean up all candidates' worktrees safely
+    const project: any = db.prepare('SELECT * FROM projects WHERE id = ?').get(run.projectId);
+    const candidates = this.getArenaCandidates(arenaRunId);
+    for (const c of candidates) {
+      try {
+        EphemeralWorktreeService.removeWorktree(c.workspace, { baseRepo: project?.path, deleteBranch: true });
+      } catch {}
+    }
   }
 }

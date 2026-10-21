@@ -3,6 +3,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { Logger } from './logger.js';
 import { AgentSessionManager, AgentSessionRecord } from './agentSessionManager.js';
 import { AgentApiGateway } from './agentApiGateway.js';
@@ -30,6 +31,31 @@ export interface ConversationalResponse {
 
 export class AntigravityConversationalService {
   private static appDataBrainDir: string = AntigravityDiscovery.getBrainDir();
+
+  private static resolveBrainPaths(conversationId: string, env?: NodeJS.ProcessEnv): { transcriptPath: string; transcriptFullPath: string } {
+    const candidateDirs: string[] = [];
+    if (env?.USERPROFILE) {
+      candidateDirs.push(path.join(env.USERPROFILE, '.gemini', 'antigravity', 'brain', conversationId, '.system_generated', 'logs'));
+    }
+    candidateDirs.push(path.join(AntigravityDiscovery.getBrainDir(), conversationId, '.system_generated', 'logs'));
+    candidateDirs.push(path.join(os.homedir(), '.gemini', 'antigravity', 'brain', conversationId, '.system_generated', 'logs'));
+
+    for (const dir of candidateDirs) {
+      const tPath = path.join(dir, 'transcript.jsonl');
+      if (fs.existsSync(tPath)) {
+        return {
+          transcriptPath: tPath,
+          transcriptFullPath: path.join(dir, 'transcript_full.jsonl')
+        };
+      }
+    }
+
+    const fallbackDir = candidateDirs[0] || path.join(AntigravityDiscovery.getBrainDir(), conversationId, '.system_generated', 'logs');
+    return {
+      transcriptPath: path.join(fallbackDir, 'transcript.jsonl'),
+      transcriptFullPath: path.join(fallbackDir, 'transcript_full.jsonl')
+    };
+  }
 
   /**
    * Main entry point to process conversational and diagnostic messages with the Antigravity Agent
@@ -172,7 +198,7 @@ export class AntigravityConversationalService {
     let liveWarning: string | null = null;
     if (session && providerConvId) {
       try {
-        const transcriptPath = path.join(this.appDataBrainDir, providerConvId, '.system_generated', 'logs', 'transcript.jsonl');
+        const { transcriptPath, transcriptFullPath } = this.resolveBrainPaths(providerConvId, effectiveEnv);
         let minStepIndex = -1;
         if (fs.existsSync(transcriptPath)) {
           try {
@@ -205,7 +231,7 @@ export class AntigravityConversationalService {
         });
 
         // Wait for live response in transcript
-        const liveReply = await this.waitForTranscriptResponse(providerConvId, minStepIndex, timeoutMs);
+        const liveReply = await this.waitForTranscriptResponse(providerConvId, minStepIndex, timeoutMs, effectiveEnv);
         if (liveReply && liveReply.trim().length > 0) {
           return {
             replyContent: liveReply.trim(),
@@ -359,10 +385,10 @@ export class AntigravityConversationalService {
   private static async waitForTranscriptResponse(
     conversationId: string,
     minStepIndex: number,
-    timeoutMs: number
+    timeoutMs: number,
+    env?: NodeJS.ProcessEnv
   ): Promise<string | null> {
-    const transcriptPath = path.join(this.appDataBrainDir, conversationId, '.system_generated', 'logs', 'transcript.jsonl');
-    const transcriptFullPath = path.join(this.appDataBrainDir, conversationId, '.system_generated', 'logs', 'transcript_full.jsonl');
+    const { transcriptPath, transcriptFullPath } = this.resolveBrainPaths(conversationId, env);
     const start = Date.now();
 
     while (Date.now() - start < timeoutMs) {
@@ -380,7 +406,11 @@ export class AntigravityConversationalService {
               if (entry.status === 'ERROR' || entry.type === 'ERROR_MESSAGE') {
                 throw new Error(`Antigravity conversation reported error: ${entry.content || 'Status ERROR'}`);
               }
-              if (entry.type === 'PLANNER_RESPONSE' && entry.status === 'DONE' && entry.content && !(entry.tool_calls?.length > 0)) {
+              const isDonePlanner = entry.type === 'PLANNER_RESPONSE' && entry.status === 'DONE' && entry.content && !(entry.tool_calls?.length > 0);
+              const isAssistantResponse = (entry.type === 'ASSISTANT_RESPONSE' || entry.type === 'MODEL_TURN' || entry.type === 'MESSAGE' || entry.role === 'assistant') && entry.content && !(entry.tool_calls?.length > 0);
+              const isModelSource = entry.source === 'MODEL' && entry.content && !(entry.tool_calls?.length > 0);
+
+              if (isDonePlanner || isAssistantResponse || isModelSource) {
                 // If content was truncated in compact transcript, read full content
                 if (Array.isArray(entry.truncated_fields) && entry.truncated_fields.includes('content') && fs.existsSync(transcriptFullPath)) {
                   try {

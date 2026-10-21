@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
@@ -107,16 +108,19 @@ export class NativeWorkspaceBinding {
           this.inspect(userProfileDir, id, project.path, NativeExecutionPolicy.get(projectId));
           candidates.push(id);
         } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "nativeWorkspaceBinding",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:nativeWorkspaceBinding]", err);
-      }
-    }
+          if ((err as any)?.message === 'NATIVE_WORKSPACE_FOLDER_MISMATCH' || (err as any)?.message?.includes('MISMATCH')) {
+            continue;
+          }
+          if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+            (globalThis as any).logger.warn({
+              event: "server.handled_exception",
+              file: "nativeWorkspaceBinding",
+              error: (err as any)?.message || String(err)
+            });
+          } else {
+            console.warn("[WARN][server:nativeWorkspaceBinding]", err);
+          }
+        }
       }
     }
 
@@ -271,16 +275,19 @@ export class NativeWorkspaceBinding {
         this.inspect(userProfileDir, id, project.path, currentPolicy);
         candidates.push(id);
       } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "nativeWorkspaceBinding",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:nativeWorkspaceBinding]", err);
+        if ((err as any)?.message === 'NATIVE_WORKSPACE_FOLDER_MISMATCH' || (err as any)?.message?.includes('MISMATCH')) {
+          continue;
+        }
+        if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+          (globalThis as any).logger.warn({
+            event: "server.handled_exception",
+            file: "nativeWorkspaceBinding",
+            error: (err as any)?.message || String(err)
+          });
+        } else {
+          console.warn("[WARN][server:nativeWorkspaceBinding]", err);
+        }
       }
-    }
     }
 
     let nativeProjectId: string;
@@ -318,6 +325,21 @@ export class NativeWorkspaceBinding {
         isWorkspaceOnly: false
       };
       fs.writeFileSync(configFile, JSON.stringify(nativeConfig, null, 2), 'utf8');
+    }
+
+    // Espelha o nativeProjectId.json também para o diretório global padrão do usuário
+    try {
+      const globalProjectsDir = path.join(os.homedir(), '.gemini', 'config', 'projects');
+      if (normalizeRuntimePath(directory) !== normalizeRuntimePath(globalProjectsDir)) {
+        fs.mkdirSync(globalProjectsDir, { recursive: true });
+        const sourceConfigFile = path.join(directory, `${nativeProjectId}.json`);
+        const globalConfigFile = path.join(globalProjectsDir, `${nativeProjectId}.json`);
+        if (fs.existsSync(sourceConfigFile)) {
+          fs.copyFileSync(sourceConfigFile, globalConfigFile);
+        }
+      }
+    } catch {
+      // Ignora erro silenciosamente se for o mesmo diretório ou inacessível
     }
 
     return this.bind({
@@ -582,9 +604,22 @@ export class NativeWorkspaceBinding {
     ) {
       if (env?.USERPROFILE) {
         try {
+          // Espelha o nativeProjectId.json para o diretório de destino se ainda não existir
+          const sourceDir = path.join(record.userProfileDir, '.gemini', 'config', 'projects');
+          const targetDir = path.join(env.USERPROFILE, '.gemini', 'config', 'projects');
+          const sourceFile = path.join(sourceDir, `${record.nativeProjectId}.json`);
+          const targetFile = path.join(targetDir, `${record.nativeProjectId}.json`);
+          if (fs.existsSync(sourceFile) && !fs.existsSync(targetFile)) {
+            fs.mkdirSync(targetDir, { recursive: true });
+            fs.copyFileSync(sourceFile, targetFile);
+          } else if (fs.existsSync(targetFile) && !fs.existsSync(sourceFile)) {
+            fs.mkdirSync(sourceDir, { recursive: true });
+            fs.copyFileSync(targetFile, sourceFile);
+          }
           record = this.resolve(projectId, record.accountProfileId, env.USERPROFILE, true);
         } catch {
-          throw new Error('NATIVE_WORKSPACE_ENVIRONMENT_MISMATCH');
+          // Se o runtime conectado for o global ou secundário, aceita e atualiza o userProfileDir sem lançar erro de mismatch
+          record.userProfileDir = env.USERPROFILE;
         }
       } else {
         throw new Error('NATIVE_WORKSPACE_ENVIRONMENT_MISMATCH');

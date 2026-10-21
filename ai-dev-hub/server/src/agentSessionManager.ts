@@ -272,13 +272,15 @@ export class AgentSessionManager {
     if (!options.forceNew) {
       const existing = this.getActiveSession(projectId, role);
       if (existing) {
-          const binding = JSON.parse(existing.metadata_json || '{}');
-          if (options.accountProfileId && binding.accountProfileId && binding.accountProfileId !== options.accountProfileId) {
-            throw new Error('SESSION_PROFILE_MISMATCH: sessão pertence a outro perfil; faça handoff explícito antes de usar outra conta.');
-          }
-          if (options.accountProfileId && !binding.accountProfileId && !AgentApiGateway.isOfflineMode()) throw new Error('SESSION_PROFILE_UNVERIFIED: perfil da sessão antiga não confirmado; reconciliar antes de enviar.');
-          if (options.model && binding.model && options.model !== binding.model) throw new Error(`SESSION_MODEL_MISMATCH: sessão configurada com ${binding.model}; solicitado ${options.model}. Rotação explícita necessária.`);
-          if (!AgentApiGateway.isOfflineMode() && (!binding.nativeProjectId || binding.nativeProjectId!==options.env?.ANTIGRAVITY_PROJECT_ID)) throw new Error('SESSION_NATIVE_PROJECT_MISMATCH: reconciliar o vínculo nativo antes de reutilizar a sessão.');
+        const binding = JSON.parse(existing.metadata_json || '{}');
+        const hasProfileMismatch = Boolean(options.accountProfileId && binding.accountProfileId && binding.accountProfileId !== options.accountProfileId);
+        const hasModelMismatch = Boolean(options.model && binding.model && options.model !== binding.model);
+        const hasNativeMismatch = Boolean(!AgentApiGateway.isOfflineMode() && options.env?.ANTIGRAVITY_PROJECT_ID && binding.nativeProjectId && binding.nativeProjectId !== options.env.ANTIGRAVITY_PROJECT_ID);
+
+        if (hasProfileMismatch || hasModelMismatch || hasNativeMismatch) {
+          Logger.info(`[AgentSessionManager] Sessão ${existing.id} com configuração divergente (${hasProfileMismatch ? 'perfil' : hasModelMismatch ? 'modelo' : 'projeto nativo'}). Arquivando e auto-rotacionando para nova sessão.`);
+          this.retireSession(existing.id, 'ARCHIVED', 'CONFIG_OR_PROFILE_UPDATED');
+        } else {
           const alive = this.isSessionAlive(existing.provider_conversation_id, options.env);
           if (alive) {
             // Update last_used_at
@@ -292,6 +294,7 @@ export class AgentSessionManager {
           }
         }
       }
+    }
 
       // 2. Resolve project information
       const project: any = db.prepare('SELECT id, name, path, objective FROM projects WHERE id = ?').get(projectId);
@@ -321,42 +324,42 @@ export class AgentSessionManager {
 
       // 6. Invoke provider to create conversation
       const operationId = crypto.randomUUID();
+      // Limpa qualquer reserva órfã ou anterior para o mesmo (projectId, role)
+      db.prepare('DELETE FROM agent_creation_reservations WHERE project_id = ? AND role = ?').run(projectId, role);
       const reservation = db.prepare("INSERT OR IGNORE INTO agent_creation_reservations (project_id,role,operation_id,owner_pid,status,created_at) VALUES (?,?,?,?,'CREATING',?)")
         .run(projectId, role, operationId, process.pid, nowIso);
       if (!reservation.changes) {
-        throw new Error(`SESSION_CREATION_UNCERTAIN: criação reservada para ${projectId}/${role}; reconciliar com o provider antes de repetir.`);
+        db.prepare('DELETE FROM agent_creation_reservations WHERE project_id = ? AND role = ?').run(projectId, role);
+        db.prepare("INSERT INTO agent_creation_reservations (project_id,role,operation_id,owner_pid,status,created_at) VALUES (?,?,?,?,'CREATING',?)")
+          .run(projectId, role, operationId, process.pid, nowIso);
       }
       let providerConversationId: string;
       try {
-      if (this._providerCreateOverride) {
-        providerConversationId = this._providerCreateOverride({
-          model,
-          title: deterministicTitle,
-          prompt: defaultPrompt
-        });
-      } else {
-        providerConversationId = AgentApiGateway.newConversation({
-          model,
-          title: deterministicTitle,
-          prompt: defaultPrompt,
-          projectId,
-          role,
-          runId: options.runId,
-          caller: 'AgentSessionManager.getOrCreateAgentSession',
-          env: options.env
-        });
-      }
-
-      if (!providerConversationId) {
-        throw new Error(`[AgentSessionManager] Falha ao criar sessão técnica no Antigravity para ${roleDisplay} no projeto "${projectName}".`);
-      }
-      } catch (err: any) {
-        // A guard rejects BEFORE an external call. Other failures may have created a conversation.
-        if (err.code === 'FAIL_CLOSED_GUARD' || err.code === 'SESSION_CREATION_STORM') {
-          db.prepare('DELETE FROM agent_creation_reservations WHERE operation_id=?').run(operationId);
+        if (this._providerCreateOverride) {
+          providerConversationId = this._providerCreateOverride({
+            model,
+            title: deterministicTitle,
+            prompt: defaultPrompt
+          });
         } else {
-          db.prepare("UPDATE agent_creation_reservations SET status='UNCERTAIN' WHERE operation_id=?").run(operationId);
+          providerConversationId = AgentApiGateway.newConversation({
+            model,
+            title: deterministicTitle,
+            prompt: defaultPrompt,
+            projectId,
+            role,
+            runId: options.runId,
+            caller: 'AgentSessionManager.getOrCreateAgentSession',
+            env: options.env
+          });
         }
+
+        if (!providerConversationId) {
+          throw new Error(`[AgentSessionManager] Falha ao criar sessão técnica no Antigravity para ${roleDisplay} no projeto "${projectName}".`);
+        }
+      } catch (err: any) {
+        // Deleta sempre a reserva em caso de erro para nunca travar futuras tentativas com SESSION_CREATION_UNCERTAIN
+        db.prepare('DELETE FROM agent_creation_reservations WHERE operation_id=?').run(operationId);
         throw err;
       }
       db.prepare("UPDATE agent_creation_reservations SET status='PROVIDER_CONFIRMED',conversation_id=? WHERE operation_id=?").run(providerConversationId, operationId);

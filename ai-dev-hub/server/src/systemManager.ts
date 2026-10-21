@@ -40,6 +40,14 @@ export interface DiagnosticCheck {
 }
 
 export class SystemManager {
+  private static cachedToolVersions: {
+    node: string;
+    npm: string;
+    python: string;
+    git: string;
+    expiresAt: number;
+  } | null = null;
+
   static getHubDataDir(): string {
     return resolveHubDataDir();
   }
@@ -49,56 +57,72 @@ export class SystemManager {
   }
 
   static getHealth(): SystemHealthData {
-    // 1. Tool versions
+    const now = Date.now();
     let nodeVer = process.version;
     let npmVer = 'Não detectado';
     let pythonVer = 'Não detectado';
     let gitVer = 'Não detectado';
 
-    try {
-      npmVer = execSync('npm.cmd -v', { encoding: 'utf-8', timeout: 3000 }).trim();
-    } catch {
+    // 1. Tool versions com cache de 5 minutos (elimina execSync síncrono no polling de 10s)
+    if (this.cachedToolVersions && this.cachedToolVersions.expiresAt > now) {
+      nodeVer = this.cachedToolVersions.node;
+      npmVer = this.cachedToolVersions.npm;
+      pythonVer = this.cachedToolVersions.python;
+      gitVer = this.cachedToolVersions.git;
+    } else {
       try {
-        npmVer = execSync('npm -v', { encoding: 'utf-8', timeout: 3000 }).trim();
+        npmVer = execSync('npm.cmd -v', { encoding: 'utf-8', timeout: 3000 }).trim();
+      } catch {
+        try {
+          npmVer = execSync('npm -v', { encoding: 'utf-8', timeout: 3000 }).trim();
+        } catch (err) {
+          if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+            (globalThis as any).logger.warn({
+              event: "server.handled_exception",
+              file: "systemManager",
+              error: (err as any)?.message || String(err)
+            });
+          } else {
+            console.warn("[WARN][server:systemManager]", err);
+          }
+        }
+      }
+
+      try {
+        pythonVer = execSync('python --version', { encoding: 'utf-8', timeout: 3000 }).trim();
       } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "systemManager",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:systemManager]", err);
+        if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+          (globalThis as any).logger.warn({
+            event: "server.handled_exception",
+            file: "systemManager",
+            error: (err as any)?.message || String(err)
+          });
+        } else {
+          console.warn("[WARN][server:systemManager]", err);
+        }
       }
-    }
-    }
 
-    try {
-      pythonVer = execSync('python --version', { encoding: 'utf-8', timeout: 3000 }).trim();
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "systemManager",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:systemManager]", err);
+      try {
+        gitVer = execSync('git --version', { encoding: 'utf-8', timeout: 3000 }).trim();
+      } catch (err) {
+        if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+          (globalThis as any).logger.warn({
+            event: "server.handled_exception",
+            file: "systemManager",
+            error: (err as any)?.message || String(err)
+          });
+        } else {
+          console.warn("[WARN][server:systemManager]", err);
+        }
       }
-    }
 
-    try {
-      gitVer = execSync('git --version', { encoding: 'utf-8', timeout: 3000 }).trim();
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "systemManager",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:systemManager]", err);
-      }
+      this.cachedToolVersions = {
+        node: nodeVer,
+        npm: npmVer,
+        python: pythonVer,
+        git: gitVer,
+        expiresAt: now + (5 * 60 * 1000)
+      };
     }
 
     // 2. DB Info

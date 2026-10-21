@@ -10,6 +10,7 @@ import {
   ModelOption
 } from '../types';
 import { api } from '../services/api';
+import { createMetaChatSseClient } from '../services/sseClient';
 import {
   Sparkles,
   Send,
@@ -386,44 +387,82 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
   }, [isLoading]);
 
   useEffect(() => {
-    let interval: any = null;
-    if (isLoading) {
-      interval = setInterval(async () => {
-        try {
-          const [act, st, msgs, ths] = await Promise.all([
-            api.getMetaChatLiveActivity(activeThreadId).catch(() => null),
-            api.getMetaChatStatus().catch(() => null),
-            api.getMetaChatMessages(activeThreadId).catch(() => null),
-            api.getMetaChatThreads().catch(() => null)
-          ]);
-          if (act) {
-            setLiveActivity(act);
-          }
-          if (st) {
-            setLiveStatus(st);
-            if (!st.isRunning && msgs && msgs.length > 0) {
-              const lastMsg = msgs[msgs.length - 1];
-              if (lastMsg && lastMsg.role === 'assistant') {
-                setMessages(msgs);
-                setIsLoading(false);
-              }
-            }
-          }
-          if (msgs && msgs.length > messages.length) {
-            setMessages(msgs);
-          }
-          if (ths) {
-            setThreads(ths);
-          }
-        } catch {}
-      }, 1200);
-    } else {
-      setLiveStatus(null);
-    }
+    const sseClient = createMetaChatSseClient();
+
+    sseClient.on('activity', (data: any) => {
+      if (data.telemetry) {
+        setLiveActivity(data.telemetry);
+      } else if (data.pipelineTasks || data.liveSteps || data.currentActionSummary) {
+        setLiveActivity(data);
+      }
+      if (data.status) {
+        setLiveStatus(prev => ({
+          ...(prev || { isRunning: true, phase: 'idle', currentPhase: 'idle' }),
+          isRunning: data.status !== 'completed' && data.status !== 'error',
+          phase: data.message || data.status,
+          currentPhase: data.message || data.status
+        }));
+      }
+    });
+
+    sseClient.on('tool_call', (data: any) => {
+      setLiveActivity(prev => {
+        if (!prev) return prev;
+        const toolStr = String(data.tool || '').toLowerCase();
+        const stepType: 'READ' | 'SEARCH' | 'EDIT' | 'COMMAND' | 'GUARD' =
+          toolStr.includes('read') ? 'READ' :
+          toolStr.includes('search') || toolStr.includes('find') ? 'SEARCH' :
+          toolStr.includes('write') || toolStr.includes('edit') ? 'EDIT' :
+          toolStr.includes('guard') ? 'GUARD' : 'COMMAND';
+
+        const step: MetaChatLiveStep = {
+          id: `step-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          type: stepType,
+          target: data.tool || 'ferramenta',
+          status: 'running',
+          details: `Executando: ${data.tool || 'operação'}`,
+          timestamp: data.timestamp || new Date().toISOString()
+        };
+        return {
+          ...prev,
+          liveSteps: [...(prev.liveSteps || []), step]
+        };
+      });
+    });
+
+    sseClient.on('message', (data: any) => {
+      const msg = data.message || data.result?.message;
+      if (msg) {
+        setMessages(prev => {
+          const exists = prev.some(m => m.id === msg.id);
+          if (exists) return prev;
+          return [...prev, msg];
+        });
+      }
+      const tId = data.threadId || data.result?.threadId;
+      if (tId) {
+        loadThreads(tId);
+      }
+      setIsLoading(false);
+    });
+
+    sseClient.on('done', () => {
+      setIsLoading(false);
+      loadMessages(activeThreadId);
+      loadThreads(activeThreadId);
+    });
+
+    sseClient.on('error', (data: any) => {
+      setIsLoading(false);
+      if (data?.error) {
+        onShowToast?.('error', `Erro no Meta-Chat: ${data.error}`);
+      }
+    });
+
     return () => {
-      if (interval) clearInterval(interval);
+      sseClient.close();
     };
-  }, [isLoading, activeThreadId, messages.length]);
+  }, [activeThreadId]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -566,12 +605,18 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
         { signal: controller.signal }
       );
 
-      setMessages(prev => [...prev.filter(m => m.id !== tempUserMsg.id), tempUserMsg, res.message]);
+      setMessages(prev => {
+        const withoutTemp = prev.filter(m => m.id !== tempUserMsg.id);
+        return res.message ? [...withoutTemp, tempUserMsg, res.message] : [...withoutTemp, tempUserMsg];
+      });
       await loadThreads(activeThreadId);
+      if (res.message) {
+        setIsLoading(false);
+      }
 
       if (res.selfHealed) {
         onShowToast?.('warn', 'Autoproteção ativada: alteração desfeita devido a erro no Typecheck.');
-      } else if (res.filesChanged.length > 0) {
+      } else if (res.filesChanged && res.filesChanged.length > 0) {
         onShowToast?.('success', `${res.filesChanged.length} arquivo(s) modificado(s) com Typecheck validado!`);
       }
     } catch (err: any) {

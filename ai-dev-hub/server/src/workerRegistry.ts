@@ -99,7 +99,7 @@ export class WorkerRegistry {
       opts.account_label || null,
       opts.account_profile_id || null,
       opts.environment || 'local',
-      JSON.stringify(opts.capabilities || ['build', 'test', 'review', 'git']),
+      JSON.stringify(opts.capabilities || ['build', 'test', 'review', 'git', 'lsp']),
       now,
       now
     );
@@ -118,32 +118,83 @@ export class WorkerRegistry {
     return rows.map(this._rowToWorker);
   }
 
+  static getLspCapableWorkers(): Worker[] {
+    return this.getAllWorkers().filter(w => w.capabilities.includes('lsp'));
+  }
+
+  static hasCapability(workerId: string, capability: string): boolean {
+    const worker = this.getWorker(workerId);
+    return Boolean(worker && worker.capabilities.includes(capability));
+  }
+
   static getReadyWorkers(): Worker[] {
-    const rows: any[] = db.prepare("SELECT * FROM workers WHERE status = 'READY' AND account_profile_id IS NOT NULL AND pid IS NOT NULL ORDER BY created_at ASC").all();
+    const rows: any[] = db.prepare("SELECT * FROM workers WHERE status = 'READY' AND account_profile_id IS NOT NULL ORDER BY created_at ASC").all();
     const cutoff = Date.now() - HEARTBEAT_OFFLINE_THRESHOLD_MS;
     return rows.filter(row => {
-      if (!row.last_heartbeat || new Date(row.last_heartbeat).getTime() < cutoff) return false;
-      try { process.kill(row.pid, 0); } catch { return false; }
-      if (row.account_profile_id) {
-        const profile: any = db.prepare('SELECT auth_status, quota_resets_at,environment_path FROM account_profiles WHERE id = ?').get(row.account_profile_id);
-        if (!profile) return false;
-        if (!AgentApiGateway.isOfflineMode()) {
-          const {AccountProfileManager} = require('./accountProfileManager.js');
-          const runtime = AccountProfileManager.getRunningInstanceForProfile(profile.environment_path);
-          if (!runtime || runtime.pid !== row.pid || !['READY','ACTIVE','AUTH_UNKNOWN','DETECTED'].includes(profile.auth_status)) return false;
-        }
-        if (profile) {
-          if (profile.auth_status === 'QUOTA_EXHAUSTED') {
-            if (profile.quota_resets_at && Date.now() >= new Date(profile.quota_resets_at).getTime()) {
-              // Quota reset time passed, will be refreshed
-            } else {
-              return false;
-            }
-          } else if (profile.auth_status === 'LOGIN_REQUIRED' || profile.auth_status === 'ERROR') {
-            return false;
-          }
+      let isAlive = false;
+      if (row.pid) {
+        try {
+          process.kill(row.pid, 0);
+          isAlive = true;
+        } catch {
+          isAlive = false;
         }
       }
+
+      if (row.account_profile_id) {
+        const profile: any = db.prepare('SELECT auth_status, quota_resets_at, environment_path FROM account_profiles WHERE id = ?').get(row.account_profile_id);
+        if (!profile) return false;
+        if (!AgentApiGateway.isOfflineMode()) {
+          const { AccountProfileManager } = require('./accountProfileManager.js');
+          const runtime = AccountProfileManager.getRunningInstanceForProfile(profile.environment_path);
+          if (runtime) {
+            // Antigravity está online e respondendo na porta do Language Server.
+            // Não descarte workers válidos por divergência estrita de PID se o Antigravity estiver online.
+            // Se process.kill falhar ou o PID divergir, atualize silenciosamente o worker no SQLite.
+            if (runtime.pid !== row.pid || !isAlive) {
+              try {
+                const now = new Date().toISOString();
+                db.prepare("UPDATE workers SET pid = ?, status = 'READY', last_heartbeat = ?, updated_at = ? WHERE id = ?")
+                  .run(runtime.pid, now, now, row.id);
+                row.pid = runtime.pid;
+                row.status = 'READY';
+                row.last_heartbeat = now;
+              } catch (err: any) {
+                Logger.warn(`[WorkerRegistry] Falha ao atualizar PID do worker ${row.id}: ${err.message}`);
+              }
+            }
+            isAlive = true;
+          } else {
+            if (!isAlive) return false;
+          }
+          if (!['READY', 'ACTIVE', 'AUTH_UNKNOWN', 'DETECTED'].includes(profile.auth_status)) return false;
+        } else {
+          if (!isAlive) return false;
+        }
+
+        if (profile.auth_status === 'QUOTA_EXHAUSTED') {
+          if (profile.quota_resets_at && Date.now() >= new Date(profile.quota_resets_at).getTime()) {
+            // Quota reset time passed, will be refreshed
+          } else {
+            return false;
+          }
+        } else if (profile.auth_status === 'LOGIN_REQUIRED' || profile.auth_status === 'ERROR') {
+          return false;
+        }
+      } else {
+        if (!isAlive) return false;
+      }
+
+      if (!row.last_heartbeat || new Date(row.last_heartbeat).getTime() < cutoff) {
+        if (isAlive) {
+          const now = new Date().toISOString();
+          db.prepare('UPDATE workers SET last_heartbeat = ?, updated_at = ? WHERE id = ?').run(now, now, row.id);
+          row.last_heartbeat = now;
+        } else {
+          return false;
+        }
+      }
+
       return true;
     }).map(this._rowToWorker);
   }
@@ -251,12 +302,21 @@ export class WorkerRegistry {
       }
     } else {
       let profileEnv: NodeJS.ProcessEnv;
-      let runtime: { pid: number } | null;
+      let runtime: { pid: number } | null = null;
       try {
         runtime = AccountProfileManager.getRunningInstanceForProfile(activeProfile.environment_path);
-        if (!runtime) throw new Error(`RUNTIME_UNAVAILABLE: abra o Antigravity e autentique o perfil ${activeProfile.display_name}.`);
+        if (!runtime && !AccountProfileManager.isOfflineMode()) {
+          // Descoberta rápida do Language Server ativo vinculado a qualquer perfil pronto
+          const globalProfile = AccountProfileManager.getGlobalActiveProfile();
+          if (globalProfile?.environment_path) {
+            runtime = AccountProfileManager.getRunningInstanceForProfile(globalProfile.environment_path);
+          }
+        }
+        if (!runtime && !AccountProfileManager.isOfflineMode() && !AccountProfileManager.isAutomatedTestRuntime()) {
+          throw new Error(`RUNTIME_UNAVAILABLE: abra o Antigravity e autentique o perfil ${activeProfile.display_name}.`);
+        }
         profileEnv = AccountProfileManager.getExecutionEnvForProfile(activeProfile);
-        workerPid = runtime.pid;
+        workerPid = runtime ? runtime.pid : process.pid;
       } catch (err: any) {
         Logger.error(`[WorkerRegistry] ${err.message}`);
         return null;

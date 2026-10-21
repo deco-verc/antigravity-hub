@@ -71,6 +71,17 @@
 - [ ] Próximas fases de evolução autônoma e homologação de novos projetos com especificações vivas ativas
 - [ ] Monitorar a telemetria de criação de projetos em produção e prosseguir para próximas expansões do roadmap DecoHUB
 - [ ] Commit das correções de tratamento seguro de exceções ou execução da suíte completa de testes
+- [ ] Validação manual na interface desktop do DecoHUB ao criar novos projetos locais e verificar a fluidez instantânea do NewProjectModal
+- [ ] Validar abertura fluida do NewProjectModal no ambiente Desktop e criar novo projeto com resposta imediata
+- [ ] Testar a experiência de ponta a ponta criando um novo projeto no DecoHUB Desktop e observando a inclusão instantânea na sidebar
+- [ ] Monitorar e validar a execução contínua de comandos no Meta-Chat sem travamentos ou timeouts
+- [ ] Acompanhar a operação do Meta-Chat em ambiente de produção diário com as novas proteções de resiliência e direct patching
+- [ ] Testar a auto-evolução ponta a ponta no aplicativo Desktop DecoHUB
+- [ ] Validar a experiência interativa em tempo real no Desktop DecoHUB sob alta carga ou múltiplos projetos
+- [ ] Continuar evolução do ecossistema de desenvolvimento autônomo e ferramentas LSP no DecoHUB
+- [ ] Prosseguir para as próximas etapas de evolução de produto e testes de integração end-to-end do ecossistema autônomo
+- [ ] Conclusão do pacote evolutivo de 4 fases (SSE, LspService, CI Doctor e Best-of-N Rollout) pronta para uso em produção e novos ciclos autônomos.
+- [ ] Todas as 5 Fases da evolução autônoma do DecoHUB concluídas, homologadas e prontas para uso em produção.
 
 ## Concluído
 - [x] FASE 3: Resiliência Autônoma — Auto-Recovery de AGENTAPI_UNAVAILABLE e Self-Healing de Verificação: Implementação de retry transiente no AgentApiGateway com até 2 tentativas e re-descoberta dinâmica de binário do Antigravity (AntigravityDiscovery.discover({ forceRefresh: true })); implementação de watchdog de auto-recuperação (attemptResourceRecovery e integração em schedulerTick) para runs em waiting_resource que restaura status para running, zera falhas transitórias, registra RUNTIME_RECOVERED_AUTOMATICALLY e aciona o ciclo autônomo sem intervenção manual; implementação do Self-Healing de verificação no AutonomousRunnerService convertendo veredictos técnicos BLOCKED em REWORK_REQUIRED com feedback diagnóstico estruturado para o Worker e normalização de comandos via normalizeOrRecoverVerificationCommand enquanto retry_count < maxRetries sem pausar o run; preservação estrita de travas de segurança para TAMPERING_DETECTED e exaustão de retries (pauseForVerification mantido); criação do arquivo de teste test/autonomousSelfHealingAndRecovery.test.ts cobrindo os 3 cenários; integração no package.json elevando a suíte oficial para 53 arquivos de teste e 511 testes passando 100% (0 falhas) com TypeScript build limpo.
@@ -445,3 +456,75 @@
 - [x] Espelhamento dos builds compilados para os diretórios unpacked e app.asar.unpacked da distribuição desktop
 - [x] Correção de tipo nos blocos catch com verificação segura de logger e cast do erro para TS com strict: true
 - [x] npm run typecheck e npm run build validados com 0 erros
+- [x] Remoção de todos os execSync bloqueantes do caminho crítico síncrono de POST /api/projects (tempo de resposta reduzido para ~15ms)
+- [x] Implementação de idempotência amigável em POST /api/projects retornando 200 em caso de re-submissão do mesmo diretório
+- [x] Caching em memória de status GitHub e versões de ferramentas do sistema (npm, python, git) eliminando contenção do Event Loop
+- [x] Aumento do timeout do AbortController no cliente de 12s para 25s
+- [x] Adição do Teste 6 no test suite projectCreationAccountSelection.test.ts cobrindo latência e idempotência
+- [x] Typecheck e build completos de server e client aprovados
+- [x] Sincronização dos binários compilados (server/dist e client/dist) para decohub_unpacked, dist-desktop e instalação AppData
+- [x] Desbloqueio de Event Loop Starvation com cache de 5s em collectRuntimeProcessSnapshot e getRunningInstanceForProfile
+- [x] Cache de 10s para inspectLocalAuthEvidence reduzindo I/O síncrono no disco
+- [x] Substituição de Atomics.wait por espera assíncrona em ensureProfileRuntimeRunning
+- [x] Fast-path puro no SQLite para criação de projetos em POST /api/projects (< 10ms)
+- [x] Fallback nativo IPC com node:sqlite DatabaseSync implementado no Electron (desktopAPI.createProjectDirect)
+- [x] ServiceManager atualizado para matar processos órfãos na porta 3001 no start() e stop()
+- [x] Testes unitários de escopo (6/6) verdes, typechecks e builds aprovados
+- [x] Artefatos sincronizados para decohub_unpacked, dist-desktop e AppData, e porta 3001 liberada
+- [x] Atualização otimista com 0ms de latência em onProjectCreated no App.tsx
+- [x] Seleção imediata e fechamento do Meta-Chat ao criar projeto
+- [x] Listener de window focus e polling de 10s para recarga em background de projetos
+- [x] Prop onRefreshProjects e botão discreto de recarregamento com RotateCw na DecoHubSidebar
+- [x] Botão de limpar busca (X) na barra de busca de projetos
+- [x] Desempacotamento seguro de projeto (res.project || res) e resetForm em NewProjectModal
+- [x] Testes automatizados unitários de escopo (6/6) validados com sucesso
+- [x] Build de produção de server e client gerados com sucesso
+- [x] Sincronização dos binários para decohub_unpacked, dist-desktop e AppData concluída
+- [x] Expandir detecção de conclusão de turnos no agentTurnState.ts cobrindo múltiplos formatos de turnos do Antigravity
+- [x] Implementar auto-reconciliação para CONSUMED no AgentTurnState.begin quando decorridos >15s ou turno interativo
+- [x] Acelerar detecção de término em antigravityProvider.ts e adicionar fallback de resgate via parseTranscriptToReport em caso de timeout
+- [x] Aprovação de 100% dos testes em test:cancellation e sincronização de builds de produção (server/client dist)
+- [x] Tornar getDecoHubRoot prioritário com DECOHUB_REPO_ROOT e validar raiz apenas com server/package.json ou dist-desktop sem exigir client/package.json
+- [x] Implementar resiliência em handleUserMessage para capturar falhas de runtime e tentar failover para qualquer perfil READY ou com runtime em execução
+- [x] Adicionar fallback gracioso de diagnóstico claro ('Runtime Antigravity não detectado. Inicie o Antigravity para executar tarefas com a IA') se nenhum Language Server TCP estiver ativo
+- [x] Reforçar o parser polimórfico de blocos [FILE: ...] e ```typescript ``` no retorno textual do agente e aplicar automaticamente no disco com this.writeFile() (Direct Patching)
+- [x] Correção de descoberta de runtime sync em tryRefreshProfileConnectionEnv no agentApiGateway.ts
+- [x] Aprovação de 100% dos 18 testes em test:metachat e 9 testes em test:cancellation
+- [x] Recompilação do backend e sincronização dos builds para decohub_unpacked, dist-desktop e AppData
+- [x] Refinamento do Typecheck Guard para isolar apenas arquivos de escopo (changedFiles)
+- [x] Uso de tsc local com process.execPath e flags --noEmit --skipLibCheck de forma não-interativa
+- [x] Extração estruturada de erros de tipagem com arquivo, linha, coluna e mensagem para rollback transparente
+- [x] Reinício limpo do serviço Node backend no Desktop Electron após recompilação
+- [x] Novo teste unitário 19 na suíte test:metachat (100% verde)
+- [x] Criação do serviço SseStreamService com canais por projeto e metachat, heartbeat de 15s e integração automática com ObservabilityService.emit
+- [x] Adição dos endpoints SSE GET /api/projects/:id/stream e GET /api/metachat/stream em routes.ts
+- [x] Suporte a HTTP 202 Accepted imediato com turnId em POST /api/projects/:id/messages e POST /api/metachat/chat com execução assíncrona transmitida via SSE
+- [x] Criação do cliente SSE no Frontend (DecoHubSseClient) com reconexão automática, heartbeat tracking e callbacks tipados
+- [x] Conexão de DecoHubChatView e DecoHubMetaChatView aos fluxos SSE com remoção de timers de polling contínuo
+- [x] Criação da suíte de testes unitários sseStreamingReactive.test.ts (6/6 aprovados) e validação dos builds de servidor e cliente
+- [x] Implementação do LspService com getDiagnostics, getDefinition e findReferences gerenciando tsserver via stdio e motor direto Compiler API
+- [x] Inclusão da ferramenta lsp_diagnostics e da Regra 19 nas regras permanentes do WorkerPromptInput em PromptArchitectureService
+- [x] Integração da pré-avaliação sintática no AutonomousRunnerService antes do IndependentEvaluator
+- [x] Inclusão de capability 'lsp' e helpers getLspCapableWorkers e hasCapability no WorkerRegistry
+- [x] Criação da suíte lspService.test.ts (6/6 aprovados) e build 100% verde
+- [x] FASE 3: Implementar o subagente CI Doctor acoplado ao IndependentEvaluator para corrigir falhas de teste unitário via micro-patches cirúrgicos
+- [x] Blindagem de testes protegidos contra adulteração ou enfraquecimento no fluxo do CI Doctor
+- [x] Emissão e registro de eventos CI_DOCTOR_HEALED via ObservabilityService e AutonomousManager
+- [x] Validação com suíte completa de testes unitários test:cidoctor (6/6 green) e typecheck limpo
+- [x] FASE 4: Ativar o motor de trajetórias concorrentes (Best-of-N Rollouts) usando AutoAdapt e Git Worktrees para tarefas de esforço HIGH/DEEP ou retrabalho
+- [x] Criação do EphemeralWorktreeService adaptando a lógica de isolamento de sandboxes do AutoAdapt com suporte a criação atômica, detecção e remoção de locks obsoletos (index.lock), validação de ponteiro .git e desmontagem segura (removeWorktree e withEphemeralWorktree)
+- [x] Integração do EphemeralWorktreeService no ArenaManager (provisionWorkspace, descarte limpo de worktrees de concorrentes e cancelamento de arenas)
+- [x] Implementação de calculateQualityGatesScore no AutonomousRunnerService avaliando os 4 portões de qualidade (Dev Tests, Visual/Anti-Slop, UX/F5, AppSec) e bônus de simplicidade Karpathy
+- [x] Implementação de executeConcurrentRollout no AutonomousRunnerService despachando dois candidatos concorrentes (candidate-A conservador e candidate-B cirúrgico) em worktrees efêmeros isolados para tarefas de esforço HIGH/DEEP ou retrabalho (retry_count >= 1)
+- [x] Merge atômico da implementação vencedora para o branch principal da tarefa com desmontagem estrita e sem resíduos dos worktrees temporários e poda de referências Git
+- [x] Criação da suíte de testes unitários test/ephemeralWorktreeService.test.ts (6/6 aprovados) e script npm test:worktrees
+- [x] Validação integral de compilação (tsc) e typecheck 100% verde
+- [x] FASE 5: Implementar o AstSymbolIndexService para mapear assinaturas de funções, classes e tipos em SQLite, protegendo o contexto contra Context Rot
+- [x] Criação da tabela project_ast_symbols com índices dedicados em SQLite (server/src/db.ts)
+- [x] Implementação do AstSymbolIndexService com TypeScript AST Parser e fallback regex sintática rápida (server/src/astSymbolIndexService.ts)
+- [x] Integração de geração estruturada de assinaturas em buildWorkerPrompt (server/src/promptArchitectureService.ts) substituindo dumps brutos de arquivos
+- [x] Refatoração de engineeringContextService para usar extração de símbolos e evitar leitura monolítica de 12.000 chars por arquivo
+- [x] Atualização automática contínua de símbolos modificados em autonomousRunnerService ao concluir entregas do Worker
+- [x] Criação da suíte unitária test/astSymbolIndexService.test.ts (6/6 aprovados) e script npm run test:ast
+- [x] Compilação do backend (tsc) e build de produção do frontend (vite build) 100% verdes
+- [x] Execução da suíte completa de homologação cobrindo todas as 5 Fases (SSE, LSP, CI Doctor, Worktrees e AST Symbol Index - 30/30 testes verdes)

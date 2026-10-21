@@ -155,16 +155,44 @@ export class AutonomousManager {
     const authorization = DevAutonomyService.isProjectAuthorizedForLiveExecution(project.id);
     if (!authorization.authorized) throw new Error(`AUTHORIZATION_GUARD: ${authorization.reason}`);
 
-    // 0. Idempotency Guard: Reuse existing active run if not explicitly forced
-    if (!config.forceNew) {
-      const activeRun: any = db.prepare(`
-        SELECT * FROM autonomous_runs
-        WHERE project_id = ? AND status NOT IN ('completed', 'failed')
-        ORDER BY created_at DESC
-        LIMIT 1
-      `).get(config.projectId);
+    // 0. Idempotency Guard: Reuse existing active run if not explicitly forced,
+    // unless the existing active run is in error, blocked or has no pending tasks.
+    const activeRun: any = db.prepare(`
+      SELECT * FROM autonomous_runs
+      WHERE project_id = ? AND status NOT IN ('completed', 'failed')
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).get(config.projectId);
 
-      if (activeRun) {
+    if (activeRun) {
+      const taskCounts: any = db.prepare(`
+        SELECT 
+          COUNT(*) as total,
+          SUM(CASE WHEN status NOT IN ('completed', 'skipped') THEN 1 ELSE 0 END) as pending
+        FROM autonomous_tasks
+        WHERE run_id = ?
+      `).get(activeRun.id);
+
+      const totalTasks = Number(taskCounts?.total || 0);
+      const pendingTasks = Number(taskCounts?.pending || 0);
+      const hasNoPendingTasks = totalTasks > 0 ? (pendingTasks === 0) : (activeRun.status !== 'planning');
+      const isStalledOrErrored = ['error', 'blocked'].includes(activeRun.status);
+
+      if (config.forceNew || isStalledOrErrored || hasNoPendingTasks) {
+        const finalStatus = isStalledOrErrored ? 'failed' : 'completed';
+        const nowIso = new Date().toISOString();
+        db.prepare(`
+          UPDATE autonomous_runs
+          SET status = ?, end_time = COALESCE(end_time, ?), next_action = 'Finalizado para permitir nova execução', updated_at = ?
+          WHERE id = ?
+        `).run(finalStatus, nowIso, nowIso, activeRun.id);
+        db.prepare("UPDATE worker_leases SET status = 'released' WHERE run_id = ? AND status = 'active'").run(activeRun.id);
+        db.prepare(`
+          DELETE FROM execution_reservations
+          WHERE json_extract(CASE WHEN json_valid(context_json) THEN context_json ELSE '{}' END, '$.runId') = ?
+        `).run(activeRun.id);
+        Logger.info(`[AutonomousManager] Run ativo anterior [${activeRun.id.slice(0, 8)}] (${activeRun.status}, total: ${totalTasks}, pendentes: ${pendingTasks}, forceNew: ${Boolean(config.forceNew)}) finalizado automaticamente como '${finalStatus}'. Criando novo run sem rejeição.`);
+      } else {
         Logger.info(`[AutonomousManager] Run ativo já existente para ${project.name}: [${activeRun.id.slice(0, 8)}] (${activeRun.status}). Reutilizando run com idempotência.`);
         return this.getRun(activeRun.id);
       }
@@ -253,6 +281,55 @@ export class AutonomousManager {
     });
 
     // 4. Generate initial task plan dynamically via Gemini Supervisor
+    const isTestRuntime =
+      process.env.NODE_ENV === 'test' ||
+      Boolean(process.env.NODE_TEST_CONTEXT) ||
+      process.execArgv.some(a => a.startsWith('--test')) ||
+      Boolean((globalThis as any).__DECOHUB_TEST_RUNTIME__);
+    const isOffline =
+      process.env.DECOHUB_OFFLINE_MODE === 'true' ||
+      (await import('./agentApiGateway.js')).AgentApiGateway.isOfflineMode();
+
+    if (!isTestRuntime && !isOffline) {
+      Logger.info(`[AutonomousManager] Run [${runId.slice(0, 8)}] criado em status 'planning'. Despachando geração de tarefas em background...`);
+      (async () => {
+        try {
+          await this.generateInitialTasks(runId, config, project);
+          if (RunControl.apply(runId, true)) return;
+          db.prepare("UPDATE autonomous_runs SET status='running',last_error=NULL,next_action='Plano criado; aguardando despacho ao Worker',updated_at=? WHERE id=? AND status='planning'")
+            .run(new Date().toISOString(), runId);
+          Logger.success(`[AutonomousManager] Run [${runId.slice(0, 8)}] planejado com sucesso; disparando schedulerTick...`);
+          try {
+            const { AutonomousRunnerService } = await import('./autonomousRunnerService.js');
+            AutonomousRunnerService.schedulerTick();
+          } catch (tickErr: any) {
+            Logger.warn(`[AutonomousManager] Aviso ao disparar schedulerTick em background: ${tickErr.message}`);
+          }
+        } catch (err: any) {
+          if (RunControl.get(runId)) {
+            this.logEvent(runId, null, 'system', 'RUN_OPERATION_FAILURE', err.message);
+            if (RunControl.apply(runId, true)) return;
+          }
+          if (/RESOURCE_EXHAUSTED|code 429|Individual quota reached|QUOTA_EXHAUSTED/i.test(err.message)) {
+            const cooldownMsg = `BLOCKED_QUOTA: ${err.message}`;
+            db.prepare("UPDATE autonomous_runs SET status = 'paused', last_error = ?, next_action = 'Execução pausada aguardando restabelecimento de cota', updated_at = ? WHERE id = ?")
+              .run(cooldownMsg, new Date().toISOString(), runId);
+            this.logEvent(runId, null, 'system', 'BLOCKED_QUOTA', `Cota do modelo esgotada (429). Run pausado com segurança sem retries imediatos.`);
+            Logger.warn(`[AutonomousManager] Run [${runId.slice(0, 8)}] pausado por limite de cota (BLOCKED_QUOTA).`);
+            return;
+          }
+          db.prepare("UPDATE autonomous_runs SET status = 'error', last_error = ?, next_action = 'Verificar conta e agentapi do Supervisor', updated_at = ? WHERE id = ?")
+            .run(err.message, new Date().toISOString(), runId);
+          this.logEvent(runId, null, 'system', 'SUPERVISOR_UNAVAILABLE', err.message);
+        }
+      })().catch(bgErr => {
+        Logger.warn(`[AutonomousManager] Erro não tratado no background planner: ${bgErr.message}`);
+      });
+
+      Logger.success(`Autonomous Run [${runId.slice(0, 8)}] criado com sucesso (planejamento assíncrono em andamento) para ${project.name}`);
+      return this.getRun(runId);
+    }
+
     try {
       await this.generateInitialTasks(runId, config, project);
       if(RunControl.apply(runId,true))return this.getRun(runId);

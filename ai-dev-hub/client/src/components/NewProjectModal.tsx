@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../services/api';
-import { AnalysisResult, AccountProfile } from '../types';
+import { AnalysisResult, AccountProfile, Project } from '../types';
 import { Folder, X, Search, Sparkles, AlertCircle, GitBranch, UserCheck, CheckSquare, Square, Shield, Lock, Cpu, Zap } from 'lucide-react';
 
 const GithubIcon: React.FC<{ className?: string }> = ({ className = "w-4 h-4" }) => (
@@ -55,6 +55,26 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submittingRef = useRef(false);
+
+  const resetForm = () => {
+    setName('');
+    setFolderPath('');
+    setObjective('');
+    setInitGit(true);
+    setSelectedModel('flash');
+    setReasoningLevel('HIGH');
+    setGithubAction('none');
+    setGithubRepo('');
+    setGithubToken('');
+    setShowTokenInput(false);
+    setAnalysis(null);
+    setError(null);
+  };
+
+  const handleClose = () => {
+    resetForm();
+    onClose();
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -131,7 +151,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
     setIsSubmitting(true);
     setError(null);
     try {
-      const newProj = await api.createProject({
+      const res: any = await api.createProject({
         name: name.trim(),
         folderPath: finalPath,
         objective: objective.trim() || `Desenvolver e gerenciar ${name.trim()}`,
@@ -143,7 +163,31 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
         githubRepo: githubRepo.trim() || undefined,
         githubToken: githubToken.trim() || undefined
       });
-      onProjectCreated(newProj);
+
+      // Trata caso a API retorne objeto envelopado { project: ... }
+      const rawProj = (res && typeof res === 'object' && res.project) ? res.project : res;
+
+      // Garante que o objeto retornado tenha id, name, path e campos essenciais para seleção imediata
+      const safeProject: Project = {
+        id: rawProj?.id || crypto.randomUUID(),
+        name: rawProj?.name || name.trim(),
+        path: rawProj?.path || finalPath,
+        objective: rawProj?.objective || objective.trim(),
+        description: rawProj?.description || '',
+        stack: rawProj?.stack || 'Geral',
+        status: rawProj?.status || 'active',
+        is_trusted: rawProj?.is_trusted !== undefined ? rawProj.is_trusted : 1,
+        full_dev_autonomy: rawProj?.full_dev_autonomy !== undefined ? rawProj.full_dev_autonomy : 1,
+        active_account_profile_id: rawProj?.active_account_profile_id || finalSelectedAccountId,
+        selected_model: rawProj?.selected_model || selectedModel,
+        reasoning_level: rawProj?.reasoning_level || reasoningLevel,
+        created_at: rawProj?.created_at || new Date().toISOString(),
+        updated_at: rawProj?.updated_at || new Date().toISOString(),
+        ...rawProj
+      };
+
+      resetForm();
+      onProjectCreated(safeProject);
       onClose();
     } catch (err: any) {
       setError(err.message || 'Erro ao registrar o projeto.');
@@ -169,7 +213,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
           </div>
 
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-[#181b28] transition-colors"
           >
             <X className="w-4 h-4" />
@@ -490,7 +534,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
           <div className="pt-4 border-t border-[#1b2033] flex justify-end gap-2">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               className="px-4 py-2 rounded-lg bg-[#151928] hover:bg-[#1e243a] text-xs text-slate-300 font-medium transition-colors"
             >
               Cancelar

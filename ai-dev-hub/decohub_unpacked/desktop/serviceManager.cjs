@@ -97,6 +97,28 @@ class ServiceManager extends EventEmitter {
     });
   }
 
+  killProcessOnPort(port) {
+    try {
+      if (process.platform === 'win32') {
+        const { execSync, execFileSync } = require('child_process');
+        const out = execSync(`netstat -ano -p tcp | findstr :${port}`, { encoding: 'utf8', windowsHide: true });
+        const lines = out.split('\n');
+        for (const line of lines) {
+          if (line.includes('LISTENING')) {
+            const parts = line.trim().split(/\s+/);
+            const pid = parseInt(parts[parts.length - 1], 10);
+            if (pid && pid > 0 && pid !== process.pid) {
+              logger.info(`[ServiceManager] Limpando processo preso na porta ${port} (PID: ${pid})...`);
+              try {
+                execFileSync('taskkill', ['/pid', String(pid), '/f', '/t'], { stdio: 'ignore' });
+              } catch {}
+            }
+          }
+        }
+      }
+    } catch {}
+  }
+
   async findAvailablePort(startPort) {
     let port = startPort;
     while (port < startPort + 40) {
@@ -115,7 +137,9 @@ class ServiceManager extends EventEmitter {
         res.on('end', () => {
           try {
             const parsed = JSON.parse(data);
-            resolve(parsed.status === 'ok');
+            const sameData = parsed.dataPath && path.resolve(parsed.dataPath).toLowerCase() === path.resolve(this.appData.dbPath).toLowerCase();
+            const sameMode = parsed.offline === (process.env.DECOHUB_OFFLINE_MODE === 'true');
+            resolve(parsed.status === 'ok' && sameData && sameMode);
           } catch {
             resolve(false);
           }
@@ -128,24 +152,33 @@ class ServiceManager extends EventEmitter {
 
   async queryActiveWork() {
     if (!this.backendPort) return { hasActiveWork: false, runsCount: 0 };
-    return new Promise(resolve => {
-      const req = http.get(`http://127.0.0.1:${this.backendPort}/api/self-improvement/runs/active`, { timeout: 1500 }, res => {
+    const getJson = endpoint => new Promise(resolve => {
+      const req = http.get(`http://127.0.0.1:${this.backendPort}${endpoint}`, { timeout: 1500 }, res => {
         let data = '';
         res.on('data', chunk => data += chunk);
         res.on('end', () => {
-          try {
-            const parsed = JSON.parse(data);
-            if (parsed && parsed.id && parsed.status && !['COMPLETED', 'CANCELLED', 'STOPPED', 'FAILED'].includes(parsed.status)) {
-              resolve({ hasActiveWork: true, activeRun: parsed });
-              return;
-            }
-          } catch {}
-          resolve({ hasActiveWork: false });
+          try { resolve(JSON.parse(data)); } catch { resolve(null); }
         });
       });
-      req.on('error', () => resolve({ hasActiveWork: false }));
-      req.on('timeout', () => { req.destroy(); resolve({ hasActiveWork: false }); });
+      req.on('error', () => resolve(null));
+      req.on('timeout', () => { req.destroy(); resolve(null); });
     });
+    const [selfImprovement, autonomous, workers] = await Promise.all([
+      getJson('/api/self-improvement/runs/active'),
+      getJson('/api/autonomous/runs/active'),
+      getJson('/api/workers')
+    ]);
+    const selfActive = selfImprovement && selfImprovement.id &&
+      !['COMPLETED', 'CANCELLED', 'STOPPED', 'FAILED'].includes(selfImprovement.status);
+    const autonomousRuns = Array.isArray(autonomous) ? autonomous : [];
+    const workersList = Array.isArray(workers) ? workers : [];
+    const workingWorkers = workersList.filter(w => w.status === 'WORKING' || w.activeLease);
+    const hasActive = Boolean(selfActive || autonomousRuns.length || workingWorkers.length);
+    return {
+      hasActiveWork: hasActive,
+      runsCount: autonomousRuns.length + Number(Boolean(selfActive)) + workingWorkers.length,
+      activeRun: autonomousRuns[0] || selfImprovement || (workingWorkers[0] ? { name: `Worker ${workingWorkers[0].name} em execução` } : null)
+    };
   }
 
   async start() {
@@ -158,18 +191,19 @@ class ServiceManager extends EventEmitter {
     this.services.ANTIGRAVITY.path = agDiscovery.languageServerExe;
     logger.info(`[ServiceManager] Antigravity Status: ${this.services.ANTIGRAVITY.status} (${agDiscovery.languageServerExe || 'Nenhum'})`);
 
-    // 2. Check if configured port is already healthy
-    const isAlreadyRunning = await this.checkHealth(this.backendPort);
-    if (isAlreadyRunning) {
-      logger.info(`Backend já ativo na porta ${this.backendPort}. Anexando ao serviço existente.`);
-      this.isAttachedExisting = true;
-      this.services.BACKEND.status = 'READY';
-      this.services.MCP.status = 'READY';
-      this.emit('ready', { port: this.backendPort, attached: true });
-      return { port: this.backendPort, attached: true };
+    // 2. Limpar qualquer processo órfão na porta 3001 para que o server/dist/index.js recém-compilado seja carregado do zero
+    const portTakenBefore = await this.isPortTaken(this.backendPort);
+    if (portTakenBefore) {
+      logger.info(`[ServiceManager] Porta ${this.backendPort} em uso por processo anterior. Limpando processo órfão para carregar build atualizado...`);
+      this.killProcessOnPort(this.backendPort);
+      for (let i = 0; i < 20; i++) {
+        const stillBusy = await this.isPortTaken(this.backendPort);
+        if (!stillBusy) break;
+        await new Promise(r => setTimeout(r, 100));
+      }
     }
 
-    // 3. Dynamic Port Allocation
+    // 3. Dynamic Port Allocation se a porta ainda estiver ocupada por serviço externo
     const taken = await this.isPortTaken(this.backendPort);
     if (taken) {
       this.backendPort = await this.findAvailablePort(this.backendPort + 1);
@@ -201,6 +235,9 @@ class ServiceManager extends EventEmitter {
     this.startTime = new Date().toISOString();
     this.services.BACKEND.pid = this.backendPid;
     this.services.BACKEND.port = this.backendPort;
+    try {
+      fs.writeFileSync(path.join(this.appData.dataDir, 'backend.pid'), String(this.backendPid));
+    } catch {}
 
     this.serverProcess.stdout.on('data', data => {
       const str = data.toString();
@@ -274,22 +311,36 @@ class ServiceManager extends EventEmitter {
 
   async stop() {
     this.isShuttingDown = true;
-    if (this.isAttachedExisting) {
-      logger.info('Serviço anexado mantido ativo ao fechar o Desktop.');
-      return;
-    }
+    try {
+      const pidFile = path.join(this.appData.dataDir, 'backend.pid');
+      if (fs.existsSync(pidFile)) fs.unlinkSync(pidFile);
+    } catch {}
 
-    if (this.serverProcess) {
+    if (this.serverProcess && this.backendPid) {
       logger.info(`Encerrando processo do backend (PID: ${this.backendPid})...`);
       try {
         if (process.platform === 'win32') {
-          spawn('taskkill', ['/pid', String(this.backendPid), '/f', '/t']);
+          const { execFileSync } = require('child_process');
+          execFileSync('taskkill', ['/pid', String(this.backendPid), '/f', '/t'], { stdio: 'ignore' });
         } else {
           this.serverProcess.kill('SIGTERM');
         }
-      } catch {}
+      } catch (err) {
+        try { this.serverProcess.kill('SIGKILL'); } catch {}
+      }
       this.serverProcess = null;
       this.backendPid = null;
+    }
+
+    // Garante que o processo na porta do backend seja encerrado ao fechar o aplicativo
+    if (this.backendPort) {
+      this.killProcessOnPort(this.backendPort);
+      // Gracefully wait up to 2 seconds for port release
+      for (let i = 0; i < 20; i++) {
+        const taken = await this.isPortTaken(this.backendPort);
+        if (!taken) break;
+        await new Promise(r => setTimeout(r, 100));
+      }
     }
 
     this.services.BACKEND.status = 'STOPPED';

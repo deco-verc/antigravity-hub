@@ -8,6 +8,7 @@ const logger = require('./logger.cjs');
 
 class AppDataPaths {
   static getRoot() {
+    if (process.env.AI_DEV_HUB_DATA_DIR) return path.resolve(process.env.AI_DEV_HUB_DATA_DIR);
     const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
     const root = path.join(localAppData, 'AI DEV');
     return root;
@@ -23,7 +24,7 @@ class AppDataPaths {
     const legacy = this.getLegacyHubDir();
 
     // Use legacy hub dir for database if it exists, or local app data
-    const dataDir = fs.existsSync(legacy) ? legacy : path.join(root, 'data');
+    const dataDir = process.env.AI_DEV_HUB_DATA_DIR ? path.resolve(process.env.AI_DEV_HUB_DATA_DIR) : (fs.existsSync(legacy) ? legacy : path.join(root, 'data'));
 
     return {
       root,

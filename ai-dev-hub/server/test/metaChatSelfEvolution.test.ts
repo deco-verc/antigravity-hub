@@ -504,4 +504,104 @@ export const META_CHAT_TEST_CONSTANT = 42;
     assert.ok(completedActivity.liveSteps.length > 0);
     assert.equal(completedActivity.pipelineTasks.every(t => t.status === 'completed'), true);
   });
+
+  it('16. getDecoHubRoot com suporte a DECOHUB_REPO_ROOT com prioridade máxima e validação sem client/package.json', () => {
+    const originalEnv = process.env.DECOHUB_REPO_ROOT;
+    const currentRoot = MetaChatService.getDecoHubRoot();
+
+    try {
+      // 16.1 DECOHUB_REPO_ROOT define a raiz diretamente
+      process.env.DECOHUB_REPO_ROOT = currentRoot;
+      const resolvedWithEnv = MetaChatService.getDecoHubRoot();
+      assert.equal(resolvedWithEnv, currentRoot);
+
+      // 16.2 Raiz válida contendo server/package.json ou dist-desktop sem exigir client/package.json
+      assert.ok(fs.existsSync(path.join(currentRoot, 'server', 'package.json')));
+    } finally {
+      if (originalEnv) {
+        process.env.DECOHUB_REPO_ROOT = originalEnv;
+      } else {
+        delete process.env.DECOHUB_REPO_ROOT;
+      }
+    }
+  });
+
+  it('17. Direct Patching: Aplica arquivos no disco a partir de markdown no retorno do agente', async () => {
+    MetaChatService.resetMessages();
+    const directPatchFile = path.join(root, 'server', 'src', 'utils', '__metaChatDirectPatchTest.ts');
+    if (fs.existsSync(directPatchFile)) {
+      try { fs.unlinkSync(directPatchFile); } catch {}
+    }
+
+    const mock = AgentApiGateway.getMockProvider()!;
+    const origGetResponse = mock.getResponse?.bind(mock);
+
+    mock.getResponse = () => {
+      return `
+Aqui está o código solicitado para o utilitário:
+
+[FILE: server/src/utils/__metaChatDirectPatchTest.ts]
+\`\`\`typescript
+export const DIRECT_PATCH_SUCCESS = true;
+\`\`\`
+[ENDFILE]
+      `.trim();
+    };
+
+    try {
+      const res = await MetaChatService.handleUserMessage('Crie o utilitário de direct patch');
+      assert.equal(res.selfHealed, false);
+      assert.ok(res.filesChanged.some(f => f.includes('__metaChatDirectPatchTest.ts')));
+      assert.ok(fs.existsSync(directPatchFile));
+      const fileContent = fs.readFileSync(directPatchFile, 'utf-8');
+      assert.ok(fileContent.includes('DIRECT_PATCH_SUCCESS = true'));
+    } finally {
+      if (origGetResponse) {
+        mock.getResponse = origGetResponse;
+      }
+      if (fs.existsSync(directPatchFile)) {
+        try { fs.unlinkSync(directPatchFile); } catch {}
+      }
+    }
+  });
+
+  it('18. Resiliência do Meta-Chat: Parser de blocos com múltiplos formatos de fences [FILE: ...]', () => {
+    const rawMarkdown = `
+Instrução executada com sucesso:
+\`\`\`typescript [FILE: server/src/utils/__metaChatMultiFormat1.ts]
+export const FORMAT_1 = 1;
+\`\`\`
+
+\`\`\`ts:server/src/utils/__metaChatMultiFormat2.ts
+export const FORMAT_2 = 2;
+\`\`\`
+    `.trim();
+
+    const parsed = (MetaChatService as any).parseCodeDirectives(rawMarkdown);
+    assert.ok(parsed.length >= 2);
+    assert.ok(parsed.some((p: any) => p.filePath.includes('__metaChatMultiFormat1.ts')));
+    assert.ok(parsed.some((p: any) => p.filePath.includes('__metaChatMultiFormat2.ts')));
+  });
+
+  it('19. Typecheck Guard Scoped: Valida com sucesso arquivos de escopo usando flags --noEmit e --skipLibCheck', async () => {
+    // 19.1 Executa typecheck com escopo vazio ou arquivo existente válido
+    const res = await MetaChatService.runTypecheck('server', ['server/src/utils/logger.ts']);
+    assert.equal(typeof res.passed, 'boolean');
+    assert.equal(typeof res.durationMs, 'number');
+    assert.ok(Array.isArray(res.errors));
+
+    // 19.2 Em caso de erro proposital em arquivo do escopo, extrai os detalhes estruturados de arquivo, linha e mensagem
+    const brokenPath = path.join(root, 'server', 'src', 'utils', '__tempTypecheckErrorTest.ts');
+    fs.writeFileSync(brokenPath, 'export const ERROR_VALUE: number = "violacao_de_tipo";\n');
+    try {
+      const brokenRes = await MetaChatService.runTypecheck('server', ['server/src/utils/__tempTypecheckErrorTest.ts']);
+      assert.equal(brokenRes.passed, false);
+      assert.ok(brokenRes.errors && brokenRes.errors.length > 0);
+      assert.ok(brokenRes.errors.some(e => e.file.includes('__tempTypecheckErrorTest.ts')));
+    } finally {
+      if (fs.existsSync(brokenPath)) {
+        try { fs.unlinkSync(brokenPath); } catch {}
+      }
+    }
+  });
 });

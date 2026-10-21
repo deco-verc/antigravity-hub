@@ -10,7 +10,9 @@ import {
   CheckCircle2,
   SlidersHorizontal,
   ChevronRight,
-  Sparkles
+  Sparkles,
+  RotateCw,
+  X
 } from 'lucide-react';
 
 interface DecoHubSidebarProps {
@@ -23,6 +25,7 @@ interface DecoHubSidebarProps {
   onOpenAdvanced: () => void;
   onOpenMetaChat?: () => void;
   isMetaChatActive?: boolean;
+  onRefreshProjects?: () => Promise<void> | void;
 }
 
 export const DecoHubSidebar: React.FC<DecoHubSidebarProps> = ({
@@ -34,9 +37,21 @@ export const DecoHubSidebar: React.FC<DecoHubSidebarProps> = ({
   onOpenModelsInfo,
   onOpenAdvanced,
   onOpenMetaChat,
-  isMetaChatActive
+  isMetaChatActive,
+  onRefreshProjects
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    if (!onRefreshProjects || isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      await onRefreshProjects();
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 500);
+    }
+  };
 
   const filteredProjects = projects.filter(p =>
     p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -126,15 +141,35 @@ export const DecoHubSidebar: React.FC<DecoHubSidebarProps> = ({
             placeholder="Buscar projetos..."
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
-            className="w-full bg-[#10131d] border border-[#1e2333] rounded-md py-1.5 pl-7 pr-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
+            className="w-full bg-[#10131d] border border-[#1e2333] rounded-md py-1.5 pl-7 pr-7 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
           />
+          {searchTerm && (
+            <button
+              type="button"
+              onClick={() => setSearchTerm('')}
+              className="absolute right-2 top-2 p-0.5 rounded text-slate-500 hover:text-slate-300 transition-colors"
+              title="Limpar busca"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
         </div>
       </div>
 
       {/* 5. Lista de Projetos: Simples e Limpa */}
       <div className="flex-1 overflow-y-auto px-2 py-1 space-y-0.5">
-        <div className="px-2 py-1.5 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-          Meus Projetos ({filteredProjects.length})
+        <div className="px-2 py-1.5 text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+          <span>Meus Projetos ({filteredProjects.length})</span>
+          {onRefreshProjects && (
+            <button
+              type="button"
+              onClick={handleRefresh}
+              title="Recarregar projetos do disco"
+              className="p-1 rounded text-slate-500 hover:text-slate-300 hover:bg-[#151928] transition-colors"
+            >
+              <RotateCw className={`w-3 h-3 ${isRefreshing ? 'animate-spin text-indigo-400' : ''}`} />
+            </button>
+          )}
         </div>
 
         {filteredProjects.length === 0 ? (

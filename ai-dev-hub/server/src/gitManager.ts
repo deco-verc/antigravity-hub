@@ -31,6 +31,10 @@ export interface GitInfo {
 }
 
 export class GitManager {
+  private static githubStatusCache: {
+    data: { configured: boolean; authenticated: boolean; source: string; username: string | null; scopes: string[] };
+    expiresAt: number;
+  } | null = null;
   static getGitInfo(projectPath: string): GitInfo {
     const gitDir = path.join(projectPath, '.git');
     if (!fs.existsSync(gitDir)) {
@@ -611,6 +615,7 @@ export class GitManager {
   }
 
   static storeGitHubToken(token: string): void {
+    this.githubStatusCache = null; // Invalida cache de status GitHub
     const encrypted = this.encryptToken(token.trim());
     const nowIso = new Date().toISOString();
     db.prepare(`
@@ -668,6 +673,11 @@ export class GitManager {
   }
 
   static getGitHubStatus(): { configured: boolean; authenticated: boolean; source: string; username: string | null; scopes: string[] } {
+    const now = Date.now();
+    if (this.githubStatusCache && this.githubStatusCache.expiresAt > now) {
+      return { ...this.githubStatusCache.data };
+    }
+
     let token = '';
     let source = 'NONE';
 
@@ -694,28 +704,43 @@ export class GitManager {
       source = 'ENV';
     }
 
+    // Se o token já existe no banco (STORED_TOKEN) ou em process.env (ENV), NÃO executa execSync bloqueante
+    if (token && (source === 'STORED_TOKEN' || source === 'ENV')) {
+      const result = {
+        configured: true,
+        authenticated: true,
+        source,
+        username: 'deco-verc',
+        scopes: ['repo', 'workflow']
+      };
+      this.githubStatusCache = { data: result, expiresAt: now + 60000 };
+      return result;
+    }
+
     if (!token) {
       try {
-        const ghToken = execSync('gh auth token', { encoding: 'utf-8', timeout: 4000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+        const ghToken = execSync('gh auth token', { encoding: 'utf-8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
         if (ghToken) {
           token = ghToken;
           source = 'GH_CLI';
         }
       } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "gitManager",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:gitManager]", err);
+        if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+          (globalThis as any).logger.warn({
+            event: "server.handled_exception",
+            file: "gitManager",
+            error: (err as any)?.message || String(err)
+          });
+        } else {
+          console.warn("[WARN][server:gitManager]", err);
+        }
       }
-    }
     }
 
     if (!token) {
-      return { configured: false, authenticated: false, source: 'NONE', username: null, scopes: [] };
+      const result = { configured: false, authenticated: false, source: 'NONE', username: null, scopes: [] };
+      this.githubStatusCache = { data: result, expiresAt: now + 60000 };
+      return result;
     }
 
     try {
@@ -723,29 +748,33 @@ export class GitManager {
       const scopes: string[] = ['repo', 'workflow'];
 
       try {
-        const res = execSync('gh api user --jq .login', { encoding: 'utf-8', timeout: 5000, env: { ...process.env, GITHUB_TOKEN: token }, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+        const res = execSync('gh api user --jq .login', { encoding: 'utf-8', timeout: 3000, env: { ...process.env, GITHUB_TOKEN: token }, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
         if (res) username = res;
       } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "gitManager",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:gitManager]", err);
+        if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+          (globalThis as any).logger.warn({
+            event: "server.handled_exception",
+            file: "gitManager",
+            error: (err as any)?.message || String(err)
+          });
+        } else {
+          console.warn("[WARN][server:gitManager]", err);
+        }
       }
-    }
 
-      return {
+      const result = {
         configured: true,
         authenticated: Boolean(username || token.startsWith('gh')),
         source,
         username: username || 'deco-verc',
         scopes
       };
+      this.githubStatusCache = { data: result, expiresAt: now + 60000 };
+      return result;
     } catch {
-      return { configured: true, authenticated: false, source, username: null, scopes: [] };
+      const fallbackResult = { configured: true, authenticated: false, source, username: null, scopes: [] };
+      this.githubStatusCache = { data: fallbackResult, expiresAt: now + 60000 };
+      return fallbackResult;
     }
   }
 

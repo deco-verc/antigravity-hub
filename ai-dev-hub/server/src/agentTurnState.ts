@@ -146,7 +146,64 @@ export function observeTranscript(file: string,baselineLines=0) {
   const pendingTools: string[]=(last?.tool_calls || []).map((tool:any)=>tool.name).filter(Boolean);
   const fatal=entries.find(entry=>entry.type==='ERROR_MESSAGE'&&/RESOURCE_EXHAUSTED|429|UNAUTHENTICATED|AUTH_ERROR/i.test(String(entry.error||entry.content||'')));
   const abortedOnStepError=Boolean(!fatal&&last&&last.type!=='PLANNER_RESPONSE'&&(last.status==='ERROR'||last.status==='CANCELED')&&!pendingTools.length);
-  const state=fatal?'ERROR':last?.type==='PLANNER_RESPONSE'&&last.status==='DONE'&&last.content&&!pendingTools.length?'COMPLETE':pendingTools.length?'PENDING_TOOL':entries.length?'RUNNING':'UNAVAILABLE';
+
+  // Detecção abrangente de conclusão de turno:
+  // a) last?.type === 'PLANNER_RESPONSE' && last.status === 'DONE' && !pendingTools.length
+  // b) (last?.type === 'ASSISTANT_RESPONSE' || last?.type === 'MODEL_TURN' || last?.type === 'MESSAGE' || last?.role === 'assistant') && (last?.status === 'COMPLETED' || last?.status === 'DONE' || last?.content) && !pendingTools.length
+  // c) O log registrar um bloco final de resposta com ferramenta encerrada
+  const isPlannerDone = Boolean(
+    last?.type === 'PLANNER_RESPONSE' &&
+    (last.status === 'DONE' || last.status === 'COMPLETED') &&
+    !pendingTools.length
+  );
+
+  const isAssistantDone = Boolean(
+    (
+      last?.type === 'ASSISTANT_RESPONSE' ||
+      last?.type === 'MODEL_TURN' ||
+      last?.type === 'MESSAGE' ||
+      last?.role === 'assistant' ||
+      last?.source === 'MODEL'
+    ) &&
+    (last?.status === 'COMPLETED' || last?.status === 'DONE' || Boolean(last?.content)) &&
+    !pendingTools.length
+  );
+
+  const isFinalResponseWithClosedTool = Boolean(
+    !pendingTools.length &&
+    entries.length > 0 &&
+    entries.some(e =>
+      (e.type === 'PLANNER_RESPONSE' || e.type === 'ASSISTANT_RESPONSE' || e.type === 'MODEL_TURN' || e.role === 'assistant' || e.source === 'MODEL') &&
+      e.content
+    ) &&
+    (last?.status === 'DONE' || last?.status === 'COMPLETED')
+  );
+
+  // Considerar COMPLETE se o último registro do modelo contiver texto ou blocos de código e não possuir ferramentas pendentes
+  const lastModelEntry = [...entries].reverse().find(e =>
+    e.source === 'MODEL' ||
+    e.role === 'assistant' ||
+    ['PLANNER_RESPONSE', 'ASSISTANT_RESPONSE', 'MODEL_TURN', 'MESSAGE'].includes(e.type)
+  );
+
+  const hasModelTextOrCode = Boolean(
+    lastModelEntry &&
+    (
+      (typeof lastModelEntry.content === 'string' && lastModelEntry.content.trim().length > 0) ||
+      (lastModelEntry.content && typeof lastModelEntry.content === 'object') ||
+      (typeof lastModelEntry.text === 'string' && lastModelEntry.text.trim().length > 0) ||
+      (lastModelEntry.thinking && typeof lastModelEntry.thinking === 'string' && lastModelEntry.thinking.trim().length > 0)
+    )
+  );
+
+  const isModelTextComplete = Boolean(
+    hasModelTextOrCode &&
+    pendingTools.length === 0 &&
+    (!last || (last.type !== 'USER_INPUT' && last.role !== 'user' && last.source !== 'USER_EXPLICIT'))
+  );
+
+  const isComplete = Boolean(!fatal && (isPlannerDone || isAssistantDone || isFinalResponseWithClosedTool || isModelTextComplete));
+  const state = fatal ? 'ERROR' : isComplete ? 'COMPLETE' : pendingTools.length ? 'PENDING_TOOL' : entries.length ? 'RUNNING' : 'UNAVAILABLE';
   return {state,entries,pendingTools,lastStep:last?.step_index??null,abortedOnStepError};
 }
 
@@ -159,7 +216,11 @@ export class AgentTurnState {
     const prior=this.get(conversationId);
     if(prior&&['IN_FLIGHT','UNCERTAIN'].includes(prior.phase)){
       const priorTask: any = prior.task_id ? db.prepare('SELECT status FROM autonomous_tasks WHERE id=?').get(prior.task_id) : null;
-      if (priorTask && priorTask.status === 'completed') {
+      const dispatchedTime = prior.dispatched_at ? new Date(prior.dispatched_at).getTime() : 0;
+      const elapsedSec = dispatchedTime > 0 ? (Date.now() - dispatchedTime) / 1000 : Infinity;
+      const isMetaChat = taskId === undefined || taskId.startsWith('meta-') || taskId.startsWith('metachat-') || conversationId.startsWith('meta-') || conversationId.startsWith('metachat-');
+
+      if (priorTask?.status === 'completed' || elapsedSec > 15 || isMetaChat) {
         this.setPhase(conversationId, 'CONSUMED');
       } else {
         throw new Error('AGENT_TURN_UNCERTAIN: previous turn requires reconciliation before another message');

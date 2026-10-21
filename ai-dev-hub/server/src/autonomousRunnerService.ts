@@ -29,6 +29,8 @@ import { DiagnosticService } from './observability/diagnosticService.js';
 import { normalizeOrRecoverVerificationCommand } from './verificationCommand.js';
 import { HierarchicalOrchestrationService } from './hierarchicalOrchestrationService.js';
 import { ProjectOperationsService } from './projectOperationsService.js';
+import { LspService } from './lspService.js';
+import { EphemeralWorktreeService, EphemeralWorktreeInfo } from './ephemeralWorktreeService.js';
 
 function safeJsonParse<T>(raw: any, fallback: T): T {
   if (!raw || typeof raw !== 'string') return fallback;
@@ -327,6 +329,20 @@ export class AutonomousRunnerService {
     }
 
     if (probeEvaluation?.taskIsDone && probeEvaluation.verdict === 'PASS') {
+      if (probeEvaluation.evidence?.ciDoctorHealed) {
+        Logger.info(`[AutonomousRunnerService] Sonda Evaluator: Tarefa "${task.title}" auto-reparada pelo CI Doctor.`);
+        AutonomousManager.logEvent(
+          run.id,
+          task.id,
+          'supervisor',
+          'CI_DOCTOR_HEALED',
+          `Micro-patch cirúrgico aplicado com sucesso pelo CI Doctor durante reconciliação de turno.`,
+          {
+            diagnosis: probeEvaluation.evidence.ciDoctorDiagnosis,
+            patchApplied: probeEvaluation.evidence.ciDoctorPatchApplied
+          }
+        );
+      }
       const nowIso = new Date().toISOString();
       if (session?.provider_conversation_id) {
         AgentTurnState.setPhase(session.provider_conversation_id, 'CONSUMED');
@@ -485,6 +501,20 @@ export class AutonomousRunnerService {
       }
     }
     if (['BLOCKED', 'TIMEOUT', 'INCONCLUSIVE', 'TAMPERING_DETECTED'].includes(evaluation.verdict)) return false;
+    if (evaluation.evidence?.ciDoctorHealed) {
+      Logger.info(`[AutonomousRunnerService] Tarefa "${task.title}" auto-reparada pelo CI Doctor.`);
+      AutonomousManager.logEvent(
+        runId,
+        task.id,
+        'supervisor',
+        'CI_DOCTOR_HEALED',
+        `Micro-patch cirúrgico aplicado com sucesso pelo CI Doctor. Falha corrigida: ${evaluation.evidence.ciDoctorDiagnosis?.assertionMessage || 'Testes normalizados'}.`,
+        {
+          diagnosis: evaluation.evidence.ciDoctorDiagnosis,
+          patchApplied: evaluation.evidence.ciDoctorPatchApplied
+        }
+      );
+    }
     if (existingReport) {
       db.prepare(`
         UPDATE builder_reports
@@ -2137,10 +2167,12 @@ export class AutonomousRunnerService {
 
     let readyWorkers = WorkerRegistry.getReadyWorkers().filter(w => w.account_profile_id === selectedProfile.id);
     if (readyWorkers.length === 0) {
-      Logger.info(`[Multi-Worker Scheduler] Nenhum worker READY ativo. Solicitando bootstrap automático de Worker para conta ativa...`);
+      Logger.info(`[Multi-Worker Scheduler] Nenhum worker READY ativo. Solicitando bootstrap imediato de Worker para conta ativa...`);
       try {
         const bootstrapped = await WorkerRegistry.ensureWorkerAvailable(project.id);
-        if (bootstrapped) {
+        if (bootstrapped && (bootstrapped.status === 'READY' || (bootstrapped.status as string) === 'READY')) {
+          readyWorkers = [bootstrapped];
+        } else {
           readyWorkers = WorkerRegistry.getReadyWorkers().filter(w => w.account_profile_id === selectedProfile.id);
         }
       } catch (bootErr: any) {
@@ -3010,6 +3042,41 @@ export class AutonomousRunnerService {
         ? 'REPAIR'
         : PromptArchitectureService.detectWorkerMode({ title: task.title, description: task.description });
 
+      const effortLevel = engineeringPackage?.adaptiveEffort?.effortLevel;
+      const isRework = Boolean(task.retry_count && task.retry_count >= 1);
+      const isHighEffort = effortLevel === 'HIGH' || effortLevel === 'DEEP';
+      const isGitRepo = fs.existsSync(path.join(projectPath, '.git'));
+      const shouldRunConcurrentRollout = isGitRepo && (isHighEffort || isRework) && !process.env.DECOHUB_DISABLE_CONCURRENT_ROLLOUT;
+
+      let agentResult!: BuilderToSupervisorContract;
+
+      if (shouldRunConcurrentRollout) {
+        Logger.info(`[ConcurrentRollout] Acionando motor de trajetórias concorrentes (Best-of-N Rollout) para tarefa "${task.title}" (Esforço: ${effortLevel}, Retrabalho: ${isRework}).`);
+        const rollout = await AutonomousRunnerService.executeConcurrentRollout({
+          project,
+          run,
+          task,
+          branchName,
+          worker,
+          leaseId,
+          engineeringPackage,
+          contract,
+          isolatedEnv
+        });
+
+        agentResult = rollout.reportData;
+        evaluationResult = rollout.evaluationResult;
+        clearInterval(renewalInterval);
+        WorkerRegistry.releaseLease(leaseId, worker.id);
+        WorkerRegistry.updateWorkerStatus(worker.id, 'READY', {
+          last_checkpoint: `Rollout concorrente concluído para "${task.title}" por ${worker.name}`,
+          current_run_id: null,
+          current_task_id: null,
+          current_issue_number: null,
+        });
+        AutonomousRunnerService.releaseExecutionLock();
+      } else {
+
       let workerExecutionContract: any = null;
       try {
         workerExecutionContract = AutonomousManager.buildWorkerExecutionContract(task.id);
@@ -3455,12 +3522,41 @@ export class AutonomousRunnerService {
         current_issue_number: null,
       });
       AutonomousRunnerService.releaseExecutionLock();
+      }
 
       // 4. Phase C: Independent Evaluator objectively verifies the result in ISOLATION (Worker is IDLE)
       AutonomousRunnerService.setExecutionPhase('EVALUATOR_VERIFYING');
       db.prepare("UPDATE autonomous_runs SET status='testing',next_action='Evaluator executando verificação independente',updated_at=? WHERE id=?")
         .run(new Date().toISOString(), run.id);
       try {
+        // Pre-evaluation LSP syntax check on modified files
+        try {
+          const changedFiles = Array.isArray(agentResult.filesChanged) ? agentResult.filesChanged : [];
+          const lspDiagnosticsList: Array<{ file: string; line: number; message: string; severity: string }> = [];
+          for (const relFile of changedFiles) {
+            if (/\.(ts|tsx|js|jsx|mjs|cjs)$/i.test(relFile)) {
+              const absFile = path.isAbsolute(relFile) ? relFile : path.join(projectPath, relFile);
+              if (fs.existsSync(absFile)) {
+                const diags = await LspService.getDiagnostics(absFile);
+                const errors = diags.filter(d => d.severity === 'error');
+                for (const e of errors) {
+                  lspDiagnosticsList.push({ file: relFile, line: e.line, message: e.message, severity: e.severity });
+                }
+              }
+            }
+          }
+          if (lspDiagnosticsList.length > 0) {
+            Logger.warn(`[AutonomousRunnerService] LSP detectou ${lspDiagnosticsList.length} erro(s) de sintaxe em "${task.title}".`);
+            (agentResult as any).lspDiagnostics = lspDiagnosticsList;
+            if (!agentResult.problems) agentResult.problems = [];
+            for (const e of lspDiagnosticsList) {
+              agentResult.problems.push(`[LSP_SYNTAX_ERROR] ${e.file}:${e.line} - ${e.message}`);
+            }
+          }
+        } catch (lspErr: any) {
+          Logger.warn(`[AutonomousRunnerService] LSP diagnostics query skipped: ${lspErr.message}`);
+        }
+
         if (!evaluationResult) {
           evaluationResult = await IndependentEvaluator.evaluate(contract.id, projectPath, agentResult, {
             expectedScopeFiles: task.expected_files || [],
@@ -3614,6 +3710,20 @@ export class AutonomousRunnerService {
       executionSucceeded = evaluationResult.taskIsDone && (agentResult.status === 'success' || Boolean(isTransportTimeout));
 
       if (executionSucceeded) {
+        if (evaluationResult.evidence?.ciDoctorHealed) {
+          Logger.info(`[AutonomousRunner] Tarefa "${task.title}" auto-reparada pelo CI Doctor via micro-patch.`);
+          AutonomousManager.logEvent(
+            run.id,
+            task.id,
+            'supervisor',
+            'CI_DOCTOR_HEALED',
+            `Micro-patch cirúrgico aplicado com sucesso pelo CI Doctor. Falha corrigida: ${evaluationResult.evidence.ciDoctorDiagnosis?.assertionMessage || 'Testes normalizados'}.`,
+            {
+              diagnosis: evaluationResult.evidence.ciDoctorDiagnosis,
+              patchApplied: evaluationResult.evidence.ciDoctorPatchApplied
+            }
+          );
+        }
         try {
           const touchedBackend = (agentResult.filesChanged || []).some((f: string) =>
             f.includes('src/') || f.endsWith('.ts') || f.endsWith('.js') || f.includes('server') || f.includes('db')
@@ -3624,6 +3734,16 @@ export class AutonomousRunnerService {
           }
         } catch (specSyncErr: any) {
           Logger.warn(`[AutonomousRunner] Falha não bloqueante ao sincronizar contratos de backend com specs: ${specSyncErr.message}`);
+        }
+
+        // Auto-index altered files in AST Symbol Index
+        try {
+          if (agentResult.filesChanged && agentResult.filesChanged.length > 0) {
+            const { AstSymbolIndexService } = await import('./astSymbolIndexService.js');
+            AstSymbolIndexService.updateIndexForFiles(project.id, projectPath, agentResult.filesChanged);
+          }
+        } catch (idxErr: any) {
+          Logger.warn(`[AutonomousRunner] Falha não bloqueante ao atualizar AST Symbol Index: ${idxErr.message}`);
         }
       }
 
@@ -3886,6 +4006,23 @@ export class AutonomousRunnerService {
       }
     }
 
+      // Telemetry & Feedback: CI Doctor auto-healing audit
+      if (report.evaluation?.evidence?.ciDoctorHealed) {
+        Logger.info(`[AutonomousRunnerService] Tarefa "${task.title}" auto-reparada pelo CI Doctor.`);
+        AutonomousManager.logEvent(
+          run.id,
+          task.id,
+          'supervisor',
+          'CI_DOCTOR_HEALED',
+          `Micro-patch cirúrgico aplicado com sucesso pelo CI Doctor. Falha corrigida: ${report.evaluation.evidence.ciDoctorDiagnosis?.assertionMessage || 'Testes normalizados'}.`,
+          {
+            diagnosis: report.evaluation.evidence.ciDoctorDiagnosis,
+            patchApplied: report.evaluation.evidence.ciDoctorPatchApplied
+          }
+        );
+        feedback = `[CI DOCTOR HEALED]: Falha de teste sanada autonomamente via micro-patch cirúrgico (${report.evaluation.evidence.ciDoctorPatchApplied || 'micro-patch'}).\n${feedback}`;
+      }
+
       // Correction loop: Log Evaluator feedback if failed or tampered
       if (!report.evaluation || !report.evaluation.taskIsDone) {
         verdict = 'CHANGES_REQUESTED';
@@ -4089,6 +4226,365 @@ export class AutonomousRunnerService {
     } finally {
       AutonomousRunnerService.releaseExecutionLock();
     }
+  }
+
+  public static trajectoryRunnerHook?: (params: {
+    candidateLabel: 'candidate-A' | 'candidate-B';
+    worktreePath: string;
+    task: any;
+    strategyDescription: string;
+    promptVariation: string;
+  }) => Promise<{
+    filesChanged: string[];
+    problems?: string[];
+    status?: 'success' | 'failure';
+    summary?: string;
+  }>;
+
+  /**
+   * Avalia um candidato nos 4 portões de qualidade (Dev Tests, Visual/Anti-Slop, UX/F5, AppSec)
+   * adicionando bônus de simplicidade Karpathy para mudanças cirúrgicas e com baixo overhead.
+   */
+  public static calculateQualityGatesScore(evalResult: EvaluationResult, agentResult: BuilderToSupervisorContract): {
+    devTests: number;
+    visualAntiSlop: number;
+    uxJourney: number;
+    appSec: number;
+    simplicityBonus: number;
+    total: number;
+  } {
+    const summary = evalResult.evidence?.evidenceSummary;
+
+    // Portão 1: Dev Tests (Exit code 0 & conformidade com critérios de teste)
+    const isTestsPass = evalResult.exitCode === 0 || evalResult.verdict === 'PASS';
+    const totalCriteria = (evalResult.passedCriteria?.length || 0) + (evalResult.failedCriteria?.length || 0);
+    const criteriaRatio = totalCriteria > 0 ? (evalResult.passedCriteria?.length || 0) / totalCriteria : 1;
+    const devTests = isTestsPass ? (8.0 + (criteriaRatio * 2.0)) : Math.max(0, criteriaRatio * 5.0);
+
+    // Portão 2: Visual & Anti-Slop (Ausência de IA slop e padrões de código inflado)
+    const antiSlopOk = summary?.antiSlopPassed ?? true;
+    const designQualityOk = summary?.designQualityPassed ?? true;
+    const visualInspectionOk = summary?.visualInspectionPassed ?? true;
+    let visualAntiSlop = 10.0;
+    if (!antiSlopOk) visualAntiSlop -= 6.0;
+    if (!designQualityOk) visualAntiSlop -= 2.0;
+    if (!visualInspectionOk) visualAntiSlop -= 2.0;
+    visualAntiSlop = Math.max(0, visualAntiSlop);
+
+    // Portão 3: UX & User Journey / F5 (Preservação de jornadas e ausência de regressões)
+    const userJourneyOk = summary?.userJourneyPassed ?? true;
+    const uxJourney = userJourneyOk ? 10.0 : 4.0;
+
+    // Portão 4: AppSec & Pentest (Resiliência contra injeção e vulnerabilidades)
+    const securityPentestOk = summary?.securityPentestPassed ?? true;
+    const adversarialOk = summary?.adversarialChecksPassed ?? true;
+    let appSec = 10.0;
+    if (!securityPentestOk) appSec -= 6.0;
+    if (!adversarialOk) appSec -= 4.0;
+    appSec = Math.max(0, appSec);
+
+    // Bônus de Simplicidade Karpathy: soluções cirúrgicas com menos arquivos modificados
+    const filesCount = agentResult.filesChanged?.length || 0;
+    const simplicityBonus = filesCount <= 2 ? 1.0 : filesCount <= 5 ? 0.5 : 0;
+
+    // Score Ponderado: DevTests(40%) + AntiSlop(25%) + UX(15%) + AppSec(20%) + Bônus Simplicidade
+    const total = parseFloat((
+      (devTests * 0.40) +
+      (visualAntiSlop * 0.25) +
+      (uxJourney * 0.15) +
+      (appSec * 0.20) +
+      simplicityBonus
+    ).toFixed(2));
+
+    return {
+      devTests: parseFloat(devTests.toFixed(2)),
+      visualAntiSlop: parseFloat(visualAntiSlop.toFixed(2)),
+      uxJourney: parseFloat(uxJourney.toFixed(2)),
+      appSec: parseFloat(appSec.toFixed(2)),
+      simplicityBonus,
+      total
+    };
+  }
+
+  /**
+   * Executa trajetórias concorrentes (Best-of-N Rollout) em worktrees efêmeros isolados
+   * para tarefas de alta complexidade (HIGH/DEEP) ou retrabalho (retry_count >= 1).
+   */
+  public static async executeConcurrentRollout(params: {
+    project: any;
+    run: any;
+    task: any;
+    branchName: string;
+    worker: Worker;
+    leaseId: string;
+    engineeringPackage: any;
+    contract: any;
+    isolatedEnv?: NodeJS.ProcessEnv;
+  }): Promise<{
+    reportData: BuilderToSupervisorContract;
+    evaluationResult: EvaluationResult;
+  }> {
+    const { project, run, task, branchName, worker, leaseId, engineeringPackage, contract, isolatedEnv } = params;
+    const projectPath = project.path;
+
+    AutonomousManager.logEvent(
+      run.id,
+      task.id,
+      'system',
+      'CONCURRENT_ROLLOUT_START',
+      `Iniciando motor de trajetórias concorrentes (Best-of-N Rollout) para "${task.title}". Despachando 2 candidatos em worktrees efêmeros paralelos.`,
+      {
+        taskId: task.id,
+        effortLevel: engineeringPackage?.adaptiveEffort?.effortLevel,
+        retryCount: task.retry_count
+      }
+    );
+
+    ObservabilityService.emit({
+      level: 'INFO',
+      event: 'CONCURRENT_ROLLOUT_START',
+      message: `Iniciando Best-of-N Rollout para "${task.title}"`,
+      service: 'runner',
+      runId: run.id,
+      taskId: task.id,
+      metadata: {
+        effortLevel: engineeringPackage?.adaptiveEffort?.effortLevel,
+        retryCount: task.retry_count
+      }
+    });
+
+    // 1. Criar dois worktrees efêmeros isolados
+    const worktreeA = EphemeralWorktreeService.createEphemeralWorktree({
+      baseRepo: projectPath,
+      taskId: task.id,
+      candidateLabel: 'candidate-A'
+    });
+
+    const worktreeB = EphemeralWorktreeService.createEphemeralWorktree({
+      baseRepo: projectPath,
+      taskId: task.id,
+      candidateLabel: 'candidate-B'
+    });
+
+    // 2. Definir variações de prompt (conservadora vs cirúrgica)
+    const strategyA = 'Solução conservadora (Simplicity First - foco em simplicidade cirúrgica, poucas linhas e sem abstrações)';
+    const promptA = [
+      `[ESTRATÉGIA DE IMPLEMENTAÇÃO: SIMPLICITY FIRST (CONSERVADORA)]`,
+      `Foque na solução mais minimalista, cirúrgica e enxuta possível.`,
+      `- Escreva o menor número possível de novas linhas.`,
+      `- Evite criar novas classes, padrões ou abstrações adicionais.`,
+      `- Modifique apenas as funções estritamente necessárias para atender aos critérios de aceitação.`,
+      `- Preserve integralmente o restante do codebase existente.`
+    ].join('\n');
+
+    const strategyB = 'Solução cirúrgica (Robustez Estrutural - tipagem defensiva, validação rigorosa e cobertura de edge cases)';
+    const promptB = [
+      `[ESTRATÉGIA DE IMPLEMENTAÇÃO: ESTRUTURADA E RESILIENTE (CIRÚRGICA)]`,
+      `Foque em máxima robustez técnica, tipagem forte e cobertura de edge cases.`,
+      `- Garanta tratamento defensivo de erros e validações estritas de entrada.`,
+      `- Utilize estruturas de dados com tempo de execução previsível e baixo overhead.`,
+      `- Assegure que todos os critérios de aceitação e testes do contrato passem sem avisos.`
+    ].join('\n');
+
+    const runCandidate = async (
+      candidateLabel: 'candidate-A' | 'candidate-B',
+      worktree: EphemeralWorktreeInfo,
+      strategyDescription: string,
+      promptVariation: string
+    ) => {
+      let candidateReport: BuilderToSupervisorContract;
+
+      if (AutonomousRunnerService.trajectoryRunnerHook) {
+        const hookRes = await AutonomousRunnerService.trajectoryRunnerHook({
+          candidateLabel,
+          worktreePath: worktree.worktreePath,
+          task,
+          strategyDescription,
+          promptVariation
+        });
+        candidateReport = {
+          status: hookRes.status || 'success',
+          implemented: [`[${candidateLabel}] ${hookRes.summary || 'Implementação concluída'}`],
+          filesChanged: hookRes.filesChanged || [],
+          commandsExecuted: [],
+          tests: { ran: true, passed: true },
+          buildStatus: 'success',
+          decisions: [],
+          problems: hookRes.problems || [],
+          agentThoughts: hookRes.summary || `${candidateLabel} concluiu a trajetória com sucesso.`
+        };
+      } else {
+        const { AgentApiGateway } = await import('./agentApiGateway.js');
+        if (AgentApiGateway.isOfflineMode()) {
+          const filesOnDisk = fs.existsSync(worktree.worktreePath)
+            ? (task.expected_files || []).filter((f: string) => fs.existsSync(path.join(worktree.worktreePath, f)))
+            : [];
+          candidateReport = {
+            status: 'success',
+            implemented: [`Modo offline: execução simulada no worktree de ${candidateLabel}`],
+            filesChanged: filesOnDisk,
+            commandsExecuted: [],
+            tests: { ran: false },
+            buildStatus: 'success',
+            decisions: [],
+            problems: [],
+            agentThoughts: `${candidateLabel} executado em modo offline com sucesso.`
+          };
+        } else {
+          const antigravityProvider = new AntigravityProvider(isolatedEnv);
+          const { session: candidateSession } = await AgentSessionManager.getOrCreateAgentSession(
+            project.id,
+            'WORKER',
+            {
+              model: 'flash',
+              env: isolatedEnv,
+              initialPrompt: promptVariation,
+              accountProfileId: worker.account_profile_id || 'acc-pro-1',
+              runId: run.id
+            }
+          );
+          await antigravityProvider.sendTask(candidateSession.provider_conversation_id, {
+            mode: 'IMPLEMENT',
+            task: {
+              id: `${task.id}-${candidateLabel}`,
+              title: `[${candidateLabel}] ${task.title}`,
+              description: `${task.description || ''}\n\n${promptVariation}`,
+              milestone: task.milestone || 'M1',
+              verificationCommand: engineeringPackage.taskContract.verificationCommand,
+              doneWhen: engineeringPackage.taskContract.doneWhen
+            },
+            context: {
+              projectName: project.name,
+              projectPath: worktree.worktreePath,
+              objective: project.objective
+            },
+            requirements: [
+              `Criar/editar código funcional exclusivamente dentro de "${worktree.worktreePath}"`,
+              promptVariation
+            ],
+            acceptanceCriteria: engineeringPackage.taskContract.acceptanceCriteria,
+            constraints: [`Não modificar arquivos fora de "${worktree.worktreePath}"`],
+            supervisorInstructions: promptVariation
+          });
+
+          candidateReport = await antigravityProvider.getResult(
+            candidateSession.provider_conversation_id,
+            180000,
+            worktree.worktreePath
+          );
+        }
+      }
+
+      // Executa o IndependentEvaluator isolado no worktree do candidato
+      const evalResult = await IndependentEvaluator.evaluate(
+        contract.id,
+        worktree.worktreePath,
+        candidateReport,
+        {
+          expectedScopeFiles: task.expected_files || [],
+          effortLevel: engineeringPackage?.adaptiveEffort?.effortLevel,
+          taskMode: 'IMPLEMENT'
+        }
+      );
+
+      const scores = AutonomousRunnerService.calculateQualityGatesScore(evalResult, candidateReport);
+
+      return {
+        candidateLabel,
+        worktree,
+        promptVariation,
+        strategyDescription,
+        agentResult: candidateReport,
+        evaluationResult: evalResult,
+        scores
+      };
+    };
+
+    // 3. Executar ambos os candidatos concorrentemente em seus worktrees
+    const [candA, candB] = await Promise.all([
+      runCandidate('candidate-A', worktreeA, strategyA, promptA),
+      runCandidate('candidate-B', worktreeB, strategyB, promptB)
+    ]);
+
+    // 4. Selecionar o candidato vencedor com maior pontuação nos 4 portões de qualidade
+    const winner = candA.scores.total >= candB.scores.total ? candA : candB;
+    const loser = winner === candA ? candB : candA;
+
+    AutonomousManager.logEvent(
+      run.id,
+      task.id,
+      'supervisor',
+      'ROLLOUT_WINNER_SELECTED',
+      `🏆 Vencedor Best-of-N selecionado: ${winner.candidateLabel} (Score: ${winner.scores.total}/10 vs ${loser.scores.total}/10). Dev Tests: ${winner.scores.devTests}/10, Visual/Anti-Slop: ${winner.scores.visualAntiSlop}/10, UX: ${winner.scores.uxJourney}/10, AppSec: ${winner.scores.appSec}/10.`,
+      {
+        winner: winner.candidateLabel,
+        winnerScores: winner.scores,
+        loser: loser.candidateLabel,
+        loserScores: loser.scores
+      }
+    );
+
+    ObservabilityService.emit({
+      level: 'INFO',
+      event: 'CONCURRENT_ROLLOUT_WINNER_SELECTED',
+      message: `Vencedor Best-of-N: ${winner.candidateLabel} (${winner.scores.total} vs ${loser.scores.total})`,
+      service: 'runner',
+      runId: run.id,
+      taskId: task.id,
+      metadata: {
+        winner: winner.candidateLabel,
+        winnerScores: winner.scores,
+        loser: loser.candidateLabel,
+        loserScores: loser.scores
+      }
+    });
+
+    // 5. Integrar o código do vencedor no projeto e branch principal da tarefa
+    for (const relFile of winner.agentResult.filesChanged) {
+      const srcFile = path.join(winner.worktree.worktreePath, relFile);
+      const destFile = path.join(projectPath, relFile);
+      if (fs.existsSync(srcFile)) {
+        fs.mkdirSync(path.dirname(destFile), { recursive: true });
+        fs.copyFileSync(srcFile, destFile);
+      }
+    }
+
+    try {
+      execSync(`git -C "${projectPath}" add -A`, { stdio: 'pipe' });
+      execSync(`git -C "${projectPath}" commit -m "rollout(winner): integrate ${winner.candidateLabel} for ${task.title}"`, { stdio: 'pipe' });
+    } catch {}
+
+    // 6. Desmontar e remover com segurança o worktree perdedor e vencedor, limpando referências Git
+    try {
+      EphemeralWorktreeService.removeWorktree(loser.worktree.worktreePath, {
+        baseRepo: projectPath,
+        deleteBranch: true
+      });
+    } catch (err: any) {
+      Logger.warn(`[ConcurrentRollout] Falha não bloqueante ao remover worktree perdedor: ${err.message}`);
+    }
+
+    try {
+      EphemeralWorktreeService.removeWorktree(winner.worktree.worktreePath, {
+        baseRepo: projectPath,
+        deleteBranch: true
+      });
+    } catch (err: any) {
+      Logger.warn(`[ConcurrentRollout] Falha não bloqueante ao remover worktree vencedor: ${err.message}`);
+    }
+
+    EphemeralWorktreeService.pruneOrphanedWorktrees(projectPath);
+
+    return {
+      reportData: {
+        ...winner.agentResult,
+        implemented: [
+          `[BEST-OF-N ROLLOUT WINNER: ${winner.candidateLabel}]`,
+          ...(winner.agentResult.implemented || [])
+        ]
+      },
+      evaluationResult: winner.evaluationResult
+    };
   }
 
   public static async postCompletionVisualSummaryToChat(projectId: string, runId: string) {

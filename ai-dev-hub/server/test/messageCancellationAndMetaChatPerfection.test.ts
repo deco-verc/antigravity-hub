@@ -14,6 +14,9 @@ import { ExecutionCoordinator } from '../src/executionCoordinator.js';
 import { AutonomousManager } from '../src/autonomousManager.js';
 import { AgentApiGateway } from '../src/agentApiGateway.js';
 import { db } from '../src/db.js';
+import { GeminiSupervisorProvider } from '../src/geminiSupervisorProvider.js';
+import { observeTranscript } from '../src/agentTurnState.js';
+import { AntigravityProvider } from '../src/antigravityProvider.js';
 
 describe('FASE 21: Cancelamento Universal de Mensagens & Perfeição Operacional do Meta-Chat', () => {
   let server: any;
@@ -379,5 +382,173 @@ export function isFenced(): boolean {
     assert.equal(actions.length, 1);
     assert.equal(actions[0].filePath, 'server/src/utils/__fencedUtilTest.ts');
     assert.ok(actions[0].content.includes('isFenced'));
+  });
+
+  // =========================================================================
+  // PARTE 4: Desbloqueio e Execução Real no Chat dos Projetos
+  // =========================================================================
+
+  it('4.1 Nova instrução substantiva em projeto com run anterior blocked ou error cria novo run sem enfileirar passivamente', async () => {
+    const oldRunId = `run-blocked-${Date.now()}`;
+    const nowIso = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO autonomous_runs (id, project_id, name, objective, briefing, status, autonomy_mode, branch_name, max_hours, max_cycles, current_cycle, start_time, created_at, updated_at, last_error)
+      VALUES (?, ?, 'Run Antigo Bloqueado', 'Objetivo antigo', 'Briefing antigo', 'blocked', 'autonomous', 'branch-old', 4.0, 20, 1, ?, ?, ?, 'Runtime indisponivel')
+    `).run(oldRunId, testProjectId, nowIso, nowIso, nowIso);
+
+    const res = await fetch(`${baseUrl}/projects/${testProjectId}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: 'Implemente o modulo de exportacao CSV para clientes'
+      })
+    });
+
+    assert.equal(res.status, 200);
+    const data: any = await res.json();
+
+    assert.equal(data.execution.status, 'started');
+    assert.ok(data.autonomousRun);
+    assert.notEqual(data.autonomousRun.id, oldRunId);
+
+    const oldRunRow: any = db.prepare('SELECT status FROM autonomous_runs WHERE id = ?').get(oldRunId);
+    assert.equal(oldRunRow.status, 'failed');
+  });
+
+  it('4.2 Envio de "resolver" ou "retomar" limpa last_error e redefine tarefas bloqueadas para ready chamando resumeRun', async () => {
+    const stalledRunId = `run-stalled-${Date.now()}`;
+    const nowIso = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO autonomous_runs (id, project_id, name, objective, briefing, status, autonomy_mode, branch_name, max_hours, max_cycles, current_cycle, start_time, created_at, updated_at, last_error)
+      VALUES (?, ?, 'Run Travado', 'Objetivo', 'Briefing', 'blocked', 'autonomous', 'branch-stalled', 4.0, 20, 1, ?, ?, ?, 'Falha temporaria de cota')
+    `).run(stalledRunId, testProjectId, nowIso, nowIso, nowIso);
+
+    const taskId = `task-blocked-${Date.now()}`;
+    db.prepare(`
+      INSERT INTO autonomous_tasks (id, run_id, title, description, status, lifecycle_state, order_index, created_at, updated_at)
+      VALUES (?, ?, 'Tarefa Bloqueada', 'Desc', 'blocked', 'BLOCKED', 1, ?, ?)
+    `).run(taskId, stalledRunId, nowIso, nowIso);
+
+    const res = await fetch(`${baseUrl}/projects/${testProjectId}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: 'resolver'
+      })
+    });
+
+    assert.equal(res.status, 200);
+    const data: any = await res.json();
+    assert.ok(data.autonomousRun);
+    assert.equal(data.autonomousRun.id, stalledRunId);
+
+    const taskRow: any = db.prepare('SELECT status, lifecycle_state FROM autonomous_tasks WHERE id = ?').get(taskId);
+    assert.ok(taskRow.status === 'ready' || taskRow.status === 'needs_changes' || taskRow.lifecycle_state === 'READY' || taskRow.lifecycle_state === 'REWORK_REQUIRED');
+  });
+
+  it('4.3 Idempotency Guard: createReservedRun finaliza run em error/blocked ou sem tarefas pendentes e permite novo run', async () => {
+    const errorRunId = `run-error-${Date.now()}`;
+    const nowIso = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO autonomous_runs (id, project_id, name, objective, briefing, status, autonomy_mode, branch_name, max_hours, max_cycles, current_cycle, start_time, created_at, updated_at, last_error)
+      VALUES (?, ?, 'Run Erro', 'Objetivo erro', 'Briefing erro', 'error', 'autonomous', 'branch-err', 4.0, 20, 1, ?, ?, ?, 'CRASH')
+    `).run(errorRunId, testProjectId, nowIso, nowIso, nowIso);
+
+    const newRun = await AutonomousManager.createRun({
+      projectId: testProjectId,
+      name: 'Novo Run Apos Erro',
+      objective: 'Construir nova feature',
+      briefing: 'Briefing'
+    });
+
+    assert.ok(newRun);
+    assert.notEqual(newRun.id, errorRunId);
+
+    const oldRow: any = db.prepare('SELECT status FROM autonomous_runs WHERE id = ?').get(errorRunId);
+    assert.equal(oldRow.status, 'failed');
+  });
+
+  // =========================================================================
+  // PARTE 5: Reconhecimento Imediato de Respostas Conversacionais & Término de Turno
+  // =========================================================================
+
+  it('5.1 GeminiSupervisorProvider.waitForResponse extrai resposta conversacional ou JSON de tarefas imediatamente sem esperar timeout', async () => {
+    const tempBrainDir = fs.mkdtempSync(path.join(os.tmpdir(), 'decohub-supervisor-test-'));
+    const convId = `conv-${Date.now()}`;
+    const logDir = path.join(tempBrainDir, convId, '.system_generated', 'logs');
+    fs.mkdirSync(logDir, { recursive: true });
+
+    const transcriptFile = path.join(logDir, 'transcript.jsonl');
+    const tasksJson = JSON.stringify([
+      { title: 'Configurar banco', description: 'Criar migrations e schema inicial' }
+    ]);
+    const line = JSON.stringify({
+      step_index: 1,
+      type: 'MODEL_TURN',
+      role: 'assistant',
+      content: `Entendido! Aqui esta o planejamento inicial:\n\`\`\`json\n${tasksJson}\n\`\`\`\n`
+    });
+    fs.writeFileSync(transcriptFile, line + '\n', 'utf8');
+
+    const supervisor = new GeminiSupervisorProvider({} as any, 'acc-test');
+    (supervisor as any).appDataBrainDir = tempBrainDir;
+
+    const start = Date.now();
+    const result = await supervisor.waitForResponse(convId, 10000, 0, 'PLAN');
+    const elapsed = Date.now() - start;
+
+    assert.ok(result.includes('Configurar banco'));
+    assert.ok(elapsed < 2000, `Deve retornar imediatamente sem travar (levou ${elapsed}ms)`);
+  });
+
+  it('5.2 observeTranscript detecta COMPLETE se último registro do modelo contiver texto ou código sem ferramentas pendentes', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'decohub-observe-test-'));
+    const transcriptFile = path.join(tempDir, 'transcript.jsonl');
+
+    const lines = [
+      JSON.stringify({ step_index: 0, type: 'USER_INPUT', role: 'user', content: 'Inicie a implementacao' }),
+      JSON.stringify({
+        step_index: 1,
+        type: 'MESSAGE',
+        role: 'assistant',
+        content: 'Aqui esta a implementacao concluida no arquivo utils.ts:\n```ts\nexport const ready = true;\n```',
+        tool_calls: []
+      })
+    ];
+    fs.writeFileSync(transcriptFile, lines.join('\n') + '\n', 'utf8');
+
+    const obs = observeTranscript(transcriptFile, 0);
+    assert.equal(obs.state, 'COMPLETE');
+    assert.equal(obs.pendingTools.length, 0);
+  });
+
+  it('5.3 AntigravityProvider.getResult finaliza turno imediatamente ao detectar resposta final do assistente', async () => {
+    const tempBrainDir = fs.mkdtempSync(path.join(os.tmpdir(), 'decohub-antigravity-test-'));
+    const sessionId = `session-${Date.now()}`;
+    const logDir = path.join(tempBrainDir, sessionId, '.system_generated', 'logs');
+    fs.mkdirSync(logDir, { recursive: true });
+
+    const transcriptFile = path.join(logDir, 'transcript.jsonl');
+    const lines = [
+      JSON.stringify({ step_index: 0, type: 'USER_INPUT', content: 'Execute o teste' }),
+      JSON.stringify({
+        step_index: 1,
+        type: 'ASSISTANT_RESPONSE',
+        content: 'Trabalho finalizado com sucesso.',
+        tool_calls: []
+      })
+    ];
+    fs.writeFileSync(transcriptFile, lines.join('\n') + '\n', 'utf8');
+
+    const provider = new AntigravityProvider();
+    (provider as any).appDataBrainDir = tempBrainDir;
+
+    const start = Date.now();
+    const result = await provider.getResult(sessionId, 5000, tempBrainDir);
+    const elapsed = Date.now() - start;
+
+    assert.equal(result.status, 'success');
+    assert.equal(result.rawResponse, 'Trabalho finalizado com sucesso.');
+    assert.ok(elapsed < 2000, `Deve finalizar imediatamente sem aguardar timeout (levou ${elapsed}ms)`);
   });
 });

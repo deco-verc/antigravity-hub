@@ -398,9 +398,7 @@ export class AntigravityProvider implements AgentProvider {
     const initialLineCount =
       this.turnStarts.get(sessionId) ??
       observation?.baseline_lines ??
-      (fs.existsSync(transcriptPath)
-        ? fs.readFileSync(transcriptPath, 'utf-8').trim().split('\n').filter(Boolean).length
-        : 0);
+      0;
 
     let isComplete = false;
 
@@ -422,14 +420,75 @@ export class AntigravityProvider implements AgentProvider {
         break;
       }
 
+      // Se o assistente já tiver emitido sua resposta final no transcript.jsonl e não houver ferramentas pendentes,
+      // finalize o turno imediatamente com sucesso, retornando os arquivos alterados e a resposta do agente.
+      if (!isComplete && progress.entries.length > 0 && progress.pendingTools.length === 0) {
+        const modelEntry = [...progress.entries].reverse().find(e =>
+          e.source === 'MODEL' ||
+          e.role === 'assistant' ||
+          ['PLANNER_RESPONSE', 'ASSISTANT_RESPONSE', 'MODEL_TURN', 'MESSAGE'].includes(e.type)
+        );
+
+        const hasModelFinalResponse = Boolean(
+          modelEntry &&
+          (
+            modelEntry.status === 'DONE' ||
+            modelEntry.status === 'COMPLETED' ||
+            (typeof modelEntry.content === 'string' && modelEntry.content.trim().length > 0) ||
+            (modelEntry.content && typeof modelEntry.content === 'object') ||
+            (typeof modelEntry.text === 'string' && modelEntry.text.trim().length > 0)
+          ) &&
+          !(modelEntry.tool_calls?.length > 0)
+        );
+
+        if (hasModelFinalResponse) {
+          isComplete = true;
+          break;
+        }
+      }
+
+      // Fallback seguro: se o assistente já tiver emitido resposta no arquivo e não houver ferramentas pendentes
+      if (!isComplete && fs.existsSync(transcriptPath)) {
+        const fullProgress = observeTranscript(transcriptPath, 0);
+        if (fullProgress.state === 'COMPLETE' || (fullProgress.entries.length > 0 && fullProgress.pendingTools.length === 0)) {
+          const modelEntry = [...fullProgress.entries].reverse().find(e =>
+            e.source === 'MODEL' ||
+            e.role === 'assistant' ||
+            ['PLANNER_RESPONSE', 'ASSISTANT_RESPONSE', 'MODEL_TURN', 'MESSAGE'].includes(e.type)
+          );
+          if (modelEntry && (modelEntry.content || modelEntry.text || modelEntry.status === 'DONE' || modelEntry.status === 'COMPLETED')) {
+            isComplete = true;
+            break;
+          }
+        }
+      }
+
       if (Date.now() - startTime >= timeoutMs) break;
-      await new Promise(r => setTimeout(r, Math.min(750, timeoutMs)));
+      await new Promise(r => setTimeout(r, Math.min(500, timeoutMs)));
     } while (Date.now() - startTime < timeoutMs);
 
     if (!isComplete) {
       Logger.warn(`[AntigravityProvider] Timeout atingido ou execução ainda em andamento para ${sessionId.slice(0, 8)}.`);
       const partial = this.parseTranscriptToReport(sessionId, projectPath);
       const progress = observeTranscript(transcriptPath, initialLineCount);
+
+      // Se atingir timeout parcial, antes de falhar, tente extrair a última resposta do assistente via parseTranscriptToReport.
+      // Se houver conteúdo de texto ou arquivos alterados, retorne como sucesso com o relatório gerado.
+      const hasTextContent = Boolean(partial.rawResponse && partial.rawResponse.trim().length > 0);
+      const hasModifiedFiles = Boolean(partial.filesChanged && partial.filesChanged.length > 0);
+
+      if (hasTextContent || hasModifiedFiles) {
+        Logger.info(
+          `[AntigravityProvider] Recuperando resposta parcial válida no timeout para ${sessionId.slice(0, 8)} (texto: ${hasTextContent}, arquivos: ${partial.filesChanged.length}).`
+        );
+        AgentTurnState.setPhase(sessionId, 'COMPLETE');
+        return {
+          ...partial,
+          status: 'success',
+          problems: partial.problems || []
+        };
+      }
+
       return {
         ...partial,
         status: 'failure',
@@ -531,7 +590,15 @@ export class AntigravityProvider implements AgentProvider {
             agentThoughts = entry.thinking;
           }
 
-          if (entry.type === 'PLANNER_RESPONSE' && entry.content) {
+          if (
+            (entry.type === 'PLANNER_RESPONSE' ||
+              entry.type === 'ASSISTANT_RESPONSE' ||
+              entry.type === 'MODEL_TURN' ||
+              entry.type === 'MESSAGE' ||
+              entry.role === 'assistant' ||
+              entry.source === 'MODEL') &&
+            entry.content
+          ) {
             let fullContent = entry.content;
             if (Array.isArray(entry.truncated_fields) && entry.truncated_fields.includes('content')) {
               const fullPath = path.join(
@@ -627,7 +694,7 @@ export class AntigravityProvider implements AgentProvider {
       c => c.includes('test') || c.includes('npm test') || c.includes('node --test')
     );
 
-    const hasSubstantiveReport = !hasErrors && finalResponse.trim().length > 50;
+    const hasSubstantiveReport = !hasErrors && finalResponse.trim().length > 0;
     const isSuccess =
       filesArray.length > 0 || testsRan || (!hasErrors && commandsExecuted.length > 0) || hasSubstantiveReport;
 

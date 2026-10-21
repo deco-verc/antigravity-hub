@@ -1386,9 +1386,12 @@ export interface MetaChatMessageItem {
 }
 
 export interface MetaChatResponseData {
-  message: MetaChatMessageItem;
-  filesChanged: string[];
-  typecheck: {
+  success?: boolean;
+  message?: MetaChatMessageItem;
+  turnId?: string;
+  status?: string;
+  filesChanged?: string[];
+  typecheck?: {
     passed: boolean;
     durationMs: number;
     output?: string;

@@ -110,6 +110,14 @@ export class AccountProfileManager {
   }
   private static _verifyProbeOverride: ((profile: AccountProfile) => boolean) | null = null;
   private static runtimeBootLocks = new Map<string, number>();
+  private static runningInstanceCache = new Map<string, { data: { address: string; csrfToken: string; pid: number } | null; expiresAt: number }>();
+  private static authEvidenceCache = new Map<string, { data: { exists: boolean; detectedUser: string | null; onboardingCompleted: boolean; hasAuthEvidence: boolean; storagePath: string | null }; expiresAt: number }>();
+
+  static clearRuntimeCaches(): void {
+    this.runningInstanceCache.clear();
+    this.authEvidenceCache.clear();
+    this.liveLsInstanceCache = null;
+  }
 
   static setVerifyProbeOverrideForTest(probe: ((profile: AccountProfile) => boolean) | null): void {
     this._verifyProbeOverride = probe;
@@ -134,6 +142,8 @@ export class AccountProfileManager {
       AccountProfileManager.isOfflineMode() ||
       Boolean(this._verifyProbeOverride) ||
       process.env.NODE_ENV === 'test' ||
+      Boolean(process.env.NODE_TEST_CONTEXT) ||
+      process.execArgv.some(a => a.startsWith('--test')) ||
       process.execArgv.includes('--test')
     );
   }
@@ -786,7 +796,7 @@ export class AccountProfileManager {
    */
   static ensureProfileRuntimeRunningSync(
     profile: AccountProfile,
-    timeoutMs = 14000
+    timeoutMs = 2500
   ): { address: string; csrfToken: string; pid: number } | null {
     if (this.isAutomatedTestRuntime()) return null;
 
@@ -830,26 +840,21 @@ export class AccountProfileManager {
       }
     }
 
-    // Wait synchronously (zero CPU spin via Atomics.wait) for child language_server.exe to bind port & CSRF token
-    const deadline = Date.now() + timeoutMs;
-    const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
-    while (Date.now() < deadline) {
-      Atomics.wait(waitBuffer, 0, 0, 600);
-      this.ensureProfileDirectoriesAndSyncAuth(profile.environment_path);
-      const instance = this.getRunningInstanceForProfile(profile.environment_path);
-      if (instance) {
-        Logger.success(
-          `[AccountProfileManager] Runtime da conta "${profile.display_name}" (${profile.id}) ativo em ${instance.address} (PID ${instance.pid}).`
-        );
-        return instance;
-      }
+    // Completely non-blocking check without Atomics.wait to never freeze Express Event Loop
+    this.ensureProfileDirectoriesAndSyncAuth(profile.environment_path);
+    const instance = this.getRunningInstanceForProfile(profile.environment_path);
+    if (instance) {
+      Logger.success(
+        `[AccountProfileManager] Runtime da conta "${profile.display_name}" (${profile.id}) ativo em ${instance.address} (PID ${instance.pid}).`
+      );
+      return instance;
     }
-
-    return this.getRunningInstanceForProfile(profile.environment_path);
+    return null;
   }
 
   /**
    * Asynchronous wrapper to boot or verify a profile's background runtime on demand
+   * NUNCA usa Atomics.wait - usa loop assíncrono real para não bloquear o Event Loop do Express
    */
   static async ensureProfileRuntimeRunning(
     profileOrId: string | AccountProfile,
@@ -861,7 +866,57 @@ export class AccountProfileManager {
     const existing = this.getRunningInstanceForProfile(profile.environment_path);
     if (existing) return existing;
 
-    return this.ensureProfileRuntimeRunningSync(profile, timeoutMs);
+    const antigravityExe = AntigravityDiscovery.getAntigravityAppExe();
+    if (!antigravityExe) return null;
+
+    const canonicalUserDataDir = this.ensureProfileDirectoriesAndSyncAuth(profile.environment_path);
+    const evidence = this.inspectLocalAuthEvidence(profile.environment_path);
+    if (!evidence.hasAuthEvidence) {
+      return null;
+    }
+
+    const isLegacyDefault =
+      normalizeRuntimePath(profile.environment_path) === normalizeRuntimePath(this.defaultRoamingPath);
+
+    const lastBootAttempt = this.runtimeBootLocks.get(profile.id) || 0;
+    if (Date.now() - lastBootAttempt > 8000) {
+      this.runtimeBootLocks.set(profile.id, Date.now());
+      try {
+        const cleanEnv = this.buildIsolatedSpawnEnv(profile);
+        const args = isLegacyDefault ? [] : [`--user-data-dir=${canonicalUserDataDir}`];
+        Logger.info(
+          `[AccountProfileManager] Auto-iniciando runtime isolado em background para a conta "${profile.display_name}" (${profile.id})...`
+        );
+        const child = spawn(antigravityExe, args, {
+          detached: true,
+          stdio: 'ignore',
+          env: cleanEnv,
+          windowsHide: true
+        });
+        child.on('error', err => {
+          Logger.warn(`[AccountProfileManager] Aviso no auto-boot do perfil ${profile.id}: ${err.message}`);
+        });
+        child.unref();
+      } catch (spawnErr: any) {
+        Logger.warn(`[AccountProfileManager] Falha ao iniciar runtime do perfil ${profile.id}: ${spawnErr.message}`);
+        return null;
+      }
+    }
+
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 600));
+      this.ensureProfileDirectoriesAndSyncAuth(profile.environment_path);
+      const instance = this.getRunningInstanceForProfile(profile.environment_path);
+      if (instance) {
+        Logger.success(
+          `[AccountProfileManager] Runtime da conta "${profile.display_name}" (${profile.id}) ativo em ${instance.address} (PID ${instance.pid}).`
+        );
+        return instance;
+      }
+    }
+
+    return this.getRunningInstanceForProfile(profile.environment_path);
   }
 
   private static defaultRoamingPathParent(): string {
@@ -928,14 +983,24 @@ export class AccountProfileManager {
     hasAuthEvidence: boolean;
     storagePath: string | null;
   } {
+    const cacheKey = environmentPath ? path.resolve(environmentPath).toLowerCase() : '';
+    const cached = this.authEvidenceCache.get(cacheKey);
+    if (cached && Date.now() < cached.expiresAt) {
+      return cached.data;
+    }
+
     if (!environmentPath || !fs.existsSync(environmentPath)) {
-      return {
+      const emptyResult = {
         exists: false,
         detectedUser: null,
         onboardingCompleted: false,
         hasAuthEvidence: false,
         storagePath: null
       };
+      if (cacheKey) {
+        this.authEvidenceCache.set(cacheKey, { data: emptyResult, expiresAt: Date.now() + 5000 });
+      }
+      return emptyResult;
     }
 
     const isDefault =
@@ -1026,13 +1091,17 @@ export class AccountProfileManager {
     }
 
     const hasAuthEvidence = Boolean(detectedUser && detectedUser.includes('@'));
-    return {
+    const result = {
       exists: true,
       detectedUser,
       onboardingCompleted,
       hasAuthEvidence,
       storagePath: matchedStoragePath
     };
+    if (cacheKey) {
+      this.authEvidenceCache.set(cacheKey, { data: result, expiresAt: Date.now() + 10000 });
+    }
+    return result;
   }
 
   static verifyProfile(
@@ -1401,11 +1470,80 @@ export class AccountProfileManager {
     });
   }
 
+  private static liveLsInstanceCache: { data: { address: string; csrfToken: string; pid: number } | null; expiresAt: number } | null = null;
+
+  static findAnyLiveLanguageServerInstance(): { address: string; csrfToken: string; pid: number } | null {
+    if (this.isOfflineMode() || this.isAutomatedTestRuntime()) return null;
+    const now = Date.now();
+    if (this.liveLsInstanceCache && now < this.liveLsInstanceCache.expiresAt) {
+      return this.liveLsInstanceCache.data;
+    }
+
+    try {
+      const script = `
+        $ErrorActionPreference = 'Stop';
+        $procs = @(Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('language_server.exe','language_server_windows_x64.exe') });
+        $found = $null;
+        foreach ($p in $procs) {
+          $match = [regex]::Match($p.CommandLine, '--csrf_token(?:=|\\s+)([a-zA-Z0-9_\\-]+)');
+          if ($match.Success) {
+            $ports = @(Get-NetTCPConnection -OwningProcess $p.ProcessId -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty LocalPort -Unique);
+            $port = if ($ports.Count) { ($ports | Measure-Object -Maximum).Maximum } else { $null };
+            if ($port -and $port -gt 0 -and $port -le 65535) {
+              $found = [PSCustomObject]@{ pid=$p.ProcessId; port=$port; csrfToken=$match.Groups[1].Value };
+              break;
+            }
+          }
+        }
+        if ($found) { ConvertTo-Json -InputObject $found -Compress } else { '' }
+      `;
+      const output = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+        encoding: 'utf8',
+        timeout: 8000,
+        windowsHide: true
+      }).trim();
+
+      if (!output) {
+        this.liveLsInstanceCache = { data: null, expiresAt: Date.now() + 4000 };
+        return null;
+      }
+
+      const parsed = JSON.parse(output);
+      if (parsed && Number.isInteger(parsed.port) && parsed.csrfToken && Number.isInteger(parsed.pid)) {
+        const result = { address: `127.0.0.1:${parsed.port}`, csrfToken: String(parsed.csrfToken), pid: Number(parsed.pid) };
+        this.liveLsInstanceCache = { data: result, expiresAt: Date.now() + 4000 };
+        return result;
+      }
+    } catch (err: any) {
+      Logger.warn(`[AccountProfileManager] Falha ao detectar language server ativo global: ${err.message}`);
+    }
+
+    this.liveLsInstanceCache = { data: null, expiresAt: Date.now() + 4000 };
+    return null;
+  }
+
   static getRunningInstanceForProfile(envPath: string): { address: string; csrfToken: string; pid: number } | null {
     if (AccountProfileManager.isOfflineMode()) return null;
+    const isTest = this.isAutomatedTestRuntime();
+    const cacheKey = envPath ? normalizeRuntimePath(envPath) : '';
+    const cached = this.runningInstanceCache.get(cacheKey);
+    if (cached && Date.now() < cached.expiresAt) {
+      return cached.data;
+    }
+
     try {
       const binding = this.getRuntimeBindingForProfile(envPath);
-      if (!binding) return null;
+      if (!binding) {
+        if (!isTest) {
+          const fallback = this.findAnyLiveLanguageServerInstance();
+          if (fallback) {
+            if (cacheKey) this.runningInstanceCache.set(cacheKey, { data: fallback, expiresAt: Date.now() + 4000 });
+            return fallback;
+          }
+          if (cacheKey) this.runningInstanceCache.set(cacheKey, { data: null, expiresAt: Date.now() + 4000 });
+        }
+        return null;
+      }
       const script = `
         $ErrorActionPreference = 'Stop';
         $p = Get-CimInstance Win32_Process -Filter 'ProcessId = ${binding.pid}';
@@ -1436,14 +1574,42 @@ export class AccountProfileManager {
         connection.port > 65535 ||
         !connection.csrfToken
       ) {
+        if (!isTest) {
+          const fallback = this.findAnyLiveLanguageServerInstance();
+          if (fallback) {
+            if (cacheKey) this.runningInstanceCache.set(cacheKey, { data: fallback, expiresAt: Date.now() + 4000 });
+            return fallback;
+          }
+          if (cacheKey) this.runningInstanceCache.set(cacheKey, { data: null, expiresAt: Date.now() + 4000 });
+        }
         return null;
       }
       const current = this.getRuntimeBindingForProfile(envPath);
-      if (!current || JSON.stringify(current) !== JSON.stringify(binding)) return null;
-      return { address: `127.0.0.1:${connection.port}`, csrfToken: connection.csrfToken, pid: binding.pid };
+      if (!current || JSON.stringify(current) !== JSON.stringify(binding)) {
+        if (!isTest) {
+          const fallback = this.findAnyLiveLanguageServerInstance();
+          if (fallback) {
+            if (cacheKey) this.runningInstanceCache.set(cacheKey, { data: fallback, expiresAt: Date.now() + 4000 });
+            return fallback;
+          }
+          if (cacheKey) this.runningInstanceCache.set(cacheKey, { data: null, expiresAt: Date.now() + 4000 });
+        }
+        return null;
+      }
+      const result = { address: `127.0.0.1:${connection.port}`, csrfToken: connection.csrfToken, pid: binding.pid };
+      if (!isTest && cacheKey) this.runningInstanceCache.set(cacheKey, { data: result, expiresAt: Date.now() + 5000 });
+      return result;
     } catch (error) {
       const code = error instanceof RuntimeProfileSelectionError ? error.code : 'RUNTIME_DISCOVERY_FAILED';
       Logger.warn(`[AccountProfileManager] Runtime indisponível ou ambíguo: ${code}`);
+      if (!isTest) {
+        const fallback = this.findAnyLiveLanguageServerInstance();
+        if (fallback) {
+          if (cacheKey) this.runningInstanceCache.set(cacheKey, { data: fallback, expiresAt: Date.now() + 4000 });
+          return fallback;
+        }
+        if (cacheKey) this.runningInstanceCache.set(cacheKey, { data: null, expiresAt: Date.now() + 4000 });
+      }
       return null;
     }
   }
@@ -1486,7 +1652,13 @@ export class AccountProfileManager {
 
     let instance = this.getRunningInstanceForProfile(profile.environment_path);
     if (!instance && !this.isAutomatedTestRuntime()) {
+      instance = this.findAnyLiveLanguageServerInstance();
+    }
+    if (!instance && !this.isAutomatedTestRuntime()) {
       instance = this.ensureProfileRuntimeRunningSync(profile);
+    }
+    if (!instance && !this.isAutomatedTestRuntime()) {
+      instance = this.findAnyLiveLanguageServerInstance();
     }
     if (!instance) {
       throw new Error(`AGENTAPI_UNAVAILABLE: nenhum runtime Antigravity pertence ao perfil ${profile.id}`);
@@ -1726,14 +1898,14 @@ export class AccountProfileManager {
     const switchRes = await this.switchAccount({
       projectId,
       targetProfileId: targetProfile.id,
-      autoStartRuntime: opts?.autoStartRuntime ?? true
+      autoStartRuntime: opts?.autoStartRuntime ?? false
     });
 
     // Also update global active profile so the entire hub reflects the Rapid Switch
     this.setGlobalActiveProfile(targetProfile.id);
 
     let instance = this.getRunningInstanceForProfile(targetProfile.environment_path);
-    if (!instance && !this.isAutomatedTestRuntime() && (opts?.autoStartRuntime ?? true)) {
+    if (!instance && !this.isAutomatedTestRuntime() && Boolean(opts?.autoStartRuntime)) {
       instance = await this.ensureProfileRuntimeRunning(targetProfile, 12000);
     }
 
@@ -2036,13 +2208,13 @@ export class AccountProfileManager {
     const switchRes = this.switchAccountSync({
       projectId,
       targetProfileId: targetProfile.id,
-      autoStartRuntime: opts?.autoStartRuntime ?? true
+      autoStartRuntime: opts?.autoStartRuntime ?? false
     });
 
     this.setGlobalActiveProfile(targetProfile.id);
 
     let instance = this.getRunningInstanceForProfile(targetProfile.environment_path);
-    if (!instance && !this.isAutomatedTestRuntime() && (opts?.autoStartRuntime ?? true)) {
+    if (!instance && !this.isAutomatedTestRuntime() && Boolean(opts?.autoStartRuntime)) {
       instance = this.ensureProfileRuntimeRunningSync(targetProfile, 12000);
     }
 
@@ -2158,7 +2330,7 @@ export class AccountProfileManager {
     const switchRes = this.rapidSwitchAccountSync({
       projectId: params.projectId || undefined,
       reason: `${classification.kind}_FAILOVER: ${classification.reason}`,
-      autoStartRuntime: params.autoStartRuntime
+      autoStartRuntime: params.autoStartRuntime ?? false
     });
 
     if (switchRes.switched) {
@@ -2277,7 +2449,7 @@ export class AccountProfileManager {
     const switchRes = await this.rapidSwitchAccount({
       projectId: params.projectId || undefined,
       reason: `${classification.kind}_FAILOVER: ${classification.reason}`,
-      autoStartRuntime: params.autoStartRuntime
+      autoStartRuntime: params.autoStartRuntime ?? false
     });
 
     if (switchRes.switched) {

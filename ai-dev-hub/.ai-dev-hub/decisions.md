@@ -396,3 +396,96 @@
 - **[20/10/2026] Resolução dos erros TS2304 ('Cannot find name logger') e TS2339 ('Property message does not exist on type {}') injetados na substituição em lote de blocos catch vazios. O script fix-silent-errors.mjs foi corrigido para utilizar verificação segura em globalThis ((globalThis as any).logger) e casting seguro do erro ((err as any)?.message) para TypeScript com strict: true e useUnknownInCatchVariables, preservando compatibilidade para arquivos JS/MJS e restabelecendo build/typecheck 100% verde.**
   - **Decisão:** Resolução dos erros TS2304 ('Cannot find name logger') e TS2339 ('Property message does not exist on type {}') injetados na substituição em lote de blocos catch vazios. O script fix-silent-errors.mjs foi corrigido para utilizar verificação segura em globalThis ((globalThis as any).logger) e casting seguro do erro ((err as any)?.message) para TypeScript com strict: true e useUnknownInCatchVariables, preservando compatibilidade para arquivos JS/MJS e restabelecendo build/typecheck 100% verde.
   - **Motivo:** undefined
+- **[20/10/2026] Eliminação do timeout na criação de projetos via desacoplamento assíncrono do Git, caching de gh/system health e idempotência amigável (HTTP 200)**
+  - **Decisão:** Eliminação do timeout na criação de projetos via desacoplamento assíncrono do Git, caching de gh/system health e idempotência amigável (HTTP 200)
+  - **Motivo:** As operações síncronas de Git (git init, commit, checkpoint) e inspeções frequentes de ferramentas de sistema (npm, python, git) e status do GitHub executavam execSync na thread principal do Express, bloqueando o Event Loop por até 9s e estourando o timeout de 12s no cliente. O desacoplamento assíncrono para background (setTimeout 50ms), o cache TTL em memória (60s para GitHub e 5m para system health) e a idempotência HTTP 200 garantem resposta < 15ms no backend e resiliência total a re-submissões.
+
+### [20/10/2026] Decisões da Sessão #40
+- **Decisão:** Desacoplamento assíncrono de operações Git e checkpoints na criação de projetos para execução em background após flush do HTTP 201/200
+- **Decisão:** Cache em memória com TTL de 60s para GitManager.getGitHubStatus e 5m para SystemManager.getHealth, evitando chamadas execSync no loop do Express
+- **Decisão:** Idempotência amigável no endpoint POST /api/projects para retornar HTTP 200 e atualizar metadados sem falhar com 409 em caso de retry do usuário
+- **Decisão:** Aumento do timeout no cliente de 12s para 25s em api.createProject como margem de segurança
+- **[20/10/2026] Desbloqueio definitivo de Event Loop Starvation no backend, eliminação de processos zumbis na porta 3001 e fallback nativo IPC no Electron para criação infalível de projetos**
+  - **Decisão:** Desbloqueio definitivo de Event Loop Starvation no backend, eliminação de processos zumbis na porta 3001 e fallback nativo IPC no Electron para criação infalível de projetos
+  - **Motivo:** Identificou-se que Atomics.wait em ensureProfileRuntimeRunningSync, execFileSync repetitivo do powershell em collectRuntimeProcessSnapshot e getRunningInstanceForProfile, além de varreduras contínuas de disco em inspectLocalAuthEvidence, causavam congelamento severo da thread principal (>25s) sob múltiplos workers. Implementou-se caching em memória (5s para processos/runtime e 10s para evidências de disco), loop assíncrono não-bloqueante via setTimeout, fast-path zero-dependency em POST /api/projects (<10ms), eliminação do reaproveitamento cego de processos órfãos em ServiceManager e fallback direto via IPC/node:sqlite no Electron.
+
+### [20/10/2026] Decisões da Sessão #42
+- **Decisão:** Cache em memória de 5s para collectRuntimeProcessSnapshot em runtimeProfileSelector e para getRunningInstanceForProfile em AccountProfileManager
+- **Decisão:** Cache em memória de 10s para inspectLocalAuthEvidence por environmentPath, eliminando varredura e parse de disco contínuos
+- **Decisão:** Remoção de Atomics.wait em ensureProfileRuntimeRunning, implementando loop assíncrono real com setTimeout e redução drástica do timeout síncrono para 2500ms max
+- **Decisão:** Fast-path zero-dependency em POST /api/projects resolvendo perfil via query SQLite pura < 0.2ms sem chamadas síncronas de discovery ou disco
+- **Decisão:** Criação de handler IPC 'desktop:create-project-direct' com gravação nativa direta via SQLite (node:sqlite DatabaseSync) em caso de timeout de 6s do backend HTTP
+- **Decisão:** Eliminação definitiva de processo zumbi na porta 3001 em ServiceManager: encerramento garantido de processos antigos no start() e stop()
+- **[20/10/2026] Blindagem do ciclo de vida de projetos no DecoHUB com atualização otimista imediata (0ms), seleção automática completa, botão de recarga na sidebar e sincronização periódica suave**
+  - **Decisão:** Blindagem do ciclo de vida de projetos no DecoHUB com atualização otimista imediata (0ms), seleção automática completa, botão de recarga na sidebar e sincronização periódica suave
+  - **Motivo:** Para eliminar qualquer descompasso visual ou latência perceptível entre a submissão de um projeto e sua aparição na barra lateral, implementou-se atualização otimista imediata no estado local de projetos em App.tsx, seleção de projeto ativa via handleSelectProject, botão manual com feedback animado (RotateCw) e limpeza de busca na sidebar, desempacotamento seguro de payload no NewProjectModal e sincronização periódica automática em focus e polling de saúde.
+
+### [20/10/2026] Decisões da Sessão #44
+- **Decisão:** Atualização otimista imediata (0ms) no estado de projetos em App.tsx garantindo visualização instantânea na sidebar
+- **Decisão:** Seleção automática imediata via handleSelectProject do novo projeto recém-criado
+- **Decisão:** Adição de botão de recarregamento manual na sidebar (RotateCw) com animação de feedback e botão de limpar campo de busca
+- **Decisão:** Garantia de desempacotamento seguro e limpeza de formulário no NewProjectModal.tsx
+- **Decisão:** Sincronização periódica suave de projetos ao focar na janela (focus event) e no ciclo de 10s de verificação de saúde
+- **[20/10/2026] Aprimoramento da detecção de conclusão de turnos no Antigravity e auto-reconciliação defensiva de turnos pendentes no Meta-Chat**
+  - **Decisão:** Aprimoramento da detecção de conclusão de turnos no Antigravity e auto-reconciliação defensiva de turnos pendentes no Meta-Chat
+  - **Motivo:** Evitar que o Meta-Chat trave em AGENT_TURN_UNCERTAIN ou AGENT_EXECUTION_TIMEOUT ao expandir os tipos e estados de turnos reconhecidos (PLANNER_RESPONSE, ASSISTANT_RESPONSE, MODEL_TURN, MESSAGE, etc.) e auto-reconciliar para CONSUMED quando o turno anterior for interativo ou decorridos >15s sem ferramentas ativas.
+
+### [20/10/2026] Decisões da Sessão #46
+- **Decisão:** Auto-reconciliação de turnos anteriores e expansão polimórfica de turnos no observador de transcrições do Antigravity
+- **[20/10/2026] Resiliência do Meta-Chat contra quedas de runtime TCP do Antigravity, priorização de DECOHUB_REPO_ROOT e canal de Direct Patching via markdown**
+  - **Decisão:** Resiliência do Meta-Chat contra quedas de runtime TCP do Antigravity, priorização de DECOHUB_REPO_ROOT e canal de Direct Patching via markdown
+  - **Motivo:** Permitir que o Meta-Chat opere com flexibilidade de raiz de workspace (sem exigir client/package.json), execute via failover de perfis com runtime ativo ou fallback por CLI direta com mensagem clara ao usuário caso o Antigravity esteja fechado, além de aplicar blocos de código markdown diretamente no disco (Direct Patching).
+
+### [20/10/2026] Decisões da Sessão #48
+- **Decisão:** Resiliência de conexão do Meta-Chat com runtime Antigravity, detecção da raiz via server/package.json ou dist-desktop e canal de Direct Patching por parser de código markdown
+- **[20/10/2026] Typecheck Guard com escopo delimitado a changedFiles, flags --noEmit e --skipLibCheck, e reinício limpo de serviço via serviceManager em recompileAndSync**
+  - **Decisão:** Typecheck Guard com escopo delimitado a changedFiles, flags --noEmit e --skipLibCheck, e reinício limpo de serviço via serviceManager em recompileAndSync
+  - **Motivo:** Evita que erros alheios em arquivos não modificados travem ou façam rollback de turnos do Meta-Chat. O reinício limpo garante que o processo Express carregue os arquivos compilados sem travar a thread.
+
+### [20/10/2026] Decisões da Sessão #50
+- **Decisão:** Typecheck Guard refinado com escopo delimitado a changedFiles, flags --noEmit e --skipLibCheck
+- **Decisão:** Reinício limpo do serviço Desktop Electron agendado em recompileAndSync e endpoint POST /metachat/restart
+- **[20/10/2026] Desbloqueio de execuções no Chat de Projetos: runs anteriores bloqueados ou com erro são finalizados automaticamente para criar novos runs sem enfileiramento passivo; comandos de continuidade limpam last_error e redefinem microtarefas para ready.**
+  - **Decisão:** Desbloqueio de execuções no Chat de Projetos: runs anteriores bloqueados ou com erro são finalizados automaticamente para criar novos runs sem enfileiramento passivo; comandos de continuidade limpam last_error e redefinem microtarefas para ready.
+  - **Motivo:** Evita que instruções substantivas do usuário fiquem presas em QUEUED_USER_INSTRUCTION quando um run anterior está em blocked, error, paused ou waiting_resource, permitindo execução autônoma imediata e botões dedicados de Iniciar Novo Plano e Tentar Novamente na interface.
+- **[20/10/2026] Implementação de Streaming Reativo com Server-Sent Events (SSE) para Chat de Projetos e Meta-Chat, eliminando polling periódico e chamadas HTTP bloqueantes**
+  - **Decisão:** Implementação de Streaming Reativo com Server-Sent Events (SSE) para Chat de Projetos e Meta-Chat, eliminando polling periódico e chamadas HTTP bloqueantes
+  - **Motivo:** Substitui requisições HTTP bloqueantes com resposta imediata HTTP 202 Accepted contendo turnId, transmitindo logs, tool calls, progresso de runs e mensagens do assistente via SSE com reconexão automática e heartbeat de 15s.
+
+### [20/10/2026] Decisões da Sessão #52
+- **Decisão:** Streaming Reativo com Server-Sent Events (SSE) integrado via SseStreamService e ObservabilityService
+- **Decisão:** Resposta imediata HTTP 202 Accepted para POST /api/projects/:id/messages e POST /api/metachat/chat em modo streaming
+- **Decisão:** Cliente SSE no Frontend com reconexão automática e eliminação de polling periódico no DecoHubChatView e DecoHubMetaChatView
+- **[20/10/2026] Criação do LspService com integração tsserver stdio e Compiler API fallback para diagnósticos em tempo real, incorporando lsp_diagnostics no prompt do Worker e pré-avaliação sintática no AutonomousRunnerService**
+  - **Decisão:** Criação do LspService com integração tsserver stdio e Compiler API fallback para diagnósticos em tempo real, incorporando lsp_diagnostics no prompt do Worker e pré-avaliação sintática no AutonomousRunnerService
+  - **Motivo:** Garante que os Workers e o Autonomous Runner inspecionem e detectem erros de sintaxe e tipagem nos arquivos modificados antes de submeter a tarefa ao Independent Evaluator, fornecendo diagnósticos factuais para autocorreção imediata.
+
+### [20/10/2026] Decisões da Sessão #56
+- **Decisão:** LspService integrado ao TypeScript Server (tsserver) com fallback determinístico via Compiler API
+- **Decisão:** Inclusão da capability 'lsp' por padrão nos Workers e ferramenta lsp_diagnostics na arquitetura de prompts
+- **Decisão:** Pré-avaliação sintática LSP no AutonomousRunnerService com injeção factual de erros no relatório do Worker
+- **[20/10/2026] Implementação do subagente CI Doctor integrado ao IndependentEvaluator e AutonomousRunnerService para auto-reparo cirúrgico de testes unitários no Gate 1**
+  - **Decisão:** Implementação do subagente CI Doctor integrado ao IndependentEvaluator e AutonomousRunnerService para auto-reparo cirúrgico de testes unitários no Gate 1
+  - **Motivo:** Permite identificar erros de asserção e stack traces de testes com contexto cirúrgico (<1.000 tokens), aplicando micro-patches com verificação atômica e rollback automático sem comprometer ou enfraquecer testes protegidos. Eleva o veredicto para PASS quando código de saída 0 é atingido e emite telemetria CI_DOCTOR_HEALED.
+
+### [20/10/2026] Decisões da Sessão #58
+- **Decisão:** Criação do CiDoctorService para parsing de saídas de teste, isolamento de snippets (< 1.000 tokens) e auto-reparo cirúrgico via micro-patches
+- **Decisão:** Acoplamento ao IndependentEvaluator no Gate 1 para elevar veredicto a PASS com código 0 e emitir CI_DOCTOR_HEALED
+- **Decisão:** Integração com AutonomousRunnerService para telemetria e supervisão de tarefas auto-reparadas
+- **[20/10/2026] Ativação do Motor de Trajetórias Concorrentes (Best-of-N Rollout) e EphemeralWorktreeService**
+  - **Decisão:** Ativação do Motor de Trajetórias Concorrentes (Best-of-N Rollout) e EphemeralWorktreeService
+  - **Motivo:** Garante soluções ótimas para problemas complexos ou com falhas prévias sem poluir o workspace principal ou gerar conflitos de locks git, promovendo apenas a implementação com melhor score técnico e simplicidade Karpathy.
+
+### [20/10/2026] Decisões da Sessão #61
+- **Decisão:** Ativação do Motor de Trajetórias Concorrentes (Best-of-N Rollouts) e EphemeralWorktreeService
+- **Decisão:** Integração dos 4 Portões de Qualidade (Dev Tests, Visual/Anti-Slop, UX/F5, AppSec) com bônus de simplicidade Karpathy na seleção do vencedor
+- **[20/10/2026] Implementação do AstSymbolIndexService e Indexação Estruturada de Símbolos contra Context Rot**
+  - **Decisão:** Implementação do AstSymbolIndexService e Indexação Estruturada de Símbolos contra Context Rot
+  - **Motivo:** Erradica a degradação de atenção do modelo (Context Rot) e previne alucinações de assinaturas e nomes de métodos em tarefas de grande escopo, mantendo a verdade estrutural do código persistida em SQLite.
+
+### [20/10/2026] Decisões da Sessão #63
+- **Decisão:** Implementação do AstSymbolIndexService e Indexação Estruturada de Símbolos contra Context Rot
+- **Decisão:** Substituição do dump de arquivos inteiros por resumos estruturados de assinaturas AST (< 30% da janela de tokens)
+- **[20/10/2026] Eliminação total de Atomics.wait, fallback direto para qualquer language server ativo e cancelamento instantâneo de chat**
+  - **Decisão:** Eliminação total de Atomics.wait, fallback direto para qualquer language server ativo e cancelamento instantâneo de chat
+  - **Motivo:** Atomics.wait congelava a thread do Express no Windows impedindo o frontend de se comunicar e impossibilitando o cancelamento de mensagens. O novo fluxo utiliza findAnyLiveLanguageServerInstance para conectar na janela aberta do Antigravity, gera tarefas assincronamente em produção e libera o botão de cancelamento com 0ms de latência.

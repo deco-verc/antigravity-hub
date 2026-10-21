@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('desktopAPI', {
   getConfig: () => ipcRenderer.invoke('desktop:get-config'),
   updateConfig: (cfg) => ipcRenderer.invoke('desktop:update-config', cfg),
   selectDirectory: (options) => ipcRenderer.invoke('desktop:select-directory', options),
+  createProjectDirect: (data) => ipcRenderer.invoke('desktop:create-project-direct', data),
   minimize: () => ipcRenderer.send('desktop:minimize'),
   maximize: () => ipcRenderer.send('desktop:maximize'),
   close: () => ipcRenderer.send('desktop:close'),

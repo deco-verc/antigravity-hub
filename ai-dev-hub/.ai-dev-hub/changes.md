@@ -758,3 +758,96 @@
 - `ai-dev-hub/server/fix-silent-errors.mjs`
 - `ai-dev-hub/server/src/*`
 - `ai-dev-hub/server/test/*`
+
+### [20/10/2026] Sessão #40 (Antigravity Agent)
+- `ai-dev-hub/client/src/services/api.ts`
+- `ai-dev-hub/server/src/gitManager.ts`
+- `ai-dev-hub/server/src/nativeWorkspaceBinding.ts`
+- `ai-dev-hub/server/src/routes.ts`
+- `ai-dev-hub/server/src/systemManager.ts`
+- `ai-dev-hub/server/test/projectCreationAccountSelection.test.ts`
+*Nota:* Problema de timeout de 12 segundos resolvido em definitivo em todas as camadas (backend, frontend e artefatos de release).
+
+### [20/10/2026] Sessão #42 (Antigravity Agent)
+- `ai-dev-hub/client/src/services/api.ts`
+- `ai-dev-hub/desktop/main.cjs`
+- `ai-dev-hub/desktop/preload.cjs`
+- `ai-dev-hub/desktop/serviceManager.cjs`
+- `ai-dev-hub/server/src/accountProfileManager.ts`
+- `ai-dev-hub/server/src/metaChatService.ts`
+- `ai-dev-hub/server/src/routes.ts`
+- `ai-dev-hub/server/src/runtimeProfileSelector.ts`
+- `ai-dev-hub/server/test/projectCreationAccountSelection.test.ts`
+*Nota:* O gargalo de congelamento do Event Loop e processo zumbi foi erradicado em todas as frentes (Backend, Electron Main, Preload e Client).
+
+### [20/10/2026] Sessão #44 (Antigravity Agent)
+- `ai-dev-hub/client/src/App.tsx`
+- `ai-dev-hub/client/src/components/DecoHubSidebar.tsx`
+- `ai-dev-hub/client/src/components/NewProjectModal.tsx`
+- `ai-dev-hub/server/src/routes.ts`
+*Nota:* Ciclo de vida de projetos 100% blindado contra descompassos de estado e timeouts.
+
+### [20/10/2026] Sessão #46 (Antigravity Agent)
+- `ai-dev-hub/server/src/agentTurnState.ts`
+- `ai-dev-hub/server/src/antigravityProvider.ts`
+*Nota:* Todos os 9 testes de cancelamento e Meta-Chat passaram com êxito. Typecheck e build do servidor e cliente finalizados e distribuídos para decohub_unpacked, dist-desktop e AppData.
+
+### [20/10/2026] Sessão #48 (Antigravity Agent)
+- `ai-dev-hub/server/src/metaChatService.ts`
+- `ai-dev-hub/server/src/agentApiGateway.ts`
+- `ai-dev-hub/server/test/metaChatSelfEvolution.test.ts`
+*Nota:* Todas as alterações foram testadas cirurgicamente com typechecks verde, suíte de 18 testes do Meta-Chat aprovada com 100% de sucesso e sincronização nos três diretórios de artefatos.
+
+### [20/10/2026] Sessão #50 (Antigravity Agent)
+- `ai-dev-hub/server/src/metaChatService.ts`
+- `ai-dev-hub/server/src/routes.ts`
+- `ai-dev-hub/server/test/metaChatSelfEvolution.test.ts`
+*Nota:* Typecheck Guard e serviço de reinício blindados com sucesso contra stalls do tsc e erros fora de escopo.
+
+### [20/10/2026] Sessão #52 (Antigravity Agent)
+- `ai-dev-hub/server/src/sseStreamService.ts`
+- `ai-dev-hub/server/src/observability/observabilityService.ts`
+- `ai-dev-hub/server/src/routes.ts`
+- `ai-dev-hub/client/src/services/sseClient.ts`
+- `ai-dev-hub/client/src/services/api.ts`
+- `ai-dev-hub/client/src/types.ts`
+- `ai-dev-hub/client/src/App.tsx`
+- `ai-dev-hub/client/src/components/DecoHubChatView.tsx`
+- `ai-dev-hub/client/src/components/DecoHubMetaChatView.tsx`
+- `ai-dev-hub/server/test/sseStreamingReactive.test.ts`
+*Nota:* Streaming reativo SSE concluído com 100% dos testes verdes e artefatos de distribuição sincronizados.
+
+### [20/10/2026] Sessão #56 (Antigravity Agent)
+- `ai-dev-hub/server/src/lspService.ts`
+- `ai-dev-hub/server/src/workerRegistry.ts`
+- `ai-dev-hub/server/src/promptArchitectureService.ts`
+- `ai-dev-hub/server/src/autonomousRunnerService.ts`
+- `ai-dev-hub/server/src/routes.ts`
+- `ai-dev-hub/server/test/lspService.test.ts`
+*Nota:* FASE 2 (LspService) concluída com 100% dos testes verdes e artefatos sincronizados.
+
+### [20/10/2026] Sessão #58 (Antigravity Agent)
+- `ai-dev-hub/server/src/ciDoctorService.ts`
+- `ai-dev-hub/server/src/independentEvaluator.ts`
+- `ai-dev-hub/server/src/autonomousRunnerService.ts`
+- `ai-dev-hub/server/package.json`
+- `ai-dev-hub/server/test/ciDoctorService.test.ts`
+*Nota:* Implementação da Fase 3 concluída com 100% de aprovação nos testes e compilação limpa.
+
+### [20/10/2026] Sessão #61 (Antigravity Agent)
+- `ai-dev-hub/server/src/ephemeralWorktreeService.ts`
+- `ai-dev-hub/server/src/autonomousRunnerService.ts`
+- `ai-dev-hub/server/src/arenaManager.ts`
+- `ai-dev-hub/server/test/ephemeralWorktreeService.test.ts`
+- `ai-dev-hub/server/package.json`
+*Nota:* Todas as 4 Fases (Fase 1: SSE Streaming Reativo, Fase 2: LspService em tempo real, Fase 3: CI Doctor auto-healing, Fase 4: Best-of-N Rollout com EphemeralWorktreeService) foram implementadas, integradas e testadas com 100% de sucesso.
+
+### [20/10/2026] Sessão #63 (Antigravity Agent)
+- `ai-dev-hub/server/src/astSymbolIndexService.ts`
+- `ai-dev-hub/server/src/db.ts`
+- `ai-dev-hub/server/src/promptArchitectureService.ts`
+- `ai-dev-hub/server/src/engineeringContextService.ts`
+- `ai-dev-hub/server/src/autonomousRunnerService.ts`
+- `ai-dev-hub/server/test/astSymbolIndexService.test.ts`
+- `ai-dev-hub/server/package.json`
+*Nota:* DecoHUB blindado com streaming reativo SSE (Fase 1), diagnósticos sintáticos LSP em tempo real (Fase 2), auto-healing de testes via CI Doctor (Fase 3), Best-of-N Rollouts em Git Worktrees efêmeros (Fase 4) e índice de símbolos AST anti-Context Rot em SQLite (Fase 5).

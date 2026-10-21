@@ -14,6 +14,16 @@ export class RunControl {
     db.prepare(`INSERT INTO run_control_requests VALUES(?,?,'pending',?,NULL)
       ON CONFLICT(run_id) DO UPDATE SET action=excluded.action,status='pending',requested_at=excluded.requested_at,applied_at=NULL`).run(runId,action,now);
     db.prepare("UPDATE autonomous_runs SET status='paused',next_action=?,updated_at=? WHERE id=?").run(action==='cancel'?'Cancelamento solicitado; preservando a operação em andamento':'Pausa solicitada; preservando a operação em andamento',now,runId);
+    if (action === 'cancel') {
+      try {
+        const projectIdRow: any = db.prepare('SELECT project_id FROM autonomous_runs WHERE id=?').get(runId);
+        if (projectIdRow?.project_id) {
+          db.prepare("DELETE FROM execution_reservations WHERE scope='global-agent-execution' OR scope=?").run(`run-create:${projectIdRow.project_id}`);
+        }
+        db.prepare("UPDATE agent_turn_observations SET phase='CONSUMED' WHERE task_id IN(SELECT id FROM autonomous_tasks WHERE run_id=?) AND phase IN ('IN_FLIGHT','UNCERTAIN')").run(runId);
+        db.prepare("UPDATE worker_leases SET status='released' WHERE run_id=? AND status='active'").run(runId);
+      } catch {}
+    }
     db.exec('COMMIT');
     } catch(error) {db.exec('ROLLBACK');throw error;}
   }
@@ -31,6 +41,10 @@ export class RunControl {
         db.prepare("UPDATE autonomous_tasks SET status='failed',updated_at=? WHERE run_id=? AND status='in_progress'").run(now,runId);
         db.prepare("UPDATE worker_leases SET status='released' WHERE run_id=? AND status='active'").run(runId);
         db.prepare("UPDATE workers SET status='READY',current_run_id=NULL,current_task_id=NULL,updated_at=? WHERE current_run_id=?").run(now,runId);
+        try {
+          db.prepare("DELETE FROM execution_reservations WHERE scope='global-agent-execution' OR scope LIKE 'run-create:%' OR scope LIKE 'task-exec:%'").run();
+          db.prepare("UPDATE agent_turn_observations SET phase='CONSUMED' WHERE task_id IN(SELECT id FROM autonomous_tasks WHERE run_id=?) AND phase IN ('IN_FLIGHT','UNCERTAIN')").run(runId);
+        } catch {}
       }else db.prepare("UPDATE autonomous_runs SET status='paused',next_action='Pausado pelo usuário; pronto para continuar do estado salvo',updated_at=? WHERE id=?").run(now,runId);
       db.prepare("UPDATE run_control_requests SET status='applied',applied_at=? WHERE run_id=?").run(now,runId);db.exec('COMMIT');return true;
     }catch(e){db.exec('ROLLBACK');throw e;}

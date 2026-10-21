@@ -1076,6 +1076,21 @@ export function initDatabase() {
     );
     CREATE INDEX IF NOT EXISTS idx_meta_chat_created
       ON meta_chat_messages(created_at ASC);
+
+    CREATE TABLE IF NOT EXISTS project_ast_symbols (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      symbol_name TEXT NOT NULL,
+      symbol_type TEXT NOT NULL,
+      signature TEXT NOT NULL,
+      exports INTEGER DEFAULT 1,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_ast_symbols_project_file
+      ON project_ast_symbols(project_id, file_path);
+    CREATE INDEX IF NOT EXISTS idx_ast_symbols_name
+      ON project_ast_symbols(symbol_name);
   `);
 
   const reportColumns = db.prepare('PRAGMA table_info(builder_reports)').all() as any[];
@@ -1696,6 +1711,20 @@ export function ensureDefensiveMigrations(targetDb: any = db): void {
         ON meta_chat_threads(updated_at DESC);
       CREATE INDEX IF NOT EXISTS idx_meta_chat_thread_id
         ON meta_chat_messages(thread_id, created_at ASC);
+      CREATE TABLE IF NOT EXISTS project_ast_symbols (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        symbol_name TEXT NOT NULL,
+        symbol_type TEXT NOT NULL,
+        signature TEXT NOT NULL,
+        exports INTEGER DEFAULT 1,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_ast_symbols_project_file
+        ON project_ast_symbols(project_id, file_path);
+      CREATE INDEX IF NOT EXISTS idx_ast_symbols_name
+        ON project_ast_symbols(symbol_name);
     `);
   } catch (err) {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {

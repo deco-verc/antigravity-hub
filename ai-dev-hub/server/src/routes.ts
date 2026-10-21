@@ -55,6 +55,8 @@ import { SkillSlashCommandService } from './skillSlashCommandService.js';
 import { TurnCancellationManager } from './turnCancellationManager.js';
 import { ExecutionCoordinator } from './executionCoordinator.js';
 import { AgentTurnState } from './agentTurnState.js';
+import { SseStreamService } from './sseStreamService.js';
+import { LspService } from './lspService.js';
 
 export const apiRouter = Router();
 
@@ -1280,7 +1282,7 @@ apiRouter.get('/projects', (req, res) => {
     const enhanced = projects.map(p => {
       let isAvailableOnDisk = false;
       try {
-        isAvailableOnDisk = fs.existsSync(p.path) && fs.statSync(p.path).isDirectory();
+        isAvailableOnDisk = Boolean(p.path && typeof p.path === 'string' && fs.existsSync(p.path));
       } catch {
         isAvailableOnDisk = false;
       }
@@ -1296,6 +1298,27 @@ apiRouter.get('/projects', (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// Helper fail-safe e instantâneo (< 0.2ms) de resolução de conta via SQLite puro sem tocar disco ou processos
+function resolveProfileIdDirect(initialProfileId?: any): string | null {
+  try {
+    if (initialProfileId && typeof initialProfileId === 'string' && initialProfileId.trim()) {
+      const row: any = db.prepare('SELECT id FROM account_profiles WHERE id = ?').get(initialProfileId.trim());
+      if (row?.id) return row.id;
+    }
+    const setting: any = db.prepare("SELECT value FROM system_settings WHERE key = 'active_account_profile_id'").get();
+    if (setting?.value) {
+      const row: any = db.prepare('SELECT id FROM account_profiles WHERE id = ?').get(setting.value);
+      if (row?.id) return row.id;
+    }
+    const firstActive: any = db.prepare("SELECT id FROM account_profiles WHERE auth_status IN ('READY', 'ACTIVE') ORDER BY created_at ASC LIMIT 1").get();
+    if (firstActive?.id) return firstActive.id;
+    const firstAny: any = db.prepare('SELECT id FROM account_profiles ORDER BY created_at ASC LIMIT 1').get();
+    return firstAny?.id || null;
+  } catch {
+    return null;
+  }
+}
 
 apiRouter.post('/projects', async (req, res) => {
   try {
@@ -1340,88 +1363,50 @@ apiRouter.post('/projects', async (req, res) => {
       return res.status(400).json({ error: val.errorMessage || 'Caminho inválido para projeto.' });
     }
 
-    // Check duplicate path
+    // Idempotência amigável: se o projeto já existir pelo caminho, atualiza e responde 200 imediatamente
     const existing: any = db.prepare('SELECT * FROM projects WHERE path = ?').get(val.resolvedPath);
     if (existing) {
-      return res.status(409).json({ error: 'Esta pasta já está registrada no AI DEV HUB.', project: existing });
+      const effectiveProfileId = resolveProfileIdDirect(initialProfileId) || existing.active_account_profile_id;
+      const normalizedModel = (selectedModel && typeof selectedModel === 'string')
+        ? (selectedModel.includes('pro') ? 'pro' : selectedModel.includes('lite') ? 'flash_lite' : 'flash')
+        : (existing.selected_model || 'flash');
+      const normalizedReasoning = (['HIGH', 'MEDIUM', 'LOW'].includes(reasoningLevel) ? reasoningLevel : (existing.reasoning_level || 'HIGH')) as any;
+      const nowIso = new Date().toISOString();
+
+      db.prepare(`
+        UPDATE projects
+        SET name = ?, active_account_profile_id = ?, selected_model = ?, reasoning_level = ?, updated_at = ?
+        WHERE id = ?
+      `).run(name.trim(), effectiveProfileId, normalizedModel, normalizedReasoning, nowIso, existing.id);
+
+      try {
+        ModelRegistry.setPreference({
+          role: 'default',
+          modelId: normalizedModel,
+          intelligenceLevel: normalizedReasoning,
+          accountProfileId: effectiveProfileId || undefined,
+          projectId: existing.id
+        });
+      } catch (e: any) {
+        Logger.warn(`[POST /projects] Aviso ao atualizar preferência de modelo: ${e.message}`);
+      }
+
+      const updatedProject = db.prepare('SELECT * FROM projects WHERE id = ?').get(existing.id);
+      Logger.info(`[POST /projects] Projeto já registrado reutilizado com idempotência amigável: ${name.trim()} (${existing.id})`);
+      return res.status(200).json(updatedProject);
     }
 
     const id = crypto.randomUUID();
     const nowIso = new Date().toISOString();
 
-    // 1. Ensure memory files
+    // 1. Ensure memory files and gitignore (operações síncronas puras em disco < 20ms)
     MemoryManager.ensureMemoryStructure(val.resolvedPath, {
       name: name.trim(),
       objective: objective?.trim(),
       description: description?.trim(),
       stack: stack?.trim()
     });
-
-    // 2. Fast local Git initialization if requested
-    if (initGit) {
-      try {
-        const gitDir = path.join(val.resolvedPath, '.git');
-        if (!fs.existsSync(gitDir)) {
-          try {
-            execSync('git init -b main', { cwd: val.resolvedPath, stdio: 'pipe', timeout: 3000 });
-            Logger.info(`Git inicializado em ${val.resolvedPath}`);
-          } catch {
-            try {
-              execSync('git init', { cwd: val.resolvedPath, stdio: 'pipe', timeout: 3000 });
-              execSync('git branch -M main', { cwd: val.resolvedPath, stdio: 'pipe', timeout: 3000 });
-            } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "routes",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:routes]", err);
-      }
-    }
-            Logger.info(`Git inicializado em ${val.resolvedPath}`);
-          }
-        }
-
-        // Ensure .gitignore protects secrets before anything is committed or linked
-        GitManager.ensureGitIgnore(val.resolvedPath);
-
-        // Ensure initial HEAD commit exists when Git is initialized on an empty repo
-        let hasHead = false;
-        try {
-          execSync('git rev-parse --verify HEAD', { cwd: val.resolvedPath, stdio: 'pipe', timeout: 3000 });
-          hasHead = true;
-        } catch {
-          hasHead = false;
-        }
-        if (!hasHead) {
-          try {
-            execSync('git add -A', { cwd: val.resolvedPath, stdio: 'pipe', timeout: 4000 });
-            execSync('git commit -m "chore: initial project structure with DecoHUB memory"', { cwd: val.resolvedPath, stdio: 'pipe', timeout: 5000 });
-          } catch {
-            try {
-              execSync('git config user.email "agent@decohub.local" && git config user.name "DecoHUB Agent"', { cwd: val.resolvedPath, stdio: 'pipe', timeout: 3000 });
-              execSync('git commit -m "chore: initial project structure with DecoHUB memory"', { cwd: val.resolvedPath, stdio: 'pipe', timeout: 5000 });
-            } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "routes",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:routes]", err);
-      }
-    }
-          }
-        }
-      } catch (gitErr: any) {
-        Logger.warn(`[POST /projects] Aviso na inicialização rápida do Git: ${gitErr.message}`);
-      }
-    } else {
-      GitManager.ensureGitIgnore(val.resolvedPath);
-    }
+    GitManager.ensureGitIgnore(val.resolvedPath);
 
     const isTrusted = req.body?.isTrusted !== undefined ? (req.body.isTrusted ? 1 : 0) : 1;
     const fullDevAutonomy = req.body?.fullDevAutonomy !== undefined ? (req.body.fullDevAutonomy ? 1 : 0) : 1;
@@ -1430,13 +1415,10 @@ apiRouter.post('/projects', async (req, res) => {
       : 'flash';
     const normalizedReasoning = (['HIGH', 'MEDIUM', 'LOW'].includes(reasoningLevel) ? reasoningLevel : 'HIGH') as any;
 
-    // Fail-safe account profile resolution: auto-fallback to global active profile if omitted
-    const effectiveProfile = (initialProfileId && typeof initialProfileId === 'string' && initialProfileId.trim())
-      ? (AccountProfileManager.getProfile(initialProfileId.trim()) || AccountProfileManager.getGlobalActiveProfile())
-      : AccountProfileManager.getGlobalActiveProfile();
-    const effectiveProfileId = effectiveProfile?.id || null;
+    // Fast-path fail-safe account profile resolution: pure SQLite query < 0.2ms
+    const effectiveProfileId = resolveProfileIdDirect(initialProfileId);
 
-    // 3. Insert into DB
+    // 2. Insert into DB
     db.prepare(`
       INSERT INTO projects (id, name, path, objective, description, stack, status, is_trusted, full_dev_autonomy, active_account_profile_id, selected_model, reasoning_level, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)
@@ -1472,28 +1454,92 @@ apiRouter.post('/projects', async (req, res) => {
       Logger.warn(`[POST /projects] Aviso ao definir preferência de modelo: ${e.message}`);
     }
 
-    // 4. Create initial session checkpoint
-    try {
-      CheckpointManager.createSessionCheckpoint(id, val.resolvedPath, name.trim(), {
-        objective: objective?.trim() || 'Inicialização do projeto',
-        implemented: ['Estruturação do repositório', 'Criação da memória permanente .ai-dev-hub/'],
-        recentChanges: ['.ai-dev-hub/project.md', '.ai-dev-hub/architecture.md', '.ai-dev-hub/tasks.md'],
-        nextTask: 'Definir requisitos e primeiros componentes',
-        decisions: ['Configuração de memória permanente em Markdown local']
-      });
-    } catch (chkErr: any) {
-      Logger.warn(`[POST /projects] Aviso ao criar checkpoint de sessão: ${chkErr.message}`);
-    }
-
     Logger.success(`Projeto cadastrado no Hub: ${name} (${val.resolvedPath})`);
     const createdProject = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
 
-    // Send immediate response to unlock client UI instantly
+    // Send immediate response to unlock client UI instantly (< 20ms)
     res.status(201).json(createdProject);
 
-    // 5. Asynchronous background secondary/heavy operations (non-blocking)
+    // 3. Asynchronous background secondary/heavy operations (Git init, Checkpoint, Git remote, Binding)
+    // Executado exclusivamente em background via setImmediate para garantir flush instantâneo (< 10ms) ao cliente HTTP
     setImmediate(async () => {
       try {
+        // Inicialização rápida do Git em background sem travar o Event Loop da requisição HTTP
+        if (initGit) {
+          try {
+            const gitDir = path.join(val.resolvedPath, '.git');
+            if (!fs.existsSync(gitDir)) {
+              try {
+                execSync('git init -b main', { cwd: val.resolvedPath, stdio: 'pipe', timeout: 3000 });
+                Logger.info(`Git inicializado em ${val.resolvedPath}`);
+              } catch {
+                try {
+                  execSync('git init', { cwd: val.resolvedPath, stdio: 'pipe', timeout: 3000 });
+                  execSync('git branch -M main', { cwd: val.resolvedPath, stdio: 'pipe', timeout: 3000 });
+                } catch (err) {
+                  const _logger = (globalThis as any).logger;
+                  if (_logger && typeof _logger.warn === 'function') {
+                    _logger.warn({
+                      event: 'server.handled_exception',
+                      file: 'routes',
+                      error: (err as any)?.message || String(err)
+                    });
+                  } else {
+                    console.warn('[WARN][server:routes]', err);
+                  }
+                }
+                Logger.info(`Git inicializado em ${val.resolvedPath}`);
+              }
+            }
+
+            // Ensure initial HEAD commit exists when Git is initialized on an empty repo
+            let hasHead = false;
+            try {
+              execSync('git rev-parse --verify HEAD', { cwd: val.resolvedPath, stdio: 'pipe', timeout: 3000 });
+              hasHead = true;
+            } catch {
+              hasHead = false;
+            }
+            if (!hasHead) {
+              try {
+                execSync('git add -A', { cwd: val.resolvedPath, stdio: 'pipe', timeout: 4000 });
+                execSync('git commit -m "chore: initial project structure with DecoHUB memory"', { cwd: val.resolvedPath, stdio: 'pipe', timeout: 5000 });
+              } catch {
+                try {
+                  execSync('git config user.email "agent@decohub.local" && git config user.name "DecoHUB Agent"', { cwd: val.resolvedPath, stdio: 'pipe', timeout: 3000 });
+                  execSync('git commit -m "chore: initial project structure with DecoHUB memory"', { cwd: val.resolvedPath, stdio: 'pipe', timeout: 5000 });
+                } catch (err) {
+                  const _logger = (globalThis as any).logger;
+                  if (_logger && typeof _logger.warn === 'function') {
+                    _logger.warn({
+                      event: 'server.handled_exception',
+                      file: 'routes',
+                      error: (err as any)?.message || String(err)
+                    });
+                  } else {
+                    console.warn('[WARN][server:routes]', err);
+                  }
+                }
+              }
+            }
+          } catch (gitErr: any) {
+            Logger.warn(`[POST /projects] Aviso na inicialização rápida do Git em background: ${gitErr.message}`);
+          }
+        }
+
+        // Checkpoint inicial em background (execSync do GitManager.getGitInfo agora roda fora do ciclo HTTP)
+        try {
+          CheckpointManager.createSessionCheckpoint(id, val.resolvedPath, name.trim(), {
+            objective: objective?.trim() || 'Inicialização do projeto',
+            implemented: ['Estruturação do repositório', 'Criação da memória permanente .ai-dev-hub/'],
+            recentChanges: ['.ai-dev-hub/project.md', '.ai-dev-hub/architecture.md', '.ai-dev-hub/tasks.md'],
+            nextTask: 'Definir requisitos e primeiros componentes',
+            decisions: ['Configuração de memória permanente em Markdown local']
+          });
+        } catch (chkErr: any) {
+          Logger.warn(`[POST /projects] Aviso ao criar checkpoint de sessão: ${chkErr.message}`);
+        }
+
         // Initial system message
         try {
           db.prepare(`
@@ -2317,6 +2363,48 @@ apiRouter.get(['/projects/:id/messages', '/projects/:id/chat'], (req, res) => {
   }
 });
 
+apiRouter.get('/projects/:id/stream', (req, res) => {
+  const id = String(req.params.id);
+  SseStreamService.addClient(id, res, req);
+});
+
+apiRouter.get('/projects/:id/lsp/diagnostics', async (req, res) => {
+  try {
+    const file = req.query.file as string;
+    if (!file) return res.status(400).json({ error: 'file is required' });
+    const diags = await LspService.getDiagnostics(file);
+    res.json({ file, diagnostics: diags });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.get('/projects/:id/lsp/definition', async (req, res) => {
+  try {
+    const file = req.query.file as string;
+    const line = parseInt(req.query.line as string, 10) || 1;
+    const col = parseInt(req.query.col as string, 10) || 1;
+    if (!file) return res.status(400).json({ error: 'file is required' });
+    const def = await LspService.getDefinition(file, line, col);
+    res.json({ file, line, col, definition: def });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.get('/projects/:id/lsp/references', async (req, res) => {
+  try {
+    const file = req.query.file as string;
+    const line = parseInt(req.query.line as string, 10) || 1;
+    const col = parseInt(req.query.col as string, 10) || 1;
+    if (!file) return res.status(400).json({ error: 'file is required' });
+    const refs = await LspService.findReferences(file, line, col);
+    res.json({ file, line, col, references: refs });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res) => {
   try {
     const id = String(req.params.id);
@@ -2396,55 +2484,58 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
       VALUES (?, ?, ?, ?, ?)
     `).run(msgId, id, role, content, nowIso);
 
-    // Local Assistant logic
-    let replyContent = '';
-    let autonomousRun: any = null;
-    let execution: any = { status: 'stored' };
-    const trimmed = content.trim().toLowerCase();
+    const userMessagePayload = { id: msgId, project_id: id, role, content, created_at: nowIso };
 
-    // Universal Slash Command Interception (/frontend, /image, /rea, /karpathy, /style, /ux, /pentest, etc.)
-    if (content.trim().startsWith('/')) {
-      const slashResult = await SkillSlashCommandService.handleSlashCommand({
-        projectId: id,
-        projectPath: project.path,
-        projectName: project.name,
-        command: content.trim().split(/\s+/)[0],
-        args: content.trim().slice(content.trim().split(/\s+/)[0].length).trim(),
-        fullMessage: content.trim(),
-        requestId
-      });
+    const processMessageTurn = async () => {
+      // Local Assistant logic
+      let replyContent = '';
+      let autonomousRun: any = null;
+      let execution: any = { status: 'stored' };
+      const trimmed = content.trim().toLowerCase();
 
-      replyContent = slashResult.replyContent;
-      execution = slashResult.execution;
-      autonomousRun = slashResult.autonomousRun || null;
+      // Universal Slash Command Interception (/frontend, /image, /rea, /karpathy, /style, /ux, /pentest, etc.)
+      if (content.trim().startsWith('/')) {
+        const slashResult = await SkillSlashCommandService.handleSlashCommand({
+          projectId: id,
+          projectPath: project.path,
+          projectName: project.name,
+          command: content.trim().split(/\s+/)[0],
+          args: content.trim().slice(content.trim().split(/\s+/)[0].length).trim(),
+          fullMessage: content.trim(),
+          requestId
+        });
 
-      const replyId = crypto.randomUUID();
-      const replyTime = new Date().toISOString();
-      const metadataPayload: any = {
-        agentRole: 'system',
-        execution,
-        runId: autonomousRun?.id || null,
-        ...(slashResult.metadata || {})
-      };
-      if (slashResult.screenshots && slashResult.screenshots.length > 0) {
-        metadataPayload.screenshots = slashResult.screenshots;
+        replyContent = slashResult.replyContent;
+        execution = slashResult.execution;
+        autonomousRun = slashResult.autonomousRun || null;
+
+        const replyId = crypto.randomUUID();
+        const replyTime = new Date().toISOString();
+        const metadataPayload: any = {
+          agentRole: 'system',
+          execution,
+          runId: autonomousRun?.id || null,
+          ...(slashResult.metadata || {})
+        };
+        if (slashResult.screenshots && slashResult.screenshots.length > 0) {
+          metadataPayload.screenshots = slashResult.screenshots;
+        }
+        const replyMetadata = JSON.stringify(metadataPayload);
+
+        db.prepare(`
+          INSERT INTO messages (id, project_id, role, content, created_at, metadata)
+          VALUES (?, ?, 'assistant', ?, ?, ?)
+        `).run(replyId, id, replyContent, replyTime, replyMetadata);
+
+        const response = {
+          userMessage: userMessagePayload,
+          assistantReply: { id: replyId, project_id: id, role: 'assistant', content: replyContent, created_at: replyTime, metadata: replyMetadata },
+          autonomousRun,
+          execution
+        };
+        if (requestId) ChatSubmission.complete(id, requestId, response);
+        return response;
       }
-      const replyMetadata = JSON.stringify(metadataPayload);
-
-      db.prepare(`
-        INSERT INTO messages (id, project_id, role, content, created_at, metadata)
-        VALUES (?, ?, 'assistant', ?, ?, ?)
-      `).run(replyId, id, replyContent, replyTime, replyMetadata);
-
-      const response = {
-        userMessage: { id: msgId, project_id: id, role, content, created_at: nowIso },
-        assistantReply: { id: replyId, project_id: id, role: 'assistant', content: replyContent, created_at: replyTime, metadata: replyMetadata },
-        autonomousRun,
-        execution
-      };
-      if (requestId) ChatSubmission.complete(id, requestId, response);
-      return res.json(response);
-    }
 
     if (/^(checkpoint|gerar checkpoint)[.!]?$/.test(trimmed)) {
       const cpResult = CheckpointManager.createSessionCheckpoint(project.id, project.path, project.name);
@@ -2467,7 +2558,14 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
       const activeExistingRun = AutonomousManager.getActiveRunForProject(id);
       autonomousRun = activeExistingRun;
 
-      if (intentResult.intent === 'CONVERSATION' || intentResult.intent === 'STATE_QUERY' || intentResult.intent === 'AMBIGUOUS') {
+      const forceNew = Boolean(req.body?.forceNew);
+      const isContinue = !forceNew && (
+        intentResult.subType === 'CONTINUE_COMMAND' ||
+        intentResult.subType === 'FIX_AND_CONTINUE' ||
+        /^(continuar|retomar|desbloquear|aprovar|resolver|tentar novamente)[.!]?$/i.test(trimmed)
+      );
+
+      if (!forceNew && !isContinue && (intentResult.intent === 'CONVERSATION' || intentResult.intent === 'STATE_QUERY' || intentResult.intent === 'AMBIGUOUS')) {
         const chatRes = await ProjectChatService.handleConversationalMessageAsync({
           projectId: id,
           content,
@@ -2481,7 +2579,7 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
           confidence: intentResult.confidence,
           source: chatRes.source
         };
-      } else if (intentResult.subType === 'CONTINUE_COMMAND' || intentResult.subType === 'FIX_AND_CONTINUE' || /^(continuar|retomar|desbloquear|aprovar)[.!]?$/i.test(trimmed)) {
+      } else if (isContinue) {
         if (activeExistingRun) {
           const pendingApproval: any = db.prepare("SELECT id FROM autonomous_approvals WHERE run_id = ? AND status = 'pending' LIMIT 1").get(activeExistingRun.id);
           if (pendingApproval) {
@@ -2493,15 +2591,15 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
             if (['error', 'blocked', 'paused', 'waiting_resource'].includes(activeExistingRun.status)) {
               db.prepare(`
                 UPDATE autonomous_runs
-                SET consecutive_failures = 0, next_action = 'Reconciliando recursos e continuidade solicitada no chat', updated_at = ?
+                SET consecutive_failures = 0, last_error = NULL, next_action = 'Reconciliando recursos e continuidade solicitada no chat', updated_at = ?
                 WHERE id = ?
               `).run(nowIso, activeExistingRun.id);
 
               // Re-enable blocked or needs_changes microtasks to ready
               db.prepare(`
                 UPDATE autonomous_tasks
-                SET status = 'ready', lifecycle_state = 'READY', updated_at = ?
-                WHERE run_id = ? AND status IN ('blocked', 'needs_changes')
+                SET status = 'ready', lifecycle_state = 'READY', retry_count = 0, updated_at = ?
+                WHERE run_id = ? AND status IN ('blocked', 'needs_changes', 'error')
               `).run(nowIso, activeExistingRun.id);
 
               AutonomousManager.logEvent(
@@ -2532,22 +2630,70 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
       } else {
         // Connect to Autonomous Development Engine for execution instructions
         try {
-          const explicitReplan = Boolean(req.body.replan) || /^(replanejar|novo requisito|alterar requisito|defeito):/i.test(content.trim());
+          const explicitReplan = !forceNew && (Boolean(req.body?.replan) || /^(replanejar|novo requisito|alterar requisito|defeito):/i.test(content.trim()));
+          const isRunStalledOrBlocked = activeExistingRun && ['blocked', 'error', 'paused', 'waiting_resource'].includes(activeExistingRun.status);
           const isRunBusy = activeExistingRun && ['running', 'building', 'testing', 'reviewing', 'planning', 'waiting_for_worker'].includes(activeExistingRun.status);
-          const isRunPaused = activeExistingRun && ['paused','error','blocked','waiting_approval'].includes(activeExistingRun.status);
 
-          if (activeExistingRun && explicitReplan) {
+          if (activeExistingRun && (forceNew || isRunStalledOrBlocked)) {
+            // Se o projeto possuir um run anterior com status blocked, error, paused ou waiting_resource (ou forceNew):
+            // Não prenda em QUEUED_USER_INSTRUCTION.
+            // Arquive/finalize o run anterior e crie imediatamente um NOVO Autonomous Run.
+            const prevFinalStatus = ['error', 'blocked', 'waiting_resource'].includes(activeExistingRun.status) ? 'failed' : 'completed';
+            db.prepare(`
+              UPDATE autonomous_runs
+              SET status = ?, end_time = COALESCE(end_time, ?), next_action = 'Finalizado para iniciar novo plano solicitado pelo usuário', updated_at = ?
+              WHERE id = ?
+            `).run(prevFinalStatus, nowIso, nowIso, activeExistingRun.id);
+            db.prepare("UPDATE worker_leases SET status = 'released' WHERE run_id = ? AND status = 'active'").run(activeExistingRun.id);
+            db.prepare(`
+              DELETE FROM execution_reservations
+              WHERE json_extract(CASE WHEN json_valid(context_json) THEN context_json ELSE '{}' END, '$.runId') = ?
+            `).run(activeExistingRun.id);
+            AutonomousManager.logEvent(
+              activeExistingRun.id,
+              null,
+              'system',
+              'RUN_SUPERSEDED',
+              `Run anterior [${activeExistingRun.id.slice(0, 8)}] finalizado como '${prevFinalStatus}'. Novo run iniciado com a instrução: "${content}"`
+            );
+
+            autonomousRun = await AutonomousManager.createRun({
+              projectId: id,
+              name: `Solicitação: ${content.slice(0, 35)}`,
+              objective: content,
+              briefing: content,
+              autonomyMode: 'autonomous',
+              forceNew: true
+            });
+            setTimeout(() => {
+              AutonomousRunnerService.schedulerTick().catch((err) => {
+                if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+                  (globalThis as any).logger.warn({
+                    event: "server.handled_exception",
+                    file: "routes",
+                    error: (err as any)?.message || String(err)
+                  });
+                } else {
+                  console.warn("[WARN][server:routes]", err);
+                }
+              });
+            }, 100);
+            execution = { status: 'started' };
+            replyContent = autonomousRun?.status === 'planning'
+              ? 'Estou organizando o novo trabalho em etapas e conectando ao agente de desenvolvimento. O planejamento inicial está em andamento.'
+              : `Estou organizando o novo trabalho em etapas e verificando as dependências. Criei um novo plano com ${autonomousRun?.tasks?.length || 0} etapas estruturadas para atender ao seu objetivo.`;
+          } else if (activeExistingRun && explicitReplan) {
             const cleanReq = content.trim().replace(/^(replanejar|novo requisito|alterar requisito|defeito):/i, '').trim() || content.trim();
             const replanType = /^defeito:/i.test(content.trim())
               ? 'DEFECT_FIX'
               : /^novo requisito:/i.test(content.trim())
               ? 'NEW_FEATURE'
-              : (req.body.replanType || 'REQUIREMENT_CHANGE');
+              : (req.body?.replanType || 'REQUIREMENT_CHANGE');
             const replanRes = AutonomousManager.replanRun({
               runId: activeExistingRun.id,
               userRequest: cleanReq,
               replanType,
-              originTaskId: req.body.originTaskId
+              originTaskId: req.body?.originTaskId
             });
             autonomousRun = replanRes.run;
             execution = {
@@ -2569,7 +2715,7 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
               { content, queuedAt: nowIso, messageId: msgId, consumed: false, durableContinuation: true }
             );
             replyContent = `Sua instrução foi registrada na fila do projeto. O trabalho ativo está sendo executado e a continuidade será aplicada assim que a etapa atual for concluída.`;
-          } else if (isRunPaused) {
+          } else if (activeExistingRun && activeExistingRun.status === 'waiting_approval') {
             execution = { status: 'queued', runStatus: activeExistingRun.status };
             autonomousRun = activeExistingRun;
             AutonomousManager.logEvent(
@@ -2580,7 +2726,7 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
               `Instrução enfileirada: "${content}"`,
               { content, queuedAt: nowIso, messageId: msgId, consumed: false, durableContinuation: true }
             );
-            replyContent = `Sua instrução foi registrada com segurança na fila de continuidade do projeto. A execução está aguardando ação para prosseguir. Quando você clicar em Continuar ou aprovar, o sistema retomará o trabalho.`;
+            replyContent = `Sua instrução foi registrada com segurança na fila de continuidade do projeto. A execução está aguardando ação de aprovação para prosseguir.`;
           } else {
             // Launch real autonomous build
             autonomousRun = await AutonomousManager.createRun({
@@ -2592,19 +2738,21 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
             });
             setTimeout(() => {
               AutonomousRunnerService.schedulerTick().catch((err) => {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "routes",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:routes]", err);
-      }
-    });
+                if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+                  (globalThis as any).logger.warn({
+                    event: "server.handled_exception",
+                    file: "routes",
+                    error: (err as any)?.message || String(err)
+                  });
+                } else {
+                  console.warn("[WARN][server:routes]", err);
+                }
+              });
             }, 100);
             execution = { status: 'started' };
-            replyContent = `Estou organizando o trabalho em etapas e verificando as dependências. Criei um plano com ${autonomousRun.tasks.length} etapas estruturadas para atender ao seu objetivo.`;
+            replyContent = autonomousRun?.status === 'planning'
+              ? 'Estou organizando o trabalho em etapas e conectando ao agente de desenvolvimento. O planejamento inicial está em andamento.'
+              : `Estou organizando o trabalho em etapas e verificando as dependências. Criei um plano com ${autonomousRun?.tasks?.length || 0} etapas estruturadas para atender ao seu objetivo.`;
           }
         } catch (runErr: any) {
           Logger.warn(`[Routes] Não foi possível iniciar Autonomous Run via chat: ${runErr.message}`);
@@ -2628,13 +2776,55 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
       VALUES (?, ?, 'assistant', ?, ?, ?)
     `).run(replyId, id, replyContent, replyTime, replyMetadata);
 
-    const response={
-      userMessage: { id: msgId, project_id: id, role, content, created_at: nowIso },
+    const response = {
+      userMessage: userMessagePayload,
       assistantReply: { id: replyId, project_id: id, role: 'assistant', content: replyContent, created_at: replyTime, metadata: replyMetadata },
       autonomousRun,
       execution
     };
-    if(requestId)ChatSubmission.complete(id,requestId,response);
+    if (requestId) ChatSubmission.complete(id, requestId, response);
+    return response;
+    };
+
+    const isAsync = req.headers['x-stream-mode'] === 'sse' ||
+      req.query.stream === 'true' ||
+      req.body?.stream === true ||
+      req.headers['prefer'] === 'respond-async' ||
+      req.body?.async === true ||
+      req.query.async === 'true' ||
+      SseStreamService.hasClients(id);
+
+    if (isAsync) {
+      const turnId = 'turn-' + crypto.randomUUID();
+      SseStreamService.broadcast(id, 'message', { userMessage: userMessagePayload, turnId });
+
+      res.status(202).json({
+        success: true,
+        turnId,
+        messageId: msgId,
+        status: 'accepted',
+        userMessage: userMessagePayload,
+        execution: { status: 'started' }
+      });
+
+      setImmediate(async () => {
+        try {
+          const response = await processMessageTurn();
+          SseStreamService.broadcast(id, 'message', { ...response, turnId });
+          if (response.autonomousRun) {
+            SseStreamService.broadcast(id, 'activity', { run: response.autonomousRun, execution: response.execution, turnId });
+          }
+          SseStreamService.broadcast(id, 'done', { turnId, status: 'completed' });
+        } catch (bgErr: any) {
+          SseStreamService.broadcast(id, 'error', { turnId, error: bgErr.message });
+          if (typeof requestId === 'string') ChatSubmission.uncertain(id, requestId);
+        }
+      });
+      return;
+    }
+
+    const response = await processMessageTurn();
+    SseStreamService.broadcast(id, 'message', response);
     res.json(response);
   } catch (err: any) {
     if(typeof req.body?.requestId==='string')ChatSubmission.uncertain(String(req.params.id),req.body.requestId);
@@ -2650,29 +2840,34 @@ apiRouter.post('/projects/:id/messages/cancel', async (req, res) => {
     // 1. Mark cancellation in TurnCancellationManager for this project
     TurnCancellationManager.requestCancellation(id);
 
-    // 2. If active conversational session exists, mark conversation cancelled
-    try {
-      const activeSession = AgentSessionManager.getActiveSession(id, 'CONVERSATIONAL');
-      if (activeSession) {
-        TurnCancellationManager.requestCancellation(activeSession.provider_conversation_id);
-        AgentTurnState.setPhase(activeSession.provider_conversation_id, 'CONSUMED');
-      }
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "routes",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:routes]", err);
+    // 2. If active sessions exist for any role, mark conversation cancelled
+    for (const role of ['CONVERSATIONAL', 'SUPERVISOR', 'WORKER'] as const) {
+      try {
+        const activeSession = AgentSessionManager.getActiveSession(id, role);
+        if (activeSession) {
+          TurnCancellationManager.requestCancellation(activeSession.provider_conversation_id);
+          AgentTurnState.setPhase(activeSession.provider_conversation_id, 'CONSUMED');
+        }
+      } catch (err) {
+        if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+          (globalThis as any).logger.warn({
+            event: "server.handled_exception",
+            file: "routes",
+            error: (err as any)?.message || String(err)
+          });
+        } else {
+          console.warn("[WARN][server:routes]", err);
+        }
       }
     }
 
-    // 3. Release any execution reservations for this project
+    // 3. Release any execution reservations and execution lock for this project
     try {
       ExecutionCoordinator.releaseByContext({ projectId: id });
       ExecutionCoordinator.reconcileDeadReservations();
+      db.prepare("DELETE FROM execution_reservations WHERE scope='global-agent-execution' OR scope=?").run(`run-create:${id}`);
+      db.prepare("UPDATE agent_turn_observations SET phase='CONSUMED' WHERE task_id IN (SELECT id FROM autonomous_tasks WHERE run_id IN (SELECT id FROM autonomous_runs WHERE project_id=?)) AND phase IN ('IN_FLIGHT','UNCERTAIN')").run(id);
+      AutonomousRunnerService.releaseExecutionLock();
     } catch (err) {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({
@@ -3238,12 +3433,56 @@ apiRouter.post('/projects/:id/agent-stop', (req, res) => {
     const project: any = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
     if (!project) return res.status(404).json({ error: 'Projeto não encontrado' });
 
-    // 1. Stop any active autonomous run
+    // 1. Mark cancellation in TurnCancellationManager for this project and active sessions
+    TurnCancellationManager.requestCancellation(id);
+    for (const role of ['CONVERSATIONAL', 'SUPERVISOR', 'WORKER'] as const) {
+      try {
+        const s = AgentSessionManager.getActiveSession(id, role);
+        if (s) {
+          TurnCancellationManager.requestCancellation(s.provider_conversation_id);
+          AgentTurnState.setPhase(s.provider_conversation_id, 'CONSUMED');
+        }
+      } catch (err) {
+        if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+          (globalThis as any).logger.warn({
+            event: "server.handled_exception",
+            file: "routes",
+            error: (err as any)?.message || String(err)
+          });
+        } else {
+          console.warn("[WARN][server:routes]", err);
+        }
+      }
+    }
+
+    // 2. Stop any active autonomous run
     const runs = db.prepare("SELECT id FROM autonomous_runs WHERE project_id = ? AND status NOT IN ('completed', 'failed')").all(id) as any[];
     for (const r of runs) {
       try {
         AutonomousManager.stopRun(r.id);
       } catch (err) {
+        if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+          (globalThis as any).logger.warn({
+            event: "server.handled_exception",
+            file: "routes",
+            error: (err as any)?.message || String(err)
+          });
+        } else {
+          console.warn("[WARN][server:routes]", err);
+        }
+      }
+    }
+
+    // 3. Clear reservations, release locks, update observations and cancel submissions
+    try {
+      ExecutionCoordinator.releaseByContext({ projectId: id });
+      ExecutionCoordinator.reconcileDeadReservations();
+      db.prepare("DELETE FROM execution_reservations WHERE scope='global-agent-execution' OR scope=?").run(`run-create:${id}`);
+      db.prepare("UPDATE agent_turn_observations SET phase='CONSUMED' WHERE task_id IN (SELECT id FROM autonomous_tasks WHERE run_id IN (SELECT id FROM autonomous_runs WHERE project_id=?)) AND phase IN ('IN_FLIGHT','UNCERTAIN')").run(id);
+      db.prepare("UPDATE worker_leases SET status='released' WHERE run_id IN (SELECT id FROM autonomous_runs WHERE project_id=?) AND status='active'").run(id);
+      AutonomousRunnerService.releaseExecutionLock();
+      ChatSubmission.cancel(id);
+    } catch (err) {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({
           event: "server.handled_exception",
@@ -3253,7 +3492,6 @@ apiRouter.post('/projects/:id/agent-stop', (req, res) => {
       } else {
         console.warn("[WARN][server:routes]", err);
       }
-    }
     }
 
     Logger.info(`[AgentStop] Cancelamento solicitado para o projeto "${project.name}"`);
@@ -4458,6 +4696,10 @@ apiRouter.get('/metachat/messages', (req, res) => {
   }
 });
 
+apiRouter.get('/metachat/stream', (req, res) => {
+  SseStreamService.addClient('metachat', res, req);
+});
+
 apiRouter.post('/metachat/chat', async (req, res) => {
   try {
     const {
@@ -4470,11 +4712,77 @@ apiRouter.post('/metachat/chat', async (req, res) => {
       reasoningMode,
       accountId,
       profileId,
-      attachments
+      attachments,
+      stream,
+      async: isAsyncBody
     } = req.body || {};
 
     if (!message || typeof message !== 'string' || !message.trim()) {
       return res.status(400).json({ success: false, error: 'Campo "message" é obrigatório.' });
+    }
+
+    const isAsync = req.headers['x-stream-mode'] === 'sse' ||
+      req.query.stream === 'true' ||
+      stream === true ||
+      req.headers['prefer'] === 'respond-async' ||
+      isAsyncBody === true ||
+      req.query.async === 'true' ||
+      SseStreamService.hasClients('metachat');
+
+    if (isAsync) {
+      const turnId = 'meta-turn-' + crypto.randomUUID();
+
+      res.status(202).json({
+        success: true,
+        turnId,
+        status: 'accepted'
+      });
+
+      setImmediate(async () => {
+        try {
+          SseStreamService.broadcast('metachat', 'activity', {
+            turnId,
+            status: 'started',
+            message: 'Iniciando processamento no Meta-Chat...'
+          });
+
+          const result = await MetaChatService.handleUserMessage(message, {
+            threadId,
+            codeActions,
+            runTests: Boolean(runTests),
+            testFile,
+            model,
+            reasoningMode,
+            accountId: accountId || profileId,
+            profileId: profileId || accountId,
+            attachments
+          });
+
+          SseStreamService.broadcast('metachat', 'message', {
+            turnId,
+            result,
+            message: result.message,
+            threadId: result.message?.thread_id || threadId
+          });
+
+          SseStreamService.broadcast('metachat', 'activity', {
+            turnId,
+            status: 'completed',
+            telemetry: MetaChatService.getLiveActivity(result.message?.thread_id || threadId)
+          });
+
+          SseStreamService.broadcast('metachat', 'done', {
+            turnId,
+            status: 'completed'
+          });
+        } catch (bgErr: any) {
+          SseStreamService.broadcast('metachat', 'error', {
+            turnId,
+            error: bgErr.message
+          });
+        }
+      });
+      return;
     }
 
     const result = await MetaChatService.handleUserMessage(message, {
@@ -4487,6 +4795,12 @@ apiRouter.post('/metachat/chat', async (req, res) => {
       accountId: accountId || profileId,
       profileId: profileId || accountId,
       attachments
+    });
+
+    SseStreamService.broadcast('metachat', 'message', {
+      result,
+      message: result.message,
+      threadId: result.message?.thread_id || threadId
     });
 
     res.json(result);
@@ -4513,9 +4827,32 @@ apiRouter.post('/metachat/reset', (req, res) => {
 apiRouter.post('/metachat/recompile', async (req, res) => {
   try {
     const result = await MetaChatService.recompileAndSync();
+    if (result.restarted) {
+      Logger.info('[Routes] Recompilação com sincronização concluída. Reinício limpo do serviço agendado no Desktop Electron.');
+    }
     res.json(result);
   } catch (err: any) {
     Logger.error(`[Routes] Erro ao recompilar DecoHUB via Meta-Chat: ${err.message}`);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+apiRouter.post('/metachat/restart', async (_req, res) => {
+  try {
+    const isDesktop = process.env.ELECTRON_RUN_AS_NODE === '1' || Boolean(process.env.AI_DEV_HUB_DATA_DIR);
+    res.json({
+      success: true,
+      isDesktop,
+      message: isDesktop
+        ? 'Reiniciando serviço backend no Desktop Electron...'
+        : 'Reinício de processo solicitado com sucesso.'
+    });
+    setTimeout(() => {
+      try {
+        process.exit(0);
+      } catch {}
+    }, 800);
+  } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
 });

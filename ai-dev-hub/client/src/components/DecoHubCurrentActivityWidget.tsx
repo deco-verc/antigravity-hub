@@ -122,6 +122,14 @@ export const DecoHubCurrentActivityWidget: React.FC<DecoHubCurrentActivityWidget
 
   // 3. Status Badge derivation
   const getStatusBadge = () => {
+    if (!run && agentStatus === 'working') {
+      return (
+        <span className="px-2.5 py-0.5 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 text-xs font-semibold flex items-center gap-1.5">
+          <Loader2 className="w-3.5 h-3.5 text-indigo-400 animate-spin" />
+          Conectando
+        </span>
+      );
+    }
     if (isWaitingApproval) {
       return (
         <span className="px-2.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-semibold flex items-center gap-1.5">
@@ -230,6 +238,9 @@ export const DecoHubCurrentActivityWidget: React.FC<DecoHubCurrentActivityWidget
   // 4. Content fields derivation
   // Agora:
   const getNowContent = () => {
+    if (!run && agentStatus === 'working') {
+      return 'Iniciando planejamento e conectando ao agente...';
+    }
     if (isPlanning) {
       if (run?.next_action && /pesquisa|onda\s*0|discovery|rea|estudo\s*de\s*mercado/i.test(run.next_action)) {
         return 'Onda 0: Analisando mercado, referências globais/BR e modelando arquitetura REA.';
@@ -304,6 +315,9 @@ export const DecoHubCurrentActivityWidget: React.FC<DecoHubCurrentActivityWidget
 
   // Próximo passo (claramente como previsão):
   const getNextStepContent = () => {
+    if (!run && agentStatus === 'working') {
+      return 'Iniciando planejamento e conectando ao agente...';
+    }
     if (isWaitingApproval) {
       return 'Aprovar a etapa pendente para liberar o Worker.';
     }

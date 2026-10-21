@@ -97,6 +97,28 @@ class ServiceManager extends EventEmitter {
     });
   }
 
+  killProcessOnPort(port) {
+    try {
+      if (process.platform === 'win32') {
+        const { execSync, execFileSync } = require('child_process');
+        const out = execSync(`netstat -ano -p tcp | findstr :${port}`, { encoding: 'utf8', windowsHide: true });
+        const lines = out.split('\n');
+        for (const line of lines) {
+          if (line.includes('LISTENING')) {
+            const parts = line.trim().split(/\s+/);
+            const pid = parseInt(parts[parts.length - 1], 10);
+            if (pid && pid > 0 && pid !== process.pid) {
+              logger.info(`[ServiceManager] Limpando processo preso na porta ${port} (PID: ${pid})...`);
+              try {
+                execFileSync('taskkill', ['/pid', String(pid), '/f', '/t'], { stdio: 'ignore' });
+              } catch {}
+            }
+          }
+        }
+      }
+    } catch {}
+  }
+
   async findAvailablePort(startPort) {
     let port = startPort;
     while (port < startPort + 40) {
@@ -169,18 +191,19 @@ class ServiceManager extends EventEmitter {
     this.services.ANTIGRAVITY.path = agDiscovery.languageServerExe;
     logger.info(`[ServiceManager] Antigravity Status: ${this.services.ANTIGRAVITY.status} (${agDiscovery.languageServerExe || 'Nenhum'})`);
 
-    // 2. Check if configured port is already healthy
-    const isAlreadyRunning = await this.checkHealth(this.backendPort);
-    if (isAlreadyRunning) {
-      logger.info(`Backend já ativo na porta ${this.backendPort}. Anexando ao serviço existente.`);
-      this.isAttachedExisting = true;
-      this.services.BACKEND.status = 'READY';
-      this.services.MCP.status = 'READY';
-      this.emit('ready', { port: this.backendPort, attached: true });
-      return { port: this.backendPort, attached: true };
+    // 2. Limpar qualquer processo órfão na porta 3001 para que o server/dist/index.js recém-compilado seja carregado do zero
+    const portTakenBefore = await this.isPortTaken(this.backendPort);
+    if (portTakenBefore) {
+      logger.info(`[ServiceManager] Porta ${this.backendPort} em uso por processo anterior. Limpando processo órfão para carregar build atualizado...`);
+      this.killProcessOnPort(this.backendPort);
+      for (let i = 0; i < 20; i++) {
+        const stillBusy = await this.isPortTaken(this.backendPort);
+        if (!stillBusy) break;
+        await new Promise(r => setTimeout(r, 100));
+      }
     }
 
-    // 3. Dynamic Port Allocation
+    // 3. Dynamic Port Allocation se a porta ainda estiver ocupada por serviço externo
     const taken = await this.isPortTaken(this.backendPort);
     if (taken) {
       this.backendPort = await this.findAvailablePort(this.backendPort + 1);
@@ -293,11 +316,6 @@ class ServiceManager extends EventEmitter {
       if (fs.existsSync(pidFile)) fs.unlinkSync(pidFile);
     } catch {}
 
-    if (this.isAttachedExisting) {
-      logger.info('Serviço anexado mantido ativo ao fechar o Desktop.');
-      return;
-    }
-
     if (this.serverProcess && this.backendPid) {
       logger.info(`Encerrando processo do backend (PID: ${this.backendPid})...`);
       try {
@@ -314,8 +332,10 @@ class ServiceManager extends EventEmitter {
       this.backendPid = null;
     }
 
-    // Gracefully wait up to 2 seconds for port release
+    // Garante que o processo na porta do backend seja encerrado ao fechar o aplicativo
     if (this.backendPort) {
+      this.killProcessOnPort(this.backendPort);
+      // Gracefully wait up to 2 seconds for port release
       for (let i = 0; i < 20; i++) {
         const taken = await this.isPortTaken(this.backendPort);
         if (!taken) break;

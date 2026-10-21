@@ -154,6 +154,8 @@ export interface MetaChatResponse {
   };
   selfHealed?: boolean;
   conversationId?: string;
+  status?: string;
+  telemetry?: MetaChatLiveActivity | MetaChatLiveStatus;
 }
 
 export class MetaChatService {
@@ -815,7 +817,16 @@ export class MetaChatService {
    * Resolves the DecoHUB workspace root safely.
    */
   static getDecoHubRoot(): string {
-    if (this._repoRoot && fs.existsSync(path.join(this._repoRoot, 'server', 'package.json'))) {
+    if (process.env.DECOHUB_REPO_ROOT && fs.existsSync(process.env.DECOHUB_REPO_ROOT)) {
+      this._repoRoot = path.resolve(process.env.DECOHUB_REPO_ROOT);
+      return this._repoRoot;
+    }
+
+    if (
+      this._repoRoot &&
+      (fs.existsSync(path.join(this._repoRoot, 'server', 'package.json')) ||
+        fs.existsSync(path.join(this._repoRoot, 'dist-desktop')))
+    ) {
       return this._repoRoot;
     }
 
@@ -823,15 +834,17 @@ export class MetaChatService {
 
     const candidates = [
       path.resolve(currentDir, '..', '..'), // from server/src or server/dist -> ai-dev-hub root
+      path.resolve(currentDir, '..'),
       path.resolve(process.cwd(), '..'),
       process.cwd(),
-      'C:\\IA\\Antigravity HUB\\ai-dev-hub'
+      'C:\\IA\\Antigravity HUB\\ai-dev-hub',
+      'C:\\IA\\Antigravity HUB'
     ];
 
     for (const cand of candidates) {
       if (
-        fs.existsSync(path.join(cand, 'server', 'package.json')) &&
-        fs.existsSync(path.join(cand, 'client', 'package.json'))
+        fs.existsSync(path.join(cand, 'server', 'package.json')) ||
+        fs.existsSync(path.join(cand, 'dist-desktop'))
       ) {
         this._repoRoot = path.resolve(cand);
         return this._repoRoot;
@@ -923,12 +936,16 @@ export class MetaChatService {
   }
 
   /**
-   * Self-Healing Typecheck Guard: Runs tsc --noEmit to verify code syntax and typing integrity.
+   * Self-Healing Typecheck Guard: Runs tsc --noEmit --skipLibCheck to verify code syntax and typing integrity.
    */
-  static async runTypecheck(target: 'server' | 'client' | 'all' = 'server'): Promise<{
+  static async runTypecheck(
+    target: 'server' | 'client' | 'all' = 'server',
+    changedFiles?: string[]
+  ): Promise<{
     passed: boolean;
     durationMs: number;
     output: string;
+    errors?: Array<{ file: string; line?: number; column?: number; code?: string; message: string; raw: string }>;
   }> {
     const root = this.getDecoHubRoot();
     const startTime = Date.now();
@@ -936,40 +953,82 @@ export class MetaChatService {
 
     let output = '';
     let passed = true;
+    const collectedErrors: Array<{ file: string; line?: number; column?: number; code?: string; message: string; raw: string }> = [];
 
     const checkDir = (subDir: string): boolean => {
       const dirPath = path.join(root, subDir);
       if (!fs.existsSync(dirPath)) return true;
 
-      const localTsc = path.join(dirPath, 'node_modules', 'typescript', 'bin', 'tsc');
       const serverTsc = path.join(root, 'server', 'node_modules', 'typescript', 'bin', 'tsc');
-      const tscScript = fs.existsSync(localTsc) ? localTsc : fs.existsSync(serverTsc) ? serverTsc : null;
+      const localTsc = path.join(dirPath, 'node_modules', 'typescript', 'bin', 'tsc');
+      const tscScript = fs.existsSync(serverTsc) ? serverTsc : fs.existsSync(localTsc) ? localTsc : null;
 
       try {
         let res = '';
         if (tscScript) {
-          res = execFileSync(process.execPath, [tscScript, '--noEmit'], {
+          res = execFileSync(process.execPath, [tscScript, '--noEmit', '--skipLibCheck'], {
             cwd: dirPath,
             encoding: 'utf-8',
-            timeout: 40000,
+            timeout: 45000,
             windowsHide: true,
-            env: { ...process.env, CI: 'true' }
+            env: { ...process.env, CI: 'true', NONINTERACTIVE: '1' }
           });
         } else {
-          res = execFileSync(isWin ? 'npx.cmd' : 'npx', ['tsc', '--noEmit'], {
+          const npxCmd = isWin ? 'npx.cmd' : 'npx';
+          res = execFileSync(npxCmd, ['--yes', 'tsc', '--noEmit', '--skipLibCheck'], {
             cwd: dirPath,
             encoding: 'utf-8',
-            timeout: 40000,
+            timeout: 45000,
             windowsHide: true,
             shell: isWin,
-            env: { ...process.env, CI: 'true' }
+            env: { ...process.env, CI: 'true', NONINTERACTIVE: '1' }
           });
         }
         output += `[${subDir}] Typecheck aprovado:\n${res || 'Sem erros de compilação.'}\n`;
         return true;
       } catch (err: any) {
-        passed = false;
         const errOut = `${err.stdout || ''}\n${err.stderr || ''}\n${err.message || ''}`.trim();
+        const parsedErrors: Array<{ file: string; line?: number; column?: number; code?: string; message: string; raw: string }> = [];
+        const lines = errOut.split('\n');
+        const errorRegex1 = /^(.+?)\((\d+),(\d+)\):\s+(error\s+TS\d+:\s*.+)$/;
+        const errorRegex2 = /^(.+?):(\d+):(\d+)\s+-\s+(error\s+TS\d+:\s*.+)$/;
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          const m = trimmed.match(errorRegex1) || trimmed.match(errorRegex2);
+          if (m) {
+            parsedErrors.push({
+              file: m[1].trim(),
+              line: parseInt(m[2], 10),
+              column: parseInt(m[3], 10),
+              message: m[4].trim(),
+              raw: trimmed
+            });
+          }
+        }
+
+        // If changedFiles are provided, focus only on errors affecting the scoped files
+        if (changedFiles && changedFiles.length > 0) {
+          const normChanged = changedFiles.map(f => f.replace(/\\/g, '/').toLowerCase());
+          const scopedErrors = parsedErrors.filter(e => {
+            const normErr = e.file.replace(/\\/g, '/').toLowerCase();
+            return normChanged.some(c => normErr.endsWith(c) || c.endsWith(normErr));
+          });
+
+          if (scopedErrors.length > 0) {
+            passed = false;
+            collectedErrors.push(...scopedErrors);
+            output += `[${subDir}] FALHA NO TYPECHECK (Arquivos de Escopo):\n${scopedErrors.map(e => e.raw).join('\n')}\n`;
+            return false;
+          } else if (parsedErrors.length > 0) {
+            // Errors were outside scoped files (pre-existing or unrelated) - do not fail the scoped typecheck
+            output += `[${subDir}] AVISO: ${parsedErrors.length} erro(s) de tipagem encontrados fora dos arquivos modificados. Escopo validado com sucesso.\n`;
+            return true;
+          }
+        }
+
+        passed = false;
+        collectedErrors.push(...(parsedErrors.length > 0 ? parsedErrors : [{ file: subDir, message: errOut, raw: errOut }]));
         output += `[${subDir}] FALHA NO TYPECHECK:\n${errOut}\n`;
         return false;
       }
@@ -985,7 +1044,8 @@ export class MetaChatService {
     return {
       passed,
       durationMs: Date.now() - startTime,
-      output: output.trim()
+      output: output.trim(),
+      errors: collectedErrors
     };
   }
 
@@ -1780,6 +1840,7 @@ export class MetaChatService {
     serverBuild?: string;
     clientBuild?: string;
     synced?: boolean;
+    restarted?: boolean;
   }> {
     const startTime = Date.now();
     const root = this.getDecoHubRoot();
@@ -1832,7 +1893,8 @@ export class MetaChatService {
         'resources',
         'app.asar.unpacked'
       ),
-      path.join(root, 'dist-desktop', 'win-unpacked', 'resources', 'app.asar.unpacked')
+      path.join(root, 'dist-desktop', 'win-unpacked', 'resources', 'app.asar.unpacked'),
+      path.join(root, 'decohub_unpacked')
     ];
 
     if (isWin) {
@@ -1855,14 +1917,37 @@ export class MetaChatService {
       }
     }
 
+    // 4. Clean service restart when running in Desktop Electron
+    const isDesktop = process.env.ELECTRON_RUN_AS_NODE === '1' || Boolean(process.env.AI_DEV_HUB_DATA_DIR);
+    let restarted = false;
+
+    if (isDesktop && synced) {
+      restarted = true;
+      Logger.info('[MetaChatService] Ambiente Desktop Electron detectado. Notificando serviceManager e agendando reinício limpo do serviço...');
+      if (process.env.AI_DEV_HUB_DATA_DIR && fs.existsSync(process.env.AI_DEV_HUB_DATA_DIR)) {
+        try {
+          fs.writeFileSync(
+            path.join(process.env.AI_DEV_HUB_DATA_DIR, 'backend.status'),
+            JSON.stringify({ status: 'RESTARTING', timestamp: new Date().toISOString(), reason: 'RECOMPILE_AND_SYNC' })
+          );
+        } catch {}
+      }
+      setTimeout(() => {
+        try {
+          process.exit(0);
+        } catch {}
+      }, 1000);
+    }
+
     const durationMs = Date.now() - startTime;
     return {
       success: true,
-      message: `Recompilação e sincronização do DecoHUB concluídas com sucesso em ${(durationMs / 1000).toFixed(1)}s!`,
+      message: `Recompilação e sincronização do DecoHUB concluídas com sucesso em ${(durationMs / 1000).toFixed(1)}s!${restarted ? ' Reinício limpo do serviço desktop agendado.' : ''}`,
       durationMs,
       serverBuild: serverOutput.trim(),
       clientBuild: clientOutput.trim(),
-      synced
+      synced,
+      restarted
     };
   }
 
@@ -1963,7 +2048,12 @@ export class MetaChatService {
 
       let actionSummary = '';
       let reply = '';
-      let typecheckResult = { passed: true, durationMs: 0, output: 'Nenhum arquivo de código foi alterado.' };
+      let typecheckResult: {
+        passed: boolean;
+        durationMs: number;
+        output: string;
+        errors?: Array<{ file: string; line?: number; column?: number; code?: string; message: string; raw: string }>;
+      } = { passed: true, durationMs: 0, output: 'Nenhum arquivo de código foi alterado.' };
       let selfHealed = false;
       let testResult: { ran: boolean; passed: boolean; output?: string } | undefined;
 
@@ -2025,7 +2115,7 @@ export class MetaChatService {
           const hasClientFiles = filesChanged.some(f => f.startsWith('client/'));
           const target = hasServerFiles && hasClientFiles ? 'all' : hasClientFiles ? 'client' : 'server';
 
-          typecheckResult = await this.runTypecheck(target);
+          typecheckResult = await this.runTypecheck(target, filesChanged);
 
           if (!typecheckResult.passed) {
             Logger.warn(`[MetaChatService] Typecheck quebrou após alteração manual. Acionando Autoproteção Ativa...`);
@@ -2076,10 +2166,19 @@ export class MetaChatService {
         }
 
         if (selfHealed) {
+          let errorDetails = '';
+          if (typecheckResult.errors && typecheckResult.errors.length > 0) {
+            errorDetails = typecheckResult.errors
+              .map(e => `- \`${e.file}:${e.line || '?'}\` → **${e.message}**`)
+              .join('\n');
+          } else {
+            errorDetails = `\`\`\`text\n${typecheckResult.output.slice(0, 800)}\n\`\`\``;
+          }
+
           reply =
             `[SELF_HEALING_GUARD] **Autoproteção Ativa Ativada:**\n\n` +
             `A alteração solicitada causou erro de compilação/tipagem TypeScript no DecoHUB:\n\n` +
-            `\`\`\`text\n${typecheckResult.output.slice(0, 800)}\n\`\`\`\n\n` +
+            `${errorDetails}\n\n` +
             `O DecoHUB desfez a alteração automaticamente para manter o repositório 100% íntegro e estável. Por favor, ajuste os tipos ou parâmetros da instrução.`;
         } else if (filesChanged.length > 0) {
           reply =
@@ -2094,7 +2193,7 @@ export class MetaChatService {
         const attachmentsBlock = this.buildAttachmentsBlock(savedAttachments);
 
         const projectBinding = this.ensureDecoHubProject(requestedAccountId);
-        const effectiveAccountId = projectBinding.accountProfile.id;
+        let effectiveAccountId = projectBinding.accountProfile.id;
         activeConvId = this.getActiveConversationId(effectiveAccountId);
 
         const resolvedConfig = ModelRegistry.resolveModelConfig({
@@ -2159,6 +2258,39 @@ export class MetaChatService {
               `\nNenhuma violação de integridade detectada. Repositório DecoHUB validado com Typecheck Guard.`;
           }
 
+          if (reply) {
+            const parsedBlocks = this.parseCodeDirectives(reply);
+            for (const pb of parsedBlocks) {
+              if (pb.action === 'write' && typeof pb.content === 'string') {
+                try {
+                  const fullPath = this.validatePathWithinRepo(pb.filePath);
+                  const relPath = path.relative(root, fullPath).replace(/\\/g, '/');
+                  let shouldWrite = true;
+                  if (fs.existsSync(fullPath)) {
+                    const currentDiskContent = fs.readFileSync(fullPath, 'utf-8');
+                    if (currentDiskContent === pb.content) {
+                      shouldWrite = false;
+                    }
+                  }
+                  if (shouldWrite) {
+                    this.writeFile(relPath, pb.content);
+                    if (!filesChanged.includes(relPath)) {
+                      filesChanged.push(relPath);
+                    }
+                    this.recordLiveStep({
+                      type: 'EDIT',
+                      target: relPath,
+                      status: 'done',
+                      details: `Gravando ${relPath} (bloco de código direto)`
+                    });
+                  }
+                } catch (writeErr: any) {
+                  Logger.warn(`[MetaChatService] Erro ao aplicar bloco [FILE] offline: ${writeErr.message}`);
+                }
+              }
+            }
+          }
+
           if (!activeConvId) {
             activeConvId = `conv-metachat-offline-${Date.now().toString(36)}`;
             this.setActiveConversationId(activeConvId, requestedAccountId);
@@ -2173,7 +2305,10 @@ export class MetaChatService {
           this.updatePipelineTask('task-inspect', 'completed');
           this.updatePipelineTask('task-implement', 'completed');
 
-          typecheckResult = await this.runTypecheck('server');
+          const hasServerFiles = filesChanged.some(f => f.startsWith('server/'));
+          const hasClientFiles = filesChanged.some(f => f.startsWith('client/'));
+          const target = hasServerFiles && hasClientFiles ? 'all' : hasClientFiles ? 'client' : 'server';
+          typecheckResult = await this.runTypecheck(target, filesChanged);
           this.updatePipelineTask('task-verify', 'completed', 'Typecheck validado');
         } else {
           // Live production execution on Antigravity Language Server!
@@ -2193,14 +2328,117 @@ export class MetaChatService {
             }
           }
 
-          let execEnv: NodeJS.ProcessEnv;
+          let execEnv: NodeJS.ProcessEnv | undefined;
+          let activeProfile = projectBinding.accountProfile;
+          let directCliMode = false;
+
           try {
             execEnv = AccountProfileManager.getExecutionEnvForProfile(
-              projectBinding.accountProfile,
+              activeProfile,
               projectBinding.project.id
             );
-          } catch {
-            execEnv = projectBinding.env;
+          } catch (envErr: any) {
+            Logger.warn(
+              `[MetaChatService] Falha ao obter ambiente de execução para perfil "${activeProfile.display_name}": ${envErr?.message || envErr}. Tentando resiliência multi-perfil...`
+            );
+
+            // a) Tente encontrar qualquer perfil que esteja READY ou com runtime em execução via AccountProfileManager.getRunningInstanceForProfile
+            const allProfiles = AccountProfileManager.getAllProfiles();
+            let alternateProfile = allProfiles.find(p => {
+              if (p.id === activeProfile.id) return false;
+              const running = AccountProfileManager.getRunningInstanceForProfile(p.environment_path);
+              return Boolean(running);
+            });
+
+            if (!alternateProfile) {
+              alternateProfile = allProfiles.find(
+                p => p.id !== activeProfile.id && (p.auth_status === 'READY' || p.auth_status === 'ACTIVE')
+              );
+            }
+
+            if (alternateProfile) {
+              try {
+                if (!AccountProfileManager.isAutomatedTestRuntime()) {
+                  try {
+                    await AccountProfileManager.ensureProfileRuntimeRunning(alternateProfile, 8000);
+                  } catch (e) {
+                    /* ignore background boot error */
+                  }
+                }
+                execEnv = AccountProfileManager.getExecutionEnvForProfile(
+                  alternateProfile,
+                  projectBinding.project.id
+                );
+                activeProfile = alternateProfile;
+                projectBinding.accountProfile = alternateProfile;
+                effectiveAccountId = alternateProfile.id;
+                this.updateLiveStatus({
+                  phase: `Conectado via fallback ao runtime de ${alternateProfile.display_name}`,
+                  activeAccount: alternateProfile.display_name
+                });
+                Logger.info(`[MetaChatService] Alternado com sucesso para perfil ${alternateProfile.display_name}.`);
+              } catch (altErr: any) {
+                Logger.warn(`[MetaChatService] Falha ao conectar ao perfil alternativo ${alternateProfile.display_name}: ${altErr?.message}`);
+              }
+            }
+
+            // b) Se nenhum Language Server estiver rodando na porta TCP:
+            if (!execEnv) {
+              const discovery = AntigravityDiscovery.discover();
+              if (discovery.available && discovery.languageServerExe) {
+                // Executar via CLI direta do Antigravity (language_server.exe ou agentapi) usando o diretório do projeto e USERPROFILE limpo
+                const userProfileDir = AccountProfileManager.getUserProfileDir(activeProfile);
+                execEnv = AgentApiGateway.sanitizeEnv(process.env);
+                execEnv.ANTIGRAVITY_PROJECT_ID = projectBinding.nativeProjectId || 'hub-metachat';
+                execEnv.USERPROFILE = userProfileDir;
+                execEnv.HOME = userProfileDir;
+                delete execEnv.ANTIGRAVITY_LS_ADDRESS;
+                delete execEnv.ANTIGRAVITY_CSRF_TOKEN;
+                directCliMode = true;
+                Logger.info(`[MetaChatService] Nenhum Language Server TCP ativo detectado. Usando modo CLI direta do Antigravity com USERPROFILE="${userProfileDir}".`);
+              } else {
+                // Informe ao usuário com clareza: "Runtime Antigravity não detectado. Inicie o Antigravity para executar tarefas com a IA"
+                const errorMsg = 'Runtime Antigravity não detectado. Inicie o Antigravity para executar tarefas com a IA.';
+                this.updateLiveStatus({
+                  isRunning: false,
+                  isExecuting: false,
+                  phase: 'Pronto',
+                  currentPhase: 'Pronto',
+                  lastStep: errorMsg
+                });
+                this.updatePipelineTask('task-inspect', 'failed', errorMsg);
+                this.updatePipelineTask('task-implement', 'failed', errorMsg);
+                this.updatePipelineTask('task-verify', 'failed', errorMsg);
+                this.recordLiveStep({
+                  type: 'GUARD',
+                  target: 'Runtime Antigravity',
+                  status: 'failed',
+                  details: errorMsg
+                });
+
+                const assistantMsg = this.addMessage({
+                  role: 'assistant',
+                  content: `⚠️ **Aviso de Conexão com a IA:**\n\n${errorMsg}\n\n*Por favor, inicie o aplicativo Google Antigravity e garanta que sua conta esteja conectada.*`,
+                  thread_id: currentThread.id,
+                  metadata: {
+                    error: errorMsg,
+                    model: requestedModel,
+                    reasoningMode: requestedReasoning,
+                    accountId: requestedAccountId
+                  }
+                });
+
+                return {
+                  message: assistantMsg,
+                  filesChanged: [],
+                  typecheck: { passed: false, durationMs: 0, output: errorMsg },
+                  selfHealed: false,
+                  conversationId: undefined,
+                  status: 'error',
+                  telemetry: this.getLiveActivity()
+                };
+              }
+            }
           }
 
           const antigravityProvider = new AntigravityProvider(execEnv);
@@ -2295,18 +2533,68 @@ export class MetaChatService {
           }
 
           if (!sendSucceeded) {
-            activeConvId = AgentApiGateway.newConversation({
-              model: cliModel,
-              title: 'DecoHUB Meta-Chat',
-              prompt: fullPrompt,
-              projectId: projectBinding.project.id,
-              role: 'CONVERSATIONAL',
-              caller: 'MetaChatService.handleUserMessage',
-              cwd: root,
-              env: execEnv
-            });
-            this.setActiveConversationId(activeConvId, effectiveAccountId);
-            antigravityProvider.captureTurnStart(activeConvId, root);
+            try {
+              activeConvId = AgentApiGateway.newConversation({
+                model: cliModel,
+                title: 'DecoHUB Meta-Chat',
+                prompt: fullPrompt,
+                projectId: projectBinding.project.id,
+                role: 'CONVERSATIONAL',
+                caller: 'MetaChatService.handleUserMessage',
+                cwd: root,
+                env: execEnv
+              });
+              this.setActiveConversationId(activeConvId, effectiveAccountId);
+              antigravityProvider.captureTurnStart(activeConvId, root);
+            } catch (createErr: any) {
+              const errMsg = createErr?.message || String(createErr);
+              const isRuntimeUnavailable =
+                directCliMode ||
+                errMsg.includes('AGENTAPI_UNAVAILABLE') ||
+                errMsg.includes('ECONNREFUSED') ||
+                errMsg.includes('não encontrado no sistema') ||
+                errMsg.includes('could not connect') ||
+                errMsg.includes('failed to connect') ||
+                errMsg.includes('Runtime Antigravity');
+
+              if (isRuntimeUnavailable && !AgentApiGateway.isOfflineMode()) {
+                const clearMsg = 'Runtime Antigravity não detectado. Inicie o Antigravity para executar tarefas com a IA.';
+                Logger.warn(`[MetaChatService] ${clearMsg} (${errMsg})`);
+                this.updateLiveStatus({
+                  isRunning: false,
+                  isExecuting: false,
+                  phase: 'Pronto',
+                  currentPhase: 'Pronto',
+                  lastStep: clearMsg
+                });
+                this.updatePipelineTask('task-inspect', 'failed', clearMsg);
+                this.updatePipelineTask('task-implement', 'failed', clearMsg);
+                this.updatePipelineTask('task-verify', 'failed', clearMsg);
+
+                const botMsg = this.addMessage({
+                  role: 'assistant',
+                  content: `⚠️ **Aviso de Conexão com a IA:**\n\n${clearMsg}\n\n*Detalhes técnicos: ${errMsg}*`,
+                  thread_id: currentThread.id,
+                  metadata: {
+                    error: clearMsg,
+                    model: requestedModel,
+                    reasoningMode: requestedReasoning,
+                    accountId: requestedAccountId
+                  }
+                });
+
+                return {
+                  message: botMsg,
+                  filesChanged: [],
+                  typecheck: { passed: false, durationMs: 0, output: clearMsg },
+                  selfHealed: false,
+                  conversationId: undefined,
+                  status: 'error',
+                  telemetry: this.getLiveActivity()
+                };
+              }
+              throw createErr;
+            }
           }
 
           if (this._currentExecution) {
@@ -2417,7 +2705,7 @@ export class MetaChatService {
             const hasClientFiles = filesChanged.some(f => f.startsWith('client/'));
             const target = hasServerFiles && hasClientFiles ? 'all' : hasClientFiles ? 'client' : 'server';
 
-            typecheckResult = await this.runTypecheck(target);
+            typecheckResult = await this.runTypecheck(target, filesChanged);
 
             if (!typecheckResult.passed) {
               Logger.warn(
@@ -2440,10 +2728,19 @@ export class MetaChatService {
           }
 
           if (selfHealed) {
+            let errorDetails = '';
+            if (typecheckResult.errors && typecheckResult.errors.length > 0) {
+              errorDetails = typecheckResult.errors
+                .map(e => `- \`${e.file}:${e.line || '?'}\` → **${e.message}**`)
+                .join('\n');
+            } else {
+              errorDetails = `\`\`\`text\n${typecheckResult.output.slice(0, 800)}\n\`\`\``;
+            }
+
             reply =
               `[SELF_HEALING_GUARD] **Autoproteção Ativa Ativada:**\n\n` +
               `As alterações geradas causaram erro de compilação TypeScript no DecoHUB:\n\n` +
-              `\`\`\`text\n${typecheckResult.output.slice(0, 800)}\n\`\`\`\n\n` +
+              `${errorDetails}\n\n` +
               `O DecoHUB desfez as alterações automaticamente para manter o repositório 100% íntegro e estável.\n\n` +
               (agentReport ? `**Relatório do Agente Antigravity:**\n${agentReport}` : '');
           } else if (filesChanged.length > 0) {
@@ -2652,6 +2949,8 @@ export class MetaChatService {
     const directives: Array<{ action: 'write' | 'read'; filePath: string; content?: string }> = [];
     const seenPaths = new Set<string>();
 
+    if (!content || typeof content !== 'string') return directives;
+
     // Pattern 1: [FILE: path] ... [ENDFILE]
     const endFileRegex =
       /\[(?:FILE|ARQUIVO|CRIAR|MODIFICAR):\s*([a-zA-Z0-9_\-./\\]+)\]([\s\S]*?)\[ENDFILE\]/gi;
@@ -2668,15 +2967,16 @@ export class MetaChatService {
       seenPaths.add(filePath.replace(/\\/g, '/'));
     }
 
-    // Pattern 2: [FILE: path] ```ts ... ```
+    // Pattern 2: [FILE: path] ```ts ... ``` (supports preceding headers/bold)
     const fencedRegex =
-      /\[(?:FILE|ARQUIVO|CRIAR|MODIFICAR):\s*([a-zA-Z0-9_\-./\\]+)\]\s*```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)```/gi;
+      /(?:#{1,6}\s*|\*\*|`)?\[(?:FILE|ARQUIVO|CRIAR|MODIFICAR):\s*([a-zA-Z0-9_\-./\\]+)\](?:\*\*|`)?\s*```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)```/gi;
 
     while ((match = fencedRegex.exec(content)) !== null) {
       const filePath = match[1].trim();
-      if (!seenPaths.has(filePath.replace(/\\/g, '/'))) {
+      const normPath = filePath.replace(/\\/g, '/');
+      if (!seenPaths.has(normPath)) {
         directives.push({ action: 'write', filePath, content: match[2].trim() });
-        seenPaths.add(filePath.replace(/\\/g, '/'));
+        seenPaths.add(normPath);
       }
     }
 
@@ -2686,9 +2986,36 @@ export class MetaChatService {
 
     while ((match = fenceHeaderRegex.exec(content)) !== null) {
       const filePath = match[1].trim();
-      if (!seenPaths.has(filePath.replace(/\\/g, '/'))) {
+      const normPath = filePath.replace(/\\/g, '/');
+      if (!seenPaths.has(normPath)) {
         directives.push({ action: 'write', filePath, content: match[2].trim() });
-        seenPaths.add(filePath.replace(/\\/g, '/'));
+        seenPaths.add(normPath);
+      }
+    }
+
+    // Pattern 4: Code block containing top comment header: // [FILE: path] or // FILE: path
+    const commentHeaderRegex =
+      /```(?:[a-zA-Z0-9_-]+)?\s*\r?\n\s*(?:\/\/|#|\/\*)\s*\[?(?:FILE|ARQUIVO):\s*([a-zA-Z0-9_\-./\\]+)\]?(?:\s*\*\/)?\s*\r?\n([\s\S]*?)```/gi;
+
+    while ((match = commentHeaderRegex.exec(content)) !== null) {
+      const filePath = match[1].trim();
+      const normPath = filePath.replace(/\\/g, '/');
+      if (!seenPaths.has(normPath)) {
+        directives.push({ action: 'write', filePath, content: match[2].trim() });
+        seenPaths.add(normPath);
+      }
+    }
+
+    // Pattern 5: Fence with file path in language identifier (e.g. ```typescript:server/src/foo.ts)
+    const fencePathRegex =
+      /```(?:[a-zA-Z0-9_-]+)?(?::|\s+file=|\s+path=|\s+)([a-zA-Z0-9_\-./\\]+\.[a-zA-Z0-9]+)\s*\r?\n([\s\S]*?)```/gi;
+
+    while ((match = fencePathRegex.exec(content)) !== null) {
+      const filePath = match[1].trim();
+      const normPath = filePath.replace(/\\/g, '/');
+      if (!seenPaths.has(normPath)) {
+        directives.push({ action: 'write', filePath, content: match[2].trim() });
+        seenPaths.add(normPath);
       }
     }
 

@@ -88,8 +88,56 @@ export const api = {
     githubRepo?: string;
     githubToken?: string;
   }): Promise<Project> {
+    const desktopAPI = typeof window !== 'undefined' ? (window as any).desktopAPI : undefined;
+
+    // Fallback nativo ultra-resiliente no Electron: se o backend HTTP demorar mais de 6s ou falhar,
+    // aciona desktopAPI.createProjectDirect para gravar diretamente sem depender do Event Loop
+    if (desktopAPI && typeof desktopAPI.createProjectDirect === 'function') {
+      try {
+        const httpPromise = (async () => {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 6000);
+          try {
+            const res = await fetch(`${API_BASE}/projects`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(data),
+              signal: controller.signal
+            });
+            clearTimeout(timer);
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({ error: 'Falha HTTP' }));
+              throw new Error(err.error || 'Falha HTTP');
+            }
+            return await res.json();
+          } finally {
+            clearTimeout(timer);
+          }
+        })();
+
+        return await httpPromise;
+      } catch (httpErr) {
+        console.warn('[api.createProject] HTTP backend ocupado ou timeout de 6s atingido. Acionando fallback nativo desktopAPI.createProjectDirect...');
+        try {
+          const directRes = await desktopAPI.createProjectDirect(data);
+          if (directRes && directRes.success && directRes.data) {
+            return directRes.data;
+          }
+          if (directRes && directRes.id) {
+            return directRes;
+          }
+          if (directRes && directRes.error) {
+            throw new Error(directRes.error);
+          }
+        } catch (ipcErr: any) {
+          console.error('[api.createProject] Falha também no fallback nativo IPC:', ipcErr);
+          throw ipcErr;
+        }
+      }
+    }
+
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
 
     try {
       const res = await fetch(`${API_BASE}/projects`, {
@@ -105,7 +153,7 @@ export const api = {
       return await res.json();
     } catch (err: any) {
       if (err.name === 'AbortError') {
-        throw new Error('Tempo limite esgotado ao criar projeto (timeout de 12 segundos). Verifique a conexão com o servidor.');
+        throw new Error('Tempo limite esgotado ao criar projeto (timeout de 25 segundos). Verifique a conexão com o servidor.');
       }
       throw err;
     } finally {
@@ -244,11 +292,14 @@ export const api = {
     return res.json();
   },
 
-  async sendMessage(id: string, content: string, requestId: string = crypto.randomUUID(), options?: { signal?: AbortSignal }): Promise<{ userMessage: ChatMessage; assistantReply: ChatMessage; autonomousRun?: AutonomousRun; execution: { status: 'stored' | 'started' | 'queued' | 'blocked'; reason?: string; runStatus?: string } }> {
+  async sendMessage(id: string, content: string, requestId: string = crypto.randomUUID(), options?: { signal?: AbortSignal; forceNew?: boolean; stream?: boolean }): Promise<{ userMessage: ChatMessage; assistantReply?: ChatMessage; autonomousRun?: AutonomousRun; execution?: { status: 'stored' | 'started' | 'queued' | 'blocked'; reason?: string; runStatus?: string }; turnId?: string; status?: string }> {
     const res = await fetch(`${API_BASE}/projects/${id}/messages`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content, requestId }),
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Stream-Mode': 'sse'
+      },
+      body: JSON.stringify({ content, requestId, forceNew: options?.forceNew, stream: true }),
       signal: options?.signal
     });
     if (!res.ok) {
@@ -1517,13 +1568,17 @@ export const api = {
       accountId?: string;
       profileId?: string;
       attachments?: any[];
+      stream?: boolean;
     },
     fetchOptions?: { signal?: AbortSignal }
   ): Promise<MetaChatResponseData> {
     const res = await fetch(`${API_BASE}/metachat/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, ...options }),
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Stream-Mode': 'sse'
+      },
+      body: JSON.stringify({ message, stream: true, ...options }),
       signal: fetchOptions?.signal
     });
     if (!res.ok) {

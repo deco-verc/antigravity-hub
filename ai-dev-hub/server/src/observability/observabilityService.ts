@@ -22,9 +22,17 @@ export class ObservabilityService {
   private static droppedEventsCount = 0;
   private static fileLogger: RotatingFileLogger = defaultFileLogger;
   private static isWritingToDb = false;
+  private static listeners: Array<(event: ObservabilityEvent) => void> = [];
 
   static setFileLogger(logger: RotatingFileLogger) {
     this.fileLogger = logger;
+  }
+
+  static addListener(listener: (event: ObservabilityEvent) => void): () => void {
+    this.listeners.push(listener);
+    return () => {
+      this.listeners = this.listeners.filter(l => l !== listener);
+    };
   }
 
   /**
@@ -210,6 +218,15 @@ export class ObservabilityService {
         console.error(formatted);
       } else {
         console.log(formatted);
+      }
+    }
+
+    // 4. Notify realtime streaming listeners
+    for (const listener of this.listeners) {
+      try {
+        listener(event);
+      } catch (lErr) {
+        // Safe listener guard
       }
     }
 

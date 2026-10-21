@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const LOGS_DIR = path.join(os.homedir(), '.ai-dev-hub', 'logs');
+const LOGS_DIR = path.join(process.env.AI_DEV_HUB_DATA_DIR || path.join(os.homedir(), '.ai-dev-hub'), 'logs');
 const MAX_LOG_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
 const MAX_ROTATIONS = 3;
 

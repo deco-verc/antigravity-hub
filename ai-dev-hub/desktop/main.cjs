@@ -321,6 +321,154 @@ ipcMain.handle('desktop:select-directory', async (_, options) => {
   });
 });
 
+ipcMain.handle('desktop:create-project-direct', async (_, payload) => {
+  logger.info(`[IPC] create-project-direct acionado para: ${payload?.name || 'sem nome'}`);
+  // a) Tenta fazer POST http://127.0.0.1:${backendPort}/api/projects com timeout de 5s
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(`http://127.0.0.1:${backendPort}/api/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    if (res.ok) {
+      const data = await res.json();
+      logger.info(`[IPC] Projeto criado via HTTP backend com sucesso (${data.id})`);
+      return { success: true, data };
+    }
+  } catch (httpErr) {
+    logger.warn(`[IPC] Backend HTTP indisponível ou timeout (>5s) ao criar projeto: ${httpErr.message}. Acionando fallback nativo direto no SQLite...`);
+  }
+
+  // b) Fallback nativo direto no SQLite do Hub e arquivos .ai-dev-hub/
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const crypto = require('crypto');
+    let DatabaseSync;
+    try {
+      DatabaseSync = require('node:sqlite').DatabaseSync;
+    } catch {
+      DatabaseSync = require('better-sqlite3');
+    }
+
+    const name = (payload?.name || 'Novo Projeto').trim();
+    let folderPath = (payload?.folderPath || '').trim();
+    if (!folderPath) {
+      const slug = name.toLowerCase().replace(/[^a-z0-9-_]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'novo-projeto';
+      folderPath = path.join('C:\\IA\\test-projects', slug);
+    }
+    const resolvedPath = path.resolve(folderPath);
+    if (!fs.existsSync(resolvedPath)) {
+      fs.mkdirSync(resolvedPath, { recursive: true });
+    }
+
+    // Criar arquivos de memória .ai-dev-hub/
+    const memDir = path.join(resolvedPath, '.ai-dev-hub');
+    if (!fs.existsSync(memDir)) {
+      fs.mkdirSync(memDir, { recursive: true });
+    }
+    const files = {
+      'project.md': `# Projeto: ${name}\n\n## Objetivo Principal\n${payload?.objective || 'Definir o objetivo principal do projeto.'}\n\n## Contexto do Produto\n${payload?.description || 'Contexto e propósito da aplicação para os usuários.'}\n`,
+      'architecture.md': `# Arquitetura do Sistema\n\n## Stack Tecnológica\n- **Stack:** ${payload?.stack || 'Geral'}\n`,
+      'decisions.md': `# Registro de Decisões Técnicas\n\n## Decisões Tomadas\n- **[${new Date().toLocaleDateString('pt-BR')}] Estrutura Inicial**\n  - **Decisão:** Uso de arquivos Markdown locais para memória permanente do projeto.\n`,
+      'tasks.md': `# Gerenciamento de Tarefas\n\n## Pendente\n\n## Fazendo\n\n## Concluído\n- [x] Inicialização da memória .ai-dev-hub\n`,
+      'changes.md': `# Histórico de Mudanças\n\n## Arquivos Alterados Recentemente\n- \`.ai-dev-hub/project.md\`\n`,
+      'session-summary.md': `# Resumo da Sessão Atual\n\n## Estado Atual do Projeto\nProjeto inicializado com sucesso via Desktop Native IPC.\n`
+    };
+    for (const [filename, content] of Object.entries(files)) {
+      const fp = path.join(memDir, filename);
+      if (!fs.existsSync(fp)) {
+        fs.writeFileSync(fp, content, 'utf-8');
+      }
+    }
+
+    const gitignorePath = path.join(resolvedPath, '.gitignore');
+    if (!fs.existsSync(gitignorePath)) {
+      fs.writeFileSync(gitignorePath, 'node_modules/\n.env\n.env.local\ndist/\n', 'utf-8');
+    }
+
+    const dbPath = AppDataPaths.getPaths().dbPath;
+    const db = new DatabaseSync(dbPath);
+
+    try {
+      const existing = db.prepare('SELECT * FROM projects WHERE path = ?').get(resolvedPath);
+      const nowIso = new Date().toISOString();
+      const normalizedModel = (payload?.selectedModel && typeof payload.selectedModel === 'string')
+        ? (payload.selectedModel.includes('pro') ? 'pro' : payload.selectedModel.includes('lite') ? 'flash_lite' : 'flash')
+        : 'flash';
+      const normalizedReasoning = (['HIGH', 'MEDIUM', 'LOW'].includes(payload?.reasoningLevel) ? payload.reasoningLevel : 'HIGH');
+
+      if (existing) {
+        db.prepare(`
+          UPDATE projects
+          SET name = ?, selected_model = ?, reasoning_level = ?, updated_at = ?
+          WHERE id = ?
+        `).run(name, normalizedModel, normalizedReasoning, nowIso, existing.id);
+        const updated = db.prepare('SELECT * FROM projects WHERE id = ?').get(existing.id);
+        db.close();
+        logger.info(`[IPC] Projeto recuperado/atualizado via fallback nativo SQLite: ${existing.id}`);
+        return { success: true, data: updated };
+      }
+
+      let effectiveProfileId = null;
+      if (payload?.initialProfileId && typeof payload.initialProfileId === 'string' && payload.initialProfileId.trim()) {
+        const prof = db.prepare('SELECT id FROM account_profiles WHERE id = ?').get(payload.initialProfileId.trim());
+        if (prof?.id) effectiveProfileId = prof.id;
+      }
+      if (!effectiveProfileId) {
+        const setting = db.prepare("SELECT value FROM system_settings WHERE key = 'active_account_profile_id'").get();
+        if (setting?.value) effectiveProfileId = setting.value;
+      }
+      if (!effectiveProfileId) {
+        const firstActive = db.prepare("SELECT id FROM account_profiles WHERE auth_status IN ('READY', 'ACTIVE') ORDER BY created_at ASC LIMIT 1").get();
+        if (firstActive?.id) effectiveProfileId = firstActive.id;
+      }
+      if (!effectiveProfileId) {
+        const anyProf = db.prepare('SELECT id FROM account_profiles ORDER BY created_at ASC LIMIT 1').get();
+        if (anyProf?.id) effectiveProfileId = anyProf.id;
+      }
+
+      const id = crypto.randomUUID();
+      const isTrusted = payload?.isTrusted !== undefined ? (payload.isTrusted ? 1 : 0) : 1;
+      const fullDevAutonomy = payload?.fullDevAutonomy !== undefined ? (payload.fullDevAutonomy ? 1 : 0) : 1;
+
+      db.prepare(`
+        INSERT INTO projects (id, name, path, objective, description, stack, status, is_trusted, full_dev_autonomy, active_account_profile_id, selected_model, reasoning_level, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id,
+        name,
+        resolvedPath,
+        payload?.objective || '',
+        payload?.description || '',
+        payload?.stack || 'Geral',
+        isTrusted,
+        fullDevAutonomy,
+        effectiveProfileId,
+        normalizedModel,
+        normalizedReasoning,
+        nowIso,
+        nowIso
+      );
+
+      const created = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
+      db.close();
+      logger.info(`[IPC] Projeto inserido com sucesso via fallback nativo SQLite (${id})`);
+      return { success: true, data: created };
+    } catch (dbErr) {
+      try { db.close(); } catch {}
+      throw dbErr;
+    }
+  } catch (nativeErr) {
+    logger.error(`[IPC] Falha no fallback nativo de criação de projeto: ${nativeErr.message}`);
+    return { success: false, error: nativeErr.message };
+  }
+});
+
 ipcMain.handle('desktop:get-config', () => {
   return config.getAll();
 });

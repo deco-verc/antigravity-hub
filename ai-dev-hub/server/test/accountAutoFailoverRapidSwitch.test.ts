@@ -9,6 +9,9 @@ import { db } from '../src/db.js';
 import { AccountProfileManager } from '../src/accountProfileManager.js';
 import { AutonomousManager } from '../src/autonomousManager.js';
 import { GitManager } from '../src/gitManager.js';
+import { WorkerRegistry } from '../src/workerRegistry.js';
+import { IndependentEvaluator } from '../src/independentEvaluator.js';
+import { normalizeOrRecoverVerificationCommand } from '../src/verificationCommand.js';
 
 describe('Auto-Failover Multi-Conta via Rapid Switch Suite (FASE 20)', () => {
   test('1. Classificador e Failover Automático em Cota 429 / RESOURCE_EXHAUSTED preserva retry_count', async () => {
@@ -361,6 +364,132 @@ describe('Auto-Failover Multi-Conta via Rapid Switch Suite (FASE 20)', () => {
         console.warn("[WARN][server:accountAutoFailoverRapidSwitch.test]", err);
       }
     }
+    }
+  });
+
+  test('5. WorkerRegistry.getReadyWorkers recupera worker quando PID divergiu mas Language Server está ativo', async () => {
+    const profile = AccountProfileManager.getGlobalActiveProfile();
+    assert.ok(profile);
+
+    const prevOffline = process.env.DECOHUB_OFFLINE_MODE;
+    process.env.DECOHUB_OFFLINE_MODE = 'false';
+
+    const now = new Date().toISOString();
+    const workerId = `test-worker-${randomUUID().slice(0, 8)}`;
+    const deadPid = 99999999;
+
+    db.prepare(`
+      INSERT INTO workers (id, name, provider, account_label, account_profile_id, status, pid, last_heartbeat, created_at, updated_at)
+      VALUES (?, 'Worker PID Recovery Test', 'antigravity', 'Recovery Test', ?, 'READY', ?, ?, ?, ?)
+    `).run(workerId, profile.id, deadPid, now, now, now);
+
+    try {
+      const { normalizeRuntimePath } = await import('../src/runtimeProfileSelector.js');
+      const cacheKey = profile.environment_path ? normalizeRuntimePath(profile.environment_path) : '';
+      (AccountProfileManager as any).runningInstanceCache.set(cacheKey, {
+        data: { address: '127.0.0.1:45678', csrfToken: 'csrf-test-token', pid: process.pid },
+        expiresAt: Date.now() + 60000
+      });
+
+      const readyWorkers = WorkerRegistry.getReadyWorkers();
+      const recoveredWorker = readyWorkers.find(w => w.id === workerId);
+
+      assert.ok(recoveredWorker, 'Worker com PID divergente deve ser recuperado como READY quando o runtime está ativo');
+      assert.strictEqual(recoveredWorker.pid, process.pid);
+
+      // Validação da persistência silenciosa no SQLite
+      const updatedRow: any = db.prepare('SELECT pid, status FROM workers WHERE id = ?').get(workerId);
+      assert.strictEqual(updatedRow.pid, process.pid);
+      assert.strictEqual(updatedRow.status, 'READY');
+    } finally {
+      if (prevOffline !== undefined) process.env.DECOHUB_OFFLINE_MODE = prevOffline;
+      else delete process.env.DECOHUB_OFFLINE_MODE;
+      db.prepare('DELETE FROM workers WHERE id = ?').run(workerId);
+    }
+  });
+
+  test('6. WorkerRegistry.ensureWorkerAvailable cria/revive worker imediatamente para o perfil ativo', async () => {
+    const profile = AccountProfileManager.getGlobalActiveProfile();
+    assert.ok(profile);
+
+    // Override de probe para resposta mock instantânea (<500ms)
+    WorkerRegistry.setProbeOverrideForTest(async (prof) => {
+      return { conversationId: 'conv-mock-500ms', pid: process.pid };
+    });
+
+    try {
+      // Remove workers existentes desse perfil para forçar criação/bootstrap
+      db.prepare('DELETE FROM workers WHERE account_profile_id = ?').run(profile.id);
+
+      const startTime = Date.now();
+      const worker = await WorkerRegistry.ensureWorkerAvailable();
+      const duration = Date.now() - startTime;
+
+      assert.ok(worker);
+      assert.strictEqual(worker.status, 'READY');
+      assert.strictEqual(worker.account_profile_id, profile.id);
+      assert.ok(duration < 500, `Bootstrap deve responder em menos de 500ms (demorou ${duration}ms)`);
+    } finally {
+      WorkerRegistry.setProbeOverrideForTest(null);
+    }
+  });
+
+  test('7. IndependentEvaluator e normalizeOrRecoverVerificationCommand aprovam Milestone inicial (M1 / Setup) sem reprovar por falta de package.json ou script test', async () => {
+    const tempDir = path.join(os.tmpdir(), `eval-initial-m1-${Date.now()}-${randomUUID().slice(0, 6)}`);
+    fs.mkdirSync(path.join(tempDir, 'src'), { recursive: true });
+
+    try {
+      // 1. normalizeOrRecoverVerificationCommand recupera npm test para projeto novo
+      const norm1 = normalizeOrRecoverVerificationCommand('npm test', tempDir, { allowUncreatedFiles: true });
+      assert.strictEqual(norm1.validInitially, false);
+      assert.strictEqual(norm1.recovered, true);
+
+      // 2. Criar arquivo substantivo com sintaxe válida
+      const mainFile = path.join(tempDir, 'src', 'index.js');
+      fs.writeFileSync(mainFile, 'console.log("Servidor inicializado com sucesso");', 'utf8');
+
+      const norm2 = normalizeOrRecoverVerificationCommand('npm test', tempDir, {
+        allowUncreatedFiles: false,
+        requireCanonicalEvidenceOnDisk: true,
+        scopeFiles: ['src/index.js']
+      });
+      assert.strictEqual(norm2.recovered, true);
+      assert.strictEqual(norm2.command, 'node --check "src/index.js"');
+
+      // 3. IndependentEvaluator: criar SuccessContract de Milestone Inicial com comando npm test
+      const contract = IndependentEvaluator.createSuccessContract({
+        taskId: 'task-setup-1',
+        projectId: 'project-test-m1',
+        projectPath: tempDir,
+        objective: 'M1 - Setup inicial do projeto e arquivos base',
+        acceptanceCriteria: ['Setup inicial e estrutura do projeto criados'],
+        verificationCommand: 'npm test'
+      });
+
+      // 4. Avaliar relatório do Worker com o arquivo criado
+      const evalResult = await IndependentEvaluator.evaluate(
+        contract.id,
+        tempDir,
+        {
+          status: 'success',
+          filesChanged: ['src/index.js'],
+          implemented: ['Setup do projeto criado com src/index.js']
+        }
+      );
+
+      assert.strictEqual(evalResult.verdict, 'PASS');
+      assert.strictEqual(evalResult.taskIsDone, true);
+      assert.ok(evalResult.passedCriteria.length > 0);
+    } finally {
+      try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (err) {
+        if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+          (globalThis as any).logger.warn({
+            event: "server.handled_exception",
+            file: "accountAutoFailoverRapidSwitch.test",
+            error: (err as any)?.message || String(err)
+          });
+        }
+      }
     }
   });
 });

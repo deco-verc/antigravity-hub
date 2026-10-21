@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Logger } from './logger.js';
 import { ProjectLivingSpecService, SpecTaskRole } from './projectLivingSpecService.js';
+import { AstSymbolIndexService } from './astSymbolIndexService.js';
 
 export type SupervisorMode =
   | 'INITIAL_PLAN'
@@ -138,6 +139,8 @@ export interface WorkerPromptInput {
   // FASE 22: Onda 0 Market & REA Discovery reference
   marketDiscoveryContextBlock?: string;
   livingSpecContextBlock?: string;
+  lspDiagnosticsSnippet?: string;
+  astSymbolSummaryBlock?: string;
 }
 
 export interface ArchitecturalBlueprintPromptInput {
@@ -255,6 +258,7 @@ export class PromptArchitectureService {
     `16. COMUNICAÇÃO DIRETA E ENGENHARIA DE CÓDIGO (ZERO EMOJIS, ZERO ECO DE INSTRUÇÃO E ZERO OBSESSÃO POR .MD): A comunicação e relatórios devem ser estritamente diretos, profissionais e concisos (estilo CLI corporativo / Linear / Vercel), sem emojis decorativos. É terminantemente proibido repetir ou ecoar a instrução enviada pelo usuário. Execute a engenharia diretamente nos arquivos de implementação (.ts, .tsx, .js) e suítes de testes sem perder tempo gerando ou focando em arquivos .md dispensáveis durante o desenvolvimento.`,
     `17. FIDELIDADE DE CONTRATO FULL-STACK & PERSISTÊNCIA F5: Antes de escrever código de Frontend (public/app.js) ou de Rotas HTTP, inspecione os arquivos de banco/serviços já criados no repositório para usar exatamente os mesmos nomes de campos JSON e endpoints. Toda ação de criação, edição ou exclusão na UI DEVE disparar fetch() real para a API REST, atualizar a Reactive Store local e sobreviver integralmente ao recarregamento da página (F5) no UserExperienceSimulator.`,
     `18. FIAÇÃO EXPLÍCITA DE BOTÕES & OPTIMISTIC UI (ANTI-DEAD-BUTTONS): Todo <button> renderizado dinamicamente (como Concluir, Reabrir, Editar, Excluir) DEVE possuir data-action="<acao>" e data-id="<id>" (ou onclick explícito) e aplicar Optimistic UI imediato no DOM (atualizando o badge/status da linha e o contador imediatamente no clique, além de chamar a API REST).`,
+    `19. INSPEÇÃO SINTÁTICA E DIAGNÓSTICO LSP (lsp_diagnostics): Utilize a ferramenta 'lsp_diagnostics' para inspecionar erros de sintaxe e problemas de tipagem nos arquivos modificados antes de declarar a tarefa como concluída. Garanta zero erros sintáticos ou de tipagem antes de submeter ao Independent Evaluator.`,
     `=== FIM DAS REGRAS PERMANENTES ===`
   ].join('\n');
 
@@ -538,6 +542,7 @@ export class PromptArchitectureService {
       }
     }
     }
+
     sections.push(`=== FIM DO CONTEXTO REAL ===`);
 
     const fullPrompt = this.enforcePromptBudget(sections.join('\n'));
@@ -640,6 +645,16 @@ export class PromptArchitectureService {
         break;
     }
     sections.push(`=== FIM DO MODO CONTEXTUAL ===`);
+    sections.push('');
+
+    // FERRAMENTAS LSP & DIAGNÓSTICO EM TEMPO REAL
+    sections.push(`=== FERRAMENTAS LSP & DIAGNÓSTICO EM TEMPO REAL (lsp_diagnostics) ===`);
+    sections.push(`Você dispõe da ferramenta 'lsp_diagnostics' para validação sintática e de tipagem em tempo real.`);
+    sections.push(`- lsp_diagnostics(filePath): Inspecione os arquivos modificados para identificar e corrigir erros de sintaxe ou imports inválidos antes de concluir a tarefa.`);
+    if (input.lspDiagnosticsSnippet) {
+      sections.push(`DIAGNÓSTICOS LSP FACTUAIS DOS ARQUIVOS MODIFICADOS:`);
+      sections.push(input.lspDiagnosticsSnippet);
+    }
     sections.push('');
 
     // CAMADA C: Contexto Real da Tarefa
@@ -796,6 +811,25 @@ export class PromptArchitectureService {
       }
     }
     }
+
+    // FASE 5: AstSymbolIndexService - Estrutura de símbolos e assinaturas (anti-context-rot)
+    try {
+      const symbolSummary = input.astSymbolSummaryBlock || (
+        input.projectId && input.projectPath
+          ? AstSymbolIndexService.generateStructuredSymbolSummary(input.projectId, {
+              projectPath: input.projectPath,
+              targetFiles: input.expectedScopeFiles,
+              maxChars: 7000
+            })
+          : ''
+      );
+      if (symbolSummary) {
+        sections.push(`\n${symbolSummary}\n`);
+      }
+    } catch (symErr: any) {
+      Logger.warn(`[PromptArchitectureService] Falha não bloqueante ao gerar AST Symbol Summary: ${symErr.message}`);
+    }
+
     sections.push(`=== FIM DO CONTEXTO REAL ===`);
 
     const fullPrompt = this.enforcePromptBudget(sections.join('\n'));

@@ -295,7 +295,7 @@ export class ChatIntentClassifier {
       };
     }
 
-    if (/^(continuar|retomar|desbloquear|avancar|prosseguir)[.!]?$/i.test(cleanLower)) {
+    if (/^(continuar|retomar|desbloquear|avancar|prosseguir|resolver|tentar novamente)[.!]?$/i.test(cleanLower)) {
       return {
         intent: 'EXECUTION_INSTRUCTION',
         subType: 'CONTINUE_COMMAND',

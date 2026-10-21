@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const CONFIG_PATH = path.join(os.homedir(), '.ai-dev-hub', 'config.json');
+const CONFIG_PATH = path.join(process.env.AI_DEV_HUB_DATA_DIR || path.join(os.homedir(), '.ai-dev-hub'), 'config.json');
 
 const DEFAULT_CONFIG = {
   autoOpenLastProject: true,

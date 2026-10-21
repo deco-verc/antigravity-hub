@@ -1751,21 +1751,58 @@ export class GeminiSupervisorProvider {
                   throw new Error(`QUOTA_EXHAUSTED: ${errStr}`);
                 }
               }
-              if (entry.type === 'PLANNER_RESPONSE' && entry.status === 'DONE' && entry.content && !(entry.tool_calls?.length > 0)) {
-                if (Array.isArray(entry.truncated_fields) && entry.truncated_fields.includes('content') && fs.existsSync(transcriptFullPath)) {
-                  try {
-                    const fullLines = fs.readFileSync(transcriptFullPath, 'utf-8').trim().split('\n').filter(Boolean);
-                    for (let j = fullLines.length - 1; j >= 0; j--) {
-                      const fullEntry = JSON.parse(fullLines[j]);
-                      if (fullEntry.step_index === entry.step_index && fullEntry.content) {
-                        return fullEntry.content;
-                      }
+
+              // Extrai conteúdo completo resolvendo transcript_full.jsonl se truncado
+              let entryContent = entry.content;
+              if (Array.isArray(entry.truncated_fields) && entry.truncated_fields.includes('content') && fs.existsSync(transcriptFullPath)) {
+                try {
+                  const fullLines = fs.readFileSync(transcriptFullPath, 'utf-8').trim().split('\n').filter(Boolean);
+                  for (let j = fullLines.length - 1; j >= 0; j--) {
+                    const fullEntry = JSON.parse(fullLines[j]);
+                    if (fullEntry.step_index === entry.step_index && fullEntry.content) {
+                      entryContent = fullEntry.content;
+                      break;
                     }
-                  } catch (fullReadErr: any) {
-                    Logger.warn(`[GeminiSupervisor] Falha ao ler transcript_full.jsonl: ${fullReadErr.message}`);
                   }
+                } catch (fullReadErr: any) {
+                  Logger.warn(`[GeminiSupervisor] Falha ao ler transcript_full.jsonl: ${fullReadErr.message}`);
                 }
-                return entry.content;
+              }
+
+              const resolvedText = typeof entryContent === 'string'
+                ? entryContent
+                : (entryContent ? JSON.stringify(entryContent) : (typeof entry.text === 'string' ? entry.text : ''));
+
+              if (resolvedText && resolvedText.trim()) {
+                // c) Se o log contiver JSON válido com tarefas (extractJsonArray), retorne imediatamente sem esperar timeout
+                const tasks = this.extractJsonArray<PlannedTask>(resolvedText);
+                if (tasks && Array.isArray(tasks) && tasks.length > 0) {
+                  return resolvedText;
+                }
+
+                // Também verifica se contém objeto com majorTasks ou tasks estruturadas
+                const parsedObj = this.extractJsonObject<any>(resolvedText);
+                if (parsedObj && (Array.isArray(parsedObj.majorTasks) && parsedObj.majorTasks.length > 0 || Array.isArray(parsedObj.tasks) && parsedObj.tasks.length > 0)) {
+                  return resolvedText;
+                }
+
+                // a) entry.type === 'PLANNER_RESPONSE' && entry.status === 'DONE' && entry.content
+                const isPlannerDone = entry.type === 'PLANNER_RESPONSE' &&
+                  (entry.status === 'DONE' || entry.status === 'COMPLETED') &&
+                  !(entry.tool_calls?.length > 0);
+
+                // b) (entry.type === 'ASSISTANT_RESPONSE' || entry.type === 'MODEL_TURN' || entry.type === 'MESSAGE' || entry.role === 'assistant') && entry.content
+                const isAssistantResponse = (
+                  entry.type === 'ASSISTANT_RESPONSE' ||
+                  entry.type === 'MODEL_TURN' ||
+                  entry.type === 'MESSAGE' ||
+                  entry.role === 'assistant' ||
+                  entry.source === 'MODEL'
+                ) && !(entry.tool_calls?.length > 0);
+
+                if (isPlannerDone || isAssistantResponse) {
+                  return resolvedText;
+                }
               }
             }
           }
@@ -1773,7 +1810,7 @@ export class GeminiSupervisorProvider {
           if (e.message?.startsWith('QUOTA_EXHAUSTED')) throw e;
         }
       }
-      await new Promise(r => setTimeout(r, 1500));
+      await new Promise(r => setTimeout(r, 800));
     }
     return '';
   }

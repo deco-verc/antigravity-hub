@@ -11,17 +11,21 @@ export class ChatSubmission {
     try {
       const prior:any=db.prepare('SELECT * FROM chat_submissions WHERE project_id=? AND request_id=?').get(projectId,requestId);
       if(prior){
-        if(prior.content_hash!==contentHash)throw new Error('CHAT_REQUEST_CONTENT_CONFLICT');
-        const persistedMessage: any = db.prepare('SELECT * FROM messages WHERE id=? AND project_id=?').get(prior.user_message_id, projectId);
-        db.exec('COMMIT');
-        return {
-          isNew:false,
-          messageId:prior.user_message_id,
-          persisted: Boolean(persistedMessage),
-          persistedMessage: persistedMessage || null,
-          response:prior.response_json?JSON.parse(prior.response_json):null,
-          status:prior.status
-        };
+        if (prior.status === 'cancelled' || prior.status === 'uncertain') {
+          db.prepare('DELETE FROM chat_submissions WHERE project_id=? AND request_id=?').run(projectId, requestId);
+        } else {
+          if(prior.content_hash!==contentHash)throw new Error('CHAT_REQUEST_CONTENT_CONFLICT');
+          const persistedMessage: any = db.prepare('SELECT * FROM messages WHERE id=? AND project_id=?').get(prior.user_message_id, projectId);
+          db.exec('COMMIT');
+          return {
+            isNew:false,
+            messageId:prior.user_message_id,
+            persisted: Boolean(persistedMessage),
+            persistedMessage: persistedMessage || null,
+            response:prior.response_json?JSON.parse(prior.response_json):null,
+            status:prior.status
+          };
+        }
       }
       db.prepare('INSERT INTO chat_submissions VALUES(?,?,?,?,?,NULL,?,?)').run(projectId,requestId,contentHash,messageId,'dispatching',now,now);
       db.prepare("INSERT INTO messages(id,project_id,role,content,created_at) VALUES(?,?,'user',?,?)").run(messageId,projectId,content,now);

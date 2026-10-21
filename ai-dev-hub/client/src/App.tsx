@@ -196,12 +196,23 @@ export const App: React.FC = () => {
   // Initial load
   useEffect(() => {
     loadInitialData();
+
+    const handleFocus = () => {
+      loadProjects().catch(() => {});
+    };
+    window.addEventListener('focus', handleFocus);
+
     const interval = setInterval(() => {
       api.getSystemHealth()
         .then(() => setIsBackendOnline(true))
         .catch(() => setIsBackendOnline(false));
+      loadProjects().catch(() => {});
     }, 10000);
-    return () => clearInterval(interval);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      clearInterval(interval);
+    };
   }, []);
 
   const loadInitialData = async () => {
@@ -346,21 +357,42 @@ export const App: React.FC = () => {
   const handleSendMessage = async (content: string, requestId?: string, options?: { signal?: AbortSignal }) => {
     if (!activeProjectId) return;
     setAgentStatus('working');
+    const tempId = 'temp-' + (requestId || Date.now());
+    const tempUserMessage: ChatMessage = {
+      id: tempId,
+      project_id: activeProjectId,
+      role: 'user',
+      content,
+      created_at: new Date().toISOString()
+    };
+    setMessages(prev => [...prev, tempUserMessage]);
+
     try {
       const res = await api.sendMessage(activeProjectId, content, requestId, options);
       if (activeProjectRef.current !== activeProjectId) return;
-      setMessages(prev => {const ids=new Set(prev.map(m=>m.id));return [...prev,...[res.userMessage,res.assistantReply].filter(m=>!ids.has(m.id))];});
+      setMessages(prev => {
+        const withoutTemp = prev.filter(m => m.id !== tempId);
+        const ids = new Set(withoutTemp.map(m => m.id));
+        const toAdd: ChatMessage[] = [];
+        if (res.userMessage && !ids.has(res.userMessage.id)) {
+          toAdd.push(res.userMessage);
+        }
+        if (res.assistantReply && !ids.has(res.assistantReply.id)) {
+          toAdd.push(res.assistantReply);
+        }
+        return [...withoutTemp, ...toAdd];
+      });
       setProjectRun(res.autonomousRun || null);
       
       const isBlocked = res.execution?.status === 'blocked';
       const isQueued = res.execution?.status === 'queued';
       
-      setProjectExecutionError(isBlocked ? res.execution.reason || 'Execução bloqueada' : null);
+      setProjectExecutionError(isBlocked ? res.execution?.reason || 'Execução bloqueada' : null);
       setAgentStatus(isBlocked ? 'error' : 'ready');
       
       const toastType = isBlocked ? 'error' : isQueued ? 'info' : res.execution?.status === 'started' ? 'success' : 'info';
       const toastMsg = isBlocked 
-        ? `Execução bloqueada: ${res.execution.reason}` 
+        ? `Execução bloqueada: ${res.execution?.reason || 'Erro na execução'}` 
         : isQueued 
         ? 'Instrução salva na fila do projeto com sucesso.' 
         : res.execution?.status === 'started' 
@@ -370,8 +402,10 @@ export const App: React.FC = () => {
       addToast(toastType, toastMsg);
       await loadProjectDetails(activeProjectId);
     } catch (err: any) {
+      setMessages(prev => prev.filter(m => m.id !== tempId));
       if (err.name === 'AbortError' || err.message?.includes('aborted')) {
         setAgentStatus('ready');
+        setProjectExecutionError(null);
         await loadMessages(activeProjectId);
         return;
       }
@@ -390,9 +424,10 @@ export const App: React.FC = () => {
 
   const handleStopAgent = async () => {
     if (!activeProjectId) return;
+    setAgentStatus('ready');
     try {
       const result = await api.stopAgent(activeProjectId);
-      if (!result.pending) setAgentStatus('ready');
+      api.getActiveAutonomousRun(activeProjectId).then(run => setProjectRun(run)).catch(() => {});
       addToast('info', result.message);
     } catch (err: any) {
       addToast('error', `Erro ao parar agente: ${err.message}`);
@@ -542,6 +577,7 @@ export const App: React.FC = () => {
           onOpenSettings={() => setIsAdvancedModalOpen(true)}
           onOpenModelsInfo={() => addToast('info', 'Modelos conectados: Google Antigravity & Agent API integrados.')}
           onOpenAdvanced={() => setIsAdvancedModalOpen(true)}
+          onRefreshProjects={loadProjects}
         />
 
         {/* 2. Main Content Center */}
@@ -827,9 +863,20 @@ export const App: React.FC = () => {
         accounts={accounts}
         activeAccount={activeAccount}
         onProjectCreated={(newProj) => {
-          loadProjects();
-          setActiveProjectId(newProj.id);
+          // 1. Atualização otimista imediata na lista de projetos (0ms)
+          setProjects(prev => {
+            const exists = prev.some(p => p.id === newProj.id || p.path.toLowerCase() === newProj.path.toLowerCase());
+            if (exists) {
+              return prev.map(p => (p.id === newProj.id || p.path.toLowerCase() === newProj.path.toLowerCase()) ? { ...p, ...newProj } : p);
+            }
+            return [newProj, ...prev];
+          });
+          // 2. Seleção completa do projeto recém-criado
+          handleSelectProject(newProj.id);
+          setIsMetaChatActive(false);
           addToast('success', `Projeto "${newProj.name}" conectado ao DecoHUB.`);
+          // 3. Sincronização em background com o banco
+          loadProjects().catch(() => {});
         }}
       />
 

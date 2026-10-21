@@ -51,7 +51,7 @@ export class DeltaFeatureEngine {
 
     if (projectId) {
       try {
-        const row: any = db.prepare('SELECT COUNT(*) as count FROM autonomous_runs WHERE project_id = ? AND status = "completed"').get(projectId);
+        const row: any = db.prepare("SELECT COUNT(*) as count FROM autonomous_runs WHERE project_id = ? AND status = 'completed'").get(projectId);
         completedRunCount = row?.count || 0;
         if (completedRunCount > 0) {
           return {

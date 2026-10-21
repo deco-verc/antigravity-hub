@@ -7,6 +7,7 @@ import { Logger } from './logger.js';
 import { DevAutonomyService } from './devAutonomyService.js';
 import { normalizeOrRecoverVerificationCommand } from './verificationCommand.js';
 import { db } from './db.js';
+import { AstSymbolIndexService } from './astSymbolIndexService.js';
 
 export type OperationalFailureClassification =
   | 'TRANSIENT'
@@ -1005,16 +1006,13 @@ export class EngineeringContextService {
           }
         }
 
-        const fnRegex = /(?:export\s+(?:async\s+)?function\s+([a-zA-Z0-9_]+)|export\s+class\s+([a-zA-Z0-9_]+)|function\s+(escapeHtml|seedIfEmpty|initDb|getDb)\b)/g;
         for (const rel of Array.from(candidateRelFiles).slice(0, 12)) {
           const full = path.resolve(projectPath, rel);
           if (full.startsWith(path.resolve(projectPath)) && fs.existsSync(full) && fs.statSync(full).isFile()) {
-            const content = fs.readFileSync(full, 'utf-8').slice(0, 12000);
-            let match: RegExpExecArray | null;
-            while ((match = fnRegex.exec(content)) !== null) {
-              const fnName = match[1] || match[2] || match[3];
-              if (fnName && !reusableFunctions.includes(fnName) && reusableFunctions.length < 15) {
-                reusableFunctions.push(fnName);
+            const syms = AstSymbolIndexService.extractSymbols(fs.readFileSync(full, 'utf-8'), rel);
+            for (const s of syms) {
+              if (s.symbolName && !reusableFunctions.includes(s.symbolName) && reusableFunctions.length < 15) {
+                reusableFunctions.push(s.symbolName);
               }
             }
           }

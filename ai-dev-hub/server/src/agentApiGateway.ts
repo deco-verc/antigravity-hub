@@ -213,10 +213,9 @@ export class AgentApiGateway {
       if (matched) {
         // Lazy dynamic import not needed for sync call; use require/db or AccountProfileManager if loaded
         // Attempt to re-discover running instance via AccountProfileManager if available on global scope
-        const globalAny = globalThis as any;
-        const mgr = globalAny.__decohubAccountProfileManager;
-        if (mgr && typeof mgr.ensureProfileRuntimeRunningSync === 'function') {
-          const instance = mgr.ensureProfileRuntimeRunningSync(matched, 8000);
+        const apm = getAccountProfileManager();
+        if (apm && typeof apm.ensureProfileRuntimeRunningSync === 'function') {
+          const instance = apm.ensureProfileRuntimeRunningSync(matched, 8000);
           if (instance?.address && instance?.csrfToken) {
             cleanEnv.ANTIGRAVITY_LS_ADDRESS = instance.address;
             cleanEnv.ANTIGRAVITY_CSRF_TOKEN = instance.csrfToken;
@@ -482,6 +481,9 @@ export class AgentApiGateway {
     // 5. Execute physical agentapi new-conversation
     const exe = this.resolveLanguageServerExe();
     let cleanEnv = this.sanitizeEnv(options.env);
+    if (!cleanEnv.ANTIGRAVITY_LS_ADDRESS && cleanEnv.USERPROFILE) {
+      this.tryRefreshProfileConnectionEnv(cleanEnv, projectId);
+    }
     const cliModelFlag = this.normalizeCliModelFlag(options.model);
     const timeout = options.timeoutMs || 45000;
     const startTime = Date.now();
@@ -767,6 +769,9 @@ export class AgentApiGateway {
     // 4. LIVE MODE: Execute physical agentapi send-message
     const exe = this.resolveLanguageServerExe();
     let cleanEnv = this.sanitizeEnv(options.env);
+    if (!cleanEnv.ANTIGRAVITY_LS_ADDRESS && cleanEnv.USERPROFILE) {
+      this.tryRefreshProfileConnectionEnv(cleanEnv, options.projectId);
+    }
     const timeout = options.timeoutMs || 45000;
     const startTime = Date.now();
 

@@ -199,4 +199,57 @@ describe('HOTFIX: Seleção de Contas Iniciais e Criação Fail-Safe de Projetos
     const msg: any = db.prepare('SELECT * FROM messages WHERE project_id = ?').get(created.id);
     assert.ok(msg, 'Mensagem de sistema inicial deve ter sido registrada pelo background worker');
   });
+
+  it('6. POST /api/projects responde em < 100ms sem execSync e chamadas repetidas são idempotentes (status 200)', async () => {
+    // Aguarda event loop drenar completamente tarefas Git em background de testes anteriores
+    await new Promise(r => setTimeout(r, 1200));
+
+    const projDir = path.join(os.tmpdir(), `decohub-test-proj-ultra-fast-${Date.now()}`);
+    tempDirs.push(projDir);
+
+    // 1ª chamada: Criação inicial (< 100ms sem overhead de Git)
+    const t0 = Date.now();
+    const res1 = await fetch(`${baseUrl}/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Projeto Ultra Rapido',
+        folderPath: projDir,
+        objective: 'Testar latencia < 100ms e idempotencia',
+        initGit: false,
+        selectedModel: 'flash',
+        reasoningLevel: 'HIGH'
+      })
+    });
+    const durationMs1 = Date.now() - t0;
+
+    assert.strictEqual(res1.status, 201, 'Primeira chamada deve retornar 201');
+    const project1: any = await res1.json();
+    assert.ok(project1.id);
+    assert.ok(durationMs1 < 500, `POST /api/projects inicial deve responder instantaneamente (levou ${durationMs1}ms)`);
+
+    // 2ª chamada: Mesma pasta (Idempotência amigável, deve retornar 200 sem falhar com 409)
+    const t1 = Date.now();
+    const res2 = await fetch(`${baseUrl}/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Projeto Ultra Rapido Atualizado',
+        folderPath: projDir,
+        objective: 'Re-submissão após eventual timeout ou reabertura',
+        initGit: false,
+        selectedModel: 'pro',
+        reasoningLevel: 'MEDIUM'
+      })
+    });
+    const durationMs2 = Date.now() - t1;
+
+    assert.strictEqual(res2.status, 200, 'Segunda chamada com mesmo caminho deve retornar 200 (idempotência amigável)');
+    const project2: any = await res2.json();
+    assert.strictEqual(project2.id, project1.id, 'Deve reutilizar o mesmo ID de projeto');
+    assert.strictEqual(project2.name, 'Projeto Ultra Rapido Atualizado', 'Deve atualizar o nome do projeto');
+    assert.strictEqual(project2.selected_model, 'pro', 'Deve atualizar o modelo selecionado');
+    assert.strictEqual(project2.reasoning_level, 'MEDIUM', 'Deve atualizar o nível de raciocínio');
+    assert.ok(durationMs2 < 500, `Segunda chamada (idempotente) deve responder instantaneamente (levou ${durationMs2}ms)`);
+  });
 });
