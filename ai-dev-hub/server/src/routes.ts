@@ -1639,6 +1639,9 @@ apiRouter.get('/projects/:id', (req, res) => {
     let parsedTasks: { pending: string[]; doing: string[]; done: string[] } = { pending: [], doing: [], done: [] };
 
     if (isAvailableOnDisk) {
+      if (!fs.existsSync(path.join(project.path, '.git'))) {
+        GitManager.ensureRepository(project.path);
+      }
       memory = MemoryManager.readMemoryFiles(project.path);
       gitInfo = GitManager.getGitInfo(project.path);
       parsedTasks = MemoryManager.parseTasks(memory.tasksMd);
@@ -2491,6 +2494,7 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
       let replyContent = '';
       let autonomousRun: any = null;
       let execution: any = { status: 'stored' };
+      let intentResult: any = null;
       const trimmed = content.trim().toLowerCase();
 
       // Universal Slash Command Interception (/frontend, /image, /rea, /karpathy, /style, /ux, /pentest, etc.)
@@ -2531,7 +2535,9 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
           userMessage: userMessagePayload,
           assistantReply: { id: replyId, project_id: id, role: 'assistant', content: replyContent, created_at: replyTime, metadata: replyMetadata },
           autonomousRun,
-          execution
+          execution,
+          classification: null,
+          actionTaken: execution?.status || 'started'
         };
         if (requestId) ChatSubmission.complete(id, requestId, response);
         return response;
@@ -2554,7 +2560,7 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
       execution = { status: 'stored', command: 'task_added' };
     } else {
       // 1. Centralized Intent Classification Layer
-      const intentResult = ChatIntentClassifier.classify(content);
+      intentResult = ChatIntentClassifier.classify(content);
       const activeExistingRun = AutonomousManager.getActiveRunForProject(id);
       autonomousRun = activeExistingRun;
 
@@ -2631,8 +2637,11 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
         // Connect to Autonomous Development Engine for execution instructions
         try {
           const explicitReplan = !forceNew && (Boolean(req.body?.replan) || /^(replanejar|novo requisito|alterar requisito|defeito):/i.test(content.trim()));
-          const isRunStalledOrBlocked = activeExistingRun && ['blocked', 'error', 'paused', 'waiting_resource'].includes(activeExistingRun.status);
-          const isRunBusy = activeExistingRun && ['running', 'building', 'testing', 'reviewing', 'planning', 'waiting_for_worker'].includes(activeExistingRun.status);
+          const isRunStalledOrBlocked = activeExistingRun && (
+            ['blocked', 'error', 'paused', 'waiting_resource'].includes(activeExistingRun.status) ||
+            (!activeExistingRun.tasks || activeExistingRun.tasks.length === 0)
+          );
+          const isRunBusy = activeExistingRun && ['running', 'building', 'testing', 'reviewing', 'planning', 'waiting_for_worker'].includes(activeExistingRun.status) && Boolean(activeExistingRun.tasks?.length);
 
           if (activeExistingRun && (forceNew || isRunStalledOrBlocked)) {
             // Se o projeto possuir um run anterior com status blocked, error, paused ou waiting_resource (ou forceNew):
@@ -2780,19 +2789,19 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
       userMessage: userMessagePayload,
       assistantReply: { id: replyId, project_id: id, role: 'assistant', content: replyContent, created_at: replyTime, metadata: replyMetadata },
       autonomousRun,
-      execution
+      execution,
+      classification: typeof intentResult !== 'undefined' ? intentResult : null,
+      actionTaken: execution?.status || 'started'
     };
     if (requestId) ChatSubmission.complete(id, requestId, response);
     return response;
     };
 
-    const isAsync = req.headers['x-stream-mode'] === 'sse' ||
-      req.query.stream === 'true' ||
-      req.body?.stream === true ||
-      req.headers['prefer'] === 'respond-async' ||
-      req.body?.async === true ||
+    const isAsync = req.headers['prefer'] === 'respond-async' ||
+      req.headers['x-stream-mode'] === 'sse' ||
       req.query.async === 'true' ||
-      SseStreamService.hasClients(id);
+      req.body?.async === true ||
+      req.body?.stream === true;
 
     if (isAsync) {
       const turnId = 'turn-' + crypto.randomUUID();
@@ -2825,7 +2834,10 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
 
     const response = await processMessageTurn();
     SseStreamService.broadcast(id, 'message', response);
-    res.json(response);
+    if (response.autonomousRun) {
+      SseStreamService.broadcast(id, 'activity', { run: response.autonomousRun, execution: response.execution });
+    }
+    res.status(200).json(response);
   } catch (err: any) {
     if(typeof req.body?.requestId==='string')ChatSubmission.uncertain(String(req.params.id),req.body.requestId);
     res.status(500).json({ error: err.message });

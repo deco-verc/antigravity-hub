@@ -14,6 +14,11 @@ import { AccountProfileManager } from './accountProfileManager.js';
 import { ChatIntentResult } from './chatIntentClassifier.js';
 import { AntigravityDiscovery } from './antigravityDiscovery.js';
 import { TurnCancellationManager } from './turnCancellationManager.js';
+import {
+  resolveConversationTranscriptPath,
+  resolveConversationTranscriptFullPath,
+  resolveConversationArtifactDir
+} from './antigravityProvider.js';
 
 export interface ConversationalResponse {
   replyContent: string;
@@ -33,27 +38,12 @@ export class AntigravityConversationalService {
   private static appDataBrainDir: string = AntigravityDiscovery.getBrainDir();
 
   private static resolveBrainPaths(conversationId: string, env?: NodeJS.ProcessEnv): { transcriptPath: string; transcriptFullPath: string } {
-    const candidateDirs: string[] = [];
-    if (env?.USERPROFILE) {
-      candidateDirs.push(path.join(env.USERPROFILE, '.gemini', 'antigravity', 'brain', conversationId, '.system_generated', 'logs'));
-    }
-    candidateDirs.push(path.join(AntigravityDiscovery.getBrainDir(), conversationId, '.system_generated', 'logs'));
-    candidateDirs.push(path.join(os.homedir(), '.gemini', 'antigravity', 'brain', conversationId, '.system_generated', 'logs'));
-
-    for (const dir of candidateDirs) {
-      const tPath = path.join(dir, 'transcript.jsonl');
-      if (fs.existsSync(tPath)) {
-        return {
-          transcriptPath: tPath,
-          transcriptFullPath: path.join(dir, 'transcript_full.jsonl')
-        };
-      }
-    }
-
-    const fallbackDir = candidateDirs[0] || path.join(AntigravityDiscovery.getBrainDir(), conversationId, '.system_generated', 'logs');
+    const primaryDir = env?.USERPROFILE ? path.join(env.USERPROFILE, '.gemini', 'antigravity', 'brain') : AntigravityDiscovery.getBrainDir();
+    const tPath = resolveConversationTranscriptPath(conversationId, primaryDir) || path.join(primaryDir, conversationId, '.system_generated', 'logs', 'transcript.jsonl');
+    const fPath = resolveConversationTranscriptFullPath(conversationId, primaryDir) || path.join(primaryDir, conversationId, '.system_generated', 'logs', 'transcript_full.jsonl');
     return {
-      transcriptPath: path.join(fallbackDir, 'transcript.jsonl'),
-      transcriptFullPath: path.join(fallbackDir, 'transcript_full.jsonl')
+      transcriptPath: tPath,
+      transcriptFullPath: fPath
     };
   }
 
@@ -71,7 +61,7 @@ export class AntigravityConversationalService {
     accountProfileId?: string;
   }): Promise<ConversationalResponse> {
     const { projectId, userMessage, intentResult, env } = params;
-    const timeoutMs = params.timeoutMs || 45000;
+    const timeoutMs = Math.min(params.timeoutMs || 30000, 30000);
 
     const snapshot = ProjectContextBridge.getSnapshot(projectId);
     if (!snapshot) {
@@ -388,13 +378,24 @@ export class AntigravityConversationalService {
     timeoutMs: number,
     env?: NodeJS.ProcessEnv
   ): Promise<string | null> {
-    const { transcriptPath, transcriptFullPath } = this.resolveBrainPaths(conversationId, env);
     const start = Date.now();
+    const primaryDir = env?.USERPROFILE ? path.join(env.USERPROFILE, '.gemini', 'antigravity', 'brain') : AntigravityDiscovery.getBrainDir();
 
     while (Date.now() - start < timeoutMs) {
       if (TurnCancellationManager.isCancelled(conversationId)) {
         throw new Error('RUN_CANCELLED: a conversa foi cancelada pelo usuário');
       }
+
+      // Se após 12 segundos o diretório brain/<conversationId> não existir no disco, aciona fallback rápido
+      if (Date.now() - start > 12000) {
+        const artifactDir = resolveConversationArtifactDir(conversationId, primaryDir);
+        if (!fs.existsSync(artifactDir)) {
+          Logger.warn(`[ConversationalService] Diretório brain/${conversationId} não detectado após 12s. Abortando espera para acionar síntese rápida.`);
+          break;
+        }
+      }
+
+      const { transcriptPath, transcriptFullPath } = this.resolveBrainPaths(conversationId, env);
       if (fs.existsSync(transcriptPath)) {
         try {
           const content = fs.readFileSync(transcriptPath, 'utf-8');

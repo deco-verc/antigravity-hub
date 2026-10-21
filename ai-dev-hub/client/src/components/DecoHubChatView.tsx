@@ -50,6 +50,7 @@ interface DecoHubChatViewProps {
   onBackToOverview: () => void;
   onOpenAdvanced?: () => void;
   onRefreshMessages?: () => Promise<void>;
+  onRunUpdated?: (run: AutonomousRun | null) => void;
 }
 
 import { ImageCarouselLightbox, LightboxImageItem } from './ImageCarouselLightbox';
@@ -63,7 +64,8 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
   onStopAgent,
   onBackToOverview,
   onOpenAdvanced,
-  onRefreshMessages
+  onRefreshMessages,
+  onRunUpdated
 }) => {
   const [inputText, setInputText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -142,6 +144,7 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
       const run = await api.getActiveAutonomousRun(project.id);
       if (currentProjectRef.current !== project.id) return;
       setActiveRun(run);
+      onRunUpdated?.(run);
     } catch {
       // Non-blocking
     }
@@ -159,16 +162,30 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
       }
       if (data.autonomousRun) {
         setActiveRun(data.autonomousRun);
+        onRunUpdated?.(data.autonomousRun);
       }
       setIsSubmitting(false);
+    });
+
+    sseClient.on('run_updated', async (data) => {
+      if (currentProjectRef.current !== project.id) return;
+      await fetchActiveRun();
+      if (onRefreshMessages) {
+        await onRefreshMessages();
+      }
     });
 
     sseClient.on('activity', (data) => {
       if (currentProjectRef.current !== project.id) return;
       if (data.run) {
         setActiveRun(data.run);
+        onRunUpdated?.(data.run);
       } else if (data.status) {
-        setActiveRun(prev => prev ? { ...prev, status: data.status, next_action: data.message || prev.next_action } : prev);
+        setActiveRun(prev => {
+          const next = prev ? { ...prev, status: data.status, next_action: data.message || prev.next_action } : prev;
+          onRunUpdated?.(next);
+          return next;
+        });
       }
     });
 
@@ -191,7 +208,14 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
       setIsSubmitting(false);
     });
 
+    // Dual-layer resilience: fallback periodic poll while component is mounted
+    const pollTimer = setInterval(() => {
+      if (currentProjectRef.current !== project.id) return;
+      fetchActiveRun();
+    }, 2500);
+
     return () => {
+      clearInterval(pollTimer);
       sseClient.close();
     };
   }, [project.id]);
@@ -209,7 +233,7 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
     if (isNearBottomRef.current) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, agentStatus, isSubmitting]);
+  }, [messages, isSubmitting]);
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -919,7 +943,7 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
         )}
 
         {/* Indicador sutil de pensamento com pulsing e respeito a reduced-motion */}
-        {(isSubmitting || agentStatus === 'working') && (
+        {isSubmitting && (
           <div className="flex gap-3.5 justify-start animate-message-enter">
             <div className="w-7 h-7 rounded-lg border bg-indigo-600/20 border-indigo-500/30 text-indigo-400 flex items-center justify-center flex-shrink-0 mt-0.5">
               <Sparkles className="w-4 h-4 text-indigo-400" />

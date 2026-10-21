@@ -85,21 +85,46 @@ export class PlaywrightVisualInspector {
   private static readonly MOBILE_VIEWPORT: ViewportConfig = { width: 390, height: 844, name: 'mobile' };
 
   /**
+   * Helper to resolve the safe Node CLI executable path.
+   * If running inside Electron or DecoHUB, uses system node or sets ELECTRON_RUN_AS_NODE: '1'
+   * to prevent spawning GUI windows or freezing the Express event loop.
+   */
+  private static getSafeNodeExecutable(): { execPath: string; env: NodeJS.ProcessEnv } {
+    const isWin = process.platform === 'win32';
+    const defaultNode = isWin ? 'C:\\Program Files\\nodejs\\node.exe' : '/usr/bin/node';
+    const isElectron = Boolean(
+      (process.versions as any)?.electron ||
+      process.execPath.toLowerCase().includes('electron') ||
+      process.execPath.toLowerCase().includes('decohub')
+    );
+    const execPath = (isElectron && fs.existsSync(defaultNode)) ? defaultNode : process.execPath;
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: '1'
+    };
+    return { execPath, env };
+  }
+
+  /**
    * Helper to execute a playwright-cli command safely on Windows and POSIX.
    */
   private static runCli(args: string[], cwd: string, timeoutMs: number = 8000): { stdout: string; stderr: string; status: number | null } {
     const isWin = process.platform === 'win32';
     const cliJs = isWin ? path.join(process.env.APPDATA || '', 'npm', 'node_modules', '@playwright', 'cli', 'playwright-cli.js') : null;
+    const { execPath: safeNode, env: nodeEnv } = this.getSafeNodeExecutable();
 
     let exec: string;
     let fullArgs: string[];
+    let env: NodeJS.ProcessEnv;
 
     if (cliJs && fs.existsSync(cliJs)) {
-      exec = process.execPath;
+      exec = safeNode;
       fullArgs = [cliJs, ...args];
+      env = nodeEnv;
     } else {
       exec = isWin ? 'cmd.exe' : 'playwright-cli';
       fullArgs = isWin ? ['/c', 'playwright-cli', ...args] : args;
+      env = nodeEnv;
     }
 
     try {
@@ -107,7 +132,8 @@ export class PlaywrightVisualInspector {
         cwd,
         encoding: 'utf-8',
         timeout: timeoutMs,
-        windowsHide: true
+        windowsHide: true,
+        env
       });
 
       return {
@@ -221,9 +247,11 @@ export class PlaywrightVisualInspector {
         '});'
       ].join('\n');
 
-      const child = spawn(process.execPath, ['-e', childScript, resolvedBaseDir], {
+      const { execPath: safeNode, env: nodeEnv } = this.getSafeNodeExecutable();
+      const child = spawn(safeNode, ['-e', childScript, resolvedBaseDir], {
         stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true
+        windowsHide: true,
+        env: nodeEnv
       });
 
       child.on('error', (err) => {

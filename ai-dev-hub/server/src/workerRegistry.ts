@@ -128,6 +128,30 @@ export class WorkerRegistry {
   }
 
   static getReadyWorkers(): Worker[] {
+    // 0. Auto-reconcile workers presos em 'WORKING' cujo run ou tarefa não está mais ativo
+    try {
+      const workingRows: any[] = db.prepare("SELECT * FROM workers WHERE status = 'WORKING'").all();
+      const now = new Date().toISOString();
+      for (const w of workingRows) {
+        let isStale = false;
+        if (!w.current_run_id && !w.current_task_id) {
+          isStale = true;
+        } else if (w.current_run_id) {
+          const run: any = db.prepare("SELECT status FROM autonomous_runs WHERE id = ?").get(w.current_run_id);
+          if (!run || ['completed', 'failed', 'stopped', 'error', 'paused', 'waiting_resource'].includes(run.status)) {
+            isStale = true;
+          }
+        }
+        if (isStale) {
+          db.prepare("UPDATE workers SET status = 'READY', current_task_id = NULL, current_run_id = NULL, current_issue_number = NULL, updated_at = ?, last_activity = ? WHERE id = ?")
+            .run(now, now, w.id);
+          Logger.info(`[WorkerRegistry] Worker ${w.id} (${w.name}) auto-recuperado de WORKING obsoleto para READY.`);
+        }
+      }
+    } catch (err: any) {
+      Logger.warn(`[WorkerRegistry] Aviso na auto-reconciliação de workers: ${err.message}`);
+    }
+
     const rows: any[] = db.prepare("SELECT * FROM workers WHERE status = 'READY' AND account_profile_id IS NOT NULL ORDER BY created_at ASC").all();
     const cutoff = Date.now() - HEARTBEAT_OFFLINE_THRESHOLD_MS;
     return rows.filter(row => {
@@ -311,6 +335,9 @@ export class WorkerRegistry {
           if (globalProfile?.environment_path) {
             runtime = AccountProfileManager.getRunningInstanceForProfile(globalProfile.environment_path);
           }
+        }
+        if (!runtime && !AccountProfileManager.isOfflineMode()) {
+          runtime = AccountProfileManager.findAnyLiveLanguageServerInstance();
         }
         if (!runtime && !AccountProfileManager.isOfflineMode() && !AccountProfileManager.isAutomatedTestRuntime()) {
           throw new Error(`RUNTIME_UNAVAILABLE: abra o Antigravity e autentique o perfil ${activeProfile.display_name}.`);

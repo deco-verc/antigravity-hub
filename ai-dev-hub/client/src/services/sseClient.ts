@@ -12,7 +12,8 @@ export type SseEventType =
   | 'tool_call'
   | 'status'
   | 'done'
-  | 'error';
+  | 'error'
+  | 'run_updated';
 
 export type SseEventHandler<T = any> = (data: T) => void;
 
@@ -70,7 +71,8 @@ export class DecoHubSseClient {
         'tool_call',
         'status',
         'done',
-        'error'
+        'error',
+        'run_updated'
       ];
 
       for (const type of eventTypes) {

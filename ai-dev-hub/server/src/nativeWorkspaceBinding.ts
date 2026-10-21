@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
 import { db } from './db.js';
+import { Logger } from './logger.js';
 import { normalizeRuntimePath } from './runtimeProfileSelector.js';
 import {
   NativeExecutionPolicy,
@@ -296,6 +297,18 @@ export class NativeWorkspaceBinding {
     } else if (candidates.length > 1) {
       throw new Error('NATIVE_WORKSPACE_PROJECT_AMBIGUOUS');
     } else {
+      // 1. Garante que o projeto seja sempre um repositório Git válido para o Antigravity 2.0 (docs/projects#folders)
+      const gitDir = path.join(project.path, '.git');
+      if (!fs.existsSync(gitDir)) {
+        try {
+          const { execFileSync } = require('child_process');
+          execFileSync('git', ['init'], { cwd: project.path, windowsHide: true, timeout: 5000 });
+          Logger.info(`[NativeWorkspaceBinding] Repositório Git inicializado na pasta do projeto: ${project.path}`);
+        } catch (gitErr: any) {
+          Logger.warn(`[NativeWorkspaceBinding] Aviso ao inicializar Git no projeto: ${gitErr.message}`);
+        }
+      }
+
       nativeProjectId = randomUUID();
       const configFile = path.join(directory, `${nativeProjectId}.json`);
       const nativeConfig = {
@@ -327,19 +340,40 @@ export class NativeWorkspaceBinding {
       fs.writeFileSync(configFile, JSON.stringify(nativeConfig, null, 2), 'utf8');
     }
 
-    // Espelha o nativeProjectId.json também para o diretório global padrão do usuário
+    // 2. Espelha SEMPRE o nativeProjectId.json para o diretório global do usuário e atualize cache do CLI
     try {
       const globalProjectsDir = path.join(os.homedir(), '.gemini', 'config', 'projects');
-      if (normalizeRuntimePath(directory) !== normalizeRuntimePath(globalProjectsDir)) {
-        fs.mkdirSync(globalProjectsDir, { recursive: true });
-        const sourceConfigFile = path.join(directory, `${nativeProjectId}.json`);
-        const globalConfigFile = path.join(globalProjectsDir, `${nativeProjectId}.json`);
-        if (fs.existsSync(sourceConfigFile)) {
-          fs.copyFileSync(sourceConfigFile, globalConfigFile);
-        }
+      fs.mkdirSync(globalProjectsDir, { recursive: true });
+      const sourceConfigFile = path.join(directory, `${nativeProjectId}.json`);
+      const globalConfigFile = path.join(globalProjectsDir, `${nativeProjectId}.json`);
+      if (fs.existsSync(sourceConfigFile) && normalizeRuntimePath(sourceConfigFile) !== normalizeRuntimePath(globalConfigFile)) {
+        fs.copyFileSync(sourceConfigFile, globalConfigFile);
       }
-    } catch {
-      // Ignora erro silenciosamente se for o mesmo diretório ou inacessível
+
+      // Atualiza também ~/.gemini/antigravity-cli/cache/projects.json
+      const cliCacheDir = path.join(os.homedir(), '.gemini', 'antigravity-cli', 'cache');
+      fs.mkdirSync(cliCacheDir, { recursive: true });
+      const cliProjectsFile = path.join(cliCacheDir, 'projects.json');
+      let cacheData: any = {};
+      if (fs.existsSync(cliProjectsFile)) {
+        try { cacheData = JSON.parse(fs.readFileSync(cliProjectsFile, 'utf8')); } catch { cacheData = {}; }
+      }
+      if (Array.isArray(cacheData)) {
+        const idx = cacheData.findIndex((p: any) => p.id === nativeProjectId || p.path === project.path);
+        const entry = { id: nativeProjectId, name: project.name, path: project.path, folderUri: pathToFileURL(project.path).href };
+        if (idx >= 0) cacheData[idx] = entry;
+        else cacheData.push(entry);
+      } else {
+        cacheData[nativeProjectId] = {
+          id: nativeProjectId,
+          name: project.name,
+          path: project.path,
+          folderUri: pathToFileURL(project.path).href
+        };
+      }
+      fs.writeFileSync(cliProjectsFile, JSON.stringify(cacheData, null, 2), 'utf8');
+    } catch (mirrorErr: any) {
+      Logger.warn(`[NativeWorkspaceBinding] Aviso ao espelhar manifesto no home global: ${mirrorErr.message}`);
     }
 
     return this.bind({

@@ -489,3 +489,12 @@
 - **[20/10/2026] Eliminação total de Atomics.wait, fallback direto para qualquer language server ativo e cancelamento instantâneo de chat**
   - **Decisão:** Eliminação total de Atomics.wait, fallback direto para qualquer language server ativo e cancelamento instantâneo de chat
   - **Motivo:** Atomics.wait congelava a thread do Express no Windows impedindo o frontend de se comunicar e impossibilitando o cancelamento de mensagens. O novo fluxo utiliza findAnyLiveLanguageServerInstance para conectar na janela aberta do Antigravity, gera tarefas assincronamente em produção e libera o botão de cancelamento com 0ms de latência.
+
+### [21/10/2026] Decisões da Sessão #75
+- **Decisão:** Planejamento Síncrono de Alta Performance no AutonomousManager com Hidratação Imediata de Tarefas e Eliminação da Race Condition de PLAN_MISSING
+  - **Motivo:** A delegação do planejamento inicial para uma promise assíncrona desacoplada em background retornava o run com status `planning` e 0 tarefas na resposta HTTP inicial. O `schedulerTick` disparado 100ms depois encontrava `tasks.length === 0` e marcava o run como erro com `PLAN_MISSING`, congelando o frontend em "Pensando e processando..." com 0 tarefas. Agora, as tarefas são geradas e persistidas sincronicamente (< 400ms via `HierarchicalOrchestrationService` ou teto de 5s no Supervisor) antes do retorno HTTP, garantindo que o plano já venha 100% populado.
+- **Decisão:** Priorização de Runs Recentes (`ORDER BY updated_at DESC LIMIT 1`) e Auto-Geração Determinística de Tarefas no Step do AutonomousRunnerService
+  - **Motivo:** O scheduler utilizava `ORDER BY updated_at ASC LIMIT 1`, fazendo com que runs antigos abandonados roubassem o ciclo de execução. Além disso, se qualquer run chegar ao step sem tarefas, o runner agora auto-gera o plano imediatamente em vez de falhar abruptamente com `PLAN_MISSING`.
+- **Decisão:** Sincronização Dupla SSE + Polling Fallback no Frontend: Registro de `run_updated` no `sseClient.ts`, propagação bidirecional de `projectRun` para o `App.tsx` e polling a cada 2.5s no `DecoHubChatView`
+  - **Motivo:** O cliente SSE descartava o evento `run_updated` porque o tipo não estava registrado em `eventTypes`. Adicionalmente, `DecoHubChatView` não possuía polling de fallback e não propagava o `activeRun` atualizado para o estado global `projectRun` do `App.tsx`, fazendo com que a aba "Tarefas" permanecesse em 0. Agora o estado fica 100% sincronizado tanto via SSE quanto via polling resiliente.
+

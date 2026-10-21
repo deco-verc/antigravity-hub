@@ -1,8 +1,14 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { BuilderToSupervisorContract, SupervisorReviewContract } from './agentProvider.js';
-import { getLanguageServerExe } from './antigravityProvider.js';
+import {
+  getLanguageServerExe,
+  resolveConversationTranscriptPath,
+  resolveConversationTranscriptFullPath,
+  resolveConversationArtifactDir
+} from './antigravityProvider.js';
 import { AgentApiGateway } from './agentApiGateway.js';
 import { Logger } from './logger.js';
 import { getGlobalAgentGuidelines, validateSurgicalDiff } from './agentGuidelines.js';
@@ -106,12 +112,38 @@ export class GeminiSupervisorProvider {
     };
   }
 
+  private getCandidateBrainDirs(): string[] {
+    const dirs: string[] = [];
+    if (this.appDataBrainDir) dirs.push(this.appDataBrainDir);
+    if (this.env?.ANTIGRAVITY_BRAIN_FALLBACK_DIR) dirs.push(this.env.ANTIGRAVITY_BRAIN_FALLBACK_DIR);
+    if (process.env.ANTIGRAVITY_BRAIN_FALLBACK_DIR) dirs.push(process.env.ANTIGRAVITY_BRAIN_FALLBACK_DIR);
+    const homeBrain = path.join(os.homedir(), '.gemini', 'antigravity', 'brain');
+    if (!dirs.includes(homeBrain)) dirs.push(homeBrain);
+    if (process.env.USERPROFILE) {
+      const upBrain = path.join(process.env.USERPROFILE, '.gemini', 'antigravity', 'brain');
+      if (!dirs.includes(upBrain)) dirs.push(upBrain);
+    }
+    return dirs;
+  }
+
+  public resolveTranscriptPath(conversationId: string): string {
+    const resolved = resolveConversationTranscriptPath(conversationId, this.appDataBrainDir);
+    if (resolved && fs.existsSync(resolved)) return resolved;
+    return resolved || path.join(this.appDataBrainDir, conversationId, '.system_generated', 'logs', 'transcript.jsonl');
+  }
+
+  public resolveTranscriptFullPath(conversationId: string): string {
+    const resolved = resolveConversationTranscriptFullPath(conversationId, this.appDataBrainDir);
+    if (resolved && fs.existsSync(resolved)) return resolved;
+    return resolved || path.join(this.appDataBrainDir, conversationId, '.system_generated', 'logs', 'transcript_full.jsonl');
+  }
+
   /**
    * Helper to inspect the latest step_index in a conversation transcript before dispatching a new prompt
    */
   private getLatestTranscriptStepIndex(conversationId: string | null | undefined): number {
     if (!conversationId) return -1;
-    const activeTranscriptPath = path.join(this.appDataBrainDir, conversationId, '.system_generated', 'logs', 'transcript.jsonl');
+    const activeTranscriptPath = this.resolveTranscriptPath(conversationId);
     if (!fs.existsSync(activeTranscriptPath)) return -1;
     try {
       const lines = fs.readFileSync(activeTranscriptPath, 'utf-8').trim().split('\n').filter(Boolean);
@@ -518,7 +550,7 @@ export class GeminiSupervisorProvider {
       }
       this.lastConversationId = conversationId;
 
-      const responseText = await this.waitForResponse(conversationId, 180000, minStepIndex, 'PLAN');
+      const responseText = await this.waitForResponse(conversationId, 35000, minStepIndex, 'PLAN');
       const rawTasks = this.extractJsonArray<PlannedTask>(responseText);
 
       if (rawTasks && Array.isArray(rawTasks) && rawTasks.length > 0) {
@@ -924,7 +956,7 @@ export class GeminiSupervisorProvider {
     }
     this.lastConversationId = conversationId;
 
-    const responseText = await this.waitForResponse(conversationId, 180000, minStepIndex, 'PLAN');
+    const responseText = await this.waitForResponse(conversationId, 35000, minStepIndex, 'PLAN');
     const parsed = this.extractJsonObject<{
       requirements?: Array<{ code: string; title: string; description: string; category?: string; mandatory?: boolean }>;
       majorTasks?: Array<{
@@ -1134,7 +1166,7 @@ export class GeminiSupervisorProvider {
     }
     this.lastConversationId = conversationId;
 
-    const responseText = await this.waitForResponse(conversationId, 180000, minStepIndex, 'PLAN');
+    const responseText = await this.waitForResponse(conversationId, 35000, minStepIndex, 'PLAN');
     const rawArray = this.extractJsonArray<any>(responseText);
 
     if (Array.isArray(rawArray) && rawArray.length > 0) {
@@ -1269,7 +1301,7 @@ export class GeminiSupervisorProvider {
       // If test has explicitly overridden waitForResponse on instance or prototype:
       const isCustomWait = this.waitForResponse !== (GeminiSupervisorProvider as any)._defaultWaitForResponse;
       if (isCustomWait) {
-        const responseText = await this.waitForResponse(conversationId, 180000, -1, 'PLAN');
+        const responseText = await this.waitForResponse(conversationId, 35000, -1, 'PLAN');
         const rawTasks = this.extractJsonArray<PlannedTask>(responseText);
         if (rawTasks && Array.isArray(rawTasks) && rawTasks.length > 0) {
           const sanitizedTasks: PlannedTask[] = [];
@@ -1315,6 +1347,8 @@ export class GeminiSupervisorProvider {
     }
 
     // Live mode:
+    const planStartTime = Date.now();
+    const remainingBudgetMs = () => Math.max(0, 40000 - (Date.now() - planStartTime));
     try {
       let existingMemorySnippet = '';
       let constitutionSnippet = '';
@@ -1366,24 +1400,34 @@ export class GeminiSupervisorProvider {
         let expanded: PlannedTask[] = [];
 
         const filteredBlocks = GeminiSupervisorProvider.filterSkillBlocksForMajorTask(major, preResolvedBlocks);
-        try {
-          expanded = await this.expandMajorTaskIntoMicrotasks(major, projectContext, {
-            briefing,
-            previousMajorTaskCode: prevMajorCode,
-            allMajorTasksSummary: majorTasksSummary,
-            priorMajorTaskLastMicrotaskCode: priorLastMicroCode,
-            projectRequirements: blueprint.requirements.map(r => ({ code: r.code, title: r.title })),
-            startOrderIndex: allMicrotasks.length + 1,
-            preResolvedBlocks: filteredBlocks
-          });
-        } catch (expandErr: any) {
-          Logger.warn(`[GeminiSupervisor] Aviso na expansão de ${major.code} (${expandErr.message}). Sintetizando microtarefas da etapa para preservar o plano.`);
+        if (remainingBudgetMs() < 4000) {
+          Logger.info(`[GeminiSupervisor] Limite de tempo de planejamento atingido (40s). Sintetizando microtarefas determinísticas para a Grande Tarefa ${major.code}.`);
           expanded = this.buildFallbackMicrotasksForMajorTask(
             major,
             projectContext.path,
             allMicrotasks.length + 1,
             priorLastMicroCode
           );
+        } else {
+          try {
+            expanded = await this.expandMajorTaskIntoMicrotasks(major, projectContext, {
+              briefing,
+              previousMajorTaskCode: prevMajorCode,
+              allMajorTasksSummary: majorTasksSummary,
+              priorMajorTaskLastMicrotaskCode: priorLastMicroCode,
+              projectRequirements: blueprint.requirements.map(r => ({ code: r.code, title: r.title })),
+              startOrderIndex: allMicrotasks.length + 1,
+              preResolvedBlocks: filteredBlocks
+            });
+          } catch (expandErr: any) {
+            Logger.warn(`[GeminiSupervisor] Aviso na expansão de ${major.code} (${expandErr.message}). Sintetizando microtarefas da etapa para preservar o plano.`);
+            expanded = this.buildFallbackMicrotasksForMajorTask(
+              major,
+              projectContext.path,
+              allMicrotasks.length + 1,
+              priorLastMicroCode
+            );
+          }
         }
 
         // Inter-Major Task DAG Chaining: first microtask of GT-n depends on priorLastMicroCode if not already chained
@@ -1625,7 +1669,7 @@ export class GeminiSupervisorProvider {
 
       if (conversationId) {
         this.lastConversationId = conversationId;
-        const responseText = await this.waitForResponse(conversationId, 180000, minStepIndex, 'REVIEW');
+        const responseText = await this.waitForResponse(conversationId, 35000, minStepIndex, 'REVIEW');
         const review = this.extractJsonObject<SupervisorReviewContract>(responseText);
 
         if (review && review.verdict) {
@@ -1706,7 +1750,7 @@ export class GeminiSupervisorProvider {
       `${prompt}\nOBJETIVO INTEGRAL DO USUÁRIO:\n${run.briefing}\nPLANO E ESTADO:\n${JSON.stringify(taskSummary)}\nEVIDÊNCIAS INDEPENDENTES:\n${JSON.stringify(evidenceSummary)}\nInspecione os artefatos reais. Aprove somente se TODOS os requisitos originais têm evidência proporcional (UI com interação, APIs e persistência real quando exigidos). Não infira funcionamento só por nomes de arquivos. Responda JSON {verdict: APPROVED|CHANGES_REQUESTED|BLOCKED, feedback, nextAction}.`,
       { env: this.env, taskTitle: 'Aceitação final do projeto' }
     );
-    const response = await this.waitForResponse(session.provider_conversation_id, 240000, minStep, 'REVIEW');
+    const response = await this.waitForResponse(session.provider_conversation_id, 35000, minStep, 'REVIEW');
     const result = this.extractJsonObject<any>(response);
     if (!result) throw new Error('SUPERVISOR_FINAL_REVIEW_INVALID: resposta JSON inválida.');
     if (!result.feedback && (result.rationale || result.summary || result.reason)) {
@@ -1724,19 +1768,30 @@ export class GeminiSupervisorProvider {
    * content from transcript_full.jsonl to eliminate artificial text truncation.
    */
   async waitForResponse(conversationId: string, timeoutMs: number, minStepIndex = -1, expectedMode?: 'PLAN' | 'REVIEW'): Promise<string> {
-    const transcriptPath = path.join(this.appDataBrainDir, conversationId, '.system_generated', 'logs', 'transcript.jsonl');
-    const transcriptFullPath = path.join(this.appDataBrainDir, conversationId, '.system_generated', 'logs', 'transcript_full.jsonl');
+    const cappedTimeout = Math.min(timeoutMs || 35000, 35000);
 
     // If no transcript file exists on disk and we are in offline mode, return synthetic mock response
-    if (!fs.existsSync(transcriptPath) && AgentApiGateway.isOfflineMode()) {
-      const response = AgentApiGateway.getMockProvider()?.getResponse?.(conversationId, expectedMode);
-      if (response === undefined) throw new Error('OFFLINE_RESPONSE_UNCONFIGURED: provider de teste sem resposta explícita.');
-      return response;
+    if (AgentApiGateway.isOfflineMode()) {
+      const activePath = this.resolveTranscriptPath(conversationId);
+      if (!fs.existsSync(activePath)) {
+        const response = AgentApiGateway.getMockProvider()?.getResponse?.(conversationId, expectedMode);
+        if (response === undefined) throw new Error('OFFLINE_RESPONSE_UNCONFIGURED: provider de teste sem resposta explícita.');
+        return response;
+      }
     }
 
     const start = Date.now();
 
-    while (Date.now() - start < timeoutMs) {
+    while (Date.now() - start < cappedTimeout) {
+      if (Date.now() - start > 4000) {
+        const artifactDir = resolveConversationArtifactDir(conversationId, this.appDataBrainDir);
+        if (!fs.existsSync(artifactDir)) {
+          Logger.warn(`[GeminiSupervisor] Diretório brain/${conversationId} não detectado após 4s. Abortando espera para acionar fallback determinístico imediato.`);
+          break;
+        }
+      }
+      const transcriptPath = this.resolveTranscriptPath(conversationId);
+      const transcriptFullPath = this.resolveTranscriptFullPath(conversationId);
       if (fs.existsSync(transcriptPath)) {
         try {
           const content = fs.readFileSync(transcriptPath, 'utf-8');
@@ -1791,11 +1846,15 @@ export class GeminiSupervisorProvider {
                   (entry.status === 'DONE' || entry.status === 'COMPLETED') &&
                   !(entry.tool_calls?.length > 0);
 
-                // b) (entry.type === 'ASSISTANT_RESPONSE' || entry.type === 'MODEL_TURN' || entry.type === 'MESSAGE' || entry.role === 'assistant') && entry.content
+                // b) (entry.type === 'ASSISTANT_RESPONSE' || entry.type === 'MODEL_TURN' || entry.type === 'MESSAGE' || entry.role === 'assistant' || entry.type === 'MODEL_RESPONSE' || entry.type === 'CHAT_RESPONSE' || entry.type === 'TEXT_RESPONSE' || entry.type === 'TURN_COMPLETE') && entry.content
                 const isAssistantResponse = (
                   entry.type === 'ASSISTANT_RESPONSE' ||
                   entry.type === 'MODEL_TURN' ||
                   entry.type === 'MESSAGE' ||
+                  entry.type === 'MODEL_RESPONSE' ||
+                  entry.type === 'CHAT_RESPONSE' ||
+                  entry.type === 'TEXT_RESPONSE' ||
+                  entry.type === 'TURN_COMPLETE' ||
                   entry.role === 'assistant' ||
                   entry.source === 'MODEL'
                 ) && !(entry.tool_calls?.length > 0);

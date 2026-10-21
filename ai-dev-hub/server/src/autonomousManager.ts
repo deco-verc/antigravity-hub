@@ -121,6 +121,14 @@ export interface SupervisorReviewInput {
 
 export class AutonomousManager {
   /**
+   * Helper alias to trigger a scheduler tick across all running projects
+   */
+  public static async processRuns() {
+    const { AutonomousRunnerService } = await import('./autonomousRunnerService.js');
+    return AutonomousRunnerService.schedulerTick();
+  }
+
+  /**
    * Create and initialize a new Autonomous Run
    */
   static async createRun(config: AutonomousRunConfig) {
@@ -175,8 +183,8 @@ export class AutonomousManager {
 
       const totalTasks = Number(taskCounts?.total || 0);
       const pendingTasks = Number(taskCounts?.pending || 0);
-      const hasNoPendingTasks = totalTasks > 0 ? (pendingTasks === 0) : (activeRun.status !== 'planning');
-      const isStalledOrErrored = ['error', 'blocked'].includes(activeRun.status);
+      const hasNoPendingTasks = totalTasks > 0 ? (pendingTasks === 0) : true;
+      const isStalledOrErrored = ['error', 'blocked', 'paused', 'waiting_resource'].includes(activeRun.status) || totalTasks === 0;
 
       if (config.forceNew || isStalledOrErrored || hasNoPendingTasks) {
         const finalStatus = isStalledOrErrored ? 'failed' : 'completed';
@@ -290,54 +298,34 @@ export class AutonomousManager {
       process.env.DECOHUB_OFFLINE_MODE === 'true' ||
       (await import('./agentApiGateway.js')).AgentApiGateway.isOfflineMode();
 
-    if (!isTestRuntime && !isOffline) {
-      Logger.info(`[AutonomousManager] Run [${runId.slice(0, 8)}] criado em status 'planning'. Despachando geração de tarefas em background...`);
-      (async () => {
-        try {
-          await this.generateInitialTasks(runId, config, project);
-          if (RunControl.apply(runId, true)) return;
-          db.prepare("UPDATE autonomous_runs SET status='running',last_error=NULL,next_action='Plano criado; aguardando despacho ao Worker',updated_at=? WHERE id=? AND status='planning'")
-            .run(new Date().toISOString(), runId);
-          Logger.success(`[AutonomousManager] Run [${runId.slice(0, 8)}] planejado com sucesso; disparando schedulerTick...`);
-          try {
-            const { AutonomousRunnerService } = await import('./autonomousRunnerService.js');
-            AutonomousRunnerService.schedulerTick();
-          } catch (tickErr: any) {
-            Logger.warn(`[AutonomousManager] Aviso ao disparar schedulerTick em background: ${tickErr.message}`);
-          }
-        } catch (err: any) {
-          if (RunControl.get(runId)) {
-            this.logEvent(runId, null, 'system', 'RUN_OPERATION_FAILURE', err.message);
-            if (RunControl.apply(runId, true)) return;
-          }
-          if (/RESOURCE_EXHAUSTED|code 429|Individual quota reached|QUOTA_EXHAUSTED/i.test(err.message)) {
-            const cooldownMsg = `BLOCKED_QUOTA: ${err.message}`;
-            db.prepare("UPDATE autonomous_runs SET status = 'paused', last_error = ?, next_action = 'Execução pausada aguardando restabelecimento de cota', updated_at = ? WHERE id = ?")
-              .run(cooldownMsg, new Date().toISOString(), runId);
-            this.logEvent(runId, null, 'system', 'BLOCKED_QUOTA', `Cota do modelo esgotada (429). Run pausado com segurança sem retries imediatos.`);
-            Logger.warn(`[AutonomousManager] Run [${runId.slice(0, 8)}] pausado por limite de cota (BLOCKED_QUOTA).`);
-            return;
-          }
-          db.prepare("UPDATE autonomous_runs SET status = 'error', last_error = ?, next_action = 'Verificar conta e agentapi do Supervisor', updated_at = ? WHERE id = ?")
-            .run(err.message, new Date().toISOString(), runId);
-          this.logEvent(runId, null, 'system', 'SUPERVISOR_UNAVAILABLE', err.message);
-        }
-      })().catch(bgErr => {
-        Logger.warn(`[AutonomousManager] Erro não tratado no background planner: ${bgErr.message}`);
-      });
-
-      Logger.success(`Autonomous Run [${runId.slice(0, 8)}] criado com sucesso (planejamento assíncrono em andamento) para ${project.name}`);
-      return this.getRun(runId);
-    }
-
     try {
       await this.generateInitialTasks(runId, config, project);
-      if(RunControl.apply(runId,true))return this.getRun(runId);
-      db.prepare("UPDATE autonomous_runs SET status='running',last_error=NULL,next_action='Plano criado; aguardando despacho ao Worker',updated_at=? WHERE id=? AND status='planning'").run(new Date().toISOString(), runId);
+      if (RunControl.apply(runId, true)) return this.getRun(runId);
+      db.prepare("UPDATE autonomous_runs SET status='running',last_error=NULL,next_action='Plano criado; aguardando despacho ao Worker',updated_at=? WHERE id=? AND status IN ('planning', 'running')")
+        .run(new Date().toISOString(), runId);
+      ObservabilityService.emit({
+        level: 'INFO',
+        event: 'run.tasks_planned',
+        message: `Tarefas planejadas para run ${runId.slice(0, 8)}`,
+        service: 'manager',
+        runId,
+        projectId: project.id,
+        status: 'running'
+      });
+      try {
+        const { SseStreamService } = await import('./sseStreamService.js');
+        SseStreamService.broadcast(project.id, 'run_updated', { runId, status: 'running' });
+      } catch {}
+      try {
+        const { AutonomousRunnerService } = await import('./autonomousRunnerService.js');
+        AutonomousRunnerService.schedulerTick();
+      } catch (tickErr: any) {
+        Logger.warn(`[AutonomousManager] Aviso ao disparar schedulerTick: ${tickErr.message}`);
+      }
     } catch (err: any) {
-      if(RunControl.get(runId)) {
-        this.logEvent(runId,null,'system','RUN_OPERATION_FAILURE',err.message);
-        if(RunControl.apply(runId,true))return this.getRun(runId);
+      if (RunControl.get(runId)) {
+        this.logEvent(runId, null, 'system', 'RUN_OPERATION_FAILURE', err.message);
+        if (RunControl.apply(runId, true)) return this.getRun(runId);
       }
       if (/RESOURCE_EXHAUSTED|code 429|Individual quota reached|QUOTA_EXHAUSTED/i.test(err.message)) {
         const cooldownMsg = `BLOCKED_QUOTA: ${err.message}`;
@@ -346,6 +334,44 @@ export class AutonomousManager {
         this.logEvent(runId, null, 'system', 'BLOCKED_QUOTA', `Cota do modelo esgotada (429). Run pausado com segurança sem retries imediatos.`);
         Logger.warn(`[AutonomousManager] Run [${runId.slice(0, 8)}] pausado por limite de cota (BLOCKED_QUOTA).`);
         return this.getRun(runId);
+      }
+      Logger.warn(`[AutonomousManager] Supervisor falhou no planejamento do Run [${runId.slice(0, 8)}]: ${err.message}. Ativando fallback determinístico.`);
+      try {
+        const { HierarchicalOrchestrationService } = await import('./hierarchicalOrchestrationService.js');
+        const fallbackTasks = HierarchicalOrchestrationService.generateMultiPassPlannedTasks({
+          briefing: config.briefing || config.objective || 'Construção autônoma do software',
+          projectPath: project.path,
+          projectName: project.name,
+          projectId: project.id,
+          requirements: config.requirements
+        });
+        if (fallbackTasks && fallbackTasks.length > 0) {
+          await this.persistPlannedTasks(runId, fallbackTasks, project, config.briefing || config.objective, config);
+          db.prepare("UPDATE autonomous_runs SET status='running',last_error=NULL,next_action='Plano gerado via fallback determinístico; aguardando despacho ao Worker',updated_at=? WHERE id=? AND status IN ('planning', 'running')")
+            .run(new Date().toISOString(), runId);
+          ObservabilityService.emit({
+            level: 'INFO',
+            event: 'run.tasks_planned',
+            message: `Tarefas planejadas via fallback para run ${runId.slice(0, 8)} (${fallbackTasks.length} tarefas)`,
+            service: 'manager',
+            runId,
+            projectId: project.id,
+            status: 'running'
+          });
+          try {
+            const { SseStreamService } = await import('./sseStreamService.js');
+            SseStreamService.broadcast(project.id, 'run_updated', { runId, status: 'running', taskCount: fallbackTasks.length });
+          } catch {}
+          try {
+            const { AutonomousRunnerService } = await import('./autonomousRunnerService.js');
+            AutonomousRunnerService.schedulerTick();
+          } catch (tickErr: any) {
+            Logger.warn(`[AutonomousManager] Aviso ao disparar schedulerTick do fallback: ${tickErr.message}`);
+          }
+          return this.getRun(runId);
+        }
+      } catch (fbErr: any) {
+        Logger.error(`[AutonomousManager] Falha no fallback determinístico: ${fbErr.message}`);
       }
       db.prepare("UPDATE autonomous_runs SET status = 'error', last_error = ?, next_action = 'Verificar conta e agentapi do Supervisor', updated_at = ? WHERE id = ?")
         .run(err.message, new Date().toISOString(), runId);
@@ -542,9 +568,10 @@ export class AutonomousManager {
       );
     }
 
-    let plannedTasks: TaskDefinition[];
+    const { HierarchicalOrchestrationService } = await import('./hierarchicalOrchestrationService.js');
+    let plannedTasks: TaskDefinition[] = [];
     try {
-      plannedTasks = await supervisor.planTasks(briefing, {
+      const planPromise = supervisor.planTasks(briefing, {
         id: project.id,
         name: project.name,
         path: project.path,
@@ -556,154 +583,45 @@ export class AutonomousManager {
         deepPlanning: supervisorPlanningMode === 'INITIAL_PLAN'
       });
 
-      // 2. Council Plan Critique Gate: Deliberate on the planned DAG
-      const { CouncilManager } = await import('./councilManager.js');
-      const planTrigger = CouncilManager.shouldTriggerCouncil({
-        riskLevel: config.autonomyMode === 'safe' ? 'high' : 'medium',
-        isArchitectureChange: true,
-        filesChanged: []
+      const timeoutPromise = new Promise<TaskDefinition[]>((_, reject) => {
+        setTimeout(() => reject(new Error('SUPERVISOR_PLAN_TIMEOUT_5S')), 5000);
       });
 
-      if (planTrigger.required || config.autonomyMode === 'safe') {
-        try {
-          const planDeliberation = await CouncilManager.deliberate({
-            taskId: `plan-${runId.slice(0, 8)}`,
-            projectId: project.id,
-            runId,
-            task: {
-              title: `Plano Arquitetural: ${config.name}`,
-              description: briefing,
-              plannedTasks
-            },
-            riskLevel: 'high',
-            policyTrigger: 'PLAN_ARCHITECTURE_CRITIQUE'
-          });
-
-          this.logEvent(
-            runId,
-            null,
-            'supervisor',
-            'COUNCIL_PLAN_CRITIQUE',
-            `[CONSELHO] Conselho deliberou sobre o plano: ${planDeliberation.chairmanVerdict} (Consenso: ${planDeliberation.consensusLevel}, Simplicidade: ${planDeliberation.scores.simplicity}/10, Corretude: ${planDeliberation.scores.correctness}/10)`,
-            {
-              deliberationId: planDeliberation.id,
-              verdict: planDeliberation.chairmanVerdict,
-              scores: planDeliberation.scores,
-              actionItems: planDeliberation.actionItems
-            }
-          );
-
-          try {
-            db.prepare('UPDATE autonomous_runs SET plan_deliberation_id = ? WHERE id = ?')
-              .run(planDeliberation.id, runId);
-          } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "autonomousManager",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:autonomousManager]", err);
-      }
-    }
-
-          let activePlanDeliberation = planDeliberation;
-
-          if (planDeliberation.chairmanVerdict === 'CHANGES_REQUESTED' && planDeliberation.actionItems.length > 0) {
-            Logger.info(`[AutonomousManager] Refinando plano conforme crítica do Conselho...`);
-            try {
-              const refinedTasks = await supervisor.planTasks(briefing, {
-                id: project.id,
-                name: project.name,
-                path: project.path,
-                objective: config.objective || project.objective
-              }, {
-                mode: 'REPLAN',
-                runId,
-                replanReason: `Recomendações do Conselho: ${planDeliberation.actionItems.join('; ')}`,
-                multiPass: true,
-                deepPlanning: true
-              });
-              if (refinedTasks && refinedTasks.length > 0) {
-                plannedTasks = refinedTasks;
-                const reDeliberation = await CouncilManager.deliberate({
-                  taskId: `plan-${runId.slice(0, 8)}`,
-                  projectId: project.id,
-                  runId,
-                  task: {
-                    title: `Plano Arquitetural Refinado: ${config.name}`,
-                    description: briefing,
-                    plannedTasks
-                  },
-                  riskLevel: 'high',
-                  policyTrigger: 'PLAN_ARCHITECTURE_CRITIQUE'
-                });
-                activePlanDeliberation = reDeliberation;
-                try {
-                  db.prepare('UPDATE autonomous_runs SET plan_deliberation_id = ? WHERE id = ?')
-                    .run(reDeliberation.id, runId);
-                } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "autonomousManager",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:autonomousManager]", err);
-      }
-    }
-                this.logEvent(
-                  runId,
-                  null,
-                  'supervisor',
-                  'COUNCIL_PLAN_REVISED',
-                  `Plano refinado e reavaliado pelo Conselho: ${reDeliberation.chairmanVerdict} (${plannedTasks.length} tarefas).`,
-                  {
-                    deliberationId: reDeliberation.id,
-                    verdict: reDeliberation.chairmanVerdict,
-                    scores: reDeliberation.scores
-                  }
-                );
-              }
-            } catch (replanErr: any) {
-              Logger.warn(`[AutonomousManager] Falha ao refinar plano: ${replanErr.message}`);
-            }
-          }
-
-          if (activePlanDeliberation.chairmanVerdict === 'BLOCKED' || activePlanDeliberation.chairmanVerdict === 'CHANGES_REQUESTED') {
-            Logger.warn(`[AutonomousManager] Plano reprovado pelo Conselho (${activePlanDeliberation.chairmanVerdict}). Impedindo despacho ao Worker.`);
-            db.prepare(`
-              UPDATE autonomous_runs
-              SET status = 'waiting_approval', next_action = 'Plano reprovado pelo Conselho (${activePlanDeliberation.chairmanVerdict}). Aguardando aprovação na Inbox.', updated_at = ?
-              WHERE id = ?
-            `).run(new Date().toISOString(), runId);
-            this.logEvent(
-              runId,
-              null,
-              'system',
-              'PLAN_EXECUTION_BLOCKED',
-              `Execução impedida pelo Conselho: ${activePlanDeliberation.chairmanSynthesis || 'Plano requer ajustes'}`,
-              { deliberationId: activePlanDeliberation.id, verdict: activePlanDeliberation.chairmanVerdict }
-            );
-            return;
-          }
-        } catch (councilErr: any) {
-          Logger.warn(`[AutonomousManager] Conselho não concluiu crítica do plano: ${councilErr.message}`);
-        }
-      }
+      plannedTasks = await Promise.race([planPromise, timeoutPromise]);
     } catch (supErr: any) {
-      Logger.error(`[AutonomousManager] Falha no planejamento via Supervisor Gemini: ${supErr.message}`);
       if (/RESOURCE_EXHAUSTED|code 429|Individual quota reached|QUOTA_EXHAUSTED/i.test(supErr.message)) {
         if (profile?.id) {
           AccountProfileManager.markQuotaExhausted(profile.id, supErr.message);
         }
+        throw supErr;
       }
-      throw supErr;
+      Logger.warn(`[AutonomousManager] Supervisor não concluiu planejamento em 5s ou falhou (${supErr.message}). Acionando fallback determinístico.`);
+      plannedTasks = HierarchicalOrchestrationService.generateMultiPassPlannedTasks({
+        briefing,
+        projectId: project.id,
+        projectName: project.name,
+        projectPath: project.path
+      }) as any;
     } finally {
       AutonomousRunnerService.releaseExecutionLock();
       ExecutionCoordinator.release('global-agent-execution', reservation);
+    }
+
+    // Persistência imediata das tarefas e disparo da execução
+    await this.persistPlannedTasks(runId, plannedTasks, project, briefing, config);
+
+    db.prepare("UPDATE autonomous_runs SET status='running',last_error=NULL,next_action='Plano criado; aguardando despacho ao Worker',updated_at=? WHERE id=? AND status='planning'")
+      .run(new Date().toISOString(), runId);
+    Logger.success(`[AutonomousManager] Run [${runId.slice(0, 8)}] planejado com sucesso; disparando schedulerTick...`);
+    try {
+      const { SseStreamService } = await import('./sseStreamService.js');
+      SseStreamService.broadcast(project.id, 'run_updated', { runId, status: 'running' });
+    } catch {}
+    try {
+      const { AutonomousRunnerService } = await import('./autonomousRunnerService.js');
+      AutonomousRunnerService.schedulerTick();
+    } catch (tickErr: any) {
+      Logger.warn(`[AutonomousManager] Aviso ao disparar schedulerTick em background: ${tickErr.message}`);
     }
 
     const supervisorEvidence = supervisor.getExecutionEvidence();
@@ -726,11 +644,73 @@ export class AutonomousManager {
       }
     });
 
-    plannedTasks = (plannedTasks || []).map((t, idx) => {
+    // Deliberação do Conselho não-bloqueante em background com timeout de 15s
+    const { CouncilManager } = await import('./councilManager.js');
+    const planTrigger = CouncilManager.shouldTriggerCouncil({
+      riskLevel: config.autonomyMode === 'safe' ? 'high' : 'medium',
+      isArchitectureChange: true,
+      filesChanged: []
+    });
+
+    if (planTrigger.required || config.autonomyMode === 'safe') {
+      const deliberateBackground = async () => {
+        try {
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('COUNCIL_TIMEOUT_15S')), 15000));
+          const planDeliberation = await Promise.race([
+            CouncilManager.deliberate({
+              taskId: `plan-${runId.slice(0, 8)}`,
+              projectId: project.id,
+              runId,
+              task: {
+                title: `Plano Arquitetural: ${config.name}`,
+                description: briefing,
+                plannedTasks
+              },
+              riskLevel: 'high',
+              policyTrigger: 'PLAN_ARCHITECTURE_CRITIQUE'
+            }),
+            timeoutPromise
+          ]) as any;
+
+          this.logEvent(
+            runId,
+            null,
+            'supervisor',
+            'COUNCIL_PLAN_CRITIQUE',
+            `[CONSELHO] Conselho deliberou sobre o plano: ${planDeliberation.chairmanVerdict} (Consenso: ${planDeliberation.consensusLevel}, Simplicidade: ${planDeliberation.scores?.simplicity}/10, Corretude: ${planDeliberation.scores?.correctness}/10)`,
+            {
+              deliberationId: planDeliberation.id,
+              verdict: planDeliberation.chairmanVerdict,
+              scores: planDeliberation.scores,
+              actionItems: planDeliberation.actionItems
+            }
+          );
+
+          try {
+            db.prepare('UPDATE autonomous_runs SET plan_deliberation_id = ? WHERE id = ?')
+              .run(planDeliberation.id, runId);
+          } catch {}
+        } catch (councilErr: any) {
+          Logger.warn(`[AutonomousManager] Conselho não concluiu crítica do plano (não-bloqueante): ${councilErr.message}`);
+        }
+      };
+      deliberateBackground().catch(() => {});
+    }
+  }
+
+  public static async persistPlannedTasks(
+    runId: string,
+    rawTasks: any[],
+    project: any,
+    briefing?: string,
+    config?: any
+  ): Promise<void> {
+    const { HierarchicalOrchestrationService } = await import('./hierarchicalOrchestrationService.js');
+    let plannedTasks = (rawTasks || []).map((t, idx) => {
       const title = (t.title || `Tarefa ${idx + 1}`).trim();
       const description = (t.description || title || `Implementação de ${title}`).trim();
       const criteria = Array.isArray(t.criteria) && t.criteria.length > 0
-        ? t.criteria.map(c => String(c).trim()).filter(Boolean)
+        ? t.criteria.map((c: any) => String(c).trim()).filter(Boolean)
         : [`Implementar ${title} atendendo aos requisitos funcionais com testes passando.`];
       return {
         ...t,
@@ -805,7 +785,7 @@ export class AutonomousManager {
       const count = (db.prepare('SELECT COUNT(*) n FROM autonomous_tasks WHERE run_id=?').get(runId) as any).n;
       if (!count) {
         const { SkillRouter } = await import('./skillRouter.js');
-        plannedTasks.forEach((task,i) => {
+        plannedTasks.forEach((task, i) => {
           const routed = SkillRouter.routeTask(task, { stack: project.stack, projectObjective: project.objective, projectPath: project.path });
           const normCmd = (task as any).verificationCommandMeta || normalizeOrRecoverVerificationCommand((task as any).verificationCommand, project.path || '.', { allowUncreatedFiles: true });
           (task as any).verificationCommand = normCmd.command;
@@ -874,9 +854,9 @@ export class AutonomousManager {
           runId,
           projectPath: project.path || '.',
           originalDescription: briefing || project.objective || project.description || '',
-          requirements: config.requirements,
-          successCriteria: config.successCriteria,
-          majorTasks: config.majorTasks,
+          requirements: config?.requirements,
+          successCriteria: config?.successCriteria,
+          majorTasks: config?.majorTasks,
           flatTasks: plannedTasks.map((t, idx) => ({
             ...(t as any),
             id: ids[idx],

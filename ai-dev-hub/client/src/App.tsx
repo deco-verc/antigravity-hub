@@ -270,11 +270,34 @@ export const App: React.FC = () => {
       loadProjectDetails(activeProjectId);
       loadMessages(activeProjectId);
       loadActiveAccountForProject(activeProjectId);
+      api.getActiveAutonomousRun(activeProjectId)
+        .then(run => {
+          if (activeProjectRef.current === activeProjectId) setProjectRun(run);
+        })
+        .catch(() => {});
     } else {
       setProjectDetails(null);
       setMessages([]);
+      setProjectRun(null);
     }
   }, [activeProjectId]);
+
+  // Sync active autonomous run across background tabs (e.g. Tasks, Overview)
+  useEffect(() => {
+    if (!activeProjectId || !projectRun) return;
+    const isBusy = ['running', 'building', 'testing', 'reviewing', 'planning', 'waiting_for_worker'].includes(projectRun.status);
+    if (!isBusy || activeMainTab === 'chat') return;
+
+    const timer = setInterval(() => {
+      api.getActiveAutonomousRun(activeProjectId)
+        .then(run => {
+          if (activeProjectRef.current === activeProjectId) setProjectRun(run);
+        })
+        .catch(() => {});
+    }, 3000);
+
+    return () => clearInterval(timer);
+  }, [activeProjectId, projectRun?.status, activeMainTab]);
 
   const loadProjects = async () => {
     try {
@@ -382,13 +405,32 @@ export const App: React.FC = () => {
         }
         return [...withoutTemp, ...toAdd];
       });
-      setProjectRun(res.autonomousRun || null);
+      if (res.autonomousRun) {
+        setProjectRun(res.autonomousRun);
+        setTimeout(() => {
+          if (activeProjectRef.current === activeProjectId) {
+            loadProjectDetails(activeProjectId);
+          }
+        }, 1500);
+        setTimeout(() => {
+          if (activeProjectRef.current === activeProjectId) {
+            loadProjectDetails(activeProjectId);
+          }
+        }, 4000);
+      } else {
+        setProjectRun(null);
+        setAgentStatus('ready');
+      }
       
       const isBlocked = res.execution?.status === 'blocked';
       const isQueued = res.execution?.status === 'queued';
       
       setProjectExecutionError(isBlocked ? res.execution?.reason || 'Execução bloqueada' : null);
-      setAgentStatus(isBlocked ? 'error' : 'ready');
+      if (isBlocked) {
+        setAgentStatus('error');
+      } else {
+        setAgentStatus('ready');
+      }
       
       const toastType = isBlocked ? 'error' : isQueued ? 'info' : res.execution?.status === 'started' ? 'success' : 'info';
       const toastMsg = isBlocked 
@@ -419,6 +461,9 @@ export const App: React.FC = () => {
       setAgentStatus('error');
       addToast('error', `Erro ao enviar instrução: ${err.message}`);
       throw err;
+    } finally {
+      // Garantia irrestrita de que agentStatus não permaneça congelado em 'working'
+      setAgentStatus(prev => prev === 'working' ? 'ready' : prev);
     }
   };
 
@@ -739,6 +784,7 @@ export const App: React.FC = () => {
                       onBackToOverview={() => switchTab('overview')}
                       onOpenAdvanced={() => setIsAdvancedModalOpen(true)}
                       onRefreshMessages={() => loadMessages(projectDetails.id)}
+                      onRunUpdated={setProjectRun}
                     />
                   )}
 

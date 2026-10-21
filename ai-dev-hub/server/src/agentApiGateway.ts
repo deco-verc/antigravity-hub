@@ -1,6 +1,8 @@
 import { AccountProfileManager } from './accountProfileManager.js';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { Logger } from './logger.js';
 import { SessionCircuitBreaker } from './sessionCircuitBreaker.js';
 import { AntigravityDiscovery } from './antigravityDiscovery.js';
@@ -484,8 +486,14 @@ export class AgentApiGateway {
     if (!cleanEnv.ANTIGRAVITY_LS_ADDRESS && cleanEnv.USERPROFILE) {
       this.tryRefreshProfileConnectionEnv(cleanEnv, projectId);
     }
+    if (cleanEnv.ANTIGRAVITY_LS_ADDRESS) {
+      cleanEnv.USERPROFILE = process.env.USERPROFILE || os.homedir();
+      cleanEnv.HOME = process.env.USERPROFILE || os.homedir();
+      cleanEnv.APPDATA = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
+      cleanEnv.LOCALAPPDATA = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+    }
     const cliModelFlag = this.normalizeCliModelFlag(options.model);
-    const timeout = options.timeoutMs || 45000;
+    const timeout = options.timeoutMs || 30000;
     const startTime = Date.now();
 
     SessionCircuitBreaker.logTelemetry({
@@ -501,7 +509,7 @@ export class AgentApiGateway {
     ObservabilityService.emit({
       level: 'INFO',
       event: 'agent.native_call_started',
-      message: `Disparando comando físico: agentapi new-conversation --title="${options.title}" --model=${cliModelFlag}`,
+      message: `Disparando comando físico: agentapi new-conversation`,
       service: 'gateway',
       runId: options.runId,
       taskId: options.taskId,
@@ -512,12 +520,12 @@ export class AgentApiGateway {
         title: options.title,
         isMock: false,
         role,
-        timeoutMs: timeout
+        timeoutMs: 30000
       }
     });
 
     Logger.info(
-      `[AgentApiGateway] Disparando comando físico: agentapi new-conversation --title="${options.title}" --model=${cliModelFlag}...`
+      `[AgentApiGateway] Disparando comando físico: agentapi new-conversation...`
     );
 
     let currentExe = exe;
@@ -530,12 +538,18 @@ export class AgentApiGateway {
         const resolvedCwd = options.cwd || this.resolveProjectPath(projectId);
         const out = execFileSync(
           currentExe,
-          ['agentapi', 'new-conversation', `--model=${cliModelFlag}`, `--title=${options.title}`, safePrompt],
-          { encoding: 'utf-8', timeout, env: cleanEnv, cwd: resolvedCwd, windowsHide: true }
+          ['agentapi', 'new-conversation', safePrompt],
+          { env: cleanEnv, encoding: 'utf-8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, cwd: resolvedCwd }
         );
 
-        const parsed = JSON.parse(out);
-        const convId = parsed?.response?.newConversation?.conversationId;
+        let convId: string | null = null;
+        try {
+          const parsed = JSON.parse(out);
+          convId = parsed?.response?.newConversation?.conversationId || parsed?.conversation_id || parsed?.conversationId || parsed?.id;
+        } catch {
+          const uuidMatch = String(out).match(/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/i);
+          if (uuidMatch) convId = uuidMatch[0];
+        }
 
         if (!convId) {
           throw new Error(`Falha ao obter conversationId do output: ${out}`);
@@ -628,6 +642,42 @@ export class AgentApiGateway {
       }
     }
 
+    // Fallback: se agentapi falhou ou não retornou UUID, tenta via agy CLI oficial
+    try {
+      const agyFallback = this.runViaAgyCli(options.prompt, projectId || undefined, options.model);
+      if (agyFallback?.conversation_id) {
+        const convId = agyFallback.conversation_id;
+        const durationMs = Date.now() - startTime;
+        SessionCircuitBreaker.logTelemetry({
+          event: 'CREATE_SUCCESS',
+          origin,
+          projectId,
+          role,
+          caller,
+          conversationId: convId,
+          reason: `Conversa real criada com sucesso no Antigravity via agy CLI fallback: "${options.title}"`
+        });
+
+        ObservabilityService.emit({
+          level: 'INFO',
+          event: 'agent.native_call_completed',
+          message: `Conversa real criada com sucesso no Antigravity via agy CLI: "${options.title}" (${convId})`,
+          service: 'gateway',
+          runId: options.runId,
+          taskId: options.taskId,
+          projectId,
+          conversationId: convId,
+          durationMs,
+          status: 'success',
+          metadata: { model: options.model, title: options.title, isMock: false, role }
+        });
+
+        return convId;
+      }
+    } catch (agyErr: any) {
+      Logger.warn(`[AgentApiGateway] Fallback via agy CLI falhou: ${agyErr.message}`);
+    }
+
     const durationMs = Date.now() - startTime;
     SessionCircuitBreaker.logTelemetry({
       event: 'CREATE_BLOCKED',
@@ -653,6 +703,86 @@ export class AgentApiGateway {
     });
 
     throw lastErr;
+  }
+
+  /**
+   * Auxiliary / Fallback helper to run via official Antigravity CLI (agy).
+   * Locates agy binary and runs: agy -p <prompt> --output-format json --dangerously-skip-permissions
+   */
+  static runViaAgyCli(prompt: string, projectId?: string, model?: string): { conversation_id: string; response?: string } | null {
+    const isWin = process.platform === 'win32';
+    const candidatePaths = [
+      path.join(process.env.LOCALAPPDATA || '', 'agy', 'bin', isWin ? 'agy.exe' : 'agy'),
+      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'agy', 'bin', isWin ? 'agy.exe' : 'agy'),
+      path.join(process.env.APPDATA || '', 'Antigravity', 'bin', 'agy-node.cmd'),
+      path.join(os.homedir(), '.gemini', 'antigravity-cli', 'bin', isWin ? 'agy.exe' : 'agy')
+    ];
+
+    let agyBinary: string | null = null;
+    for (const p of candidatePaths) {
+      if (fs.existsSync(p)) {
+        agyBinary = p;
+        break;
+      }
+    }
+
+    if (!agyBinary && isWin) {
+      try {
+        const out = execFileSync('where.exe', ['agy'], { encoding: 'utf-8', timeout: 3000, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true }).trim();
+        const firstLine = out.split(/\r?\n/)[0]?.trim();
+        if (firstLine && fs.existsSync(firstLine)) agyBinary = firstLine;
+      } catch {}
+    }
+
+    if (!agyBinary) {
+      Logger.warn('[AgentApiGateway] agy CLI não encontrado no sistema para fallback.');
+      return null;
+    }
+
+    try {
+      const args = ['-p', prompt, '--output-format', 'json', '--dangerously-skip-permissions'];
+      if (projectId) {
+        args.push(`--project=${projectId}`);
+      }
+      if (model) {
+        args.push(`--model=${model}`);
+      }
+
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        USERPROFILE: process.env.USERPROFILE || os.homedir(),
+        HOME: process.env.USERPROFILE || os.homedir(),
+        APPDATA: process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'),
+        LOCALAPPDATA: process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local')
+      };
+
+      Logger.info(`[AgentApiGateway] Executando fallback via agy CLI: ${agyBinary} ${args.join(' ')}`);
+      const out = execFileSync(agyBinary, args, {
+        encoding: 'utf-8',
+        timeout: 45000,
+        env,
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+
+      try {
+        const parsed = JSON.parse(out);
+        const conversation_id = parsed?.conversation_id || parsed?.conversationId || parsed?.id || parsed?.session_id;
+        const response = parsed?.response || parsed?.text || parsed?.content || '';
+        if (conversation_id) {
+          return { conversation_id, response };
+        }
+      } catch {
+        const uuidMatch = out.match(/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/i);
+        if (uuidMatch) {
+          return { conversation_id: uuidMatch[0], response: out };
+        }
+      }
+    } catch (agyErr: any) {
+      Logger.warn(`[AgentApiGateway] Falha ao executar via agy CLI: ${agyErr.message}`);
+    }
+
+    return null;
   }
 
   /**
@@ -772,6 +902,12 @@ export class AgentApiGateway {
     if (!cleanEnv.ANTIGRAVITY_LS_ADDRESS && cleanEnv.USERPROFILE) {
       this.tryRefreshProfileConnectionEnv(cleanEnv, options.projectId);
     }
+    if (cleanEnv.ANTIGRAVITY_LS_ADDRESS) {
+      cleanEnv.USERPROFILE = process.env.USERPROFILE || os.homedir();
+      cleanEnv.HOME = process.env.USERPROFILE || os.homedir();
+      cleanEnv.APPDATA = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
+      cleanEnv.LOCALAPPDATA = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+    }
     const timeout = options.timeoutMs || 45000;
     const startTime = Date.now();
 
@@ -798,7 +934,8 @@ export class AgentApiGateway {
           timeout,
           env: cleanEnv,
           cwd: resolvedCwd,
-          windowsHide: true
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'pipe']
         });
 
         const durationMs = Date.now() - startTime;

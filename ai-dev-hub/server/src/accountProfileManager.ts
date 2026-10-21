@@ -1668,15 +1668,34 @@ export class AccountProfileManager {
     cleanEnv.ANTIGRAVITY_CSRF_TOKEN = instance.csrfToken;
     Logger.info(`[AccountProfileManager] Conectando ao LS do perfil ${profile.display_name} em ${instance.address}`);
 
+    const strictBinding = this.getRuntimeBindingForProfile(profile.environment_path);
+    const isGlobalFallbackInstance = !strictBinding || strictBinding.pid !== instance.pid;
+    if (isGlobalFallbackInstance || !profileIsDefault) {
+      cleanEnv.ANTIGRAVITY_BRAIN_FALLBACK_DIR = path.join(os.homedir(), '.gemini', 'antigravity', 'brain');
+    }
+
     const isLegacyDefault =
       normalizeRuntimePath(profile.environment_path) === normalizeRuntimePath(this.defaultRoamingPath);
-    const userProfileDir = isLegacyDefault ? (process.env.USERPROFILE || os.homedir()) : profile.environment_path;
+
+    // Quando o Antigravity ativo for anexado (ANTIGRAVITY_LS_ADDRESS definido):
+    // Se o profile.environment_path não possuir Language Server isolado próprio rodando exclusivamente para ele,
+    // NÃO sobrescreve USERPROFILE, HOME, APPDATA e LOCALAPPDATA com profile.environment_path.
+    // Mantém o USERPROFILE real do usuário para que o agentapi encontre tokens, OAuth e projetos (~/.gemini).
+    const hasOwnIsolatedLs = Boolean(strictBinding && strictBinding.pid === instance.pid);
+    const userProfileDir = (isLegacyDefault || !hasOwnIsolatedLs)
+      ? (process.env.USERPROFILE || os.homedir())
+      : profile.environment_path;
 
     cleanEnv.USERPROFILE = userProfileDir;
-    if (!isLegacyDefault) {
+    cleanEnv.HOME = userProfileDir;
+    cleanEnv.AI_DEV_HUB_PROFILE_DIR = profile.environment_path;
+
+    if (hasOwnIsolatedLs && !isLegacyDefault) {
       cleanEnv.APPDATA = path.join(userProfileDir, 'AppData', 'Roaming');
       cleanEnv.LOCALAPPDATA = path.join(userProfileDir, 'AppData', 'Local');
-      cleanEnv.HOME = userProfileDir;
+    } else {
+      cleanEnv.APPDATA = process.env.APPDATA || path.join(userProfileDir, 'AppData', 'Roaming');
+      cleanEnv.LOCALAPPDATA = process.env.LOCALAPPDATA || path.join(userProfileDir, 'AppData', 'Local');
     }
     if (nativeBinding) {
       if (normalizeRuntimePath(userProfileDir) !== normalizeRuntimePath(nativeBinding.userProfileDir)) {

@@ -813,6 +813,55 @@ export class GitManager {
     }
   }
 
+  // --- GIT REPOSITORY INTEGRITY ---
+  static ensureRepository(projectPath: string): boolean {
+    if (!projectPath || !fs.existsSync(projectPath)) return false;
+    this.ensureGitIgnore(projectPath);
+
+    const gitDir = path.join(projectPath, '.git');
+    if (!fs.existsSync(gitDir)) {
+      try {
+        try {
+          execSync('git init -b main', { cwd: projectPath, stdio: 'pipe', timeout: 5000 });
+        } catch {
+          execSync('git init', { cwd: projectPath, stdio: 'pipe', timeout: 5000 });
+          try {
+            execSync('git branch -M main', { cwd: projectPath, stdio: 'pipe', timeout: 5000 });
+          } catch {}
+        }
+        Logger.info(`[GitManager] Repositório Git inicializado em ${projectPath}`);
+      } catch (err: any) {
+        Logger.warn(`[GitManager] Falha ao inicializar git em ${projectPath}: ${err.message}`);
+        return false;
+      }
+    }
+
+    // Ensure initial HEAD commit exists
+    let hasHead = false;
+    try {
+      execSync('git rev-parse --verify HEAD', { cwd: projectPath, stdio: 'pipe', timeout: 3000 });
+      hasHead = true;
+    } catch {
+      hasHead = false;
+    }
+
+    if (!hasHead) {
+      try {
+        execSync('git add -A', { cwd: projectPath, stdio: 'pipe', timeout: 4000 });
+        execSync('git commit -m "chore: initial project structure with DecoHUB memory"', { cwd: projectPath, stdio: 'pipe', timeout: 5000 });
+      } catch {
+        try {
+          execSync('git config user.email "agent@decohub.local" && git config user.name "DecoHUB Agent"', { cwd: projectPath, stdio: 'pipe', timeout: 3000 });
+          execSync('git commit -m "chore: initial project structure with DecoHUB memory"', { cwd: projectPath, stdio: 'pipe', timeout: 5000 });
+        } catch (err: any) {
+          Logger.warn(`[GitManager] Aviso ao criar commit inicial em ${projectPath}: ${err.message}`);
+        }
+      }
+    }
+
+    return true;
+  }
+
   // --- GITHUB REPO SETUP ---
   static async setupGitHubRepository(projectPath: string, options: {
     action: 'create_private' | 'link_existing';

@@ -966,12 +966,19 @@ export class MetaChatService {
       try {
         let res = '';
         if (tscScript) {
-          res = execFileSync(process.execPath, [tscScript, '--noEmit', '--skipLibCheck'], {
+          const defaultNode = isWin ? 'C:\\Program Files\\nodejs\\node.exe' : '/usr/bin/node';
+          const isElectron = Boolean(
+            (process.versions as any)?.electron ||
+            process.execPath.toLowerCase().includes('electron') ||
+            process.execPath.toLowerCase().includes('decohub')
+          );
+          const safeNode = (isElectron && fs.existsSync(defaultNode)) ? defaultNode : process.execPath;
+          res = execFileSync(safeNode, [tscScript, '--noEmit', '--skipLibCheck'], {
             cwd: dirPath,
             encoding: 'utf-8',
             timeout: 45000,
             windowsHide: true,
-            env: { ...process.env, CI: 'true', NONINTERACTIVE: '1' }
+            env: { ...process.env, CI: 'true', NONINTERACTIVE: '1', ELECTRON_RUN_AS_NODE: '1' }
           });
         } else {
           const npxCmd = isWin ? 'npx.cmd' : 'npx';

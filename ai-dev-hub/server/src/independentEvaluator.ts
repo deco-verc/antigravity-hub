@@ -642,10 +642,10 @@ export class IndependentEvaluator {
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'ignore']
       });
-      for (const line of gitStatusOut.split('\n')) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        const filePath = trimmed.slice(3).trim();
+      for (const line of gitStatusOut.split(/\r?\n/)) {
+        if (!line || line.length < 3) continue;
+        const filePath = line.substring(3).trim();
+        if (!filePath) continue;
         if (isTestFile(filePath)) {
           candidateFiles.add(this.normalizeRelativePath(filePath, projectPath));
         }
@@ -2096,15 +2096,17 @@ export class IndependentEvaluator {
     let visualInspectionResult: VisualInspectionResult | undefined = undefined;
     let userJourneyResult: UserJourneyResult | undefined = undefined;
     let securityPentestResult: SecurityPentestResult | undefined = undefined;
-    const isFrontendTask = Boolean(
-      (contract.objective &&
-        /frontend|front-end|\bui\b|interface|layout|tela|dashboard|component|page|view|estilo|css|html/i.test(
-          contract.objective
-        )) ||
-        (builderReport.filesChanged &&
-          builderReport.filesChanged.some(f => /\.(html|css|jsx|tsx|vue|svelte)$/i.test(f))) ||
-        PlaywrightVisualInspector.findCandidateHtmlFile(projectPath)
-    );
+    const isFrontendTask = options?.effortLevel === 'MINIMAL' && !options?.forceLiveBrowser
+      ? false
+      : Boolean(
+          (contract.objective &&
+            /frontend|front-end|\bui\b|interface|layout|tela|dashboard|component|page|view|estilo|css|html/i.test(
+              contract.objective
+            )) ||
+            (builderReport.filesChanged &&
+              builderReport.filesChanged.some(f => /\.(html|css|jsx|tsx|vue|svelte)$/i.test(f))) ||
+            PlaywrightVisualInspector.findCandidateHtmlFile(projectPath)
+        );
 
     const shouldRunSecurityPentest = Boolean(
       isFrontendTask ||

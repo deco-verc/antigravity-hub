@@ -323,7 +323,7 @@ export class AutonomousRunnerService {
       const existingEval = IndependentEvaluator.getEvaluationByTaskId(task.id);
       probeEvaluation = (existingEval && existingEval.taskIsDone && existingEval.verdict === 'PASS')
         ? existingEval
-        : await IndependentEvaluator.evaluate(earlyContract.id, run.project.path, synthReport, { expectedScopeFiles: task.expected_files || [] });
+        : await IndependentEvaluator.evaluate(earlyContract.id, run.project.path, synthReport, { expectedScopeFiles: task.expected_files || [], effortLevel: 'MINIMAL' });
     } catch (probeErr: any) {
       Logger.warn(`[reconcileCompletedTurn] Probe do Evaluator falhou: ${probeErr.message}`);
     }
@@ -1254,7 +1254,7 @@ export class AutonomousRunnerService {
       activeRun = db.prepare(`
         SELECT * FROM autonomous_runs
         WHERE status IN ('running', 'building', 'testing', 'reviewing', 'waiting_for_worker')
-        ORDER BY updated_at ASC
+        ORDER BY updated_at DESC
         LIMIT 1
       `).get();
     }
@@ -1690,9 +1690,23 @@ export class AutonomousRunnerService {
       return;
     }
     if (!run.tasks.length) {
-      db.prepare("UPDATE autonomous_runs SET status='error',last_error='PLAN_MISSING',next_action='Continuar deve planejar o mesmo Run antes de despachar',updated_at=? WHERE id=?")
-        .run(nowIso, runId);
-      return;
+      Logger.info(`[AutonomousRunner] Run ${runId.slice(0, 8)} sem tarefas no step. Gerando plano determinístico imediatamente...`);
+      const { HierarchicalOrchestrationService } = await import('./hierarchicalOrchestrationService.js');
+      const fallbackTasks = HierarchicalOrchestrationService.generateMultiPassPlannedTasks({
+        briefing: run.briefing || run.objective || 'Construção autônoma do software',
+        projectPath: run.project?.path || '.',
+        projectName: run.project?.name || 'Projeto',
+        projectId: run.project_id
+      });
+      if (fallbackTasks && fallbackTasks.length > 0) {
+        await AutonomousManager.persistPlannedTasks(runId, fallbackTasks, run.project, run.briefing || run.objective);
+        const updatedRun = AutonomousManager.getRun(runId);
+        run.tasks = updatedRun.tasks;
+      } else {
+        db.prepare("UPDATE autonomous_runs SET status='error',last_error='PLAN_MISSING',next_action='Continuar deve planejar o mesmo Run antes de despachar',updated_at=? WHERE id=?")
+          .run(nowIso, runId);
+        return;
+      }
     }
 
     // 0. Check for in-flight tasks in review awaiting Supervisor verdict (use hydrated task from run.tasks so expected_files & criteria are preserved)

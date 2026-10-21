@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import {
   AgentProvider,
   AgentSessionStatus,
@@ -26,16 +27,112 @@ export function getLanguageServerExe(): string {
   throw new Error(`Antigravity language_server.exe não encontrado no sistema: ${discovery.errorMessage}`);
 }
 
+/**
+ * Resolves the transcript.jsonl path across all Antigravity surfaces according to docs/hooks#common-input-fields:
+ * 1. ~/.gemini/antigravity/brain/<conversationId>/.system_generated/logs/transcript.jsonl
+ * 2. ~/.gemini/antigravity-cli/brain/<conversationId>/.system_generated/logs/transcript.jsonl
+ * 3. ~/.gemini/antigravity-ide/brain/<conversationId>/.system_generated/logs/transcript.jsonl
+ * 4. primaryBrainDir ? path.join(primaryBrainDir, conversationId, ...) : null
+ * 5. flat fallbacks (<dir>/<conversationId>.jsonl)
+ */
+export function resolveConversationTranscriptPath(conversationId: string, primaryBrainDir?: string): string | null {
+  if (!conversationId) return null;
+  const home = os.homedir();
+  const up = process.env.USERPROFILE || home;
+  const candidates: string[] = [
+    path.join(home, '.gemini', 'antigravity', 'brain', conversationId, '.system_generated', 'logs', 'transcript.jsonl'),
+    path.join(home, '.gemini', 'antigravity-cli', 'brain', conversationId, '.system_generated', 'logs', 'transcript.jsonl'),
+    path.join(home, '.gemini', 'antigravity-ide', 'brain', conversationId, '.system_generated', 'logs', 'transcript.jsonl'),
+    primaryBrainDir ? path.join(primaryBrainDir, conversationId, '.system_generated', 'logs', 'transcript.jsonl') : '',
+    up !== home ? path.join(up, '.gemini', 'antigravity', 'brain', conversationId, '.system_generated', 'logs', 'transcript.jsonl') : '',
+    // Flat fallbacks
+    path.join(home, '.gemini', 'antigravity', 'brain', `${conversationId}.jsonl`),
+    path.join(home, '.gemini', 'antigravity-cli', 'brain', `${conversationId}.jsonl`),
+    primaryBrainDir ? path.join(primaryBrainDir, `${conversationId}.jsonl`) : ''
+  ].filter(Boolean);
+
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return candidates[0] || null;
+}
+
+export function resolveConversationTranscriptFullPath(conversationId: string, primaryBrainDir?: string): string | null {
+  if (!conversationId) return null;
+  const home = os.homedir();
+  const up = process.env.USERPROFILE || home;
+  const candidates: string[] = [
+    path.join(home, '.gemini', 'antigravity', 'brain', conversationId, '.system_generated', 'logs', 'transcript_full.jsonl'),
+    path.join(home, '.gemini', 'antigravity-cli', 'brain', conversationId, '.system_generated', 'logs', 'transcript_full.jsonl'),
+    path.join(home, '.gemini', 'antigravity-ide', 'brain', conversationId, '.system_generated', 'logs', 'transcript_full.jsonl'),
+    primaryBrainDir ? path.join(primaryBrainDir, conversationId, '.system_generated', 'logs', 'transcript_full.jsonl') : '',
+    up !== home ? path.join(up, '.gemini', 'antigravity', 'brain', conversationId, '.system_generated', 'logs', 'transcript_full.jsonl') : ''
+  ].filter(Boolean);
+
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return candidates[0] || null;
+}
+
+export function resolveConversationArtifactDir(conversationId: string, primaryBrainDir?: string): string {
+  const home = os.homedir();
+  const up = process.env.USERPROFILE || home;
+  const candidates: string[] = [
+    path.join(home, '.gemini', 'antigravity', 'brain', conversationId),
+    path.join(home, '.gemini', 'antigravity-cli', 'brain', conversationId),
+    path.join(home, '.gemini', 'antigravity-ide', 'brain', conversationId),
+    primaryBrainDir ? path.join(primaryBrainDir, conversationId) : '',
+    up !== home ? path.join(up, '.gemini', 'antigravity', 'brain', conversationId) : ''
+  ].filter(Boolean);
+
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return candidates[0] || path.join(home, '.gemini', 'antigravity', 'brain', conversationId);
+}
+
 export class AntigravityProvider implements AgentProvider {
   private exePath: string;
   private appDataBrainDir: string;
   private defaultEnv?: NodeJS.ProcessEnv;
   private turnStarts = new Map<string, number>();
 
+  private getCandidateBrainDirs(): string[] {
+    const dirs: string[] = [];
+    if (this.appDataBrainDir) dirs.push(this.appDataBrainDir);
+    if (this.defaultEnv?.ANTIGRAVITY_BRAIN_FALLBACK_DIR) dirs.push(this.defaultEnv.ANTIGRAVITY_BRAIN_FALLBACK_DIR);
+    if (process.env.ANTIGRAVITY_BRAIN_FALLBACK_DIR) dirs.push(process.env.ANTIGRAVITY_BRAIN_FALLBACK_DIR);
+    const homeBrain = path.join(os.homedir(), '.gemini', 'antigravity', 'brain');
+    if (!dirs.includes(homeBrain)) dirs.push(homeBrain);
+    if (process.env.USERPROFILE) {
+      const upBrain = path.join(process.env.USERPROFILE, '.gemini', 'antigravity', 'brain');
+      if (!dirs.includes(upBrain)) dirs.push(upBrain);
+    }
+    return dirs;
+  }
+
+  public resolveTranscriptPath(sessionId: string): string {
+    const resolved = resolveConversationTranscriptPath(sessionId, this.appDataBrainDir);
+    if (resolved && fs.existsSync(resolved)) return resolved;
+    return resolved || path.join(this.appDataBrainDir, sessionId, '.system_generated', 'logs', 'transcript.jsonl');
+  }
+
+  public resolveTranscriptFullPath(sessionId: string): string {
+    const resolved = resolveConversationTranscriptFullPath(sessionId, this.appDataBrainDir);
+    if (resolved && fs.existsSync(resolved)) return resolved;
+    return resolved || path.join(this.appDataBrainDir, sessionId, '.system_generated', 'logs', 'transcript_full.jsonl');
+  }
+
+  public resolveBrainDir(sessionId: string): string {
+    return resolveConversationArtifactDir(sessionId, this.appDataBrainDir);
+  }
+
   public captureTurnStart(sessionId: string, projectPath?: string, taskId?: string): void {
-    const transcript = path.join(this.appDataBrainDir, sessionId, '.system_generated', 'logs', 'transcript.jsonl');
+    const transcript = this.resolveTranscriptPath(sessionId);
+    const brainDir = this.resolveBrainDir(sessionId);
     const baseline = projectPath
-      ? AgentTurnState.begin(sessionId, projectPath, this.appDataBrainDir, taskId)
+      ? AgentTurnState.begin(sessionId, projectPath, brainDir, taskId)
       : fs.existsSync(transcript)
         ? fs.readFileSync(transcript, 'utf8').split('\n').filter(Boolean).length
         : 0;
@@ -360,7 +457,7 @@ export class AntigravityProvider implements AgentProvider {
    * Gets the live activity status of an agent session
    */
   async getStatus(sessionId: string): Promise<AgentSessionStatus> {
-    const transcriptFile = path.join(this.appDataBrainDir, sessionId, '.system_generated', 'logs', 'transcript.jsonl');
+    const transcriptFile = this.resolveTranscriptPath(sessionId);
     const observation = AgentTurnState.get(sessionId);
     const progress = observation ? AgentTurnState.progress(observation) : observeTranscript(transcriptFile);
     return {
@@ -387,7 +484,7 @@ export class AntigravityProvider implements AgentProvider {
     projectPath?: string,
     shouldCancel?: () => boolean
   ): Promise<BuilderToSupervisorContract> {
-    const transcriptPath = path.join(this.appDataBrainDir, sessionId, '.system_generated', 'logs', 'transcript.jsonl');
+    let transcriptPath = this.resolveTranscriptPath(sessionId);
     const startTime = Date.now();
 
     Logger.info(
@@ -405,6 +502,9 @@ export class AntigravityProvider implements AgentProvider {
     do {
       if (shouldCancel?.() || TurnCancellationManager.isCancelled(sessionId)) {
         throw new Error('RUN_CANCELLED: a execução foi interrompida pelo usuário');
+      }
+      if (!fs.existsSync(transcriptPath)) {
+        transcriptPath = this.resolveTranscriptPath(sessionId);
       }
       const progress = observeTranscript(transcriptPath, initialLineCount);
       if (progress.state === 'ERROR') {
@@ -510,7 +610,7 @@ export class AntigravityProvider implements AgentProvider {
    * Parses the transcript.jsonl and extracts all actual files modified, commands executed, and final text
    */
   private parseTranscriptToReport(sessionId: string, projectPath?: string): BuilderToSupervisorContract {
-    const transcriptPath = path.join(this.appDataBrainDir, sessionId, '.system_generated', 'logs', 'transcript.jsonl');
+    const transcriptPath = this.resolveTranscriptPath(sessionId);
     const filesChanged = new Set<string>();
     let toolCallsCount = 0;
     const commandsExecuted: string[] = [];
@@ -601,13 +701,7 @@ export class AntigravityProvider implements AgentProvider {
           ) {
             let fullContent = entry.content;
             if (Array.isArray(entry.truncated_fields) && entry.truncated_fields.includes('content')) {
-              const fullPath = path.join(
-                this.appDataBrainDir,
-                sessionId,
-                '.system_generated',
-                'logs',
-                'transcript_full.jsonl'
-              );
+              const fullPath = this.resolveTranscriptFullPath(sessionId);
               if (fs.existsSync(fullPath)) {
                 try {
                   const fullLines = fs.readFileSync(fullPath, 'utf-8').trim().split('\n').filter(Boolean);

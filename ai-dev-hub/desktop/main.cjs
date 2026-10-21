@@ -391,6 +391,29 @@ ipcMain.handle('desktop:create-project-direct', async (_, payload) => {
       fs.writeFileSync(gitignorePath, 'node_modules/\n.env\n.env.local\ndist/\n', 'utf-8');
     }
 
+    const gitDir = path.join(resolvedPath, '.git');
+    if (!fs.existsSync(gitDir)) {
+      try {
+        const { execFileSync } = require('child_process');
+        execFileSync('git', ['init', '-b', 'main'], { cwd: resolvedPath, windowsHide: true, timeout: 5000 });
+        execFileSync('git', ['add', '-A'], { cwd: resolvedPath, windowsHide: true, timeout: 5000 });
+        execFileSync('git', ['commit', '-m', 'chore: initial project structure with DecoHUB memory'], { cwd: resolvedPath, windowsHide: true, timeout: 5000 });
+        logger.info(`[IPC] Repositório Git inicializado com sucesso para: ${resolvedPath}`);
+      } catch (gitErr) {
+        try {
+          const { execFileSync } = require('child_process');
+          execFileSync('git', ['init'], { cwd: resolvedPath, windowsHide: true, timeout: 5000 });
+          execFileSync('git', ['config', 'user.email', 'agent@decohub.local'], { cwd: resolvedPath, windowsHide: true, timeout: 3000 });
+          execFileSync('git', ['config', 'user.name', 'DecoHUB Agent'], { cwd: resolvedPath, windowsHide: true, timeout: 3000 });
+          execFileSync('git', ['add', '-A'], { cwd: resolvedPath, windowsHide: true, timeout: 5000 });
+          execFileSync('git', ['commit', '-m', 'chore: initial project structure with DecoHUB memory'], { cwd: resolvedPath, windowsHide: true, timeout: 5000 });
+          logger.info(`[IPC] Repositório Git inicializado com fallback de config para: ${resolvedPath}`);
+        } catch (innerErr) {
+          logger.warn(`[IPC] Aviso ao inicializar Git no fallback direto: ${innerErr.message}`);
+        }
+      }
+    }
+
     const dbPath = AppDataPaths.getPaths().dbPath;
     const db = new DatabaseSync(dbPath);
 

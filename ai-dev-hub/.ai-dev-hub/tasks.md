@@ -82,6 +82,7 @@
 - [ ] Prosseguir para as próximas etapas de evolução de produto e testes de integração end-to-end do ecossistema autônomo
 - [ ] Conclusão do pacote evolutivo de 4 fases (SSE, LspService, CI Doctor e Best-of-N Rollout) pronta para uso em produção e novos ciclos autônomos.
 - [ ] Todas as 5 Fases da evolução autônoma do DecoHUB concluídas, homologadas e prontas para uso em produção.
+- [ ] Validação do fluxo completo de chat e planejamento no projeto ViralYTSearch no aplicativo Desktop
 
 ## Concluído
 - [x] FASE 3: Resiliência Autônoma — Auto-Recovery de AGENTAPI_UNAVAILABLE e Self-Healing de Verificação: Implementação de retry transiente no AgentApiGateway com até 2 tentativas e re-descoberta dinâmica de binário do Antigravity (AntigravityDiscovery.discover({ forceRefresh: true })); implementação de watchdog de auto-recuperação (attemptResourceRecovery e integração em schedulerTick) para runs em waiting_resource que restaura status para running, zera falhas transitórias, registra RUNTIME_RECOVERED_AUTOMATICALLY e aciona o ciclo autônomo sem intervenção manual; implementação do Self-Healing de verificação no AutonomousRunnerService convertendo veredictos técnicos BLOCKED em REWORK_REQUIRED com feedback diagnóstico estruturado para o Worker e normalização de comandos via normalizeOrRecoverVerificationCommand enquanto retry_count < maxRetries sem pausar o run; preservação estrita de travas de segurança para TAMPERING_DETECTED e exaustão de retries (pauseForVerification mantido); criação do arquivo de teste test/autonomousSelfHealingAndRecovery.test.ts cobrindo os 3 cenários; integração no package.json elevando a suíte oficial para 53 arquivos de teste e 511 testes passando 100% (0 falhas) com TypeScript build limpo.
@@ -528,3 +529,12 @@
 - [x] Criação da suíte unitária test/astSymbolIndexService.test.ts (6/6 aprovados) e script npm run test:ast
 - [x] Compilação do backend (tsc) e build de produção do frontend (vite build) 100% verdes
 - [x] Execução da suíte completa de homologação cobrindo todas as 5 Fases (SSE, LSP, CI Doctor, Worktrees e AST Symbol Index - 30/30 testes verdes)
+- [x] Correção do descompasso de USERPROFILE e transcripts no AntigravityProvider e GeminiSupervisorProvider com fallback global
+- [x] Teto de 40s no planejamento do GeminiSupervisor e fallback imediato para HierarchicalOrchestrationService em caso de timeout ou erro
+- [x] Garantia de resposta HTTP 200 imediata com assistente e autonomousRun estruturado em POST /projects/:id/messages
+- [x] Sincronização de estado no App.tsx e exibição contínua do botão Cancelar no DecoHubChatView
+- [x] Limpeza e prevenção de runs órfãos em planning com 0 tarefas
+- [x] Sync dos dists do server e client para dist-desktop e AppData Local
+- [x] Resolução definitiva do travamento "Pensando e processando..." e 0 tarefas no DecoHUB com planejamento síncrono rápido e dual-layer resilience SSE + polling fallback
+- [x] Eliminação da race condition de PLAN_MISSING no AutonomousRunnerService e priorização de runs mais recentes (ORDER BY updated_at DESC)
+- [x] Inclusão de evento run_updated no sseClient e sincronização bidirecional entre DecoHubChatView e App.tsx

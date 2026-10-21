@@ -851,3 +851,25 @@
 - `ai-dev-hub/server/test/astSymbolIndexService.test.ts`
 - `ai-dev-hub/server/package.json`
 *Nota:* DecoHUB blindado com streaming reativo SSE (Fase 1), diagnósticos sintáticos LSP em tempo real (Fase 2), auto-healing de testes via CI Doctor (Fase 3), Best-of-N Rollouts em Git Worktrees efêmeros (Fase 4) e índice de símbolos AST anti-Context Rot em SQLite (Fase 5).
+
+### [20/10/2026] Sessão #67 (Antigravity)
+- `ai-dev-hub/client/src/App.tsx`
+- `ai-dev-hub/client/src/components/DecoHubChatView.tsx`
+- `ai-dev-hub/server/src/accountProfileManager.ts`
+- `ai-dev-hub/server/src/antigravityProvider.ts`
+- `ai-dev-hub/server/src/autonomousManager.ts`
+- `ai-dev-hub/server/src/geminiSupervisorProvider.ts`
+- `ai-dev-hub/server/src/routes.ts`
+*Nota:* Todos os testes de cancelamento (15/15), auto-failover (7/7) e runtime-selector (11/11) executados e aprovados com 100% de sucesso. Builds de server e client sincronizados com as pastas unpacked desktop.
+### [21/10/2026, 00:08:24] Alteração
+- **Descrição:** Blindagem de spawnSync com ELECTRON_RUN_AS_NODE: '1' em PlaywrightVisualInspector e UserExperienceSimulator; correção do parser de git status no IndependentEvaluator; auto-recuperação de workers em WorkerRegistry.getReadyWorkers; esforço MINIMAL na sonda de reconciliação de boot; auto-inicialização de repositório Git em GitManager.ensureRepository, desktop/main.cjs e routes.ts; limpeza de workers presos no SQLite.
+- **Arquivos:**
+  * `ai-dev-hub/server/src/playwrightVisualInspector.ts`
+  * `ai-dev-hub/server/src/userExperienceSimulator.ts`
+  * `ai-dev-hub/server/src/metaChatService.ts`
+  * `ai-dev-hub/server/src/independentEvaluator.ts`
+  * `ai-dev-hub/server/src/workerRegistry.ts`
+  * `ai-dev-hub/server/src/autonomousRunnerService.ts`
+  * `ai-dev-hub/server/src/gitManager.ts`
+  * `ai-dev-hub/server/src/routes.ts`
+  * `ai-dev-hub/desktop/main.cjs`
