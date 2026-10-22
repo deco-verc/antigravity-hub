@@ -2238,7 +2238,7 @@ export class MetaChatService {
             }
 
             if (!sendSucceeded) {
-              activeConvId = mockProvider.newConversation({
+              activeConvId = await mockProvider.newConversation({
                 model: cliModel,
                 title: 'DecoHUB Meta-Chat',
                 prompt: userContent,
@@ -2541,7 +2541,7 @@ export class MetaChatService {
 
           if (!sendSucceeded) {
             try {
-              activeConvId = AgentApiGateway.newConversation({
+              activeConvId = await AgentApiGateway.newConversation({
                 model: cliModel,
                 title: 'DecoHUB Meta-Chat',
                 prompt: fullPrompt,

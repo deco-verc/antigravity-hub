@@ -1,5 +1,5 @@
 import { AccountProfileManager } from './accountProfileManager.js';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -30,7 +30,7 @@ export interface AgentApiMockProvider {
     prompt: string;
     projectId?: string | null;
     role?: string | null;
-  }): string;
+  }): string | Promise<string>;
   sendMessage(options: {
     conversationId: string;
     prompt: string;
@@ -286,10 +286,34 @@ export class AgentApiGateway {
   }
 
   /**
+   * Helper to launch Antigravity GUI application if Language Server / Antigravity is not responding
+   */
+  static async launchAntigravityAppIfNeeded(projectPath?: string): Promise<boolean> {
+    if (this.isOfflineMode()) return false;
+    try {
+      const apm = getAccountProfileManager();
+      const live = typeof apm.findAnyLiveLanguageServerInstance === 'function'
+        ? apm.findAnyLiveLanguageServerInstance()
+        : null;
+      if (!live) {
+        Logger.info('[AgentApiGateway] Nenhuma instância ativa do Language Server detectada. Iniciando Antigravity GUI...');
+        const launched = AntigravityDiscovery.launchAntigravityApp(projectPath);
+        if (launched) {
+          await new Promise(r => setTimeout(r, 1500));
+          return true;
+        }
+      }
+    } catch (err: any) {
+      Logger.warn(`[AgentApiGateway] Falha ao verificar/iniciar Antigravity GUI: ${err?.message || err}`);
+    }
+    return false;
+  }
+
+  /**
    * Centralized creation of conversations through agentapi new-conversation
    * Enforces fail-closed guard, circuit breaker, and audit logging.
    */
-  static newConversation(options: {
+  static async newConversation(options: {
     model: string;
     title: string;
     prompt: string;
@@ -302,7 +326,7 @@ export class AgentApiGateway {
     env?: NodeJS.ProcessEnv;
     timeoutMs?: number;
     cwd?: string;
-  }): string {
+  }): Promise<string> {
     const origin = options.origin || (this.isOfflineMode() ? 'TEST' : 'API');
     const caller = options.caller || 'AgentApiGateway';
     const projectId = options.projectId || null;
@@ -332,7 +356,7 @@ export class AgentApiGateway {
         projectId,
         metadata: { model: options.model, title: options.title, isMock: true, role }
       });
-      const convId = this._mockProvider.newConversation({
+      const convId = await this._mockProvider.newConversation({
         model: options.model,
         title: options.title,
         prompt: options.prompt,
@@ -481,6 +505,15 @@ export class AgentApiGateway {
     }
 
     // 5. Execute physical agentapi new-conversation
+    const resolvedCwd = options.cwd || this.resolveProjectPath(projectId);
+    if (!this.isOfflineMode()) {
+      try {
+        AntigravityDiscovery.ensureAntigravityRunning(resolvedCwd);
+      } catch (agErr: any) {
+        Logger.warn(`[AgentApiGateway] Aviso ao verificar/iniciar Antigravity Desktop: ${agErr.message}`);
+      }
+    }
+
     const exe = this.resolveLanguageServerExe();
     let cleanEnv = this.sanitizeEnv(options.env);
     if (!cleanEnv.ANTIGRAVITY_LS_ADDRESS && cleanEnv.USERPROFILE) {
@@ -493,7 +526,7 @@ export class AgentApiGateway {
       cleanEnv.LOCALAPPDATA = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
     }
     const cliModelFlag = this.normalizeCliModelFlag(options.model);
-    const timeout = options.timeoutMs || 30000;
+    const timeout = Math.min(options.timeoutMs || 15000, 15000);
     const startTime = Date.now();
 
     SessionCircuitBreaker.logTelemetry({
@@ -520,27 +553,46 @@ export class AgentApiGateway {
         title: options.title,
         isMock: false,
         role,
-        timeoutMs: 30000
+        timeoutMs: timeout
       }
     });
 
+    await this.launchAntigravityAppIfNeeded(resolvedCwd);
+
     Logger.info(
-      `[AgentApiGateway] Disparando comando físico: agentapi new-conversation...`
+      `[AgentApiGateway] Disparando comando físico: agentapi new-conversation (timeout: ${timeout}ms)...`
     );
 
     let currentExe = exe;
-    const maxAttempts = 3;
+    const maxAttempts = 2;
     let lastErr: any;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         const safePrompt = this.clampPromptForCli(options.prompt);
-        const resolvedCwd = options.cwd || this.resolveProjectPath(projectId);
-        const out = execFileSync(
-          currentExe,
-          ['agentapi', 'new-conversation', safePrompt],
-          { env: cleanEnv, encoding: 'utf-8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, cwd: resolvedCwd }
-        );
+        // Sintaxe oficial do Antigravity 2.0: agentapi new-conversation <prompt>
+        const out = await new Promise<string>((resolve, reject) => {
+          execFile(
+            currentExe,
+            ['agentapi', 'new-conversation', safePrompt],
+            {
+              env: cleanEnv,
+              encoding: 'utf-8',
+              timeout: 15000,
+              windowsHide: true,
+              cwd: resolvedCwd,
+              maxBuffer: 10 * 1024 * 1024
+            },
+            (error, stdout, stderr) => {
+              if (error) {
+                (error as any).stdout = stdout;
+                (error as any).stderr = stderr;
+                return reject(error);
+              }
+              resolve(stdout);
+            }
+          );
+        });
 
         let convId: string | null = null;
         try {
@@ -619,7 +671,7 @@ export class AgentApiGateway {
           Logger.warn(
             `[AgentApiGateway] Tentativa ${attempt}/${maxAttempts} falhou para new-conversation (${err.message}). Retentando em 500ms...`
           );
-          this.sleepSync(500);
+          await new Promise(r => setTimeout(r, 500));
           try {
             const rediscovery = AntigravityDiscovery.discover({ forceRefresh: true });
             if (rediscovery.available && rediscovery.languageServerExe) {
@@ -644,7 +696,7 @@ export class AgentApiGateway {
 
     // Fallback: se agentapi falhou ou não retornou UUID, tenta via agy CLI oficial
     try {
-      const agyFallback = this.runViaAgyCli(options.prompt, projectId || undefined, options.model);
+      const agyFallback = await this.runViaAgyCli(options.prompt, projectId || undefined, options.model);
       if (agyFallback?.conversation_id) {
         const convId = agyFallback.conversation_id;
         const durationMs = Date.now() - startTime;
@@ -709,7 +761,7 @@ export class AgentApiGateway {
    * Auxiliary / Fallback helper to run via official Antigravity CLI (agy).
    * Locates agy binary and runs: agy -p <prompt> --output-format json --dangerously-skip-permissions
    */
-  static runViaAgyCli(prompt: string, projectId?: string, model?: string): { conversation_id: string; response?: string } | null {
+  static async runViaAgyCli(prompt: string, projectId?: string, model?: string): Promise<{ conversation_id: string; response?: string } | null> {
     const isWin = process.platform === 'win32';
     const candidatePaths = [
       path.join(process.env.LOCALAPPDATA || '', 'agy', 'bin', isWin ? 'agy.exe' : 'agy'),
@@ -757,12 +809,26 @@ export class AgentApiGateway {
       };
 
       Logger.info(`[AgentApiGateway] Executando fallback via agy CLI: ${agyBinary} ${args.join(' ')}`);
-      const out = execFileSync(agyBinary, args, {
-        encoding: 'utf-8',
-        timeout: 45000,
-        env,
-        windowsHide: true,
-        stdio: ['ignore', 'pipe', 'pipe']
+      const out = await new Promise<string>((resolve, reject) => {
+        execFile(
+          agyBinary!,
+          args,
+          {
+            encoding: 'utf-8',
+            timeout: 30000,
+            env,
+            windowsHide: true,
+            maxBuffer: 10 * 1024 * 1024
+          },
+          (error, stdout, stderr) => {
+            if (error) {
+              (error as any).stdout = stdout;
+              (error as any).stderr = stderr;
+              return reject(error);
+            }
+            resolve(stdout);
+          }
+        );
       });
 
       try {

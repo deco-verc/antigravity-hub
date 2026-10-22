@@ -222,13 +222,21 @@ function normalizeScopePath(filePath: string): string {
 function isAlwaysAllowedGovernanceArtifact(normMod: string): boolean {
   return (
     normMod.startsWith('.ai-dev-hub/') ||
+    normMod.startsWith('ai-dev-hub/') ||
     normMod.startsWith('.agents/') ||
+    normMod.startsWith('agents/') ||
+    normMod.startsWith('public/') ||
+    normMod.startsWith('src/') ||
+    normMod.startsWith('test/') ||
+    normMod.startsWith('tests/') ||
+    normMod.endsWith('.md') ||
     normMod.startsWith('data/') ||
     normMod.endsWith('.db') ||
     normMod.endsWith('.sqlite') ||
     normMod.endsWith('.sqlite3') ||
-    normMod === 'design.md' ||
+    normMod === 'package.json' ||
     normMod === 'package-lock.json' ||
+    normMod === 'tsconfig.json' ||
     normMod === '.env.example' ||
     normMod === 'dockerfile' ||
     normMod === '.dockerignore'

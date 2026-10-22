@@ -103,11 +103,11 @@ test('Karpathy Context Efficiency & Verification Principles Suite', async (t) =>
     assert.ok(renewedBundle.contextBytes > 0, 'Context bytes devem ser mensurados');
   });
 
-  await t.test('3. Conversa Principal Contínua: Chat do projeto permanece persistente e único', () => {
+  await t.test('3. Conversa Principal Contínua: Chat do projeto permanece persistente e único', async () => {
     ConversationManager.setValidationOverride(() => true);
 
     const uniqueProjId = `proj-persistent-${Date.now()}`;
-    const first = ConversationManager.getOrCreateConversation({
+    const first = await ConversationManager.getOrCreateConversation({
       projectId: uniqueProjId,
       accountProfileId: 'acc-pro-1',
       role: 'supervisor',
@@ -118,7 +118,7 @@ test('Karpathy Context Efficiency & Verification Principles Suite', async (t) =>
     assert.strictEqual(first.isNew, true, 'Primeira chamada deve ser nova');
 
     // Segunda chamada para a mesma entidade/projeto
-    const second = ConversationManager.getOrCreateConversation({
+    const second = await ConversationManager.getOrCreateConversation({
       projectId: uniqueProjId,
       accountProfileId: 'acc-pro-1',
       role: 'supervisor',

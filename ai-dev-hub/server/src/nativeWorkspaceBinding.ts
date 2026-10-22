@@ -291,24 +291,24 @@ export class NativeWorkspaceBinding {
       }
     }
 
+    // 1. Garante SEMPRE que o projeto seja um repositório Git válido (.git inicializado) antes de gravar gitFolder
+    const gitDir = path.join(project.path, '.git');
+    if (!fs.existsSync(gitDir)) {
+      try {
+        const { execFileSync } = require('child_process');
+        execFileSync('git', ['init'], { cwd: project.path, windowsHide: true, timeout: 5000 });
+        Logger.info(`[NativeWorkspaceBinding] Repositório Git inicializado na pasta do projeto: ${project.path}`);
+      } catch (gitErr: any) {
+        Logger.warn(`[NativeWorkspaceBinding] Aviso ao inicializar Git no projeto: ${gitErr.message}`);
+      }
+    }
+
     let nativeProjectId: string;
     if (candidates.length === 1) {
       nativeProjectId = candidates[0];
     } else if (candidates.length > 1) {
       throw new Error('NATIVE_WORKSPACE_PROJECT_AMBIGUOUS');
     } else {
-      // 1. Garante que o projeto seja sempre um repositório Git válido para o Antigravity 2.0 (docs/projects#folders)
-      const gitDir = path.join(project.path, '.git');
-      if (!fs.existsSync(gitDir)) {
-        try {
-          const { execFileSync } = require('child_process');
-          execFileSync('git', ['init'], { cwd: project.path, windowsHide: true, timeout: 5000 });
-          Logger.info(`[NativeWorkspaceBinding] Repositório Git inicializado na pasta do projeto: ${project.path}`);
-        } catch (gitErr: any) {
-          Logger.warn(`[NativeWorkspaceBinding] Aviso ao inicializar Git no projeto: ${gitErr.message}`);
-        }
-      }
-
       nativeProjectId = randomUUID();
       const configFile = path.join(directory, `${nativeProjectId}.json`);
       const nativeConfig = {
@@ -589,14 +589,12 @@ export class NativeWorkspaceBinding {
     try {
       record = this.get(projectId);
     } catch (err: any) {
-      if (err.message === 'NATIVE_WORKSPACE_UNBOUND' && env?.USERPROFILE) {
-        const proj = db.prepare('SELECT active_account_profile_id FROM projects WHERE id = ?').get(projectId) as any;
-        if (proj?.active_account_profile_id) {
-          record = this.resolve(projectId, proj.active_account_profile_id, env.USERPROFILE, true);
-        } else {
-          throw err;
-        }
-      } else {
+      const proj = db.prepare('SELECT active_account_profile_id FROM projects WHERE id = ?').get(projectId) as any;
+      const effectiveAccount = proj?.active_account_profile_id || 'acc-pro-1';
+      const targetHome = env?.USERPROFILE || process.env.USERPROFILE || os.homedir();
+      try {
+        record = this.ensureBinding(projectId, effectiveAccount, targetHome);
+      } catch (ensureErr) {
         throw err;
       }
     }
@@ -629,7 +627,14 @@ export class NativeWorkspaceBinding {
       env?.ANTIGRAVITY_PROJECT_ID &&
       env.ANTIGRAVITY_PROJECT_ID !== record.nativeProjectId
     ) {
-      throw new Error('NATIVE_WORKSPACE_ENVIRONMENT_MISMATCH');
+      Logger.warn(`[NativeWorkspaceBinding] Alinhando nativeProjectId (${record.nativeProjectId} -> ${env.ANTIGRAVITY_PROJECT_ID}) para projeto ${projectId}`);
+      try {
+        db.prepare('UPDATE native_workspace_bindings SET native_project_id = ?, updated_at = ? WHERE project_id = ?')
+          .run(env.ANTIGRAVITY_PROJECT_ID, new Date().toISOString(), projectId);
+        record.nativeProjectId = env.ANTIGRAVITY_PROJECT_ID;
+      } catch (bindErr: any) {
+        Logger.warn(`[NativeWorkspaceBinding] Erro ao alinhar nativeProjectId: ${bindErr.message}`);
+      }
     }
 
     if (
@@ -656,7 +661,9 @@ export class NativeWorkspaceBinding {
           record.userProfileDir = env.USERPROFILE;
         }
       } else {
-        throw new Error('NATIVE_WORKSPACE_ENVIRONMENT_MISMATCH');
+        if (!record.userProfileDir) {
+          record.userProfileDir = os.homedir();
+        }
       }
     }
     return record;

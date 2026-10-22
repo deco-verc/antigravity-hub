@@ -40,6 +40,10 @@ export const DecoHubFilesView: React.FC<DecoHubFilesViewProps> = ({ project }) =
   useEffect(() => {
     if (project.id) {
       loadFiles();
+      const interval = setInterval(() => {
+        loadFiles();
+      }, 8000);
+      return () => clearInterval(interval);
     }
   }, [project.id]);
 
@@ -83,23 +87,37 @@ export const DecoHubFilesView: React.FC<DecoHubFilesViewProps> = ({ project }) =
     }
   };
 
-  const handleOpenMemoryDoc = (docName: string) => {
-    const memoryMap: Record<string, string> = {
-      'project.md': project.memory?.projectMd || '',
-      'architecture.md': project.memory?.architectureMd || '',
-      'tasks.md': project.memory?.tasksMd || '',
-      'decisions.md': project.memory?.decisionsMd || '',
-      'changes.md': project.memory?.changesMd || '',
-      'session-summary.md': project.memory?.sessionSummaryMd || ''
-    };
-    const content = memoryMap[docName] || '';
-    setSelectedFile(`.ai-dev-hub/${docName}`);
-    setFileContent({
-      path: `.ai-dev-hub/${docName}`,
-      content,
-      size: content.length,
-      extension: '.md'
-    });
+  const handleOpenMemoryDoc = async (docPath: string) => {
+    setSelectedFile(docPath);
+    setContentLoading(true);
+    try {
+      const res = await api.getFileContent(project.id, docPath);
+      if (res && typeof res.content === 'string') {
+        setFileContent(res);
+        return;
+      }
+      throw new Error('Conteúdo vazio');
+    } catch {
+      // Fallback para cache local se API falhar
+      const filename = docPath.replace('.ai-dev-hub/', '');
+      const memoryMap: Record<string, string> = {
+        'project.md': project.memory?.projectMd || '',
+        'architecture.md': project.memory?.architectureMd || '',
+        'tasks.md': project.memory?.tasksMd || '',
+        'decisions.md': project.memory?.decisionsMd || '',
+        'changes.md': project.memory?.changesMd || '',
+        'session-summary.md': project.memory?.sessionSummaryMd || ''
+      };
+      const content = memoryMap[filename] || '';
+      setFileContent({
+        path: docPath,
+        content,
+        size: content.length,
+        extension: '.md'
+      });
+    } finally {
+      setContentLoading(false);
+    }
   };
 
   const copyContent = () => {
@@ -111,12 +129,21 @@ export const DecoHubFilesView: React.FC<DecoHubFilesViewProps> = ({ project }) =
   };
 
   const memoryFiles = [
-    { name: 'project.md', label: 'project.md', desc: 'Objetivo e escopo' },
-    { name: 'architecture.md', label: 'architecture.md', desc: 'Arquitetura e stack' },
-    { name: 'tasks.md', label: 'tasks.md', desc: 'Tarefas e Kanban' },
-    { name: 'decisions.md', label: 'decisions.md', desc: 'Log de decisões técnicas' },
-    { name: 'changes.md', label: 'changes.md', desc: 'Histórico de arquivos' },
-    { name: 'session-summary.md', label: 'session-summary.md', desc: 'Último resumo consolidado' }
+    { path: '.ai-dev-hub/project.md', label: 'project.md', desc: 'Objetivo e escopo consolidado' },
+    { path: '.ai-dev-hub/architecture.md', label: 'architecture.md', desc: 'Arquitetura técnica e stack' },
+    { path: '.ai-dev-hub/tasks.md', label: 'tasks.md', desc: 'Tarefas e Kanban vivo' },
+    { path: '.ai-dev-hub/decisions.md', label: 'decisions.md', desc: 'Log de decisões técnicas' },
+    { path: '.ai-dev-hub/changes.md', label: 'changes.md', desc: 'Histórico de arquivos alterados' },
+    { path: '.ai-dev-hub/session-summary.md', label: 'session-summary.md', desc: 'Último resumo consolidado' },
+    { path: '.ai-dev-hub/specs/CONTEUDO.md', label: 'specs/CONTEUDO.md', desc: 'Conteúdo & REA' },
+    { path: '.ai-dev-hub/specs/BACKEND.md', label: 'specs/BACKEND.md', desc: 'Contratos SQLite & REST' },
+    { path: '.ai-dev-hub/specs/DESIGN.md', label: 'specs/DESIGN.md', desc: 'Design System & UI' },
+    { path: '.ai-dev-hub/specs/PRINCIPIOS.md', label: 'specs/PRINCIPIOS.md', desc: 'Princípios Invariantes' },
+    { path: '.ai-dev-hub/specs/JORNADAS.md', label: 'specs/JORNADAS.md', desc: 'Jornadas de Teste' },
+    { path: '.ai-dev-hub/rea-blueprint.md', label: 'rea-blueprint.md', desc: 'Blueprint SaaS & Pilares' },
+    { path: '.ai-dev-hub/market-research-rea.md', label: 'market-research-rea.md', desc: 'Pesquisa de Mercado' },
+    { path: '.ai-dev-hub/lessons.md', label: 'lessons.md', desc: 'Lições Operacionais' },
+    { path: '.ai-dev-hub/program.md', label: 'program.md', desc: 'Programa de Execução' }
   ];
 
   // Filter files by search term
@@ -243,26 +270,26 @@ export const DecoHubFilesView: React.FC<DecoHubFilesViewProps> = ({ project }) =
           >
             <div className="flex items-center gap-1.5">
               <BookOpen className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Memória do Projeto (.ai-dev-hub)</span>
+              <span>Memória & Especificações (.ai-dev-hub)</span>
             </div>
             {isMemoryOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
           </button>
 
           {isMemoryOpen && (
-            <div className="px-2 pb-2 space-y-0.5">
+            <div className="px-2 pb-2 space-y-0.5 max-h-56 overflow-y-auto">
               {memoryFiles.map(doc => (
                 <button
-                  key={doc.name}
+                  key={doc.path}
                   type="button"
-                  onClick={() => handleOpenMemoryDoc(doc.name)}
+                  onClick={() => handleOpenMemoryDoc(doc.path)}
                   className={`w-full flex items-center justify-between px-2.5 py-1 text-xs rounded-md transition-colors text-left ${
-                    selectedFile === `.ai-dev-hub/${doc.name}`
+                    selectedFile === doc.path
                       ? 'bg-indigo-600/25 text-indigo-300 font-medium'
                       : 'text-slate-400 hover:text-slate-200 hover:bg-[#141828]'
                   }`}
                 >
-                  <span className="font-mono text-[11px]">{doc.name}</span>
-                  <span className="text-[10px] text-slate-400">{doc.desc}</span>
+                  <span className="font-mono text-[11px] truncate">{doc.label}</span>
+                  <span className="text-[10px] text-slate-400 truncate max-w-[110px] text-right">{doc.desc}</span>
                 </button>
               ))}
             </div>

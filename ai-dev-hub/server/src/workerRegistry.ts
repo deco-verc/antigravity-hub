@@ -340,6 +340,17 @@ export class WorkerRegistry {
           runtime = AccountProfileManager.findAnyLiveLanguageServerInstance();
         }
         if (!runtime && !AccountProfileManager.isOfflineMode() && !AccountProfileManager.isAutomatedTestRuntime()) {
+          try {
+            Logger.info(`[WorkerRegistry] Nenhum Language Server ativo encontrado. Tentando auto-spawn do Antigravity para ${activeProfile.display_name}...`);
+            AccountProfileManager.launchLogin(activeProfile.id);
+            const { execFileSync } = require('child_process');
+            execFileSync('node', ['-e', 'setTimeout(() => {}, 2500)']);
+            runtime = AccountProfileManager.findAnyLiveLanguageServerInstance();
+          } catch (spawnErr: any) {
+            Logger.warn(`[WorkerRegistry] Falha ao tentar auto-spawn do Antigravity: ${spawnErr.message}`);
+          }
+        }
+        if (!runtime && !AccountProfileManager.isOfflineMode() && !AccountProfileManager.isAutomatedTestRuntime()) {
           throw new Error(`RUNTIME_UNAVAILABLE: abra o Antigravity e autentique o perfil ${activeProfile.display_name}.`);
         }
         profileEnv = AccountProfileManager.getExecutionEnvForProfile(activeProfile);

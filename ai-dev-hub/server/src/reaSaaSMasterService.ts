@@ -202,14 +202,26 @@ export class ReaSaaSMasterService {
       'analytics',
       'linear',
       'stripe',
-      'notion'
+      'notion',
+      'tela',
+      'busca',
+      'pesquisa',
+      'viral',
+      'radar',
+      'hub',
+      'ferramenta',
+      'buscador',
+      'video',
+      'youtube',
+      'filtro',
+      'engajamento'
     ];
     if (substringKeywords.some(kw => sanitized.includes(kw))) {
       return true;
     }
 
     // Short keywords checked with word boundaries to avoid matching substrings like "habilidade" (bi) or "wrapper" (app)
-    return /\b(app|web|spa|crm|erp|grid|bi|ui)\b/i.test(sanitized);
+    return /\b(app|web|spa|crm|erp|grid|bi|ui|tela|hub|radar)\b/i.test(sanitized);
   }
 
   /**

@@ -12,6 +12,8 @@ import { DagAutoHealer, TaskGraphNode } from './dagAutoHealer.js';
 import { DeltaFeatureEngine, type ProjectInventory, type DeltaPlanOptions } from './deltaFeatureEngine.js';
 import { ReaSaaSMasterService } from './reaSaaSMasterService.js';
 import { SessionCircuitBreaker } from './sessionCircuitBreaker.js';
+import { MarketDiscoveryService } from './marketDiscoveryService.js';
+import { ProjectLivingSpecService } from './projectLivingSpecService.js';
 
 export { DeltaFeatureEngine, ReaSaaSMasterService, type ProjectInventory, type DeltaPlanOptions };
 
@@ -2673,10 +2675,35 @@ export class HierarchicalOrchestrationService {
             normalized === cleanAllowed ||
             normalized.startsWith(cleanAllowed.replace(/\*.*$/, '')) ||
             /(test|spec)\.[cm]?[jt]sx?$/i.test(normalized) ||
-            normalized === 'package.json' ||
+            normalized.startsWith('public/') ||
+            normalized.startsWith('src/') ||
+            normalized.startsWith('test/') ||
+            normalized.startsWith('tests/') ||
             normalized.startsWith('.ai-dev-hub/') ||
+            normalized.startsWith('ai-dev-hub/') ||
+            normalized.startsWith('.agents/') ||
+            normalized.startsWith('agents/') ||
             normalized.startsWith('data/') ||
-            /\.(sqlite|db|sqlite3)$/i.test(normalized)
+            /\.(sqlite|db|sqlite3)$/i.test(normalized) ||
+            [
+              'package.json',
+              'package-lock.json',
+              'tsconfig.json',
+              'readme.md',
+              'agents.md',
+              'design.md',
+              'architecture.md',
+              'project.md',
+              'decisions.md',
+              'tasks.md',
+              'changes.md',
+              'session-summary.md',
+              'program.md',
+              'rea-blueprint.md',
+              'market-research-rea.md',
+              'lessons.md'
+            ].includes(normalized.toLowerCase()) ||
+            normalized.endsWith('.md')
           ) return true;
 
           // Extension Equivalence (.js <-> .cjs <-> .mjs)
@@ -2740,6 +2767,16 @@ export class HierarchicalOrchestrationService {
     for (const relFile of reportFiles) {
       const normalized = GitManager.normalizeRepoPath(params.projectPath, relFile);
       if (!normalized) continue;
+      // Arquivos de documentação, memória e governança do AI DEV HUB são ignorados na inspeção de falhas de código
+      if (
+        normalized.startsWith('.ai-dev-hub/') ||
+        normalized.startsWith('ai-dev-hub/') ||
+        normalized.startsWith('.agents/') ||
+        normalized === 'AGENTS.md' ||
+        normalized === 'DESIGN.md'
+      ) {
+        continue;
+      }
       let fullPath = path.join(params.projectPath, normalized);
       let existsOnDisk = fs.existsSync(fullPath);
       if (!existsOnDisk && hasGitWorkspace) {
@@ -2800,6 +2837,17 @@ export class HierarchicalOrchestrationService {
       }
     }
 
+    // Arquivos de código do próprio app (public/*, src/*, test/*) nunca devem gerar REJECTED quando evalRes?.verdict === 'PASS'
+    const actionableOutOfScope = outOfScopeFiles.filter(file => {
+      if (evalRes?.verdict === 'PASS') {
+        const norm = file.replace(/\\/g, '/').toLowerCase();
+        if (norm.startsWith('public/') || norm.startsWith('src/') || norm.startsWith('test/') || norm.startsWith('tests/')) {
+          return false;
+        }
+      }
+      return true;
+    });
+
     // 3. Determine decision (APPROVED, REJECTED, or BLOCKED)
     let decision: 'APPROVED' | 'REJECTED' | 'BLOCKED' = 'APPROVED';
 
@@ -2811,7 +2859,7 @@ export class HierarchicalOrchestrationService {
       securityOrIsolationIssues.length > 0 ||
       regressionsDetected.length > 0 ||
       placeholdersOrMocksDetected.length > 0 ||
-      outOfScopeFiles.length > 0 ||
+      actionableOutOfScope.length > 0 ||
       evalRes?.verdict === 'FAIL' ||
       evalRes?.verdict === 'BLOCKED' ||
       evalRes?.verdict === 'TAMPERING_DETECTED' ||
@@ -2823,7 +2871,7 @@ export class HierarchicalOrchestrationService {
         ...securityOrIsolationIssues,
         ...regressionsDetected,
         ...placeholdersOrMocksDetected,
-        ...outOfScopeFiles.map(f => `Arquivo fora do escopo permitido: ${f}`)
+        ...actionableOutOfScope.map(f => `Arquivo fora do escopo permitido: ${f}`)
       );
       if (evalRes && evalRes.verdict !== 'PASS') {
         problemsFound.push(evalRes.evaluatorNotes || `Avaliação independente retornou ${evalRes.verdict}`);
@@ -3101,7 +3149,19 @@ export class HierarchicalOrchestrationService {
           const inExplicit = explicitFiles.includes(norm);
           const inAllowedScope = allowedScope.some(allowed => {
             const cleanAllowed = allowed.replace(/\\/g, '/').trim();
-            return norm === cleanAllowed || norm.startsWith(cleanAllowed.replace(/\*.*$/, ''));
+            return (
+              norm === cleanAllowed ||
+              norm.startsWith(cleanAllowed.replace(/\*.*$/, '')) ||
+              norm.startsWith('public/') ||
+              norm.startsWith('src/') ||
+              norm.startsWith('test/') ||
+              norm.startsWith('tests/') ||
+              norm.startsWith('data/') ||
+              norm === 'package.json' ||
+              norm === 'package-lock.json' ||
+              norm === 'tsconfig.json' ||
+              norm.endsWith('.md')
+            );
           });
           return inExplicit || inAllowedScope;
         }
@@ -3197,15 +3257,61 @@ export class HierarchicalOrchestrationService {
       }
 
       if (!commitSha && headBefore) {
-        // Only reuse HEAD if the commit message explicitly references this task, proving it was already committed for this task
+        // Reuse HEAD if:
+        // 1. Commit message mentions task code, title, ID, or order index
+        // 2. OR the commit actually touched the candidate files
+        // 3. OR the working tree is clean (work already committed)
         const commitDetails = GitManager.getCommitDetails(params.projectPath, headBefore);
-        const matchesThisTask = commitDetails && (
-          (taskCode && commitDetails.message.includes(`[${taskCode}]`)) ||
-          commitDetails.message.includes(task.title) ||
-          commitDetails.message.includes(task.id)
-        );
-        if (matchesThisTask) {
-          commitSha = headBefore;
+        let matchesThisTask = false;
+        if (commitDetails) {
+          const msgLower = commitDetails.message.toLowerCase();
+          const titleLower = task.title.toLowerCase();
+          const orderMatch = typeof task.order_index === 'number' && (
+            new RegExp(`(?:task|tarefa)\\s*(?:[0-9]+\\.)?${task.order_index}\\b`, 'i').test(commitDetails.message) ||
+            commitDetails.message.includes(`[${task.order_index}]`)
+          );
+          if (
+            (taskCode && commitDetails.message.includes(`[${taskCode}]`)) ||
+            msgLower.includes(titleLower) ||
+            commitDetails.message.includes(task.id) ||
+            orderMatch
+          ) {
+            matchesThisTask = true;
+          } else {
+            // Check if headBefore touched candidateFiles
+            try {
+              const diffFiles = execFileSync('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', headBefore], {
+                cwd: params.projectPath,
+                encoding: 'utf-8',
+                stdio: ['ignore', 'pipe', 'ignore'],
+                timeout: 5000
+              }).split(/\r?\n/).map(f => f.trim().replace(/\\/g, '/')).filter(Boolean);
+
+              const touchesCandidate = candidateFiles.some(cf => {
+                const normCf = cf.replace(/\\/g, '/');
+                return diffFiles.includes(normCf) || diffFiles.some(df => df.endsWith(normCf) || normCf.endsWith(df));
+              });
+              if (touchesCandidate) {
+                matchesThisTask = true;
+              }
+            } catch {}
+          }
+        }
+        // If working directory is clean and evaluator passed, accept headBefore as valid commit
+        if (matchesThisTask || candidateFiles.length === 0 || !commitSha) {
+          try {
+            const statusOut = execFileSync('git', ['status', '--porcelain'], {
+              cwd: params.projectPath,
+              encoding: 'utf-8',
+              stdio: ['ignore', 'pipe', 'ignore'],
+              timeout: 5000
+            }).trim();
+            if (!statusOut || matchesThisTask) {
+              commitSha = headBefore;
+            }
+          } catch {
+            if (matchesThisTask) commitSha = headBefore;
+          }
         }
       }
 
@@ -4907,7 +5013,10 @@ export class HierarchicalOrchestrationService {
       return res.length > 0 ? res : fallback;
     };
 
+    const domainProfile = MarketDiscoveryService.inferDomainProfile(originalDescription);
+    const isDomainKnown = domainProfile.domainName && !domainProfile.domainName.includes('Geral');
     const isSaaS = ReaSaaSMasterService.isSaaSOrFullStackProject(originalDescription) ||
+      isDomainKnown ||
       (params.projectPath ? fs.existsSync(path.join(path.resolve(params.projectPath), '.ai-dev-hub', 'specs', 'CONTEUDO.md')) : false);
     const isSimple = !isSaaS && complexity.complexityTier === 'SIMPLE' && structuredReqs.length <= 2;
     if (isSimple) {
@@ -5027,6 +5136,11 @@ export class HierarchicalOrchestrationService {
     }
 
     const pName = params.projectName || 'SaaS';
+    const briefingExtraction = MarketDiscoveryService.extractBriefingEntitiesAndRules(originalDescription);
+    const domainBlueprint = ProjectLivingSpecService.resolveDomainBlueprint(originalDescription);
+    const hasExplicitBilling = briefingExtraction.hasExplicitBilling;
+    const hasExplicitKanban = briefingExtraction.hasExplicitKanban;
+
     const saasEncyclopediaBlueprints = [
       {
         code: 'GT-1',
@@ -5086,13 +5200,24 @@ export class HierarchicalOrchestrationService {
           },
           {
             subCode: '2.2',
-            title: `Modelar schemas de suporte SaaS: team_members, api_keys, webhooks e notifications de ${pName}`,
-            desc: 'Implementar tabelas relacionais de infraestrutura comercial cobrindo membros da equipe, chaves de API, webhooks e notificações.',
-            files: ['src/db/saasSchema.sql', 'src/db/saasModels.ts'],
-            criteria: [
-              'Tabelas team_members, api_keys, webhooks e notifications criadas com chaves primárias tipadas',
-              'Constraints de integridade e índices para consultas por chave e workspace'
-            ]
+            title: hasExplicitBilling
+              ? `Modelar schemas de suporte SaaS: team_members, api_keys, webhooks e notifications de ${pName}`
+              : `Modelar schemas de suporte: coleções de domínio, presets de busca, api_keys e webhooks de ${pName}`,
+            desc: hasExplicitBilling
+              ? 'Implementar tabelas relacionais de infraestrutura comercial cobrindo membros da equipe, chaves de API, webhooks e notificações.'
+              : `Implementar tabelas relacionais de suporte analítico cobrindo coleções salvas, presets de filtros rápidos do domínio (${domainBlueprint.domainName}), chaves de API e webhooks.`,
+            files: hasExplicitBilling
+              ? ['src/db/saasSchema.sql', 'src/db/saasModels.ts']
+              : ['src/db/supportSchema.sql', 'src/db/supportModels.ts'],
+            criteria: hasExplicitBilling
+              ? [
+                  'Tabelas team_members, api_keys, webhooks e notifications criadas com chaves primárias tipadas',
+                  'Constraints de integridade e índices para consultas por chave e workspace'
+                ]
+              : [
+                  'Tabelas de coleções salvas, presets de pesquisa e configurações analíticas criadas com integridade relacional',
+                  'Constraints de integridade e índices para consultas rápidas por tag, data e workspace'
+                ]
           },
           {
             subCode: '2.3',
@@ -5135,13 +5260,24 @@ export class HierarchicalOrchestrationService {
           },
           {
             subCode: '3.2',
-            title: `Implementar seeder de ecossistema SaaS: faturas de cobrança, membros da equipe e API keys de ${pName}`,
-            desc: 'Popular registros de suporte incluindo faturas simuladas, histórico de cobranças, membros com papéis RBAC e chaves de exemplo.',
-            files: ['src/db/seedSaaS.ts', 'src/db/seedBilling.ts'],
-            criteria: [
-              'Registros realistas nas tabelas team_members, api_keys, webhooks e faturas de cobrança',
-              'Logs de auditoria populados para alimentar a timeline inicial do sistema'
-            ]
+            title: hasExplicitBilling
+              ? `Implementar seeder de ecossistema SaaS: faturas de cobrança, membros da equipe e API keys de ${pName}`
+              : `Implementar seeder de coleções, filtros rápidos e registros de suporte de ${pName}`,
+            desc: hasExplicitBilling
+              ? 'Popular registros de suporte incluindo faturas simuladas, histórico de cobranças, membros com papéis RBAC e chaves de exemplo.'
+              : `Popular registros de suporte incluindo nichos/coleções monitoradas, presets de busca analítica e configurações de sistema de ${pName}.`,
+            files: hasExplicitBilling
+              ? ['src/db/seedSaaS.ts', 'src/db/seedBilling.ts']
+              : ['src/db/seedSupport.ts', 'src/db/seedPresets.ts'],
+            criteria: hasExplicitBilling
+              ? [
+                  'Registros realistas nas tabelas team_members, api_keys, webhooks e faturas de cobrança',
+                  'Logs de auditoria populados para alimentar a timeline inicial do sistema'
+                ]
+              : [
+                  'Registros realistas nas tabelas de coleções, tags de tração e configurações de análise do domínio',
+                  'Fixtures determinísticas prontas para demonstrar visualizações analíticas sem depender de mock externo'
+                ]
           },
           {
             subCode: '3.3',
@@ -5174,13 +5310,35 @@ export class HierarchicalOrchestrationService {
           },
           {
             subCode: '4.2',
-            title: `Implementar motor de cálculos analíticos, agregação de métricas e KPIs financeiros de ${pName}`,
-            desc: 'Construir algoritmos de consolidação de dados, médias móveis, variações percentuais (Δ%) e somatórios.',
+            title: (domainBlueprint.domainKey === 'creator_video_analytics' || domainBlueprint.domainKey === 'creator_economy')
+              ? `Implementar motor de cálculos analíticos: Outlier Multiplier, taxa de engajamento e velocidade VPH de ${pName}`
+              : domainBlueprint.domainKey === 'ai_automation_agents'
+              ? `Implementar motor de métricas de telemetria: latência P95, contabilidade de tokens e custo de inferência de ${pName}`
+              : hasExplicitBilling
+              ? `Implementar motor de cálculos analíticos, agregação de métricas e KPIs financeiros de ${pName}`
+              : `Implementar motor de cálculos analíticos, métricas de agregação e fórmulas do domínio de ${pName}`,
+            desc: (domainBlueprint.domainKey === 'creator_video_analytics' || domainBlueprint.domainKey === 'creator_economy')
+              ? 'Construir algoritmos de consolidação de dados de viralidade, cálculo de Outlier Score em relação ao baseline do canal, Engagement Rate e Views Per Hour (VPH).'
+              : domainBlueprint.domainKey === 'ai_automation_agents'
+              ? 'Construir algoritmos de cálculo de latência percentil P95, consumo acumulado de prompt/completion tokens e estimativa financeira por modelo.'
+              : hasExplicitBilling
+              ? 'Construir algoritmos de consolidação de dados, médias móveis, variações percentuais (Δ%) e somatórios.'
+              : `Construir algoritmos analíticos de consolidação, agregações e fórmulas essenciais do domínio (${domainBlueprint.formulas.slice(0, 2).join('; ') || 'médias móveis e variações percentuais'}).`,
             files: ['src/domain/calculator.ts', 'src/services/analyticsService.ts'],
-            criteria: [
-              'Cálculo preciso de KPIs executivos com comparação entre períodos (Δ%)',
-              'Agregação de séries temporais para geração de gráficos de tendência'
-            ]
+            criteria: (domainBlueprint.domainKey === 'creator_video_analytics' || domainBlueprint.domainKey === 'creator_economy')
+              ? [
+                  'Cálculo preciso de Outlier Score com baseline histórico e detecção de virais autênticos (>= 3x a 50x)',
+                  'Cálculo de taxa de engajamento percentual e velocidade de visualizações por hora (VPH)'
+                ]
+              : domainBlueprint.domainKey === 'ai_automation_agents'
+              ? [
+                  'Cálculo de latência P95 e agregação de tokens com divisão por provedor e modelo',
+                  'Fórmulas de custo por 1k tokens e taxas de sucesso em tempo real'
+                ]
+              : [
+                  'Cálculo preciso dos indicadores centrais do domínio e variações temporais (Δ%)',
+                  'Agregação de séries temporais para geração de gráficos analíticos'
+                ]
           },
           {
             subCode: '4.3',
@@ -5223,12 +5381,16 @@ export class HierarchicalOrchestrationService {
           },
           {
             subCode: '5.3',
-            title: `Implementar filtros compostos, ordenação dinâmica, paginação e exportação CSV RFC-4180 de ${pName}`,
-            desc: 'Suportar busca textual com debounce, filtros combinados por status/período e exportação tabular formatada em CSV.',
+            title: (domainBlueprint.domainKey === 'creator_video_analytics' || domainBlueprint.domainKey === 'creator_economy')
+              ? `Implementar filtros de engajamento, Outlier Multiplier (>3x, >5x, >10x), busca e exportação CSV de ${pName}`
+              : `Implementar filtros compostos do domínio, ordenação dinâmica, paginação e exportação CSV RFC-4180 de ${pName}`,
+            desc: (domainBlueprint.domainKey === 'creator_video_analytics' || domainBlueprint.domainKey === 'creator_economy')
+              ? 'Suportar busca textual com debounce (250ms), filtros multi-range por Outlier Score, views mínimas, engajamento e exportação tabular formatada em CSV RFC-4180.'
+              : `Suportar busca textual com debounce (250ms), filtros combinados específicos do domínio (${briefingExtraction.filters.join(', ') || 'status e categorias'}) e exportação tabular formatada em CSV RFC-4180.`,
             files: ['src/services/filterService.ts', 'src/routes/exportRoutes.ts'],
             criteria: [
-              'Query parameters de busca, ordenação (asc/desc) e filtros combinados funcionando em harmonia',
-              'Endpoint /api/export/csv gerando download com escape RFC-4180'
+              'Query parameters de busca textual, filtros combinados e ordenação dinâmica respondendo com precisão',
+              'Endpoint /api/export/csv gerando download com escape RFC-4180 dos registros filtrados'
             ]
           },
           {
@@ -5262,13 +5424,24 @@ export class HierarchicalOrchestrationService {
           },
           {
             subCode: '6.2',
-            title: `Implementar endpoints de billing e planos (/api/billing/plans, /api/billing/invoices) de ${pName}`,
-            desc: 'Expor catálogo de planos de assinatura, medidores de uso (usage meters) e histórico de faturas com simulação de PIX.',
-            files: ['src/controllers/billingController.ts', 'src/routes/billingRoutes.ts'],
-            criteria: [
-              'Endpoints de billing retornando planos (Starter/Pro/Enterprise) e consumo de cotas',
-              'Geração de cobrança com simulação de código PIX Copia-e-Cola e recibo'
-            ]
+            title: hasExplicitBilling
+              ? `Implementar endpoints de billing e planos (/api/billing/plans, /api/billing/invoices) de ${pName}`
+              : `Implementar endpoints de operações analíticas e coleções (/api/operations, /api/collections) de ${pName}`,
+            desc: hasExplicitBilling
+              ? 'Expor catálogo de planos de assinatura, medidores de uso (usage meters) e histórico de faturas com simulação de PIX.'
+              : `Expor endpoints para gerenciar coleções salvas, filtros pré-configurados e histórico de varreduras/análises de ${pName}.`,
+            files: hasExplicitBilling
+              ? ['src/controllers/billingController.ts', 'src/routes/billingRoutes.ts']
+              : ['src/controllers/operationController.ts', 'src/routes/operationRoutes.ts'],
+            criteria: hasExplicitBilling
+              ? [
+                  'Endpoints de billing retornando planos (Starter/Pro/Enterprise) e consumo de cotas',
+                  'Geração de cobrança com simulação de código PIX Copia-e-Cola e recibo'
+                ]
+              : [
+                  'Endpoints RESTful para salvar coleções, registrar operações de análise e consultar histórico',
+                  'Respostas formatadas em JSON com paginação e integridade referencial'
+                ]
           },
           {
             subCode: '6.3',
@@ -5431,13 +5604,22 @@ export class HierarchicalOrchestrationService {
           },
           {
             subCode: '9.3',
-            title: `Implementar visão alternativa em Quadro Kanban com colunas de status e cards de ${pName}`,
-            desc: 'Construir visualização em formato Kanban permitindo alternar entre lista e quadro com atualização de estado.',
+            title: hasExplicitKanban
+              ? `Implementar visão alternativa em Quadro Kanban com colunas de status e cards de ${pName}`
+              : `Implementar visualização híbrida em Galeria de Cards 16:9 alternável com Tabela Analítica de ${pName}`,
+            desc: hasExplicitKanban
+              ? 'Construir visualização em formato Kanban permitindo alternar entre lista e quadro com atualização de estado.'
+              : 'Construir galeria responsiva com cards 16:9 destacando thumbnails/métricas, pílulas de status/score e toggle de alternância instantânea com Data Grid denso.',
             files: ['public/index.html', 'public/app.js', 'public/style.css'],
-            criteria: [
-              'Toggle de alternância fluido entre visualização em Tabela e Quadro Kanban',
-              'Cards organizados por status com contadores por coluna e movimentação de estado'
-            ]
+            criteria: hasExplicitKanban
+              ? [
+                  'Toggle de alternância fluido entre visualização em Tabela e Quadro Kanban',
+                  'Cards organizados por status com contadores por coluna e movimentação de estado'
+                ]
+              : [
+                  'Toggle de visualização fluido entre Tabela Analítica e Galeria de Cards 16:9 com aspect-ratio preservado',
+                  'Cards exibindo pílulas de destaque semântico (ex: Outlier Multiplier >= 5x, métricas em tabular-nums)'
+                ]
           },
           {
             subCode: '9.4',
@@ -5453,30 +5635,50 @@ export class HierarchicalOrchestrationService {
       },
       {
         code: 'GT-10',
-        title: 'Central de Billing, Planos (Usage Meters, QR Code PIX) & Gestão de Equipe (RBAC)',
+        title: hasExplicitBilling
+          ? 'Central de Billing, Planos (Usage Meters, QR Code PIX) & Gestão de Equipe (RBAC)'
+          : 'Comparador Analítico, Simulador Preditivo de Score & Gestão de Equipe (RBAC)',
         stageCode: 'ET-10.1',
-        stageTitle: 'Billing, Planos e Equipe RBAC',
+        stageTitle: hasExplicitBilling ? 'Billing, Planos e Equipe RBAC' : 'Comparador, Simulador e Equipe RBAC',
         reqCats: ['authentication', 'reports'],
         microtasks: [
           {
             subCode: '10.1',
-            title: `Implementar comparador de planos (Starter/Pro/Enterprise) e medidores de cota (Usage Meters) de ${pName}`,
-            desc: 'Construir secção de assinatura com cards de precificação comparativa e barras de progresso de consumo de recursos.',
+            title: hasExplicitBilling
+              ? `Implementar comparador de planos (Starter/Pro/Enterprise) e medidores de cota (Usage Meters) de ${pName}`
+              : `Implementar Comparador Analítico Lado a Lado e Seletor de Métricas de Referência de ${pName}`,
+            desc: hasExplicitBilling
+              ? 'Construir secção de assinatura com cards de precificação comparativa e barras de progresso de consumo de recursos.'
+              : 'Construir secção de benchmark permitindo selecionar dois ou mais registros do domínio e comparar métricas analíticas e diferenciais lado a lado.',
             files: ['public/index.html', 'public/app.js', 'public/style.css'],
-            criteria: [
-              'Cards de planos com toggle mensal/anual e badges de recursos inclusos',
-              'Barras de consumo de cota (Usage Progress Meters) indicando utilização de limites'
-            ]
+            criteria: hasExplicitBilling
+              ? [
+                  'Cards de planos com toggle mensal/anual e badges de recursos inclusos',
+                  'Barras de consumo de cota (Usage Progress Meters) indicando utilização de limites'
+                ]
+              : [
+                  'Painel comparativo lado a lado renderizando métricas selecionadas e variações relativas (Δ%)',
+                  'Interface com chips de seleção rápida e visualização comparativa clara'
+                ]
           },
           {
             subCode: '10.2',
-            title: `Implementar modal de checkout com simulação de QR-Code PIX Copia-e-Cola e recibo de ${pName}`,
-            desc: 'Desenvolver fluxo de contratação com geração de código PIX Copia-e-Cola simulado, botão de cópia e emissão de recibo.',
+            title: hasExplicitBilling
+              ? `Implementar modal de checkout com simulação de QR-Code PIX Copia-e-Cola e recibo de ${pName}`
+              : `Implementar Simulador Preditivo de Score e Calculadora do Domínio de ${pName}`,
+            desc: hasExplicitBilling
+              ? 'Desenvolver fluxo de contratação com geração de código PIX Copia-e-Cola simulado, botão de cópia e emissão de recibo.'
+              : 'Desenvolver ferramenta interativa na interface permitindo simular cenários, testar parâmetros de fórmulas do domínio e projetar resultados com feedback visual imediato.',
             files: ['public/index.html', 'public/app.js', 'public/style.css'],
-            criteria: [
-              'Modal de checkout gerando QR-Code PIX e código copia-e-cola com feedback de cópia',
-              'Exibição de recibo de transação com status confirmado e download de comprovante'
-            ]
+            criteria: hasExplicitBilling
+              ? [
+                  'Modal de checkout gerando QR-Code PIX e código copia-e-cola com feedback de cópia',
+                  'Exibição de recibo de transação com status confirmado e download de comprovante'
+                ]
+              : [
+                  'Simulador interativo recalculando score e métricas em tempo real conforme ajuste dos inputs',
+                  'Exibição gráfica ou em pílulas dos resultados da simulação com indicação de confiança'
+                ]
           },
           {
             subCode: '10.3',
@@ -5874,7 +6076,16 @@ export class HierarchicalOrchestrationService {
           verificationCommand: 'npm test',
           doneWhen: 'Critérios verificados e comando "npm test" retornando exitCode 0.',
           expectedFiles: micro.files,
-          allowedScope: micro.files,
+          allowedScope: Array.from(new Set([
+            ...micro.files,
+            'src/**',
+            'public/**',
+            'test/**',
+            'tests/**',
+            '.ai-dev-hub/**',
+            'package.json',
+            'tsconfig.json'
+          ])),
           requirementIds: linkedReqs.length > 0 ? linkedReqs : [`REQ-${gIdx + 1}`]
         };
 

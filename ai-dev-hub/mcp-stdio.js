@@ -6,6 +6,13 @@
 
 process.env.MCP_STDIO = 'true';
 
+// CRITICAL: Stdio protocol requires that stdout ONLY ever receives valid JSON-RPC frames.
+// Any console.log, console.info or console.warn from imported modules would corrupt the stream.
+console.log = () => {};
+console.info = () => {};
+console.warn = () => {};
+console.debug = () => {};
+
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -25,7 +32,6 @@ try {
 
 const rl = readline.createInterface({
   input: process.stdin,
-  output: process.stdout,
   terminal: false
 });
 

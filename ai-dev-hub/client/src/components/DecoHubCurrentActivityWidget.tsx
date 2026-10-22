@@ -427,27 +427,61 @@ export const DecoHubCurrentActivityWidget: React.FC<DecoHubCurrentActivityWidget
             )}
           </div>
 
-          {run.activeSkillsList && run.activeSkillsList.length > 0 && (
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[10px] text-slate-400 font-medium">Skills ativas:</span>
-              <div className="flex items-center gap-1 flex-wrap">
-                {run.activeSkillsList.slice(0, 5).map((skillName: string) => (
-                  <span
-                    key={skillName}
-                    className="px-1.5 py-0.5 rounded bg-[#101424] border border-[#1e253e] text-slate-300 text-[10px] font-mono"
-                    title={`Skill provisionada: ${skillName}.md`}
-                  >
-                    {skillName}
-                  </span>
-                ))}
-                {run.activeSkillsList.length > 5 && (
-                  <span className="text-[9px] text-slate-400 font-mono">
-                    +{run.activeSkillsList.length - 5}
-                  </span>
-                )}
+          {run.activeSkillsList && run.activeSkillsList.length > 0 && (() => {
+            const rawList: string[] = Array.isArray(run.activeSkillsList) ? run.activeSkillsList : [];
+            const sanitizedSet = new Set<string>();
+
+            for (const item of rawList) {
+              if (typeof item !== 'string') continue;
+              const trimmed = item.trim();
+              if (!trimmed) continue;
+
+              // Se contiver padrões longos como "ARQUIVOS DE SKILL" ou "[RECEITA...", tenta extrair o nome do arquivo .md
+              if (trimmed.length > 35 || trimmed.startsWith('[') || trimmed.includes('\n') || trimmed.includes('ARQUIVOS DE SKILL')) {
+                const mdMatches = trimmed.match(/([a-zA-Z0-9_\-]+)\.md/gi);
+                if (mdMatches) {
+                  for (const m of mdMatches) {
+                    const cleanName = m.replace(/\.md$/i, '').trim();
+                    if (cleanName.length > 0 && cleanName.length <= 35) {
+                      sanitizedSet.add(cleanName);
+                    }
+                  }
+                }
+                continue;
+              }
+
+              // Nome curto regular: limpa extensão .md se houver
+              const clean = trimmed.replace(/\.md$/i, '').trim();
+              if (clean.length > 0 && clean.length <= 35 && clean.split(/\s+/).length <= 3) {
+                sanitizedSet.add(clean);
+              }
+            }
+
+            const cleanSkills = Array.from(sanitizedSet);
+            if (!cleanSkills.length) return null;
+
+            return (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[10px] text-slate-400 font-medium">Skills ativas:</span>
+                <div className="flex items-center gap-1 flex-wrap">
+                  {cleanSkills.slice(0, 5).map((skillName: string) => (
+                    <span
+                      key={skillName}
+                      className="px-1.5 py-0.5 rounded bg-[#101424] border border-[#1e253e] text-slate-300 text-[10px] font-mono"
+                      title={`Skill provisionada: ${skillName}`}
+                    >
+                      {skillName}
+                    </span>
+                  ))}
+                  {cleanSkills.length > 5 && (
+                    <span className="text-[9px] text-slate-400 font-mono">
+                      +{cleanSkills.length - 5}
+                    </span>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </div>
       )}
 

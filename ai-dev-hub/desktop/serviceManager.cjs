@@ -21,7 +21,26 @@ class ServiceManager extends EventEmitter {
     let serverDir = options.serverDir;
     let clientDir = null;
 
-    if (process.resourcesPath) {
+    // Prioridade 1: Sempre priorizar o código-fonte real compilado em C:\IA\Antigravity HUB\ai-dev-hub
+    const canonicalServer = 'C:\\IA\\Antigravity HUB\\ai-dev-hub\\server';
+    const canonicalClient = 'C:\\IA\\Antigravity HUB\\ai-dev-hub\\client\\dist';
+    const canonicalServerDist = path.join(canonicalServer, 'dist', 'index.js');
+    const canonicalClientHtml = path.join(canonicalClient, 'index.html');
+
+    const localWorkspaceServer = path.resolve(__dirname, '..', 'server');
+    const localWorkspaceClient = path.resolve(__dirname, '..', 'client', 'dist');
+    const localServerDist = path.join(localWorkspaceServer, 'dist', 'index.js');
+    const localClientHtml = path.join(localWorkspaceClient, 'index.html');
+
+    if (fs.existsSync(canonicalServerDist) && fs.existsSync(canonicalClientHtml)) {
+      serverDir = canonicalServer;
+      clientDir = canonicalClient;
+      logger.info(`[ServiceManager] Priorizando runtime do workspace canônico: ${serverDir}`);
+    } else if (fs.existsSync(localServerDist) && fs.existsSync(localClientHtml)) {
+      serverDir = localWorkspaceServer;
+      clientDir = localWorkspaceClient;
+      logger.info(`[ServiceManager] Priorizando runtime do workspace local: ${serverDir}`);
+    } else if (process.resourcesPath) {
       const unpackedServer = path.join(process.resourcesPath, 'app.asar.unpacked', 'server');
       if (fs.existsSync(unpackedServer)) serverDir = unpackedServer;
 
@@ -57,7 +76,7 @@ class ServiceManager extends EventEmitter {
     this.startTime = null;
     this.isShuttingDown = false;
     this.restartCount = 0;
-    this.maxRestarts = 3;
+    this.maxRestarts = 50;
     this.isAttachedExisting = false;
 
     // Conceptual Services State
@@ -101,20 +120,22 @@ class ServiceManager extends EventEmitter {
     try {
       if (process.platform === 'win32') {
         const { execSync, execFileSync } = require('child_process');
-        const out = execSync(`netstat -ano -p tcp | findstr :${port}`, { encoding: 'utf8', windowsHide: true });
-        const lines = out.split('\n');
-        for (const line of lines) {
-          if (line.includes('LISTENING')) {
-            const parts = line.trim().split(/\s+/);
-            const pid = parseInt(parts[parts.length - 1], 10);
-            if (pid && pid > 0 && pid !== process.pid) {
-              logger.info(`[ServiceManager] Limpando processo preso na porta ${port} (PID: ${pid})...`);
-              try {
-                execFileSync('taskkill', ['/pid', String(pid), '/f', '/t'], { stdio: 'ignore' });
-              } catch {}
+        try {
+          const out = execSync('netstat -ano -p tcp', { encoding: 'utf8', windowsHide: true });
+          const lines = out.split('\n');
+          for (const line of lines) {
+            if (line.includes('LISTENING') && (line.includes(`:${port} `) || line.includes(`:${port}\t`) || line.includes(`127.0.0.1:${port}`) || line.includes(`0.0.0.0:${port}`))) {
+              const parts = line.trim().split(/\s+/);
+              const pid = parseInt(parts[parts.length - 1], 10);
+              if (pid && pid > 0 && pid !== process.pid) {
+                logger.info(`[ServiceManager] Limpando processo preso na porta ${port} (PID: ${pid})...`);
+                try {
+                  execFileSync('taskkill', ['/pid', String(pid), '/f', '/t'], { stdio: 'ignore' });
+                } catch {}
+              }
             }
           }
-        }
+        } catch {}
       }
     } catch {}
   }
@@ -191,23 +212,26 @@ class ServiceManager extends EventEmitter {
     this.services.ANTIGRAVITY.path = agDiscovery.languageServerExe;
     logger.info(`[ServiceManager] Antigravity Status: ${this.services.ANTIGRAVITY.status} (${agDiscovery.languageServerExe || 'Nenhum'})`);
 
-    // 2. Limpar qualquer processo órfão na porta 3001 para que o server/dist/index.js recém-compilado seja carregado do zero
-    const portTakenBefore = await this.isPortTaken(this.backendPort);
-    if (portTakenBefore) {
-      logger.info(`[ServiceManager] Porta ${this.backendPort} em uso por processo anterior. Limpando processo órfão para carregar build atualizado...`);
-      this.killProcessOnPort(this.backendPort);
-      for (let i = 0; i < 20; i++) {
-        const stillBusy = await this.isPortTaken(this.backendPort);
-        if (!stillBusy) break;
-        await new Promise(r => setTimeout(r, 100));
+    // 2. Limpar qualquer processo órfão na porta padrão (3001) para carregar o build atualizado
+    let taken = await this.isPortTaken(this.backendPort);
+    if (taken) {
+      logger.info(`[ServiceManager] Porta ${this.backendPort} em uso por processo anterior. Encerrando processo órfão para carregar build atualizado...`);
+      for (let attempt = 0; attempt < 3; attempt++) {
+        this.killProcessOnPort(this.backendPort);
+        for (let i = 0; i < 15; i++) {
+          const stillBusy = await this.isPortTaken(this.backendPort);
+          if (!stillBusy) break;
+          await new Promise(r => setTimeout(r, 100));
+        }
+        taken = await this.isPortTaken(this.backendPort);
+        if (!taken) break;
       }
     }
 
-    // 3. Dynamic Port Allocation se a porta ainda estiver ocupada por serviço externo
-    const taken = await this.isPortTaken(this.backendPort);
+    // 3. Dynamic Port Allocation somente se a porta ainda estiver ocupada por serviço externo inamovível
     if (taken) {
       this.backendPort = await this.findAvailablePort(this.backendPort + 1);
-      logger.info(`Porta padrão ocupada. Alocada nova porta dinâmica: ${this.backendPort}`);
+      logger.info(`Porta padrão ocupada por serviço externo. Alocada nova porta dinâmica: ${this.backendPort}`);
     }
 
     // 4. Spawn Node backend child process

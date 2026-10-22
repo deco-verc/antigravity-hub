@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { execSync } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import { Logger } from './logger.js';
 
 export interface AntigravityDiscoveryResult {
@@ -278,5 +278,73 @@ export class AntigravityDiscovery {
       if (fs.existsSync(p)) return p;
     }
     return null;
+  }
+
+  /**
+   * Checks if language_server.exe or Antigravity.exe process is currently alive
+   */
+  static isLanguageServerOrAntigravityRunning(): boolean {
+    if (process.platform === 'win32') {
+      try {
+        const out = execSync('tasklist /FI "IMAGENAME eq language_server.exe" /NH', {
+          encoding: 'utf-8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true
+        });
+        if (out.toLowerCase().includes('language_server.exe')) return true;
+
+        const outAg = execSync('tasklist /FI "IMAGENAME eq Antigravity.exe" /NH', {
+          encoding: 'utf-8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true
+        });
+        if (outAg.toLowerCase().includes('antigravity.exe')) return true;
+      } catch {}
+    }
+    return false;
+  }
+
+  /**
+   * Spawns or ensures the Antigravity GUI application is running
+   */
+  static launchAntigravityApp(projectPath?: string): boolean {
+    return this.ensureAntigravityRunning(projectPath);
+  }
+
+  /**
+   * Automatically boots Antigravity Desktop in background if closed and waits up to 8s for language_server
+   */
+  static ensureAntigravityRunning(projectPath?: string): boolean {
+    if (this.isLanguageServerOrAntigravityRunning()) {
+      return true;
+    }
+
+    const appExe = this.getAntigravityAppExe();
+    if (!appExe || !fs.existsSync(appExe)) {
+      Logger.warn(`[AntigravityDiscovery] Executável do Antigravity não encontrado para inicialização automática.`);
+      return false;
+    }
+
+    try {
+      Logger.info(`[AntigravityDiscovery] Antigravity não está aberto. Iniciando ${appExe} em background...`);
+      const args = projectPath && fs.existsSync(projectPath) ? [projectPath] : [];
+      const child = spawn(appExe, args, { detached: true, stdio: 'ignore', windowsHide: false });
+      child.unref();
+
+      // Aguarda até 8 segundos pelo language_server subir
+      const startTime = Date.now();
+      while (Date.now() - startTime < 8000) {
+        if (this.isLanguageServerOrAntigravityRunning()) {
+          Logger.success(`[AntigravityDiscovery] Antigravity Desktop iniciado com sucesso (Language Server ativo).`);
+          return true;
+        }
+        try {
+          execSync('timeout /t 1 /nobreak >nul 2>&1', { timeout: 1500, stdio: 'ignore' });
+        } catch {
+          const endWait = Date.now() + 500;
+          while (Date.now() < endWait) {}
+        }
+      }
+    } catch (err: any) {
+      Logger.warn(`[AntigravityDiscovery] Falha ao auto-iniciar Antigravity: ${err.message}`);
+    }
+
+    return this.isLanguageServerOrAntigravityRunning();
   }
 }

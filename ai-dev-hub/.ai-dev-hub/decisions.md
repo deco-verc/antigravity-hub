@@ -497,4 +497,6 @@
   - **Motivo:** O scheduler utilizava `ORDER BY updated_at ASC LIMIT 1`, fazendo com que runs antigos abandonados roubassem o ciclo de execução. Além disso, se qualquer run chegar ao step sem tarefas, o runner agora auto-gera o plano imediatamente em vez de falhar abruptamente com `PLAN_MISSING`.
 - **Decisão:** Sincronização Dupla SSE + Polling Fallback no Frontend: Registro de `run_updated` no `sseClient.ts`, propagação bidirecional de `projectRun` para o `App.tsx` e polling a cada 2.5s no `DecoHubChatView`
   - **Motivo:** O cliente SSE descartava o evento `run_updated` porque o tipo não estava registrado em `eventTypes`. Adicionalmente, `DecoHubChatView` não possuía polling de fallback e não propagava o `activeRun` atualizado para o estado global `projectRun` do `App.tsx`, fazendo com que a aba "Tarefas" permanecesse em 0. Agora o estado fica 100% sincronizado tanto via SSE quanto via polling resiliente.
-
+- **[21/10/2026] Resolução da priorização de diretório de brain, alinhamento de perfis isolados e restauração de despacho no nativeTurnRecovery**
+  - **Decisão:** Resolução da priorização de diretório de brain, alinhamento de perfis isolados e restauração de despacho no nativeTurnRecovery
+  - **Motivo:** Garante que caminhos primários de perfis/testes sejam verificados antes do diretório global de home, evitando misturas entre perfis e permitindo que o runner aguarde turnos multi-etapas de forma 100% determinística.

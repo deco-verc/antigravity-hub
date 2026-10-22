@@ -3329,7 +3329,7 @@ apiRouter.get('/projects/:id/files', (req, res) => {
       if (depth > 6) return [];
       if (!fs.existsSync(currentDir)) return [];
       const entries = fs.readdirSync(currentDir, { withFileTypes: true });
-      const ignore = new Set(['.git', '.ai-dev-hub', '.gemini', 'node_modules', 'dist', 'build', '.next', '.vscode']);
+      const ignore = new Set(['.git', '.gemini', 'node_modules', 'dist', 'build', '.next', '.vscode']);
       const list: any[] = [];
 
       for (const entry of entries) {
@@ -3378,15 +3378,16 @@ apiRouter.get('/projects/:id/files', (req, res) => {
   }
 });
 
-apiRouter.get('/projects/:id/file-content', (req, res) => {
+apiRouter.get(['/projects/:id/file-content', '/projects/:id/files/content'], (req, res) => {
   try {
     const { id } = req.params;
+    const projectId = Array.isArray(id) ? id[0] : (id as string);
     const filePath = req.query.path as string;
     if (!filePath) {
       return res.status(400).json({ error: 'Parâmetro path é obrigatório' });
     }
 
-    const project: any = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
+    const project: any = db.prepare('SELECT * FROM projects WHERE id = ?').get(String(projectId));
     if (!project) return res.status(404).json({ error: 'Projeto não encontrado' });
 
     const normalizedProject = path.resolve(project.path);

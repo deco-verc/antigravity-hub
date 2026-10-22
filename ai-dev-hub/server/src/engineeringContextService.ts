@@ -1472,4 +1472,222 @@ export class EngineeringContextService {
 
     return blocks.join('\n');
   }
+
+  /**
+   * Generates a compact RepoMap of exported symbols, Express routes, SQLite schemas and UI anchors.
+   * Inspired by Aider RepoMap with an authoritative budget of ~1500 tokens (~6000 characters).
+   */
+  static buildCompactRepoMap(projectPath: string, maxTokensBudget = 1500): string {
+    if (!projectPath || !fs.existsSync(projectPath)) {
+      return '';
+    }
+
+    const maxChars = maxTokensBudget * 4;
+    const resolvedRoot = path.resolve(projectPath);
+    const ignoredDirs = new Set(['node_modules', 'dist', '.git', 'data', '.decohub-data', 'coverage', '.gemini', '.ai-dev-hub', 'build']);
+
+    interface FileRepoSummary {
+      relPath: string;
+      category: 'db' | 'routes' | 'domain' | 'ui' | 'test' | 'other';
+      tables: string[];
+      routes: string[];
+      exports: string[];
+      uiTabs: string[];
+      uiIds: string[];
+      importRefsCount: number;
+    }
+
+    const fileSummaries: FileRepoSummary[] = [];
+    const allFiles: string[] = [];
+
+    const walkDir = (dir: string) => {
+      try {
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.isDirectory()) {
+            if (!ignoredDirs.has(entry.name)) {
+              walkDir(path.join(dir, entry.name));
+            }
+          } else if (entry.isFile()) {
+            const ext = path.extname(entry.name).toLowerCase();
+            if (['.ts', '.js', '.sql', '.html'].includes(ext)) {
+              allFiles.push(path.join(dir, entry.name));
+            }
+          }
+        }
+      } catch {
+        // Ignora pastas sem permissão
+      }
+    };
+
+    walkDir(resolvedRoot);
+
+    if (allFiles.length === 0) {
+      return '';
+    }
+
+    // 1. Primeira passada: processar cada arquivo
+    for (const fullPath of allFiles) {
+      const relPath = path.relative(resolvedRoot, fullPath).replace(/\\/g, '/');
+      const ext = path.extname(fullPath).toLowerCase();
+
+      let content = '';
+      try {
+        content = fs.readFileSync(fullPath, 'utf-8');
+      } catch {
+        continue;
+      }
+
+      let category: FileRepoSummary['category'] = 'other';
+      if (/schema|\.sql|src\/db|database/i.test(relPath)) category = 'db';
+      else if (/routes?|controllers?|server|api/i.test(relPath)) category = 'routes';
+      else if (/domain|services?|rules?|calculator/i.test(relPath)) category = 'domain';
+      else if (/public\/|ui\/|views?|html|components?/i.test(relPath)) category = 'ui';
+      else if (/test|tests|spec/i.test(relPath)) category = 'test';
+
+      const tables: string[] = [];
+      const routes: string[] = [];
+      const exportsList: string[] = [];
+      const uiTabs: string[] = [];
+      const uiIds: string[] = [];
+
+      // Extração de CREATE TABLE
+      const tableMatches = content.matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-zA-Z0-9_]+)\s*\(([\s\S]*?)\);/gi);
+      for (const tm of tableMatches) {
+        const tableName = tm[1];
+        const colDef = tm[2] || '';
+        const cols = colDef
+          .split('\n')
+          .map(line => line.trim())
+          .filter(line => line && !line.startsWith('--') && !line.startsWith('PRIMARY KEY') && !line.startsWith('FOREIGN KEY') && !line.startsWith('CHECK') && !line.startsWith('CONSTRAINT'))
+          .map(line => line.split(/\s+/)[0].replace(/,/g, ''))
+          .filter(c => c && /^[a-zA-Z0-9_]+$/.test(c))
+          .slice(0, 8);
+        tables.push(`${tableName} (${cols.join(', ')}${cols.length >= 8 ? ', ...' : ''})`);
+      }
+
+      // Extração de Rotas Express
+      const routeMatches = content.matchAll(/(?:app|router)\.(get|post|put|delete|patch)\s*\(\s*['"]([^'"]+)['"]/gi);
+      for (const rm of routeMatches) {
+        const method = rm[1].toUpperCase();
+        const routePath = rm[2];
+        const routeSignature = `${method} ${routePath}`;
+        if (!routes.includes(routeSignature)) {
+          routes.push(routeSignature);
+        }
+      }
+
+      // Extração de Exports TS/JS
+      if (ext === '.ts' || ext === '.js') {
+        const fnMatches = content.matchAll(/export\s+(?:async\s+)?function\s+([a-zA-Z0-9_]+)\s*\(([^)]*)\)/g);
+        for (const fm of fnMatches) {
+          const fnName = fm[1];
+          const rawParams = (fm[2] || '').replace(/[\r\n\t]+/g, ' ').trim();
+          const params = rawParams.length > 40 ? rawParams.slice(0, 37) + '...' : rawParams;
+          exportsList.push(`${fnName}(${params})`);
+        }
+
+        const classMatches = content.matchAll(/export\s+(?:abstract\s+)?class\s+([a-zA-Z0-9_]+)/g);
+        for (const cm of classMatches) {
+          exportsList.push(`class ${cm[1]}`);
+        }
+
+        const typeMatches = content.matchAll(/export\s+(?:interface|type)\s+([a-zA-Z0-9_]+)/g);
+        for (const tm of typeMatches) {
+          exportsList.push(`type ${tm[1]}`);
+        }
+
+        const constMatches = content.matchAll(/export\s+const\s+([a-zA-Z0-9_]+)\s*=\s*(?:\([^)]*\)|[a-zA-Z0-9_]+)\s*=>/g);
+        for (const ctm of constMatches) {
+          exportsList.push(`${ctm[1]}()`);
+        }
+      }
+
+      // Extração de UI (HTML / app.js)
+      if (ext === '.html') {
+        const tabMatches = content.matchAll(/data-tab=['"]([^'"]+)['"]/g);
+        for (const tbm of tabMatches) {
+          if (!uiTabs.includes(tbm[1])) uiTabs.push(tbm[1]);
+        }
+        const idMatches = content.matchAll(/id=['"]([a-zA-Z0-9_\-]+)['"]/g);
+        for (const idm of idMatches) {
+          if (!uiIds.includes(idm[1]) && !idm[1].startsWith('root') && uiIds.length < 10) {
+            uiIds.push(`#${idm[1]}`);
+          }
+        }
+      }
+
+      if (tables.length > 0 || routes.length > 0 || exportsList.length > 0 || uiTabs.length > 0) {
+        fileSummaries.push({
+          relPath,
+          category,
+          tables,
+          routes,
+          exports: exportsList.slice(0, 10),
+          uiTabs,
+          uiIds,
+          importRefsCount: 0
+        });
+      }
+    }
+
+    if (fileSummaries.length === 0) {
+      return '';
+    }
+
+    // Ordenação por relevância arquitetural: db -> routes -> domain -> ui -> other -> test
+    const categoryPriority: Record<FileRepoSummary['category'], number> = {
+      db: 1,
+      routes: 2,
+      domain: 3,
+      ui: 4,
+      other: 5,
+      test: 6
+    };
+
+    fileSummaries.sort((a, b) => {
+      const pA = categoryPriority[a.category];
+      const pB = categoryPriority[b.category];
+      if (pA !== pB) return pA - pB;
+      return a.relPath.localeCompare(b.relPath);
+    });
+
+    const lines: string[] = [
+      '=== [REPO MAP — ASSINATURAS, ROTAS E SCHEMAS ATUAIS DO PROJETO] ===',
+      '> Diretriz: Consulte este mapa de símbolos antes de criar novos arquivos. Reutilize conexões SQLite, repositórios, helpers e rotas existentes sem duplicar código nem quebrar contratos.',
+      ''
+    ];
+
+    let currentLength = lines.join('\n').length;
+
+    for (const f of fileSummaries) {
+      const blockLines: string[] = [`${f.relPath}:`];
+      if (f.tables.length > 0) {
+        blockLines.push(`  tabelas: ${f.tables.join('; ')}`);
+      }
+      if (f.routes.length > 0) {
+        blockLines.push(`  rotas: ${f.routes.join(', ')}`);
+      }
+      if (f.exports.length > 0) {
+        blockLines.push(`  exports: ${f.exports.join(', ')}`);
+      }
+      if (f.uiTabs.length > 0) {
+        blockLines.push(`  abas ui: [data-tab="${f.uiTabs.join('"], [data-tab="')}"]`);
+      }
+      if (f.uiIds.length > 0) {
+        blockLines.push(`  ids: ${f.uiIds.join(', ')}`);
+      }
+
+      const blockStr = blockLines.join('\n') + '\n';
+      if (currentLength + blockStr.length > maxChars) {
+        lines.push('... (RepoMap truncado para respeitar o orçamento de tokens)');
+        break;
+      }
+
+      lines.push(blockStr);
+      currentLength += blockStr.length;
+    }
+
+    return lines.join('\n').trim();
+  }
 }

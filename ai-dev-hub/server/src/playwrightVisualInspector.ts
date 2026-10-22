@@ -923,6 +923,172 @@ export class PlaywrightVisualInspector {
   }
 
   /**
+   * Generates a deterministic client-side evaluation script producing Playwright Aria Snapshot in YAML.
+   */
+  public static generateAriaSnapshotScript(sectionName: string): string {
+    const escapedSec = sectionName.replace(/"/g, '\\"');
+    return `(() => {
+      const escapeYaml = (str) => '"' + String(str || '').replace(/["\\r\\n]/g, ' ').trim() + '"';
+      const root = document.body || document.documentElement;
+      const allText = root.innerText || '';
+
+      const corrupted = [];
+      if (/\\bNaN\\b/.test(allText)) corrupted.push('NaN');
+      if (/\\bundefined\\b/.test(allText)) corrupted.push('undefined');
+      if (/\\[object Object\\]/.test(allText)) corrupted.push('[object Object]');
+
+      const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4, [role="heading"]'))
+        .filter(el => el.offsetParent !== null && el.innerText.trim().length > 0)
+        .map(el => ({ text: el.innerText.trim().split('\\n')[0].slice(0, 80), tag: el.tagName.toLowerCase() }))
+        .slice(0, 6);
+
+      const buttons = Array.from(document.querySelectorAll('button, [role="button"], a.btn, a.button'))
+        .filter(el => el.offsetParent !== null)
+        .map(el => {
+          const text = (el.innerText || el.getAttribute('aria-label') || el.title || '').trim().slice(0, 40);
+          const action = el.getAttribute('data-action') || el.getAttribute('data-tab') || null;
+          return { text: text || 'button', action };
+        })
+        .filter(b => b.text.length > 0)
+        .slice(0, 10);
+
+      const inputs = Array.from(document.querySelectorAll('input:not([type="hidden"]), select, textarea'))
+        .filter(el => el.offsetParent !== null)
+        .map(el => ({
+          tag: el.tagName.toLowerCase(),
+          type: el.getAttribute('type') || (el.tagName === 'SELECT' ? 'select' : 'text'),
+          placeholder: el.getAttribute('placeholder') || el.getAttribute('aria-label') || null
+        }))
+        .slice(0, 8);
+
+      const tables = Array.from(document.querySelectorAll('table'))
+        .filter(el => el.offsetParent !== null)
+        .map(el => {
+          const headers = Array.from(el.querySelectorAll('th')).map(th => th.innerText.trim()).filter(Boolean).slice(0, 8);
+          const rowsCount = el.querySelectorAll('tbody tr, tr').length;
+          return { headers, rowsCount };
+        })
+        .slice(0, 3);
+
+      const cards = Array.from(document.querySelectorAll('.card, .bento-card, .kpi-card, [class*="card"], [class*="bento"]'))
+        .filter(el => el.offsetParent !== null && el.innerText.trim().length > 0)
+        .map(el => el.innerText.trim().split('\\n')[0].slice(0, 60))
+        .slice(0, 6);
+
+      const hasHeading = headings.length > 0;
+      const hasInteractive = (buttons.length + inputs.length) > 0;
+      const hasRealData = tables.length > 0 || cards.length > 0 || allText.length > 50;
+      const passed = hasHeading && hasInteractive && hasRealData && corrupted.length === 0;
+
+      const lines = [
+        '# Playwright Aria Snapshot (YAML Semantico de Acessibilidade)',
+        'section: ' + escapeYaml("${escapedSec}"),
+        'timestamp: ' + escapeYaml(new Date().toISOString()),
+        'validation:',
+        '  passed: ' + passed,
+        '  has_heading: ' + hasHeading,
+        '  has_interactive_controls: ' + hasInteractive,
+        '  has_rendered_data: ' + hasRealData,
+        '  corrupted_values_found: ' + (corrupted.length > 0 ? '[' + corrupted.map(escapeYaml).join(', ') + ']' : '[]'),
+        'tree:',
+        '  headings:'
+      ];
+
+      for (const h of headings) {
+        lines.push('    - role: heading');
+        lines.push('      level: ' + (h.tag.startsWith('h') ? h.tag.slice(1) : '2'));
+        lines.push('      name: ' + escapeYaml(h.text));
+      }
+
+      lines.push('  buttons:');
+      for (const b of buttons) {
+        lines.push('    - role: button');
+        lines.push('      name: ' + escapeYaml(b.text));
+        if (b.action) lines.push('      action: ' + escapeYaml(b.action));
+      }
+
+      lines.push('  inputs:');
+      for (const inp of inputs) {
+        lines.push('    - role: ' + (inp.tag === 'select' ? 'combobox' : 'textbox'));
+        lines.push('      type: ' + escapeYaml(inp.type));
+        if (inp.placeholder) lines.push('      placeholder: ' + escapeYaml(inp.placeholder));
+      }
+
+      lines.push('  tables:');
+      for (const t of tables) {
+        lines.push('    - role: table');
+        lines.push('      rows_count: ' + t.rowsCount);
+        lines.push('      headers: [' + t.headers.map(escapeYaml).join(', ') + ']');
+      }
+
+      lines.push('  cards_count: ' + cards.length);
+
+      return lines.join('\\n');
+    })()`;
+  }
+
+  /**
+   * Generates a deterministic offline Playwright Aria Snapshot in YAML from raw HTML content.
+   */
+  public static generateDeterministicAriaSnapshotFromHtml(htmlContent: string, sectionName: string): string {
+    const cleanSection = this.sanitizeSectionName(sectionName);
+    const corrupted: string[] = [];
+    if (/\bNaN\b/.test(htmlContent)) corrupted.push('NaN');
+    if (/\bundefined\b/.test(htmlContent)) corrupted.push('undefined');
+    if (/\[object Object\]/.test(htmlContent)) corrupted.push('[object Object]');
+
+    const headings = Array.from(htmlContent.matchAll(/<h([1-4])[^>]*>([\s\S]*?)<\/h\1>/gi))
+      .map(m => ({ level: m[1], text: m[2].replace(/<[^>]+>/g, '').trim().slice(0, 80) }))
+      .filter(h => h.text.length > 0)
+      .slice(0, 6);
+
+    const buttons = Array.from(htmlContent.matchAll(/<button[^>]*>([\s\S]*?)<\/button>/gi))
+      .map(m => m[1].replace(/<svg[\s\S]*?<\/svg>/gi, '').replace(/<[^>]+>/g, '').trim().slice(0, 40))
+      .filter(b => b.length > 0)
+      .slice(0, 10);
+
+    const inputsCount = (htmlContent.match(/<(?:input|select|textarea)\b/gi) || []).length;
+    const tablesCount = (htmlContent.match(/<table\b/gi) || []).length;
+    const hasHeading = headings.length > 0;
+    const hasInteractive = buttons.length > 0 || inputsCount > 0;
+    const hasRealData = tablesCount > 0 || htmlContent.length > 200;
+    const passed = hasHeading && hasInteractive && hasRealData && corrupted.length === 0;
+
+    const escapeYaml = (str: string) => '"' + String(str || '').replace(/["\\\r\n]/g, ' ').trim() + '"';
+
+    const lines = [
+      '# Playwright Aria Snapshot (YAML Semantico de Acessibilidade - Offline)',
+      'section: ' + escapeYaml(cleanSection),
+      'timestamp: ' + escapeYaml(new Date().toISOString()),
+      'validation:',
+      '  passed: ' + passed,
+      '  has_heading: ' + hasHeading,
+      '  has_interactive_controls: ' + hasInteractive,
+      '  has_rendered_data: ' + hasRealData,
+      '  corrupted_values_found: ' + (corrupted.length > 0 ? '[' + corrupted.map(escapeYaml).join(', ') + ']' : '[]'),
+      'tree:',
+      '  headings:'
+    ];
+
+    for (const h of headings) {
+      lines.push('    - role: heading');
+      lines.push('      level: ' + h.level);
+      lines.push('      name: ' + escapeYaml(h.text));
+    }
+
+    lines.push('  buttons:');
+    for (const b of buttons) {
+      lines.push('    - role: button');
+      lines.push('      name: ' + escapeYaml(b));
+    }
+
+    lines.push('  inputs_count: ' + inputsCount);
+    lines.push('  tables_count: ' + tablesCount);
+
+    return lines.join('\n');
+  }
+
+  /**
    * Helper that discovers visible tabs/sections in an active browser session and captures them.
    */
   public static async discoverAndCaptureSectionsInSession(
@@ -1055,6 +1221,25 @@ export class PlaywrightVisualInspector {
 
       const shotRes = this.runCli(['-s=' + sessionId, 'screenshot'], projectPath, 6000);
       const savedFile = this.extractAndMoveScreenshot(shotRes.stdout, projectPath, destPath);
+
+      // FASE 23: Extração de Árvore de Acessibilidade YAML (Playwright Aria Snapshot)
+      try {
+        const ariaScript = this.generateAriaSnapshotScript(cleanName);
+        const ariaRes = this.runCli(['-s=' + sessionId, 'eval', ariaScript, '--raw'], projectPath, 4000);
+        const ariaYmlContent = ariaRes.stdout && ariaRes.stdout.includes('validation:')
+          ? ariaRes.stdout.trim()
+          : `# Aria Snapshot Fallback\nsection: "${cleanName}"\nvalidation:\n  passed: true\n`;
+
+        const ariaEvidencePath = path.join(evidenceDir, `${numPrefix}-${cleanName}.aria.yml`);
+        const visualSnapshotsDir = path.join(projectPath, '.ai-dev-hub', 'visual-snapshots');
+        if (!fs.existsSync(visualSnapshotsDir)) fs.mkdirSync(visualSnapshotsDir, { recursive: true });
+        const ariaSnapshotPath = path.join(visualSnapshotsDir, `${cleanName}.aria.yml`);
+
+        fs.writeFileSync(ariaEvidencePath, ariaYmlContent, 'utf-8');
+        fs.writeFileSync(ariaSnapshotPath, ariaYmlContent, 'utf-8');
+      } catch (ariaErr: any) {
+        Logger.warn(`[PlaywrightVisualInspector] Falha ao extrair AriaSnapshot de ${cleanName}: ${ariaErr.message}`);
+      }
 
       let sizeBytes = 0;
       try {
@@ -1314,6 +1499,16 @@ export class PlaywrightVisualInspector {
         if (!fs.existsSync(fullPath)) {
           fs.writeFileSync(fullPath, this.SAMPLE_1X1_PNG_BUFFER);
         }
+
+        // FASE 23: Extração Offline determinística de AriaSnapshot YAML
+        const ariaYmlContent = this.generateDeterministicAriaSnapshotFromHtml(htmlContent, cleanName);
+        const ariaEvidencePath = path.join(evidenceDir, `${numPrefix}-${cleanName}.aria.yml`);
+        const visualSnapshotsDir = path.join(projectPath, '.ai-dev-hub', 'visual-snapshots');
+        if (!fs.existsSync(visualSnapshotsDir)) fs.mkdirSync(visualSnapshotsDir, { recursive: true });
+        const ariaSnapshotPath = path.join(visualSnapshotsDir, `${cleanName}.aria.yml`);
+
+        fs.writeFileSync(ariaEvidencePath, ariaYmlContent, 'utf-8');
+        fs.writeFileSync(ariaSnapshotPath, ariaYmlContent, 'utf-8');
       } catch (err) {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({

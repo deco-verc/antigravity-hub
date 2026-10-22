@@ -16,14 +16,14 @@ test('AgentApiGateway, Fail-Closed Guard & Circuit Breaker Suite', async (t) => 
   });
 
   // 1. FAIL-CLOSED GUARD: When no mock is installed in offline mode, real calls are BLOCKED immediately
-  await t.test('1. FAIL-CLOSED GUARD: Block real execution before touching language_server.exe', () => {
+  await t.test('1. FAIL-CLOSED GUARD: Block real execution before touching language_server.exe', async () => {
     AgentApiGateway.setMockProvider(null);
     process.env.DECOHUB_OFFLINE_MODE = 'true';
     process.env.DECOHUB_ALLOW_LIVE_AGENTAPI = 'false';
 
-    assert.throws(
-      () => {
-        AgentApiGateway.newConversation({
+    await assert.rejects(
+      async () => {
+        await AgentApiGateway.newConversation({
           model: 'flash',
           title: 'Dangerous Real Call',
           prompt: 'This must never execute',
@@ -53,9 +53,9 @@ test('AgentApiGateway, Fail-Closed Guard & Circuit Breaker Suite', async (t) => 
   });
 
   // 2. FAKE PROVIDER: Generates deterministic synthetic sessions without external network/process
-  await t.test('2. FAKE PROVIDER: Produces synthetic conversation IDs and records turn history in memory', () => {
+  await t.test('2. FAKE PROVIDER: Produces synthetic conversation IDs and records turn history in memory', async () => {
     fake.reset();
-    const convId = AgentApiGateway.newConversation({
+    const convId = await AgentApiGateway.newConversation({
       model: 'pro',
       title: 'Supervisor Synthetic Test',
       prompt: 'Olá Supervisor',

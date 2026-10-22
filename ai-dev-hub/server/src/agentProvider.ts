@@ -55,6 +55,7 @@ export interface BuilderToSupervisorContract {
     command?: string;
     output?: string;
     passed?: boolean;
+    exitCode?: number;
   };
   buildStatus: string;
   browserValidation?: string;

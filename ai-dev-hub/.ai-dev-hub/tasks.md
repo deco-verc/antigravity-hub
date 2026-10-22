@@ -83,6 +83,8 @@
 - [ ] Conclusão do pacote evolutivo de 4 fases (SSE, LspService, CI Doctor e Best-of-N Rollout) pronta para uso em produção e novos ciclos autônomos.
 - [ ] Todas as 5 Fases da evolução autônoma do DecoHUB concluídas, homologadas e prontas para uso em produção.
 - [ ] Validação do fluxo completo de chat e planejamento no projeto ViralYTSearch no aplicativo Desktop
+- [ ] Acompanhar a conclusão da tarefa 1.1 e progressão autônoma das próximas etapas do ViralYTSearch
+- [ ] Acompanhar a progressão contínua da Onda 7 (Sidebar, Topbar, Command Palette) no pipeline autônomo de ViralYTSearch
 
 ## Concluído
 - [x] FASE 3: Resiliência Autônoma — Auto-Recovery de AGENTAPI_UNAVAILABLE e Self-Healing de Verificação: Implementação de retry transiente no AgentApiGateway com até 2 tentativas e re-descoberta dinâmica de binário do Antigravity (AntigravityDiscovery.discover({ forceRefresh: true })); implementação de watchdog de auto-recuperação (attemptResourceRecovery e integração em schedulerTick) para runs em waiting_resource que restaura status para running, zera falhas transitórias, registra RUNTIME_RECOVERED_AUTOMATICALLY e aciona o ciclo autônomo sem intervenção manual; implementação do Self-Healing de verificação no AutonomousRunnerService convertendo veredictos técnicos BLOCKED em REWORK_REQUIRED com feedback diagnóstico estruturado para o Worker e normalização de comandos via normalizeOrRecoverVerificationCommand enquanto retry_count < maxRetries sem pausar o run; preservação estrita de travas de segurança para TAMPERING_DETECTED e exaustão de retries (pauseForVerification mantido); criação do arquivo de teste test/autonomousSelfHealingAndRecovery.test.ts cobrindo os 3 cenários; integração no package.json elevando a suíte oficial para 53 arquivos de teste e 511 testes passando 100% (0 falhas) com TypeScript build limpo.
@@ -538,3 +540,13 @@
 - [x] Resolução definitiva do travamento "Pensando e processando..." e 0 tarefas no DecoHUB com planejamento síncrono rápido e dual-layer resilience SSE + polling fallback
 - [x] Eliminação da race condition de PLAN_MISSING no AutonomousRunnerService e priorização de runs mais recentes (ORDER BY updated_at DESC)
 - [x] Inclusão de evento run_updated no sseClient e sincronização bidirecional entre DecoHubChatView e App.tsx
+- [x] Alinhamento e priorização de primaryBrainDir no AntigravityProvider
+- [x] Correção de verificação em disco para mock de supervisor no GeminiSupervisorProvider
+- [x] Sincronização de planos mockados no AutonomousManager para pipelines de teste
+- [x] Build e sincronização completa com app.asar.unpacked
+- [x] Aprovação da intervenção pendente e avanço contínuo do ViralYTSearch
+- [x] Perfil de domínio creator_economy no MarketDiscoveryService com benchmarks (1of10, VidIQ, Viewstats, TubeBuddy, OpusClip), fórmulas (outlier_score, engagement_rate, views_per_hour) e entidades SQLite reais
+- [x] Especificações canônicas de 5 seções especializadas em ProjectLivingSpecService (01-Dashboard, 02-Registros, 03-Operacoes, 04-Auditoria, 05-Configuracoes) com componentes anatômicos 16:9, Outlier Pills e Drawer 520px
+- [x] Desbloqueio de escopo no HierarchicalOrchestrationService para arquivos de projeto legítimos em public/, src/, test/, docs e configs
+- [x] Regeneração e sincronização completa dos Living Specs de ViralYTSearch
+- [x] Reconciliação e desbloqueio da Tarefa 24 (GT-7) em hub.db

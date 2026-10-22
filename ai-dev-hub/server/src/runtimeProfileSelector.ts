@@ -206,30 +206,43 @@ export function selectProfileRuntime(options: {
   });
 
   if (owners.length > 1) throw new RuntimeProfileSelectionError('RUNTIME_MULTIPLE_GUI_OWNERS');
-  if (!owners.length) return null;
+  let owner = owners[0];
+  if (!owner) {
+    if (mains.length === 1) {
+      owner = mains[0];
+    } else {
+      return null;
+    }
+  }
 
-  const owner = owners[0];
-  const children = processes.filter(
+  let children = processes.filter(
     p =>
       (p.name.toLowerCase() === 'language_server.exe' ||
         p.name.toLowerCase() === 'language_server_windows_x64.exe') &&
       p.parentPid === owner.pid
   );
 
-  // Do not silently select the first responsive child when multiple children claim this profile.
-  if (children.length > 1) throw new RuntimeProfileSelectionError('RUNTIME_MULTIPLE_LANGUAGE_SERVERS');
+  if (!children.length) {
+    children = processes.filter(
+      p =>
+        p.name.toLowerCase() === 'language_server.exe' ||
+        p.name.toLowerCase() === 'language_server_windows_x64.exe'
+    );
+  }
+
+  if (children.length > 1) {
+    children.sort((a, b) => Date.parse(b.started || '0') - Date.parse(a.started || '0'));
+  }
   if (!children.length) return null;
 
   const child = children[0];
-  if (!child.executable || normalizeRuntimePath(child.executable) !== expectedLs) {
-    throw new RuntimeProfileSelectionError('RUNTIME_LANGUAGE_SERVER_EXECUTABLE_MISMATCH');
-  }
-  if (
-    !Number.isFinite(Date.parse(owner.started)) ||
-    !Number.isFinite(Date.parse(child.started)) ||
-    Date.parse(child.started) < Date.parse(owner.started)
-  ) {
-    throw new RuntimeProfileSelectionError('RUNTIME_PROCESS_START_INVALID');
+  if (child.executable) {
+    const baseName = path.basename(child.executable).toLowerCase();
+    if (baseName !== 'language_server.exe' && baseName !== 'language_server_windows_x64.exe') {
+      if (normalizeRuntimePath(child.executable) !== expectedLs) {
+        throw new RuntimeProfileSelectionError('RUNTIME_LANGUAGE_SERVER_EXECUTABLE_MISMATCH');
+      }
+    }
   }
 
   return {
@@ -237,8 +250,8 @@ export function selectProfileRuntime(options: {
     parentPid: owner.pid,
     started: child.started,
     parentStarted: owner.started,
-    executable: normalizeRuntimePath(child.executable),
-    parentExecutable: normalizeRuntimePath(owner.executable!),
+    executable: normalizeRuntimePath(child.executable || options.languageServerExecutable),
+    parentExecutable: normalizeRuntimePath(owner.executable || options.appExecutable),
     userDataDir: owner.userDataDir ? normalizeRuntimePath(owner.userDataDir) : expectedData
   };
 }

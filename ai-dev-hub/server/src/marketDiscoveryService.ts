@@ -181,6 +181,181 @@ export class MarketDiscoveryService {
         'Dashboard comercial com comparativo de metas, taxas de conversão e ranking de corretores/vendedores'
       ]
     },
+    creator_video_analytics: {
+      domainName: 'Creator Economy / YouTube Viral Search & Analytics',
+      referenceApps: [
+        '1of10.com (Outlier Video Finder)',
+        'VidIQ (Viral Velocity & Keyword Research)',
+        'Viewstats by MrBeast (Thumbnail & Retention Analytics)',
+        'TubeBuddy (Channel Explorer)',
+        'OpusClip / Descript (Transcript & Hook Analysis)'
+      ],
+      marketDiagnosis:
+        'Criadores de conteúdo, canais do YouTube e estrategistas de mídia perdem dias minerando referências manualmente e falham em identificar padrões virais. O líder de mercado (1of10, Viewstats) automatiza o cálculo de Outlier Multipliers (2x a 50x acima da média histórica do canal), velocidade de visualizações por hora (VPH) e monitoramento de nichos com radares de tração e notas de roteirização.',
+      screenFlows: [
+        'App Shell com abas [role="tab"]: 01-Dashboard (Radar de Virais & Bento KPIs), 02-Registros (Galeria de Cards 16:9 & Filtros de Engajamento), 03-Operacoes (Nichos & Varreduras), 04-Auditoria (Trilha Forense com JSON Diff), 05-Configuracoes (Algoritmos de Viral Score & API Keys)',
+        'Command Palette universal (Ctrl+K) com pesquisa rápida de vídeos, canais, nichos e atalhos de filtro',
+        'Slide-Over Video/Transcript Inspector Drawer 520px com preview de vídeo 16:9, métricas de retenção, tags e transcrição estruturada',
+        'Galeria de Cards 16:9 de alta performance com debounce de busca (250ms), ordenação por Outlier Multiplier, badges monospace de duração e exportação CSV'
+      ],
+      coreEntities: [
+        'viral_videos (id, youtube_id, title, channel_title, views, likes, comments, published_at, thumbnail_url, view_count_baseline, outlier_score, engagement_rate, views_per_hour, niche_id, tags_json, notes, created_at)',
+        'saved_niches (id, name, keyword_filter, min_views, min_outlier_score, refresh_interval_hours, is_active, created_at)',
+        'search_operations (id, query, niche_id, results_count, status, execution_time_ms, created_at)',
+        'audit_logs (id, actor, action, entity, entity_id, diff_json, created_at)',
+        'system_settings (key, value, updated_at)'
+      ],
+      calculationFormulas: [
+        'engagement_rate = ((likes + comments) / Math.max(views, 1)) * 100',
+        'outlier_score = Number((views / Math.max(channel_avg_views, 1)).toFixed(2))',
+        'views_per_hour = Math.round(views / Math.max((Date.now() - new Date(published_at).getTime()) / 3600000, 1))',
+        'view_to_subscriber_ratio = (views / Math.max(subscribers, 1)) * 100'
+      ],
+      killerFeatures: [
+        'Galeria de Cards de Vídeo 16:9 com badge de duração monospace e pílulas de Outlier Multiplier (>= 5x verde esmeralda, >= 2.5x azul)',
+        'Barra de Filtros Compostos de Engajamento (Views, Engagement %, Outlier Score, Formato Shorts vs Longo e Nicho)',
+        'Slide-Over Video/Transcript Inspector (520px) com decomposição de ganchos nos primeiros 30s e notas de roteiro'
+      ]
+    },
+    creator_economy: {
+      domainName: 'Creator Economy / YouTube Viral Search & Analytics',
+      referenceApps: [
+        '1of10.com (Outlier Video Finder)',
+        'VidIQ (Viral Velocity & Keyword Research)',
+        'Viewstats by MrBeast (Thumbnail & Retention Analytics)',
+        'TubeBuddy (Channel Explorer)',
+        'OpusClip / Descript (Transcript & Hook Analysis)'
+      ],
+      marketDiagnosis:
+        'Criadores de conteúdo, canais do YouTube e estrategistas de mídia perdem dias minerando referências manualmente e falham em identificar padrões virais. O líder de mercado (1of10, Viewstats) automatiza o cálculo de Outlier Multipliers (2x a 50x acima da média histórica do canal), velocidade de visualizações por hora (VPH) e monitoramento de nichos com radares de tração e notas de roteirização.',
+      screenFlows: [
+        'App Shell com abas [role="tab"]: 01-Dashboard (Radar de Virais & Bento KPIs), 02-Registros (Explorador & Filtros de Engajamento), 03-Operacoes (Nichos & Coletas), 04-Auditoria (Trilha Forense com JSON Diff), 05-Configuracoes (Algoritmos de Viral Score & API Keys)',
+        'Command Palette universal (Ctrl+K) com pesquisa rápida de vídeos, canais, nichos e atalhos de filtro',
+        'Slide-Over Drawer 520px com preview de vídeo 16:9, métricas de retenção, tags e transcrição estruturada',
+        'Data Grid de alta performance com debounce de busca (250ms), ordenação por Outlier Multiplier e exportação CSV'
+      ],
+      coreEntities: [
+        'viral_videos (id, youtube_id, title, channel_title, views, likes, comments, published_at, thumbnail_url, view_count_baseline, outlier_score, engagement_rate, views_per_hour, niche_id, tags_json, notes, created_at)',
+        'saved_niches (id, name, keyword_filter, min_views, min_outlier_score, refresh_interval_hours, is_active, created_at)',
+        'search_operations (id, query, niche_id, results_count, status, execution_time_ms, created_at)',
+        'audit_logs (id, actor, action, entity, entity_id, diff_json, created_at)',
+        'system_settings (key, value, updated_at)'
+      ],
+      calculationFormulas: [
+        'engagement_rate = ((likes + comments) / Math.max(views, 1)) * 100',
+        'outlier_score = Number((views / Math.max(channel_avg_views, 1)).toFixed(2))',
+        'views_per_hour = Math.round(views / Math.max((Date.now() - new Date(published_at).getTime()) / 3600000, 1))'
+      ],
+      killerFeatures: [
+        'Algoritmo Preditivo de Outlier Score comparando a performance do vídeo com a média histórica do canal (identifica virais autênticos de 3x a 50x)',
+        'Radar de Nichos com busca multi-termo, filtros avançados de velocidade (VPH) e monitoramento de concorrentes',
+        'Gaveta Analítica 520px com decomposição de títulos virais, tags de tração e exportação para briefing de roteiro'
+      ]
+    },
+    ai_automation_agents: {
+      domainName: 'AI Agents, LLM Workflows & Prompt Engineering Hub',
+      referenceApps: [
+        'LangSmith',
+        'Vercel AI Playground',
+        'Linear',
+        'Raycast',
+        'OpenRouter'
+      ],
+      marketDiagnosis:
+        'Desenvolvedores e equipes de produto que implementam fluxos de IA enfrentam opacidade em execuções de prompts, variação imprevista de custos de tokens e ausência de observabilidade em cadeias RAG. Plataformas líderes entregam rastreabilidade de chamadas (traces), playground comparativo de modelos e auditoria detalhada de payloads e latência.',
+      screenFlows: [
+        'App Shell com abas [role="tab"]: 01-Playground (Execuções & Testes de Prompts), 02-Traces (Histórico de Chamadas & Latência), 03-Modelos (Catálogo & Custos por Token), 04-Auditoria (Diff de Payloads & Logs), 05-Configurações (API Keys de Provedores)',
+        'Command Palette (Ctrl+K) com troca rápida de modelos e pesquisa instantânea de traces',
+        'Slide-Over Inspector Drawer (520px) com abas de Payload JSON, Árvore de Execução RAG e Métricas de Latência/Custo',
+        'Data Grid com filtros avançados por Modelo (GPT-4o, Claude 3.5, Gemini 1.5, Llama 3), Faixa de Latência P95 e Status da Execução'
+      ],
+      coreEntities: [
+        'prompt_templates (id, name, model, system_prompt, user_prompt, temperature, top_p, version, created_at)',
+        'agent_runs (id, template_id, model, input_json, output_text, prompt_tokens, completion_tokens, latency_ms, cost_usd, status, created_at)',
+        'token_usage_records (id, model, date, total_tokens, total_cost_usd)',
+        'audit_logs (id, actor, action, entity, entity_id, diff_json, created_at)',
+        'system_settings (key, value, updated_at)'
+      ],
+      calculationFormulas: [
+        'custo_estimado = (prompt_tokens * custo_prompt_1k / 1000) + (completion_tokens * custo_completion_1k / 1000)',
+        'taxa_sucesso_execucao = (execucoes_sucesso / total_execucoes) * 100',
+        'latencia_media_ms = avg(duracao_ms)',
+        'p95_latencia_ms = percentile_95(duracao_ms)'
+      ],
+      killerFeatures: [
+        'Playground Interativo com comparação lado a lado de respostas de modelos concorrentes',
+        'Calculadora em tempo real de custo por 1k tokens e latência P95',
+        'Slide-Over Drawer 520px com visualização formatada de prompts, variáveis e inspeção de chunks'
+      ]
+    },
+    edtech_learning: {
+      domainName: 'EdTech, Plataformas de Ensino & Gestão de Aprendizagem',
+      referenceApps: [
+        'Duolingo',
+        'Notion',
+        'Linear',
+        'Brilliant.org',
+        'Maven'
+      ],
+      marketDiagnosis:
+        'Ambientes virtuais de aprendizagem tradicionais sofrem com altas taxas de evasão, falta de feedback gamificado e dificuldade em acompanhar o progresso individual dos alunos. Os líderes de EdTech engajam através de trilhas visuais estruturadas, flashcards espaçados e diagnósticos claros de retenção e conclusão.',
+      screenFlows: [
+        'App Shell com abas [role="tab"]: 01-Dashboard (KPIs de Alunos & Engajamento), 02-Cursos (Catálogo de Módulos & Aulas), 03-Alunos (Progresso & Frequência), 04-Auditoria (Submissões de Provas & Certificados), 05-Configurações (Gamificação & Regras de Aprovação)',
+        'Slide-Over Detail Drawer (520px) com resumo do aluno, progresso por aula e notas de exercícios',
+        'Data Grid com filtros por módulo, status de matrícula (ativo, concluído, evadido) e pontuação'
+      ],
+      coreEntities: [
+        'courses (id, title, description, category, total_modules, duration_hours, is_published, created_at)',
+        'modules (id, course_id, title, order_index, lessons_count, created_at)',
+        'lessons (id, module_id, title, video_url, content_text, duration_minutes, created_at)',
+        'students (id, name, email, enrolled_courses_count, completed_lessons_count, average_score, created_at)',
+        'progress_records (id, student_id, lesson_id, completed, score, last_accessed_at)',
+        'audit_logs (id, actor, action, entity, entity_id, diff_json, created_at)'
+      ],
+      calculationFormulas: [
+        'taxa_conclusao_modulo = (aulas_concluidas / total_aulas) * 100',
+        'retencao_alunos_pct = (alunos_ativos / total_alunos_matriculados) * 100',
+        'score_aproveitamento = (respostas_corretas / total_questoes) * 100'
+      ],
+      killerFeatures: [
+        'Trilha visual de aprendizagem com badges de conquista e cálculo dinâmico de progresso',
+        'Dashboard de retenção com identificação precoce de alunos com risco de evasão',
+        'Drawer analítico 520px com histórico de submissões e tempo dedicado por aula'
+      ]
+    },
+    logistics_operations: {
+      domainName: 'Logística, Gestão de Frotas, Estoque & Supply Chain',
+      referenceApps: [
+        'Flexport',
+        'Samsara',
+        'Shopify Admin',
+        'Linear'
+      ],
+      marketDiagnosis:
+        'Cadeias de suprimentos e centros de distribuição enfrentam falta de visibilidade de estoques em tempo real, atrasos na expedição e frotas ociosas. Sistemas modernos de logística unificam inventário físico, tracking de remessas e SLAs de entrega com alertas preditivos de ruptura.',
+      screenFlows: [
+        'App Shell com abas [role="tab"]: 01-Dashboard (Painel Operacional & SLAs), 02-Estoque (Itens, Lotes & Giro), 03-Remessas (Rastreio de Pedidos & Frotas), 04-Auditoria (Inventário Físico & Baixas), 05-Configurações (Centros de Distribuição & Rotas)',
+        'Slide-Over Drawer 520px com rastreamento de lote, movimentações de entrada/saída e notas fiscais',
+        'Filtros compostos por Armazém, Status da Entrega (em trânsito, entregue, atrasado) e Nível de Estoque (crítico, normal, excesso)'
+      ],
+      coreEntities: [
+        'inventory_items (id, sku, name, category, warehouse_location, quantity_on_hand, min_threshold, unit_cost, created_at, updated_at)',
+        'shipments (id, tracking_code, destination, carrier, status, estimated_delivery, actual_delivery, created_at)',
+        'fleet_vehicles (id, plate, driver_name, capacity_kg, current_status, last_maintenance, created_at)',
+        'stock_movements (id, item_id, type, quantity, reason, actor, created_at)',
+        'audit_logs (id, actor, action, entity, entity_id, diff_json, created_at)'
+      ],
+      calculationFormulas: [
+        'sla_cumprimento_entregas = (entregas_no_prazo / total_entregas) * 100',
+        'giro_estoque_mensal = custo_mercadoria_vendida / max(valor_estoque_medio, 1)',
+        'lead_time_medio_dias = avg(data_entrega - data_pedido)'
+      ],
+      killerFeatures: [
+        'Radar de ruptura de estoque com cálculo automático de ponto de ressuprimento',
+        'Monitor de SLA de entregas com alerta visual para remessas com risco de atraso',
+        'Drawer de movimentação 520px com histórico imutável de entradas, saídas e ajustes de inventário'
+      ]
+    },
     general_saas: {
       domainName: 'SaaS Moderno de Alta Densidade & Operações',
       referenceApps: ['Linear', 'Stripe', 'Supabase', 'Cal.com'],
@@ -217,6 +392,18 @@ export class MarketDiscoveryService {
     const raw = briefing || '';
     const text = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
+    if (/youtube|video|viral|engajamento|views?|likes?|transcri|roteiro|nicho|canal|thumbnail|tiktok|reels|creator|copywriting/i.test(text)) {
+      return this.DOMAIN_PROFILES.creator_video_analytics || this.DOMAIN_PROFILES.creator_economy;
+    }
+    if (/\b(?:ia|ai)\b|llm|prompt|agente|agent|automacao|automation|rag|whisper|openai|groq|anthropic|langchain|transcricao/i.test(text)) {
+      return this.DOMAIN_PROFILES.ai_automation_agents;
+    }
+    if (/curso|aula|aluno|estud|flashcard|mentoria|prova|quiz|ensino|trilha|educacao|aprendizado/i.test(text)) {
+      return this.DOMAIN_PROFILES.edtech_learning;
+    }
+    if (/estoque|frota|entrega|delivery|suprimento|producao|logistica|rastreio|armazem|frete|romaneio/i.test(text)) {
+      return this.DOMAIN_PROFILES.logistics_operations;
+    }
     if (/banco|finan|pagamento|cobran|fatura|pix|cartao|transac|saldo|extrato|inadimpl|ledger|conta\s*a\s*pagar/i.test(text)) {
       return this.DOMAIN_PROFILES.fintech;
     }
@@ -226,7 +413,7 @@ export class MarketDiscoveryService {
     if (/saude|clinic|medico|paciente|consulta|prontuario|odont|dentist|terapia|hospital|remedio|receita|telemedicin/i.test(text)) {
       return this.DOMAIN_PROFILES.health;
     }
-    if (/loja|e-commerce|ecommerce|produto|estoque|pedido|carrinho|entrega|delivery|restaurante|cardapio|frete/i.test(text)) {
+    if (/loja|e-commerce|ecommerce|produto|carrinho|restaurante|cardapio/i.test(text)) {
       return this.DOMAIN_PROFILES.ecommerce;
     }
     if (/crm|venda|lead|proposta|pipeline|funil|comercial|cliente|negocio|prospeccao/i.test(text)) {
@@ -237,14 +424,98 @@ export class MarketDiscoveryService {
   }
 
   /**
+   * Dynamic Briefing Extractor:
+   * Analyzes raw briefing to extract explicit entities, filters, integrations,
+   * formulas, and detect whether billing or kanban were requested.
+   */
+  public static extractBriefingEntitiesAndRules(briefing: string): {
+    entities: string[];
+    filters: string[];
+    integrations: string[];
+    sections: string[];
+    formulas: string[];
+    hasExplicitBilling: boolean;
+    hasExplicitKanban: boolean;
+  } {
+    const raw = briefing || '';
+    const text = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+    const entities: string[] = [];
+    const filters: string[] = [];
+    const integrations: string[] = [];
+    const sections: string[] = [];
+    const formulas: string[] = [];
+
+    const hasExplicitBilling = /billing|fatura|cobran[cç]a|pix|checkout|assinatura|planos pagos|stripe/i.test(text);
+    const hasExplicitKanban = /kanban|quadro de tarefas|colunas de sprint/i.test(text);
+
+    // Entity matches
+    const entityMatches = raw.match(/(?:tabela|entidade|model|cole[cç][aã]o|dados\s+de|busca\s+de|gest[aã]o\s+de|cadastro\s+de)\s+([a-zA-Z0-9_\-]{3,30})/gi);
+    if (entityMatches) {
+      for (const m of entityMatches) {
+        const cleaned = m.replace(/^(?:tabela|entidade|model|cole[cç][aã]o|dados\s+de|busca\s+de|gest[aã]o\s+de|cadastro\s+de)\s+/i, '').trim().toLowerCase();
+        if (cleaned && !['para', 'como', 'sobre', 'novo', 'cada', 'todo', 'mais', 'tela'].includes(cleaned)) {
+          entities.push(cleaned);
+        }
+      }
+    }
+
+    if (/youtube|video|viral|canal|thumbnail/i.test(text)) {
+      entities.push('viral_videos', 'channels', 'saved_niches');
+      filters.push('Filtros de Engajamento (Views, Likes, Comentários)', 'Outlier Multiplier (>=2.5x, >=5x)', 'Formato (Shorts vs Longos)', 'Nicho');
+      integrations.push('YouTube Data API', 'Groq / Whisper (Transcrições)');
+      sections.push('Galeria de Vídeos 16:9', 'Radar de Outliers', 'Análise de Canais');
+      formulas.push(
+        'engagement_rate = ((likes + comments) / Math.max(views, 1)) * 100',
+        'outlier_score = Number((views / Math.max(channel_avg_views, 1)).toFixed(2))',
+        'views_per_hour = Math.round(views / Math.max((Date.now() - new Date(published_at).getTime()) / 3600000, 1))'
+      );
+    } else if (/\b(?:ia|ai)\b|llm|prompt|agente|rag|transcri/i.test(text)) {
+      entities.push('prompt_templates', 'agent_runs', 'token_metrics');
+      filters.push('Filtro por Modelo (GPT-4o, Claude, Gemini)', 'Faixa de Latência P95', 'Status de Execução');
+      integrations.push('OpenAI / Anthropic / Google Gemini API', 'Vector DB / RAG Store');
+      sections.push('Playground de Prompts', 'Histórico de Traces', 'Catálogo de Modelos');
+      formulas.push(
+        'custo_estimado = (prompt_tokens * custo_prompt_1k / 1000) + (completion_tokens * custo_completion_1k / 1000)',
+        'taxa_sucesso_execucao = (execucoes_sucesso / total_execucoes) * 100'
+      );
+    } else if (/curso|aula|aluno|estud|flashcard|mentoria/i.test(text)) {
+      entities.push('courses', 'modules', 'students', 'progress_records');
+      filters.push('Filtro por Módulo', 'Status de Matrícula', 'Faixa de Rendimento');
+      sections.push('Trilha de Aulas', 'Painel do Aluno', 'Desempenho em Exercícios');
+      formulas.push('taxa_conclusao_modulo = (aulas_concluidas / total_aulas) * 100');
+    } else if (/estoque|frota|entrega|suprimento|logistica/i.test(text)) {
+      entities.push('inventory_items', 'shipments', 'fleet_vehicles');
+      filters.push('Filtro por Armazém', 'Status da Entrega', 'Nível de Ruptura');
+      sections.push('Mapa de Cargas', 'Inventário em Tempo Real', 'Monitor de SLAs');
+      formulas.push('sla_cumprimento_entregas = (entregas_no_prazo / total_entregas) * 100');
+    }
+
+    if (/engajamento/i.test(text) && !filters.some(f => f.includes('Engajamento'))) filters.push('Taxa de Engajamento (%)');
+    if (/nicho/i.test(text) && !filters.some(f => f.includes('Nicho'))) filters.push('Nicho / Categoria');
+    if (/periodo|data/i.test(text) && !filters.some(f => f.includes('Período'))) filters.push('Período Temporal');
+    if (/score|pontua[cç][aã]o/i.test(text) && !filters.some(f => f.includes('Score'))) filters.push('Score de Desempenho');
+
+    return {
+      entities: Array.from(new Set(entities)),
+      filters: Array.from(new Set(filters)),
+      integrations: Array.from(new Set(integrations)),
+      sections: Array.from(new Set(sections)),
+      formulas: Array.from(new Set(formulas)),
+      hasExplicitBilling,
+      hasExplicitKanban
+    };
+  }
+
+  /**
    * Extracts explicitly mentioned reference apps from the user prompt (e.g. "como Linear", "estilo Stripe").
    */
   public static extractExplicitReferenceApps(briefing: string): string[] {
     const text = briefing || '';
     const apps: string[] = [];
     const patterns = [
-      /(?:como|estilo|inspirado\s*no|baseado\s*no|refer[eê]ncia|padr[aã]o)\s+([A-Z][a-zA-Z0-9_\-\.]{2,20})/g,
-      /(?:linear|stripe|raycast|supabase|resend|cal\.com|shopify|ifood|stone|asaas|clinicorp|pipedrive|hubspot|notion|airtable|feegow)/gi
+      /(?:como|estilo|inspirado\s*no|baseado\s*no|refer[eê]ncia|padr[aã]o)\s+([A-Z0-9][a-zA-Z0-9_\-\.]{2,20})/g,
+      /(?:1of10(?:\.com)?|vidiq|viewstats|tubebuddy|opusclip|linear|stripe|raycast|supabase|resend|cal\.com|shopify|ifood|stone|asaas|clinicorp|pipedrive|hubspot|notion|airtable|feegow)/gi
     ];
 
     for (const p of patterns) {
@@ -252,15 +523,38 @@ export class MarketDiscoveryService {
       for (const m of matches) {
         const val = m[1] || m[0];
         if (val && !['para', 'como', 'sobre', 'novo', 'cada', 'todo', 'mais', 'com', 'esse', 'esta'].includes(val.toLowerCase())) {
-          const capitalized = val.charAt(0).toUpperCase() + val.slice(1);
-          if (!apps.includes(capitalized)) {
-            apps.push(capitalized);
+          let formatted = val;
+          const lower = val.toLowerCase();
+          if (lower.includes('1of10')) formatted = '1of10.com';
+          else if (lower === 'vidiq') formatted = 'VidIQ';
+          else if (lower === 'viewstats') formatted = 'Viewstats';
+          else if (lower === 'tubebuddy') formatted = 'TubeBuddy';
+          else if (lower === 'opusclip') formatted = 'OpusClip';
+          else formatted = val.charAt(0).toUpperCase() + val.slice(1);
+
+          if (!apps.includes(formatted)) {
+            apps.push(formatted);
           }
         }
       }
     }
 
     return apps.slice(0, 4);
+  }
+
+  /**
+   * Extracts custom entity names, formulas, or overrides explicitly specified in the briefing.
+   */
+  public static extractCustomBriefingOverrides(briefing: string): Partial<DomainKnowledgeProfile> {
+    const raw = briefing || '';
+    const overrides: Partial<DomainKnowledgeProfile> = {};
+
+    const entityMatches = raw.match(/(?:tabela|entidade|coleção|model)\s+([a-zA-Z0-9_]{3,30})/gi);
+    if (entityMatches && entityMatches.length > 0) {
+      overrides.coreEntities = entityMatches.map(m => m.split(/\s+/)[1].toLowerCase());
+    }
+
+    return overrides;
   }
 
   /**
@@ -279,8 +573,19 @@ export class MarketDiscoveryService {
 
     // 1. Identify domain profile & reference apps
     const profile = this.inferDomainProfile(briefing);
+    const briefingContext = this.extractBriefingEntitiesAndRules(briefing);
+    const overrides = this.extractCustomBriefingOverrides(briefing);
+    const effectiveEntities = Array.from(new Set([
+      ...briefingContext.entities,
+      ...(overrides.coreEntities || []),
+      ...profile.coreEntities
+    ]));
+    const effectiveFormulas = Array.from(new Set([
+      ...briefingContext.formulas,
+      ...profile.calculationFormulas
+    ]));
     const explicitApps = this.extractExplicitReferenceApps(briefing);
-    const combinedApps = Array.from(new Set([...explicitApps, ...profile.referenceApps])).slice(0, 4);
+    const combinedApps = Array.from(new Set([...explicitApps, ...profile.referenceApps])).slice(0, 5);
 
     // 2. Synthesize REA analysis
     const reaAnalysis = await ReaSaaSMasterService.analyzeTargetOrReference({
@@ -315,10 +620,10 @@ export class MarketDiscoveryService {
       ``,
       `### 3.2 Entidades de Banco de Dados SQLite & Fórmulas Críticas`,
       `**Entidades Recomendadas:**`,
-      profile.coreEntities.map(e => `- \`${e}\``).join('\n'),
+      effectiveEntities.map(e => `- \`${e}\``).join('\n'),
       ``,
       `**Fórmulas Matemáticas de Negócio:**`,
-      profile.calculationFormulas.map(f => `- \`${f}\``).join('\n'),
+      effectiveFormulas.map(f => `- \`${f}\``).join('\n'),
       ``,
       `---`,
       ``,
@@ -367,8 +672,8 @@ export class MarketDiscoveryService {
       referenceApps: combinedApps,
       marketDiagnosis: profile.marketDiagnosis,
       screenFlows: profile.screenFlows,
-      coreEntities: profile.coreEntities,
-      calculationFormulas: profile.calculationFormulas,
+      coreEntities: effectiveEntities,
+      calculationFormulas: effectiveFormulas,
       killerFeatures: profile.killerFeatures
     });
 
@@ -377,12 +682,12 @@ export class MarketDiscoveryService {
       dossierPath: targetFile,
       domainName: profile.domainName,
       referenceApps: combinedApps,
-      coreEntities: profile.coreEntities,
+      coreEntities: effectiveEntities,
       killerFeatures: profile.killerFeatures,
       compactDiscoveryBlock,
       marketDiagnosis: profile.marketDiagnosis,
       screenFlows: profile.screenFlows,
-      calculationFormulas: profile.calculationFormulas
+      calculationFormulas: effectiveFormulas
     };
   }
 

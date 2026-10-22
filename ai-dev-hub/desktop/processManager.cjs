@@ -12,7 +12,26 @@ class ProcessManager extends EventEmitter {
     let serverDir = options.serverDir;
     let clientDir = null;
 
-    if (process.resourcesPath) {
+    // Prioridade 1: Sempre priorizar o código-fonte real compilado em C:\IA\Antigravity HUB\ai-dev-hub
+    const canonicalServer = 'C:\\IA\\Antigravity HUB\\ai-dev-hub\\server';
+    const canonicalClient = 'C:\\IA\\Antigravity HUB\\ai-dev-hub\\client\\dist';
+    const canonicalServerDist = path.join(canonicalServer, 'dist', 'index.js');
+    const canonicalClientHtml = path.join(canonicalClient, 'index.html');
+
+    const localWorkspaceServer = path.resolve(__dirname, '..', 'server');
+    const localWorkspaceClient = path.resolve(__dirname, '..', 'client', 'dist');
+    const localServerDist = path.join(localWorkspaceServer, 'dist', 'index.js');
+    const localClientHtml = path.join(localWorkspaceClient, 'index.html');
+
+    if (fs.existsSync(canonicalServerDist) && fs.existsSync(canonicalClientHtml)) {
+      serverDir = canonicalServer;
+      clientDir = canonicalClient;
+      logger.info(`[ProcessManager] Priorizando runtime do workspace canônico: ${serverDir}`);
+    } else if (fs.existsSync(localServerDist) && fs.existsSync(localClientHtml)) {
+      serverDir = localWorkspaceServer;
+      clientDir = localWorkspaceClient;
+      logger.info(`[ProcessManager] Priorizando runtime do workspace local: ${serverDir}`);
+    } else if (process.resourcesPath) {
       const unpackedServer = path.join(process.resourcesPath, 'app.asar.unpacked', 'server');
       if (fs.existsSync(unpackedServer)) serverDir = unpackedServer;
 
@@ -46,7 +65,7 @@ class ProcessManager extends EventEmitter {
     this.serverProcess = null;
     this.isShuttingDown = false;
     this.restartCount = 0;
-    this.maxRestarts = 3;
+    this.maxRestarts = 50;
     this.isAttachedExisting = false;
   }
 
@@ -96,13 +115,16 @@ class ProcessManager extends EventEmitter {
   async start() {
     this.isShuttingDown = false;
 
-    // 1. Check if configured port is already healthy
-    const isAlreadyRunning = await this.checkHealth(this.backendPort);
-    if (isAlreadyRunning) {
-      logger.info(`Backend já está ativo e saudável na porta ${this.backendPort}. Anexando ao serviço existente.`);
-      this.isAttachedExisting = true;
-      this.emit('ready', { port: this.backendPort, attached: true });
-      return { port: this.backendPort, attached: true };
+    // 1. Limpar processo órfão na porta 3001 para que o build recém-compilado seja carregado limpo
+    const portTakenBefore = await this.isPortTaken(this.backendPort);
+    if (portTakenBefore) {
+      logger.info(`[ProcessManager] Porta ${this.backendPort} em uso por processo anterior. Limpando processo órfão...`);
+      this.killProcessOnPort(this.backendPort);
+      for (let i = 0; i < 20; i++) {
+        const stillBusy = await this.isPortTaken(this.backendPort);
+        if (!stillBusy) break;
+        await new Promise(r => setTimeout(r, 100));
+      }
     }
 
     // 2. If port taken by another service, find free port

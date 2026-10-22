@@ -10,6 +10,7 @@ import path from 'node:path';
 import { Logger } from './logger.js';
 import { ProjectLivingSpecService, SpecTaskRole } from './projectLivingSpecService.js';
 import { AstSymbolIndexService } from './astSymbolIndexService.js';
+import { EngineeringContextService } from './engineeringContextService.js';
 
 export type SupervisorMode =
   | 'INITIAL_PLAN'
@@ -141,6 +142,7 @@ export interface WorkerPromptInput {
   livingSpecContextBlock?: string;
   lspDiagnosticsSnippet?: string;
   astSymbolSummaryBlock?: string;
+  repoMapSnippet?: string;
 }
 
 export interface ArchitecturalBlueprintPromptInput {
@@ -828,6 +830,18 @@ export class PromptArchitectureService {
       }
     } catch (symErr: any) {
       Logger.warn(`[PromptArchitectureService] Falha não bloqueante ao gerar AST Symbol Summary: ${symErr.message}`);
+    }
+
+    // FASE 23: RepoMap Automático de Símbolos, Rotas e Schemas (Aider RepoMap)
+    try {
+      const repoMap = input.repoMapSnippet || (
+        input.projectPath ? EngineeringContextService.buildCompactRepoMap(input.projectPath, 1500) : ''
+      );
+      if (repoMap) {
+        sections.push(`\n${repoMap}\n`);
+      }
+    } catch (repoErr: any) {
+      Logger.warn(`[PromptArchitectureService] Falha não bloqueante ao gerar RepoMap: ${repoErr.message}`);
     }
 
     sections.push(`=== FIM DO CONTEXTO REAL ===`);

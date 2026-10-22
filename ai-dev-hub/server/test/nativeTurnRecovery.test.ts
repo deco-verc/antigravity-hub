@@ -173,6 +173,7 @@ test('Explicit resume reconciles a delayed native completion without resending o
   AntigravityProvider.prototype.getResult=async()=>({status:'failure',filesChanged:[],implemented:[],commandsExecuted:[],tests:{ran:false},buildStatus:'UNKNOWN',problems:['AGENT_NATIVE_TOOL_PENDING: run_command','AGENT_EXECUTION_TIMEOUT'],decisions:[]});
   await AutonomousRunnerService.step(run.id);
   AntigravityProvider.prototype.getResult=original;
+  fixture.provider.sendMessage=send;
   assert.equal(AutonomousManager.getRun(run.id).status,'waiting_resource');
   db.prepare("UPDATE worker_leases SET lease_until='2000-01-01T00:00:00.000Z' WHERE task_id=?").run(run.tasks[0].id);
   db.prepare("UPDATE workers SET last_heartbeat='2000-01-01T00:00:00.000Z' WHERE current_task_id=?").run(run.tasks[0].id);

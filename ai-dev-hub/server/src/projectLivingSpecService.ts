@@ -754,6 +754,265 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs (entity, entity_i
       accentColor: '#0ea5e9'
     },
 
+    creator_economy: {
+      domainKey: 'creator_economy',
+      domainName: 'Creator Economy / YouTube Viral Search & Analytics',
+      targetAudience: 'Criadores de conteúdo, canais do YouTube, agências e estrategistas de mídia que buscam minerar referências virais, analisar métricas de engajamento e prever tendências com Outlier Multipliers.',
+      referenceApps: [
+        '1of10.com (Outlier Video Finder)',
+        'VidIQ (Viral Velocity & Keyword Research)',
+        'Viewstats by MrBeast (Thumbnail & Retention Analytics)',
+        'TubeBuddy (Channel Explorer)',
+        'OpusClip / Descript (Transcript & Hook Analysis)'
+      ],
+      marketBenchmark: 'Líderes de mercado (1of10, Viewstats) automatizam a identificação de virais por Outlier Score (desempenho comparado à média histórica do canal), analisam padrões de thumbnail, velocidade de visualizações por hora (VPH) e organizam nichos em radares de conteúdo com exportação e notas de roteirização.',
+      differentials: [
+        'Algoritmo Preditivo de Outlier Score comparando a performance do vídeo com a média histórica do canal (identifica virais autênticos de 3x a 50x)',
+        'Radar de Nichos & Monitoramento de Concorrentes com cálculo de velocidade em tempo real (Views Per Hour - VPH)',
+        'Gaveta Analítica 520px com decomposição de thumbnails (16:9), tags de tração, métricas de retenção e exportação para roteirização'
+      ],
+      sections: [
+        {
+          code: '01',
+          name: 'Dashboard',
+          tabId: 'dashboard',
+          kpis: [
+            'Vídeos Minerados: 1.420 (Δ% +18.4% vs semana anterior)',
+            'Outliers Críticos (>5x): 84 vídeos',
+            'Taxa de Engajamento Média: 6.8% (Δ% +1.2%)',
+            'Velocidade Máx. Registrada: 42.500 views/h'
+          ],
+          chart: 'Gráfico SVG interativo de Curva de Velocidade Viral (Views/Hora vs Tempo desde publicação) com tooltips e eixos em tabular-nums',
+          gridColumns: ['Thumbnail', 'Título do Vídeo', 'Canal', 'Visualizações', 'Outlier Score', 'Engajamento (%)', 'Publicado Em', 'Ações'],
+          filters: ['Filtro por Outlier Score (>3x, >5x, >10x)', 'Filtro por Nicho', 'Busca debounce por título ou canal'],
+          drawerContent: 'Slide-Over Drawer com preview de vídeo 16:9, gráfico de retenção estimada, tags de tração, métricas detalhadas (likes, comentários, VPH) e bloco de anotações de roteiro',
+          modalContent: 'Modal de Importação Manual ou Coleta Rápida via YouTube ID/URL com cálculo instantâneo de Outlier Score',
+          seedSummary: '25 vídeos virais realistas de nichos como Finanças, Tecnologia, Produtividade e Curiosidades com métricas e thumbnails'
+        },
+        {
+          code: '02',
+          name: 'Registros',
+          tabId: 'registros',
+          kpis: [
+            'Vídeos Catalogados: 250',
+            'Super Outliers (>10x): 18 vídeos',
+            'Engajamento Alto (>8%): 64 vídeos',
+            'Canais Monitorados: 42'
+          ],
+          chart: 'Gráfico SVG de Dispersão / Barras de Outlier Score por Nicho e Duração',
+          gridColumns: ['ID', 'Thumbnail', 'Título', 'Canal', 'Views', 'Outlier Multiplier', 'Likes', 'Taxa Engajamento', 'Data', 'Ações'],
+          filters: ['Multi-range Outlier (>2x, >5x, >10x, >20x)', 'Filtro por Faixa de Views (<50k, 50k-500k, >1M)', 'Busca debounce (250ms)'],
+          drawerContent: 'Drawer com análise aprofundada de títulos, padrões de thumbnail (contraste/expressão), tags e botão de exportar para briefing de roteiro',
+          modalContent: 'Modal de Registro de Vídeo com preenchimento assistido e cálculo de baseline do canal',
+          seedSummary: '30 registros detalhados de vídeos virais catalogados com tags e baseline de canal'
+        },
+        {
+          code: '03',
+          name: 'Operações',
+          tabId: 'operacoes',
+          kpis: [
+            'Nichos Ativos: 8 nichos',
+            'Coletas Executadas: 142',
+            'Taxa de Sucesso de Coleta: 100%',
+            'Tempo Médio de Varredura: 280ms'
+          ],
+          chart: 'Gráfico SVG de Volume de Vídeos Capturados por Nicho nas últimas 24h',
+          gridColumns: ['ID Coleta', 'Nicho / Query', 'Vídeos Minerados', 'Status', 'Duração (ms)', 'Executado Em', 'Ações'],
+          filters: ['Filtro por Nicho', 'Status da Coleta (Sucesso, Processando, Falha)'],
+          drawerContent: 'Visualizador de payload de coleta, termos pesquisados e lista de vídeos descobertos na varredura',
+          modalContent: 'Modal de Nova Varredura de Nicho (Trigger Scan) com palavras-chave, filtros de data e limite de resultados',
+          seedSummary: '15 operações de varredura executadas em nichos de IA, Finanças e Games'
+        },
+        {
+          code: '04',
+          name: 'Auditoria',
+          tabId: 'auditoria',
+          kpis: [
+            'Logs Auditados: 312',
+            'Atores do Sistema: 3',
+            'Operações de Criação/Atualização: 275',
+            'Eventos de Exclusão: 37'
+          ],
+          chart: 'Gráfico SVG de linha do tempo de operações auditadas',
+          gridColumns: ['Timestamp', 'Ator', 'Ação', 'Entidade', 'ID Alvo', 'Diff JSON', 'Ações'],
+          filters: ['Ação (CREATE, UPDATE, DELETE)', 'Entidade (viral_videos, saved_niches, settings)', 'Busca debounce'],
+          drawerContent: 'Visualizador de diff JSON formatado antes/depois com realce de sintaxe',
+          modalContent: 'Modal de Exportação de Trilha Forense em formato CSV e JSON',
+          seedSummary: '35 logs de auditoria imutáveis com registros de coletas, alterações de notas e criação de nichos'
+        },
+        {
+          code: '05',
+          name: 'Configuracoes',
+          tabId: 'configuracoes',
+          kpis: [
+            'Algoritmo Ativo: Outlier Multiplier V2',
+            'YouTube Data API V3: Graceful Mock Ativo',
+            'Intervalo de Varredura: 6h',
+            'Status do Banco: SQLite WAL Conectado'
+          ],
+          chart: 'Gráfico SVG de consumo de cota de API simulada / real por hora',
+          gridColumns: ['Parâmetro', 'Chave', 'Valor Configurado', 'Última Alteração', 'Responsável', 'Ações'],
+          filters: ['Gerais', 'Algoritmos & Pesos', 'API & Chaves'],
+          drawerContent: 'Painel de parametrização de pesos da fórmula de Outlier e multiplicadores de engajamento',
+          modalContent: 'Modal de Edição de Chaves de API (YouTube Data API V3) com alternância para Mock Fallback determinístico',
+          seedSummary: 'Configurações completas de pesos de algoritmo, limites de busca e chaves mock'
+        }
+      ],
+      sqliteSchema: `-- Esquema Relacional SQLite - Creator Economy & YouTube Viral Search
+CREATE TABLE IF NOT EXISTS saved_niches (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  keyword_filter TEXT NOT NULL,
+  min_views INTEGER NOT NULL DEFAULT 10000,
+  min_outlier_score REAL NOT NULL DEFAULT 3.0,
+  refresh_interval_hours INTEGER NOT NULL DEFAULT 6,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS viral_videos (
+  id TEXT PRIMARY KEY,
+  youtube_id TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL,
+  channel_title TEXT NOT NULL,
+  views INTEGER NOT NULL DEFAULT 0,
+  likes INTEGER NOT NULL DEFAULT 0,
+  comments INTEGER NOT NULL DEFAULT 0,
+  published_at TEXT NOT NULL,
+  thumbnail_url TEXT NOT NULL,
+  view_count_baseline REAL NOT NULL DEFAULT 10000,
+  outlier_score REAL NOT NULL DEFAULT 1.0,
+  engagement_rate REAL NOT NULL DEFAULT 0.0,
+  views_per_hour REAL NOT NULL DEFAULT 0.0,
+  niche_id TEXT,
+  tags_json TEXT DEFAULT '[]',
+  notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (niche_id) REFERENCES saved_niches (id)
+);
+
+CREATE TABLE IF NOT EXISTS search_operations (
+  id TEXT PRIMARY KEY,
+  query TEXT NOT NULL,
+  niche_id TEXT,
+  results_count INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'completed' CHECK (status IN ('pending', 'running', 'completed', 'failed')),
+  execution_time_ms INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (niche_id) REFERENCES saved_niches (id)
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id TEXT PRIMARY KEY,
+  actor TEXT NOT NULL,
+  action TEXT NOT NULL,
+  entity TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  diff_json TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS system_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_viral_videos_outlier ON viral_videos (outlier_score DESC);
+CREATE INDEX IF NOT EXISTS idx_viral_videos_niche ON viral_videos (niche_id);
+CREATE INDEX IF NOT EXISTS idx_viral_videos_views ON viral_videos (views DESC);
+CREATE INDEX IF NOT EXISTS idx_search_operations_created ON search_operations (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs (entity, entity_id);`,
+      restContracts: [
+        {
+          method: 'GET',
+          path: '/api/health',
+          requestBody: 'N/A',
+          responseBody: '{ status: "ok", uptime: number, database: "connected", timestamp: string }',
+          description: 'Healthcheck de integridade operacional do backend e SQLite'
+        },
+        {
+          method: 'GET',
+          path: '/api/audit-logs',
+          requestBody: 'Query: ?entity=&limit=',
+          responseBody: 'Array<{ id: string, actor: string, action: string, entity: string, entity_id: string, diff_json: string, created_at: string }>',
+          description: 'Trilha de auditoria forense imutável com histórico estruturado'
+        },
+        {
+          method: 'GET',
+          path: '/api/kpis',
+          requestBody: 'N/A',
+          responseBody: '{ totalVideos: number, criticalOutliers: number, avgEngagement: number, maxVph: number, formatted: object }',
+          description: 'Totais consolidados e indicadores de viralidade para Cards Bento de KPI'
+        },
+        {
+          method: 'GET',
+          path: '/api/videos',
+          requestBody: 'Query: ?niche_id=&min_outlier=&q=&page=&limit=&order_by=',
+          responseBody: 'Array<{ id: string, youtube_id: string, title: string, channel_title: string, views: number, likes: number, comments: number, outlier_score: number, engagement_rate: number, views_per_hour: number, thumbnail_url: string, published_at: string }>',
+          description: 'Listagem de vídeos minerados com busca debounce, filtros compostos e ordenação por Outlier'
+        },
+        {
+          method: 'POST',
+          path: '/api/videos',
+          requestBody: '{ youtube_id: string, title: string, channel_title: string, views: number, likes?: number, comments?: number, published_at: string, thumbnail_url: string, view_count_baseline?: number, niche_id?: string, tags?: string[], notes?: string }',
+          responseBody: '{ id: string, title: string, outlier_score: number, engagement_rate: number, ... } (Status 201)',
+          description: 'Cadastro ou importação de vídeo viral com cálculo automático de Outlier Score e auditoria'
+        },
+        {
+          method: 'PUT',
+          path: '/api/videos/:id',
+          requestBody: '{ notes?: string, niche_id?: string, tags?: string[] }',
+          responseBody: '{ id: string, title: string, ... } (Status 200)',
+          description: 'Atualização de anotações e nicho do vídeo com registro de diff forense'
+        },
+        {
+          method: 'GET',
+          path: '/api/niches',
+          requestBody: 'Query: ?active_only=true',
+          responseBody: 'Array<{ id: string, name: string, keyword_filter: string, min_views: number, min_outlier_score: number, is_active: number }>',
+          description: 'Listagem de nichos monitorados para radar de virais'
+        },
+        {
+          method: 'POST',
+          path: '/api/niches',
+          requestBody: '{ name: string, keyword_filter: string, min_views?: number, min_outlier_score?: number }',
+          responseBody: '{ id: string, name: string, ... } (Status 201)',
+          description: 'Criação de nicho monitorado'
+        },
+        {
+          method: 'POST',
+          path: '/api/operations/scan',
+          requestBody: '{ query: string, niche_id?: string, max_results?: number }',
+          responseBody: '{ operation_id: string, results_count: number, videos_found: Array<object>, execution_time_ms: number }',
+          description: 'Disparo de operação de mineração de virais (com Graceful Mock Fallback se sem chave de API)'
+        },
+        {
+          method: 'POST',
+          path: '/api/export/csv',
+          requestBody: '{ entity: "viral_videos" | "saved_niches" | "audit_logs", filters?: object }',
+          responseBody: 'Content-Type: text/csv com cabeçalhos sanitizados',
+          description: 'Exportação em lote de vídeos e métricas em CSV para análise em planilhas ou roteiros'
+        }
+      ],
+      formulas: [
+        'engagement_rate = ((likes + comments) / Math.max(views, 1)) * 100',
+        'outlier_score = Number((views / Math.max(channel_avg_views, 1)).toFixed(2))',
+        'views_per_hour = Math.round(views / Math.max((Date.now() - new Date(published_at).getTime()) / 3600000, 1))',
+        'variacao_percentual_delta = ((valor_atual - valor_anterior) / valor_anterior) * 100'
+      ],
+      validations: [
+        'youtube_id deve conter exatamente 11 caracteres alfanuméricos ou URL válida de YouTube (HTTP 400)',
+        'title deve ter pelo menos 3 caracteres (HTTP 400)',
+        'views deve ser número inteiro maior ou igual a zero (HTTP 400)',
+        'thumbnail_url deve ser uma URL válida ou caminho de asset local (HTTP 400)'
+      ],
+      envKeys: ['PORT=4000', 'DATABASE_PATH=./data/viralytsearch.db', 'YOUTUBE_API_KEY=mock_youtube_api_key'],
+      archetype: 'dark-telemetry',
+      accentColor: '#ef4444'
+    },
+
     general_saas: {
       domainKey: 'general_saas',
       domainName: 'SaaS Corporativo Moderno & Gestão de Operações',
@@ -946,6 +1205,909 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs (entity, entity_i
       envKeys: ['PORT=4000', 'DATABASE_PATH=./data/saas.db'],
       archetype: 'clean-saas',
       accentColor: '#3b82f6'
+    },
+
+    creator_video_analytics: {
+      domainKey: 'creator_video_analytics',
+      domainName: 'Creator Economy / YouTube Viral Search & Analytics',
+      targetAudience: 'Criadores de conteúdo, canais do YouTube, agências e estrategistas de mídia que buscam minerar referências virais, analisar métricas de engajamento e prever tendências com Outlier Multipliers.',
+      referenceApps: [
+        '1of10.com (Outlier Video Finder)',
+        'VidIQ (Viral Velocity & Keyword Research)',
+        'Viewstats by MrBeast (Thumbnail & Retention Analytics)',
+        'TubeBuddy (Channel Explorer)',
+        'OpusClip / Descript (Transcript & Hook Analysis)'
+      ],
+      marketBenchmark: 'Líderes de mercado (1of10, Viewstats) automatizam a identificação de virais por Outlier Score (desempenho comparado à média histórica do canal), analisam padrões de thumbnail, velocidade de visualizações por hora (VPH) e organizam nichos em radares de conteúdo com exportação e notas de roteirização.',
+      differentials: [
+        'Algoritmo Preditivo de Outlier Score comparando a performance do vídeo com a média histórica do canal (identifica virais autênticos de 3x a 50x)',
+        'Radar de Nichos & Monitoramento de Concorrentes com cálculo de velocidade em tempo real (Views Per Hour - VPH)',
+        'Gaveta Analítica 520px com decomposição de thumbnails (16:9), tags de tração, métricas de retenção e exportação para roteirização'
+      ],
+      sections: [
+        {
+          code: '01',
+          name: 'Dashboard',
+          tabId: 'dashboard',
+          kpis: [
+            'Vídeos Minerados: 1.420 (Δ% +18.4% vs semana anterior)',
+            'Outliers Críticos (>5x): 84 vídeos',
+            'Taxa de Engajamento Média: 6.8% (Δ% +1.2%)',
+            'Velocidade Máx. Registrada: 42.500 views/h'
+          ],
+          chart: 'Gráfico SVG interativo de Curva de Velocidade Viral (Views/Hora vs Tempo desde publicação) com tooltips e eixos em tabular-nums',
+          gridColumns: ['Thumbnail', 'Título do Vídeo', 'Canal', 'Visualizações', 'Outlier Score', 'Engajamento (%)', 'Publicado Em', 'Ações'],
+          filters: ['Filtro por Outlier Score (>3x, >5x, >10x)', 'Filtro por Nicho', 'Busca debounce por título ou canal'],
+          drawerContent: 'Slide-Over Drawer com preview de vídeo 16:9, gráfico de retenção estimada, tags de tração, métricas detalhadas (likes, comentários, VPH) e bloco de anotações de roteiro',
+          modalContent: 'Modal de Importação Manual ou Coleta Rápida via YouTube ID/URL com cálculo instantâneo de Outlier Score',
+          seedSummary: '25 vídeos virais realistas de nichos como Finanças, Tecnologia, Produtividade e Curiosidades com métricas e thumbnails'
+        },
+        {
+          code: '02',
+          name: 'Registros',
+          tabId: 'registros',
+          kpis: [
+            'Vídeos Catalogados: 250',
+            'Super Outliers (>10x): 18 vídeos',
+            'Engajamento Alto (>8%): 64 vídeos',
+            'Canais Monitorados: 42'
+          ],
+          chart: 'Gráfico SVG de Dispersão / Barras de Outlier Score por Nicho e Duração',
+          gridColumns: ['ID', 'Thumbnail', 'Título', 'Canal', 'Views', 'Outlier Multiplier', 'Likes', 'Taxa Engajamento', 'Data', 'Ações'],
+          filters: ['Multi-range Outlier (>2x, >5x, >10x, >20x)', 'Filtro por Faixa de Views (<50k, 50k-500k, >1M)', 'Busca debounce (250ms)'],
+          drawerContent: 'Drawer com análise aprofundada de títulos, padrões de thumbnail (contraste/expressão), tags e botão de exportar para briefing de roteiro',
+          modalContent: 'Modal de Registro de Vídeo com preenchimento assistido e cálculo de baseline do canal',
+          seedSummary: '30 registros detalhados de vídeos virais catalogados com tags e baseline de canal'
+        },
+        {
+          code: '03',
+          name: 'Operações',
+          tabId: 'operacoes',
+          kpis: [
+            'Nichos Ativos: 8 nichos',
+            'Coletas Executadas: 142',
+            'Taxa de Sucesso de Coleta: 100%',
+            'Tempo Médio de Varredura: 280ms'
+          ],
+          chart: 'Gráfico SVG de Volume de Vídeos Capturados por Nicho nas últimas 24h',
+          gridColumns: ['ID Coleta', 'Nicho / Query', 'Vídeos Minerados', 'Status', 'Duração (ms)', 'Executado Em', 'Ações'],
+          filters: ['Filtro por Nicho', 'Status da Coleta (Sucesso, Processando, Falha)'],
+          drawerContent: 'Visualizador de payload de coleta, termos pesquisados e lista de vídeos descobertos na varredura',
+          modalContent: 'Modal de Nova Varredura de Nicho (Trigger Scan) com palavras-chave, filtros de data e limite de resultados',
+          seedSummary: '15 operações de varredura executadas em nichos de IA, Finanças e Games'
+        },
+        {
+          code: '04',
+          name: 'Auditoria',
+          tabId: 'auditoria',
+          kpis: [
+            'Logs Auditados: 312',
+            'Atores do Sistema: 3',
+            'Operações de Criação/Atualização: 275',
+            'Eventos de Exclusão: 37'
+          ],
+          chart: 'Gráfico SVG de linha do tempo de operações auditadas',
+          gridColumns: ['Timestamp', 'Ator', 'Ação', 'Entidade', 'ID Alvo', 'Diff JSON', 'Ações'],
+          filters: ['Ação (CREATE, UPDATE, DELETE)', 'Entidade (viral_videos, saved_niches, settings)', 'Busca debounce'],
+          drawerContent: 'Visualizador de diff JSON formatado antes/depois com realce de sintaxe',
+          modalContent: 'Modal de Exportação de Trilha Forense em formato CSV e JSON',
+          seedSummary: '35 logs de auditoria imutáveis com registros de coletas, alterações de notas e criação de nichos'
+        },
+        {
+          code: '05',
+          name: 'Configuracoes',
+          tabId: 'configuracoes',
+          kpis: [
+            'Algoritmo Ativo: Outlier Multiplier V2',
+            'YouTube Data API V3: Graceful Mock Ativo',
+            'Intervalo de Varredura: 6h',
+            'Status do Banco: SQLite WAL Conectado'
+          ],
+          chart: 'Gráfico SVG de consumo de cota de API simulada / real por hora',
+          gridColumns: ['Parâmetro', 'Chave', 'Valor Configurado', 'Última Alteração', 'Responsável', 'Ações'],
+          filters: ['Gerais', 'Algoritmos & Pesos', 'API & Chaves'],
+          drawerContent: 'Painel de parametrização de pesos da fórmula de Outlier e multiplicadores de engajamento',
+          modalContent: 'Modal de Edição de Chaves de API (YouTube Data API V3) com alternância para Mock Fallback determinístico',
+          seedSummary: 'Configurações completas de pesos de algoritmo, limites de busca e chaves mock'
+        }
+      ],
+      sqliteSchema: `-- Esquema Relacional SQLite - Creator Economy & YouTube Viral Search
+CREATE TABLE IF NOT EXISTS saved_niches (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  keyword_filter TEXT NOT NULL,
+  min_views INTEGER NOT NULL DEFAULT 10000,
+  min_outlier_score REAL NOT NULL DEFAULT 3.0,
+  refresh_interval_hours INTEGER NOT NULL DEFAULT 6,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS viral_videos (
+  id TEXT PRIMARY KEY,
+  youtube_id TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL,
+  channel_title TEXT NOT NULL,
+  views INTEGER NOT NULL DEFAULT 0,
+  likes INTEGER NOT NULL DEFAULT 0,
+  comments INTEGER NOT NULL DEFAULT 0,
+  published_at TEXT NOT NULL,
+  thumbnail_url TEXT NOT NULL,
+  view_count_baseline REAL NOT NULL DEFAULT 10000,
+  outlier_score REAL NOT NULL DEFAULT 1.0,
+  engagement_rate REAL NOT NULL DEFAULT 0.0,
+  views_per_hour REAL NOT NULL DEFAULT 0.0,
+  niche_id TEXT,
+  tags_json TEXT DEFAULT '[]',
+  notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (niche_id) REFERENCES saved_niches (id)
+);
+
+CREATE TABLE IF NOT EXISTS search_operations (
+  id TEXT PRIMARY KEY,
+  query TEXT NOT NULL,
+  niche_id TEXT,
+  results_count INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'completed' CHECK (status IN ('pending', 'running', 'completed', 'failed')),
+  execution_time_ms INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (niche_id) REFERENCES saved_niches (id)
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id TEXT PRIMARY KEY,
+  actor TEXT NOT NULL,
+  action TEXT NOT NULL,
+  entity TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  diff_json TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS system_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_viral_videos_outlier ON viral_videos (outlier_score DESC);
+CREATE INDEX IF NOT EXISTS idx_viral_videos_niche ON viral_videos (niche_id);
+CREATE INDEX IF NOT EXISTS idx_viral_videos_views ON viral_videos (views DESC);
+CREATE INDEX IF NOT EXISTS idx_search_operations_created ON search_operations (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs (entity, entity_id);`,
+      restContracts: [
+        {
+          method: 'GET',
+          path: '/api/health',
+          requestBody: 'N/A',
+          responseBody: '{ status: "ok", uptime: number, database: "connected", timestamp: string }',
+          description: 'Healthcheck de integridade operacional do backend e SQLite'
+        },
+        {
+          method: 'GET',
+          path: '/api/audit-logs',
+          requestBody: 'Query: ?entity=&limit=',
+          responseBody: 'Array<{ id: string, actor: string, action: string, entity: string, entity_id: string, diff_json: string, created_at: string }>',
+          description: 'Trilha de auditoria forense imutável com histórico estruturado'
+        },
+        {
+          method: 'GET',
+          path: '/api/kpis',
+          requestBody: 'N/A',
+          responseBody: '{ totalVideos: number, criticalOutliers: number, avgEngagement: number, maxVph: number, formatted: object }',
+          description: 'Totais consolidados e indicadores de viralidade para Cards Bento de KPI'
+        },
+        {
+          method: 'GET',
+          path: '/api/videos',
+          requestBody: 'Query: ?nicheId=&minOutlier=&minViews=&q=&page=&limit=',
+          responseBody: 'Array<{ id: string, youtube_id: string, title: string, channel_title: string, views: number, outlier_score: number, engagement_rate: number, thumbnail_url: string }>',
+          description: 'Listagem dos vídeos minerados com paginação e busca debounce (250ms)'
+        },
+        {
+          method: 'POST',
+          path: '/api/videos',
+          requestBody: '{ youtube_id: string, title: string, channel_title: string, views: number, likes?: number, comments?: number, thumbnail_url: string, niche_id?: string }',
+          responseBody: '{ id: string, title: string, outlier_score: number } (Status 201)',
+          description: 'Registro de novo vídeo minerado com cálculo automático de Outlier Score'
+        },
+        {
+          method: 'GET',
+          path: '/api/niches',
+          requestBody: 'N/A',
+          responseBody: 'Array<{ id: string, name: string, keyword_filter: string, min_views: number, min_outlier_score: number, is_active: number }>',
+          description: 'Listagem de nichos e filtros configurados no radar'
+        },
+        {
+          method: 'POST',
+          path: '/api/niches',
+          requestBody: '{ name: string, keyword_filter: string, min_views?: number, min_outlier_score?: number }',
+          responseBody: '{ id: string, name: string, keyword_filter: string } (Status 201)',
+          description: 'Criação de novo nicho de monitoramento'
+        },
+        {
+          method: 'POST',
+          path: '/api/export/csv',
+          requestBody: '{ entity: "viral_videos" | "saved_niches" | "audit_logs" }',
+          responseBody: 'Content-Type: text/csv',
+          description: 'Exportação em lote de vídeos e análises em CSV'
+        }
+      ],
+      formulas: [
+        'engagement_rate = ((likes + comments) / Math.max(views, 1)) * 100',
+        'outlier_score = Number((views / Math.max(channel_avg_views, 1)).toFixed(2))',
+        'views_per_hour = Math.round(views / Math.max((Date.now() - new Date(published_at).getTime()) / 3600000, 1))',
+        'variacao_percentual_delta = ((valor_atual - valor_anterior) / valor_anterior) * 100'
+      ],
+      validations: [
+        'youtube_id deve conter exatamente 11 caracteres alfanuméricos ou URL válida de YouTube (HTTP 400)',
+        'title deve ter pelo menos 3 caracteres (HTTP 400)',
+        'views deve ser número inteiro maior ou igual a zero (HTTP 400)',
+        'thumbnail_url deve ser uma URL válida ou caminho de asset local (HTTP 400)'
+      ],
+      envKeys: ['PORT=4000', 'DATABASE_PATH=./data/viralytsearch.db', 'YOUTUBE_API_KEY=mock_youtube_api_key'],
+      archetype: 'dark-telemetry',
+      accentColor: '#ef4444'
+    },
+
+    ai_automation_agents: {
+      domainKey: 'ai_automation_agents',
+      domainName: 'AI Automation, LLM Observability & Agents',
+      targetAudience: 'Engenheiros de IA, desenvolvedores e equipes de automação que constroem, monitoram e avaliam pipelines de LLM, execuções de agentes e custos de tokens.',
+      referenceApps: ['LangSmith', 'Vercel AI Playground', 'Linear', 'Raycast', 'OpenRouter'],
+      marketBenchmark: 'Plataformas modernas de observabilidade de IA fornecem tracing granular de execuções passo a passo (spans), medição de latência P95 em ms, contabilidade de custo de tokens e playground interativo com fallback de modelos.',
+      differentials: [
+        'Tracing profundo de spans de execução de agentes com metadados de prompt, resposta e latência',
+        'Contabilidade analítica de consumo de tokens (Prompt/Completion) e estimativa de custo em USD/BRL',
+        'Playground interativo de teste de prompts com comparador de modelos e exportação de datasets'
+      ],
+      sections: [
+        {
+          code: '01',
+          name: 'Dashboard',
+          tabId: 'dashboard',
+          kpis: [
+            'Total Execuções: 8.420 (Δ% +24.1%)',
+            'Latência P95: 412ms (Δ% -14.2%)',
+            'Taxa de Sucesso: 99.1% (Δ% +0.8%)',
+            'Custo Estimado (Hoje): $ 14.85 (Δ% +5.2%)'
+          ],
+          chart: 'Gráfico SVG interativo de Latência P95 e Consumo de Tokens por Hora com tooltips em tabular-nums',
+          gridColumns: ['ID Execução', 'Agente / Pipeline', 'Modelo', 'Status', 'Tokens', 'Latência (ms)', 'Custo ($)', 'Executado Em', 'Ações'],
+          filters: ['Filtro por Modelo (gpt-4o, claude-3-5-sonnet, gemini-1.5-pro)', 'Filtro por Status (Sucesso, Falha, Timeout)', 'Busca debounce'],
+          drawerContent: 'Slide-Over Drawer com visualizador em cascata de Spans, prompt completo de entrada, resposta gerada e métricas de token',
+          modalContent: 'Modal de Nova Execução de Teste com seleção de agente, variáveis de prompt e modelo',
+          seedSummary: '30 execuções detalhadas com traces, status e custos calculados'
+        },
+        {
+          code: '02',
+          name: 'Agentes',
+          tabId: 'agentes',
+          kpis: [
+            'Agentes Ativos: 6',
+            'Templates de Prompt: 14',
+            'Versões Homologadas: 8',
+            'Execuções/min Médio: 42'
+          ],
+          chart: 'Gráfico SVG de distribuição de chamadas por agente e taxa de erro',
+          gridColumns: ['Código', 'Nome do Agente', 'Modelo Base', 'Versão', 'Temperatura', 'Execuções Totais', 'Status', 'Ações'],
+          filters: ['Todos os Agentes', 'Filtro por Status Ativo/Inativo'],
+          drawerContent: 'Drawer com editor de System Prompt, histórico de versões e métricas de acurácia',
+          modalContent: 'Modal de Criação de Agente com parametrização de temperatura, top_p e max_tokens',
+          seedSummary: '6 agentes de IA configurados (Extrator, Classificador, Resumidor, Auditor, Roteirista, Pesquisador)'
+        },
+        {
+          code: '03',
+          name: 'Operações',
+          tabId: 'operacoes',
+          kpis: [
+            'Lotes Processados: 48',
+            'Spans Auditados: 1.250',
+            'Timeouts Evitados: 12',
+            'Throughput Máx.: 120 req/s'
+          ],
+          chart: 'Gráfico SVG de taxa de transferência (Throughput req/s) nas últimas 24h',
+          gridColumns: ['ID Lote', 'Pipeline', 'Itens', 'Sucesso', 'Falhas', 'Duração (s)', 'Data', 'Ações'],
+          filters: ['Status do Lote', 'Busca debounce'],
+          drawerContent: 'Visualizador de logs brutos da execução e traceback de eventuais exceções',
+          modalContent: 'Modal de Disparo de Lote de Avaliação (Eval Benchmark)',
+          seedSummary: '15 operações em lote de avaliação com percentuais de sucesso'
+        },
+        {
+          code: '04',
+          name: 'Auditoria',
+          tabId: 'auditoria',
+          kpis: [
+            'Eventos Registrados: 420',
+            'Atores: 3',
+            'Alterações de Prompt: 18',
+            'Tokens Revogados: 0'
+          ],
+          chart: 'Gráfico SVG de frequência temporal de eventos de auditoria',
+          gridColumns: ['Timestamp', 'Ator', 'Ação', 'Entidade', 'ID Alvo', 'Diff JSON', 'Ações'],
+          filters: ['Ação (CREATE, UPDATE, DELETE)', 'Entidade (ai_agents, prompt_templates, runs)'],
+          drawerContent: 'Visualizador de JSON diff com destaque de mutações de prompt e hiperparâmetros',
+          modalContent: 'Modal de Exportação de Logs de Auditoria para conformidade e SOC2',
+          seedSummary: '35 logs de auditoria imutáveis com registros de alterações e deploys de modelos'
+        },
+        {
+          code: '05',
+          name: 'Configuracoes',
+          tabId: 'configuracoes',
+          kpis: [
+            'Provedores Ativos: OpenAI, Anthropic, Google',
+            'Fallback Automático: Habilitado',
+            'Rate Limit Pessoal: 200 req/min',
+            'Banco de Dados: SQLite WAL'
+          ],
+          chart: 'Gráfico SVG de consumo de cota por provedor de IA',
+          gridColumns: ['Provedor', 'Chave Mascarada', 'Status', 'Cota Restante', 'Ações'],
+          filters: ['Geral', 'Provedores de LLM', 'Webhooks'],
+          drawerContent: 'Painel de parametrização de timeouts de inferência e política de retries',
+          modalContent: 'Modal de Cadastro de Chave de API de Provedor de LLM com teste de conectividade',
+          seedSummary: 'Configurações de modelos, limites de gastos e chaves mock determinísticas'
+        }
+      ],
+      sqliteSchema: `-- Esquema Relacional SQLite - AI Automation & LLM Observability
+CREATE TABLE IF NOT EXISTS ai_agents (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL UNIQUE,
+  model_name TEXT NOT NULL DEFAULT 'gpt-4o',
+  system_prompt TEXT NOT NULL,
+  temperature REAL NOT NULL DEFAULT 0.7,
+  max_tokens INTEGER NOT NULL DEFAULT 2048,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS execution_runs (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL,
+  prompt_input TEXT NOT NULL,
+  response_output TEXT,
+  model_used TEXT NOT NULL,
+  prompt_tokens INTEGER NOT NULL DEFAULT 0,
+  completion_tokens INTEGER NOT NULL DEFAULT 0,
+  total_tokens INTEGER NOT NULL DEFAULT 0,
+  cost_usd REAL NOT NULL DEFAULT 0.0,
+  latency_ms INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'completed' CHECK (status IN ('pending', 'running', 'completed', 'failed')),
+  error_message TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (agent_id) REFERENCES ai_agents (id)
+);
+
+CREATE TABLE IF NOT EXISTS prompt_templates (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  template TEXT NOT NULL,
+  notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (agent_id) REFERENCES ai_agents (id)
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id TEXT PRIMARY KEY,
+  actor TEXT NOT NULL,
+  action TEXT NOT NULL,
+  entity TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  diff_json TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS system_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_execution_runs_agent ON execution_runs (agent_id);
+CREATE INDEX IF NOT EXISTS idx_execution_runs_status ON execution_runs (status);
+CREATE INDEX IF NOT EXISTS idx_execution_runs_created ON execution_runs (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs (entity, entity_id);`,
+      restContracts: [
+        {
+          method: 'GET',
+          path: '/api/health',
+          requestBody: 'N/A',
+          responseBody: '{ status: "ok", uptime: number, database: "connected", timestamp: string }',
+          description: 'Healthcheck de integridade operacional do backend e SQLite'
+        },
+        {
+          method: 'GET',
+          path: '/api/audit-logs',
+          requestBody: 'Query: ?entity=&limit=',
+          responseBody: 'Array<{ id: string, actor: string, action: string, entity: string, entity_id: string, diff_json: string, created_at: string }>',
+          description: 'Trilha de auditoria estruturada'
+        },
+        {
+          method: 'GET',
+          path: '/api/kpis',
+          requestBody: 'N/A',
+          responseBody: '{ totalRuns: number, p95Latency: number, successRate: number, totalCostUsd: number }',
+          description: 'Métricas analíticas consolidadas para os cards de BI'
+        },
+        {
+          method: 'GET',
+          path: '/api/runs',
+          requestBody: 'Query: ?agentId=&status=&model=&q=&page=&limit=',
+          responseBody: 'Array<{ id: string, agent_id: string, model_used: string, total_tokens: number, latency_ms: number, cost_usd: number, status: string }>',
+          description: 'Listagem de execuções com paginação e busca debounce'
+        },
+        {
+          method: 'POST',
+          path: '/api/runs',
+          requestBody: '{ agentId: string, promptInput: string, model?: string }',
+          responseBody: '{ id: string, responseOutput: string, latencyMs: number, tokens: number } (Status 201)',
+          description: 'Disparo de nova inferência de agente com medição de latência'
+        },
+        {
+          method: 'GET',
+          path: '/api/agents',
+          requestBody: 'N/A',
+          responseBody: 'Array<{ id: string, name: string, model_name: string, temperature: number, is_active: number }>',
+          description: 'Listagem de agentes configurados'
+        },
+        {
+          method: 'POST',
+          path: '/api/export/csv',
+          requestBody: '{ entity: "execution_runs" | "audit_logs" }',
+          responseBody: 'Content-Type: text/csv',
+          description: 'Exportação em lote de execuções e custos em formato CSV'
+        }
+      ],
+      formulas: [
+        'p95_latency_ms = percentile_95(latencies)',
+        'cost_usd = ((prompt_tokens * 0.005) + (completion_tokens * 0.015)) / 1000',
+        'success_rate = (runs_sucesso / total_runs) * 100',
+        'variacao_percentual_delta = ((valor_atual - valor_anterior) / valor_anterior) * 100'
+      ],
+      validations: [
+        'name deve ter pelo menos 3 caracteres (HTTP 400)',
+        'model_name deve ser um modelo suportado (HTTP 400)',
+        'temperature deve estar entre 0.0 e 2.0 (HTTP 400)'
+      ],
+      envKeys: ['PORT=4000', 'DATABASE_PATH=./data/ai_agents.db', 'OPENAI_API_KEY=mock_key'],
+      archetype: 'dark-telemetry',
+      accentColor: '#8b5cf6'
+    },
+
+    edtech_learning: {
+      domainKey: 'edtech_learning',
+      domainName: 'EdTech, Cursos Online & Aprendizado Adaptativo',
+      targetAudience: 'Instrutores, estudantes, gestores de treinamento corporativo e escolas online que acompanham engajamento, retenção em aulas e domínio de competências.',
+      referenceApps: ['Teachable', 'Coursera', 'Duolingo', 'Anki', 'Notion'],
+      marketBenchmark: 'Líderes de EdTech oferecem trilhas de aprendizado modulares, retenção por repetição espaçada (flashcards), acompanhamento analítico de progresso de aulas e emissão de certificados com validação de conclusão.',
+      differentials: [
+        'Trilhas pedagógicas modulares com verificação instantânea de conclusão e retenção',
+        'Sistema de flashcards com algoritmo de repetição espaçada integrado a cada módulo',
+        'Dashboard analítico do instrutor com taxa de desistência por aula e notas médias de quizzes'
+      ],
+      sections: [
+        {
+          code: '01',
+          name: 'Dashboard',
+          tabId: 'dashboard',
+          kpis: [
+            'Alunos Matriculados: 1.280 (Δ% +16.2%)',
+            'Taxa de Conclusão: 74.5% (Δ% +5.1%)',
+            'Horas de Aula Assistidas: 3.450h (Δ% +12.0%)',
+            'Nota Média em Avaliações: 8.6/10'
+          ],
+          chart: 'Gráfico SVG interativo de Horas de Estudo por Dia e Curva de Retenção de Alunos',
+          gridColumns: ['ID', 'Aluno', 'Curso', 'Progresso (%)', 'Última Aula', 'Status', 'Ações'],
+          filters: ['Todos os Cursos', 'Status (Ativo, Concluído, Em Risco)', 'Busca debounce'],
+          drawerContent: 'Drawer com ficha completa do aluno, notas em quizzes e histórico de frequência',
+          modalContent: 'Modal de Matrícula Rápida de Aluno',
+          seedSummary: '25 alunos com matrículas e progresso calculado'
+        },
+        {
+          code: '02',
+          name: 'Cursos',
+          tabId: 'cursos',
+          kpis: [
+            'Cursos Ativos: 8',
+            'Módulos Cadastrados: 32',
+            'Aulas Gravadas: 142',
+            'Flashcards Disponíveis: 310'
+          ],
+          chart: 'Gráfico SVG de alunos ativos por curso',
+          gridColumns: ['Código', 'Título do Curso', 'Instrutor', 'Módulos', 'Aulas', 'Alunos', 'Status', 'Ações'],
+          filters: ['Categoria de Curso', 'Status'],
+          drawerContent: 'Drawer com ementa do curso, links de vídeo e materiais complementares',
+          modalContent: 'Modal de Criação de Novo Curso com ementa modular',
+          seedSummary: '8 cursos completos com módulos e aulas'
+        },
+        {
+          code: '03',
+          name: 'Operações',
+          tabId: 'operacoes',
+          kpis: [
+            'Quizzes Respondidos: 840',
+            'Taxa de Acerto Geral: 81.2%',
+            'Certificados Emitidos: 92',
+            'Dúvidas Pendentes: 3'
+          ],
+          chart: 'Gráfico SVG de distribuição de notas em avaliações',
+          gridColumns: ['ID Tentativa', 'Aluno', 'Quiz / Módulo', 'Nota', 'Data', 'Status', 'Ações'],
+          filters: ['Status de Aprovação', 'Busca debounce'],
+          drawerContent: 'Visualizador de respostas de quiz do aluno e feedback pedagógico',
+          modalContent: 'Modal de Emissão Manual de Certificado de Conclusão',
+          seedSummary: '20 registros de tentativas de quizzes e avaliações'
+        },
+        {
+          code: '04',
+          name: 'Auditoria',
+          tabId: 'auditoria',
+          kpis: [
+            'Logs Registrados: 280',
+            'Atores: 3',
+            'Certificados Auditados: 92',
+            'Alterações de Notas: 4'
+          ],
+          chart: 'Gráfico SVG de eventos de matrícula e conclusões diárias',
+          gridColumns: ['Timestamp', 'Ator', 'Ação', 'Entidade', 'ID Alvo', 'Diff JSON', 'Ações'],
+          filters: ['Ação (CREATE, UPDATE, DELETE)', 'Busca debounce'],
+          drawerContent: 'Visualizador de diff JSON com alterações de notas ou matrículas',
+          modalContent: 'Modal de Exportação de Trilha de Auditoria Acadêmica',
+          seedSummary: '30 logs de auditoria imutáveis com histórico de matrículas e notas'
+        },
+        {
+          code: '05',
+          name: 'Configuracoes',
+          tabId: 'configuracoes',
+          kpis: [
+            'Portal de Alunos: Online',
+            'Certificação Automática: Habilitada (>=70%)',
+            'Repetição Espaçada: Ativa',
+            'Banco de Dados: SQLite WAL'
+          ],
+          chart: 'Gráfico SVG de consumo de largura de banda de streaming de aulas',
+          gridColumns: ['Parâmetro', 'Valor', 'Status', 'Última Atualização', 'Ações'],
+          filters: ['Geral', 'Critérios de Certificação', 'Notificações'],
+          drawerContent: 'Painel de configuração de nota mínima de corte e regras de certificado',
+          modalContent: 'Modal de Ajuste de Critérios de Aprovação',
+          seedSummary: 'Configurações acadêmicas e critérios de nota mínima'
+        }
+      ],
+      sqliteSchema: `-- Esquema Relacional SQLite - EdTech & Learning Management
+CREATE TABLE IF NOT EXISTS courses (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  slug TEXT NOT NULL UNIQUE,
+  description TEXT,
+  instructor_name TEXT NOT NULL,
+  price REAL NOT NULL DEFAULT 0.0,
+  is_published INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS modules (
+  id TEXT PRIMARY KEY,
+  course_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  order_index INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (course_id) REFERENCES courses (id)
+);
+
+CREATE TABLE IF NOT EXISTS lessons (
+  id TEXT PRIMARY KEY,
+  module_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  duration_minutes INTEGER NOT NULL DEFAULT 10,
+  video_url TEXT,
+  order_index INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (module_id) REFERENCES modules (id)
+);
+
+CREATE TABLE IF NOT EXISTS students (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS enrollments (
+  id TEXT PRIMARY KEY,
+  student_id TEXT NOT NULL,
+  course_id TEXT NOT NULL,
+  progress_percent REAL NOT NULL DEFAULT 0.0,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'completed', 'dropped')),
+  enrolled_at TEXT NOT NULL DEFAULT (datetime('now')),
+  completed_at TEXT,
+  FOREIGN KEY (student_id) REFERENCES students (id),
+  FOREIGN KEY (course_id) REFERENCES courses (id)
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id TEXT PRIMARY KEY,
+  actor TEXT NOT NULL,
+  action TEXT NOT NULL,
+  entity TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  diff_json TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_enrollments_student ON enrollments (student_id);
+CREATE INDEX IF NOT EXISTS idx_enrollments_course ON enrollments (course_id);
+CREATE INDEX IF NOT EXISTS idx_lessons_module ON lessons (module_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs (entity, entity_id);`,
+      restContracts: [
+        {
+          method: 'GET',
+          path: '/api/health',
+          requestBody: 'N/A',
+          responseBody: '{ status: "ok", uptime: number, database: "connected", timestamp: string }',
+          description: 'Healthcheck de integridade operacional'
+        },
+        {
+          method: 'GET',
+          path: '/api/audit-logs',
+          requestBody: 'Query: ?entity=&limit=',
+          responseBody: 'Array<{ id: string, actor: string, action: string, entity: string, entity_id: string, diff_json: string, created_at: string }>',
+          description: 'Trilha de auditoria educacional'
+        },
+        {
+          method: 'GET',
+          path: '/api/kpis',
+          requestBody: 'N/A',
+          responseBody: '{ totalStudents: number, completionRate: number, totalHours: number, avgScore: number }',
+          description: 'Métricas acadêmicas e de engajamento'
+        },
+        {
+          method: 'GET',
+          path: '/api/courses',
+          requestBody: 'Query: ?q=&page=&limit=',
+          responseBody: 'Array<{ id: string, title: string, instructor_name: string, is_published: number }>',
+          description: 'Catálogo de cursos com busca debounce'
+        },
+        {
+          method: 'POST',
+          path: '/api/courses',
+          requestBody: '{ title: string, instructor_name: string, description?: string, price?: number }',
+          responseBody: '{ id: string, title: string, ... } (Status 201)',
+          description: 'Cadastro de curso com validação'
+        },
+        {
+          method: 'POST',
+          path: '/api/export/csv',
+          requestBody: '{ entity: "courses" | "students" | "enrollments" }',
+          responseBody: 'Content-Type: text/csv',
+          description: 'Exportação em lote de registros em CSV'
+        }
+      ],
+      formulas: [
+        'completion_rate = (alunos_concluintes / total_matriculados) * 100',
+        'average_score = sum(notas_avaliacoes) / total_avaliacoes',
+        'variacao_percentual_delta = ((valor_atual - valor_anterior) / valor_anterior) * 100'
+      ],
+      validations: [
+        'title deve ter pelo menos 3 caracteres (HTTP 400)',
+        'instructor_name deve ser informado (HTTP 400)',
+        'email deve ser um formato de email válido (HTTP 400)'
+      ],
+      envKeys: ['PORT=4000', 'DATABASE_PATH=./data/edtech.db'],
+      archetype: 'clean-saas',
+      accentColor: '#10b981'
+    },
+
+    logistics_operations: {
+      domainKey: 'logistics_operations',
+      domainName: 'Logística, Gestão de Frotas & Operações de Entrega',
+      targetAudience: 'Operadores logísticos, despachantes, transportadoras e gestores de armazém que necessitam rastrear encomendas, despachos, rotas e custos de frete.',
+      referenceApps: ['Flexport', 'ShipBob', 'Samsara', 'Uber Freight'],
+      marketBenchmark: 'Líderes de logística oferecem telemetria de veículos em tempo real, cálculo dinâmico de frete por SLA e cubagem, rastreamento de status de remessas e otimização de paradas de entrega.',
+      differentials: [
+        'Telemetria de remessas em tempo real com SLA dinâmico e alertas preditivos de atraso',
+        'Cálculo de custo de frete por rota, cubagem e consumo de combustível por km rodado',
+        'Rastreamento de status de pacotes ponta a ponta com comprovante digital de entrega'
+      ],
+      sections: [
+        {
+          code: '01',
+          name: 'Dashboard',
+          tabId: 'dashboard',
+          kpis: [
+            'Remessas em Trânsito: 342 (Δ% +8.5%)',
+            'Entregas no Prazo (OTD): 96.8% (Δ% +1.2%)',
+            'Custo Médio / km: R$ 4,12 (Δ% -2.5%)',
+            'Veículos Ativos: 28 / 30'
+          ],
+          chart: 'Gráfico SVG interativo de Remessas Despachadas vs Entregues por Dia com tooltips',
+          gridColumns: ['Código Rastreio', 'Origem', 'Destino', 'Status', 'SLA Estimado', 'Veículo', 'Ações'],
+          filters: ['Status (Em Trânsito, Entregue, Atrasado, Pendente)', 'Busca debounce'],
+          drawerContent: 'Drawer com timeline de rastreamento da remessa, paradas, dados do motorista e comprovante de entrega',
+          modalContent: 'Modal de Despacho Rápido de Carga',
+          seedSummary: '25 remessas em trânsito com rotas e status realistas'
+        },
+        {
+          code: '02',
+          name: 'Remessas',
+          tabId: 'remessas',
+          kpis: [
+            'Total Remessas (Mês): 1.480',
+            'Entregas Concluídas: 1.390',
+            'Ocorrências / Disputas: 12',
+            'Tempo Médio de Rota: 4.2h'
+          ],
+          chart: 'Gráfico SVG de distribuição de entregas por estado/região',
+          gridColumns: ['ID', 'Cliente', 'Destinatário', 'Volume (kg)', 'Valor Frete', 'Status', 'Data', 'Ações'],
+          filters: ['Região', 'Status da Remessa', 'Busca debounce'],
+          drawerContent: 'Drawer com detalhes da nota fiscal, cubagem e coordenadas de destino',
+          modalContent: 'Modal de Cadastro de Nova Remessa',
+          seedSummary: '30 remessas detalhadas com volumes e valores de frete'
+        },
+        {
+          code: '03',
+          name: 'Operações',
+          tabId: 'operacoes',
+          kpis: [
+            'Rotas Otimizadas: 54',
+            'Km Totais Percorridos: 18.420 km',
+            'Economia de Combustível: 12.4%',
+            'Paradas Concluídas: 412'
+          ],
+          chart: 'Gráfico SVG de eficiência de combustível e tempo de entrega',
+          gridColumns: ['ID Rota', 'Motorista', 'Placa', 'Paradas', 'Status', 'Início', 'Ações'],
+          filters: ['Status da Rota', 'Motorista'],
+          drawerContent: 'Visualizador do manifesto de carga e sequência de paradas planejadas',
+          modalContent: 'Modal de Otimização e Planejamento de Nova Rota',
+          seedSummary: '12 rotas de entrega com lista de paradas'
+        },
+        {
+          code: '04',
+          name: 'Auditoria',
+          tabId: 'auditoria',
+          kpis: [
+            'Ocorrências Auditadas: 310',
+            'Atores Registrados: 4',
+            'Comprovantes Anexados: 298',
+            'Divergências Resolvidas: 14'
+          ],
+          chart: 'Gráfico SVG de volume diário de registros de entrega auditados',
+          gridColumns: ['Timestamp', 'Ator', 'Ação', 'Entidade', 'ID Alvo', 'Diff JSON', 'Ações'],
+          filters: ['Ação (CREATE, UPDATE, DELETE)', 'Busca debounce'],
+          drawerContent: 'Visualizador de diff estruturado com alterações de SLA e rotas',
+          modalContent: 'Modal de Exportação de Trilha de Auditoria Logística',
+          seedSummary: '30 logs de auditoria imutáveis com registros de despacho e entrega'
+        },
+        {
+          code: '05',
+          name: 'Configuracoes',
+          tabId: 'configuracoes',
+          kpis: [
+            'API de Rastreio: Conectada',
+            'Algoritmo de Rota: Dijkstra Otimizado',
+            'SLA Alerta Automático: 30 min',
+            'Banco de Dados: SQLite WAL'
+          ],
+          chart: 'Gráfico SVG de consumo de cota de geocodificação e mapas',
+          gridColumns: ['Parâmetro', 'Valor', 'Status', 'Atualizado Em', 'Ações'],
+          filters: ['Geral', 'Tabelas de Frete', 'Integrações GPS'],
+          drawerContent: 'Painel de configuração de parâmetros de cubagem e custo de frete base',
+          modalContent: 'Modal de Ajuste de Tabela de Preço por Peso e Região',
+          seedSummary: 'Configurações de frotas e tabelas de frete padrão'
+        }
+      ],
+      sqliteSchema: `-- Esquema Relacional SQLite - Logística & Gestão de Frotas
+CREATE TABLE IF NOT EXISTS shipments (
+  id TEXT PRIMARY KEY,
+  tracking_code TEXT NOT NULL UNIQUE,
+  sender_name TEXT NOT NULL,
+  recipient_name TEXT NOT NULL,
+  destination_city TEXT NOT NULL,
+  destination_address TEXT NOT NULL,
+  weight_kg REAL NOT NULL DEFAULT 1.0,
+  shipping_fee REAL NOT NULL DEFAULT 0.0,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_transit', 'delivered', 'failed', 'returned')),
+  estimated_delivery TEXT,
+  delivered_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS fleet_vehicles (
+  id TEXT PRIMARY KEY,
+  license_plate TEXT NOT NULL UNIQUE,
+  model TEXT NOT NULL,
+  capacity_kg REAL NOT NULL DEFAULT 1000.0,
+  status TEXT NOT NULL DEFAULT 'available' CHECK (status IN ('available', 'in_route', 'maintenance')),
+  driver_name TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS delivery_routes (
+  id TEXT PRIMARY KEY,
+  vehicle_id TEXT NOT NULL,
+  driver_name TEXT NOT NULL,
+  total_stops INTEGER NOT NULL DEFAULT 1,
+  completed_stops INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'planned' CHECK (status IN ('planned', 'in_progress', 'completed')),
+  started_at TEXT,
+  finished_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (vehicle_id) REFERENCES fleet_vehicles (id)
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id TEXT PRIMARY KEY,
+  actor TEXT NOT NULL,
+  action TEXT NOT NULL,
+  entity TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  diff_json TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_shipments_tracking ON shipments (tracking_code);
+CREATE INDEX IF NOT EXISTS idx_shipments_status ON shipments (status);
+CREATE INDEX IF NOT EXISTS idx_routes_vehicle ON delivery_routes (vehicle_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs (entity, entity_id);`,
+      restContracts: [
+        {
+          method: 'GET',
+          path: '/api/health',
+          requestBody: 'N/A',
+          responseBody: '{ status: "ok", uptime: number, database: "connected", timestamp: string }',
+          description: 'Healthcheck de integridade operacional'
+        },
+        {
+          method: 'GET',
+          path: '/api/audit-logs',
+          requestBody: 'Query: ?entity=&limit=',
+          responseBody: 'Array<{ id: string, actor: string, action: string, entity: string, entity_id: string, diff_json: string, created_at: string }>',
+          description: 'Trilha de auditoria logística'
+        },
+        {
+          method: 'GET',
+          path: '/api/kpis',
+          requestBody: 'N/A',
+          responseBody: '{ activeShipments: number, onTimeRate: number, avgCostKm: number, activeFleet: number }',
+          description: 'Métricas analíticas de desempenho de frota e entregas'
+        },
+        {
+          method: 'GET',
+          path: '/api/shipments',
+          requestBody: 'Query: ?status=&q=&page=&limit=',
+          responseBody: 'Array<{ id: string, tracking_code: string, recipient_name: string, status: string, weight_kg: number }>',
+          description: 'Listagem de remessas com busca debounce'
+        },
+        {
+          method: 'POST',
+          path: '/api/shipments',
+          requestBody: '{ recipient_name: string, destination_city: string, destination_address: string, weight_kg: number }',
+          responseBody: '{ id: string, tracking_code: string, ... } (Status 201)',
+          description: 'Despacho de nova remessa com geração de código de rastreio'
+        },
+        {
+          method: 'POST',
+          path: '/api/export/csv',
+          requestBody: '{ entity: "shipments" | "fleet_vehicles" | "delivery_routes" }',
+          responseBody: 'Content-Type: text/csv',
+          description: 'Exportação em lote de remessas em formato CSV'
+        }
+      ],
+      formulas: [
+        'on_time_rate = (entregas_no_prazo / total_entregas_concluidas) * 100',
+        'cost_per_km = custo_total_operacao / total_km_rodados',
+        'variacao_percentual_delta = ((valor_atual - valor_anterior) / valor_anterior) * 100'
+      ],
+      validations: [
+        'recipient_name deve ter pelo menos 3 caracteres (HTTP 400)',
+        'destination_city deve ser informada (HTTP 400)',
+        'weight_kg deve ser número positivo maior que zero (HTTP 400)'
+      ],
+      envKeys: ['PORT=4000', 'DATABASE_PATH=./data/logistics.db'],
+      archetype: 'clean-saas',
+      accentColor: '#f59e0b'
     }
   };
 
@@ -956,6 +2118,18 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs (entity, entity_i
     const raw = briefing || '';
     const text = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
+    if (/youtube|video|viral|engajamento|views?|likes?|transcri|roteiro|nicho|canal|thumbnail|tiktok|reels|creator|copywriting/i.test(text)) {
+      return this.DOMAIN_SPECS.creator_video_analytics || this.DOMAIN_SPECS.creator_economy;
+    }
+    if (/ia|ai|llm|prompt|agente|agent|openai|claude|gemini|rag|embeddings|automacao\s*de\s*ia|langsmith/i.test(text)) {
+      return this.DOMAIN_SPECS.ai_automation_agents;
+    }
+    if (/curso|aula|aluno|estud|flashcard|mentoria|prova|trilha|ead|educa|edtech|quiz/i.test(text)) {
+      return this.DOMAIN_SPECS.edtech_learning;
+    }
+    if (/logistica|frete|entrega|rastreio|frota|remessa|carga|veiculo|motorista|armazem/i.test(text)) {
+      return this.DOMAIN_SPECS.logistics_operations;
+    }
     if (/banco|finan|pagamento|cobran|fatura|pix|cartao|transac|saldo|extrato|inadimpl|ledger|conta\s*a\s*pagar/i.test(text)) {
       return this.DOMAIN_SPECS.fintech;
     }
@@ -1031,6 +2205,10 @@ ${sectionsBlock}
   /**
    * Generates the DESIGN.md document (Archetype, CSS Tokens, Typography & States).
    */
+  public static buildDesignMd(projectName: string, briefing: string, blueprint: DomainSpecBlueprint): string {
+    return this.generateDesignSpec(projectName, briefing, blueprint);
+  }
+
   public static generateDesignSpec(projectName: string, briefing: string, blueprint: DomainSpecBlueprint): string {
     const profile = DesignSkillService.inferDesignProfile(briefing);
     let aestheticSkillName = 'linear-skill';
@@ -1110,11 +2288,32 @@ Todo estilo de componentes deve consumir estritamente as variáveis abaixo, proi
 
 ---
 
-## 4. Especificação de Componentes
+## 4. Anatomia Visual de Componentes & Especificações Detalhadas
+- **Grid de Cards e Linhas (Data Grid):**
+  - **Preview de Thumbnail 16:9 (\`96x54px\`):** Proporção estrita \`aspect-ratio: 16/9\`, cantos arredondados (\`--radius-sm\`), borda sutil (\`--border-subtle\`) e fallback SVG se imagem offline.
+  - **Badge de Duração Monospace:** Posicionado no canto inferior direito da thumbnail com \`font-family: var(--font-mono)\`, tamanho reduzido (\`11px\`), padding \`2px 4px\`, background \`rgba(0, 0, 0, 0.85)\` e contraste \`--text-primary\`.
+  - **Pílulas Semânticas de Outlier Multiplier:**
+    - \`>= 5.0x\`: **Verde Esmeralda** (\`background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); font-weight: 700;\`) indicando viral extremo / anomalia de alta performance.
+    - \`>= 2.5x\`: **Azul / Cyan** (\`background: rgba(14, 165, 233, 0.15); color: #0ea5e9; border: 1px solid rgba(14, 165, 233, 0.3); font-weight: 600;\`) indicando alta tração.
+    - \`< 2.5x\`: **Neutro** (\`background: rgba(148, 163, 184, 0.1); color: var(--text-muted); border: 1px solid var(--border-subtle);\`).
+- **Barra de Filtros Compostos de Engajamento:**
+  - Input de busca textual com debounce (250ms) por título, palavras-chave ou canal.
+  - Seletor de Faixa de Visualizações (Todos, >10k, >100k, >1M).
+  - Filtro por Taxa de Engajamento mínima (Engagement %).
+  - Filtro por Outlier Score mínimo (>= 2.5x, >= 5.0x, >= 10x).
+  - Seletor de Formato: Todos, Shorts, Vídeos Longos.
+  - Ordenação dinâmica por Outlier Multiplier, Views, VPH (Views Per Hour) ou Data de Publicação.
+- **Slide-Over Inspector Drawer (520px):**
+  - Painel lateral deslizante com largura fixa de \`520px\` (\`role="dialog"\` e \`aria-modal="true"\`).
+  - Animação CSS suave (\`transform: translateX(0)\` com \`backdrop-filter: blur(4px)\`).
+  - Header com preview de thumbnail 16:9 expandida, título completo do vídeo, link canônico e canal.
+  - **Abas Internas do Drawer:**
+    - **Aba Métricas:** Painel tabular formatado com \`tabular-nums\` exibindo Views, Likes, Comentários, Engagement Rate, Outlier Score e VPH.
+    - **Aba Transcrição & Hooks:** Decomposição dos primeiros 30 segundos, ganchos de retenção, tags de tração e notas de roteiro.
+    - **Aba Auditoria JSON:** Payload bruto da entidade com visualizador JSON estruturado e diff de mutações.
 - **Botões:** Estados \`:hover\`, \`:active\` (\`transform: scale(0.98)\`) e \`:disabled\` com opacidade 0.5.
 - **Inputs & Selects:** Borda \`--border-subtle\`, foco com outline de 2px em \`--accent-primary\` e transição suave.
 - **Command Palette (\`Ctrl+K\`):** Overlay elevado em \`--bg-elevated\`, pesquisa debounce e atalhos rápidos de navegação.
-- **Slide-Over Detail Drawer:** Animação lateral suave a partir da direita (\`transform: translateX(0)\`) com backdrop blur.
 - **Ícones:** Uso exclusivo de **ícones SVG Lucide inline** (24x24 ou 16x16, stroke-width 2). **Zero emojis nativos como ícones.**
 
 ---
@@ -1124,6 +2323,39 @@ Todo estilo de componentes deve consumir estritamente as variáveis abaixo, proi
 2. **Empty State:** Ícone SVG temático suave, mensagem explicativa clara e botão primário para criar o primeiro registro.
 3. **Populated State:** Grade rica com alta densidade, paginação, busca instantânea e ordenação.
 4. **Error Toast:** Alerta flutuante com auto-dismiss (4s) e opção de repetição da ação.
+
+---
+
+## 6. Anatomia Detalhada de Componentes, Hierarquia Visual, Densidade e Micro-Interações do Produto
+- **Arquitetura Espacial & Grid CSS:**
+  - **Sidebar:** \`240px\` expandida / \`64px\` colapsada com transição fluida (\`150ms ease\`), navegação semântica em abas (\`role="tab"\` e \`data-tab\`) e contadores dinâmicos.
+  - **Topbar:** Altura fixa de \`56px\` (\`role="banner"\`), seletor de Workspace com persistência local, status de conectividade em tempo real e sino de notificações.
+  - **Container Principal:** \`max-width: 1600px\`, \`padding: 24px\`, \`gap: 16px\` e layout responsivo adaptável a desktops e notebooks.
+  - **Bento Grid de KPIs:** \`grid-template-columns: repeat(4, minmax(0, 1fr))\`, cards com \`padding: 16px\`, sparklines SVG inline e badges com variação percentual (\`+Δ%\` verde, \`-Δ%\` vermelho).
+- **Anatomia da Barra de Filtros do Domínio:**
+  - **Busca Textual com Debounce (250ms):** Campo de busca responsivo para títulos, canais, tags e palavras-chave sem bloquear a thread principal do navegador.
+  - **Seletores de Métricas do Domínio:** Faixas de Visualizações (Todos, >10k, >100k, >1M), Taxa de Engajamento mínima, Outlier Multiplier (>= 2.5x, >= 5x, >= 10x) e Formato (Todos, Shorts, Longos).
+  - **Pílulas de Filtro Rápido (*Quick Filter Pills*):** Presets em 1 clique ("Top Virais 24h", "Outliers Extremos >5x", "Shorts em Alta Tração").
+  - **Ordenação Multicritério:** Por Outlier Multiplier, Views, VPH (Views Per Hour) ou Data de Publicação.
+  - **Contador Vivo de Resultados:** Indicador textual em fonte monospace (\`font-variant-numeric: tabular-nums\`) com feedback de registros filtrados.
+- **Anatomia dos Cards / Tabela Principal do Domínio:**
+  - **Layout Híbrido - Galeria de Cards 16:9:**
+    - Preview de thumbnail 16:9 (\`aspect-ratio: 16/9\`, \`border-radius: var(--radius-sm)\`, \`border: 1px solid var(--border-subtle)\`) com fallback SVG gradiente.
+    - Badge de duração monospace (\`11px\`, \`padding: 2px 4px\`) posicionado no canto inferior direito com fundo escuro (\`rgba(0, 0, 0, 0.85)\`).
+    - Avatar do canal, título completo com line-clamp de 2 linhas e tags de nicho.
+    - Pílulas semânticas de *Outlier Score*: \`>= 5.0x\` **Verde Esmeralda** (\`#10b981\`), \`>= 2.5x\` **Azul** (\`#0ea5e9\`), \`< 2.5x\` neutro.
+    - Barra sutil de *Engagement Rate %* com preenchimento reativo.
+  - **Modo Tabela Analítica (\`tabular-nums\`):**
+    - Densidade de linha (\`height: 44px\`), alinhamento numérico à direita, sparklines inline e alternância fluida via botão de toggle Lista/Cards.
+- **Anatomia do Slide-Over Inspector Drawer (\`width: 520px\`):**
+  - Painel lateral deslizante com largura fixa de \`520px\` (\`role="dialog"\` e \`aria-modal="true"\`) com backdrop blur (\`backdrop-filter: blur(8px)\`).
+  - Header fixo com ações rápidas (link externo, copiar dados, favoritar e fechar via \`Esc\`).
+  - Grade de mini-cards com métricas do item selecionado formatadas em \`tabular-nums\` (Views, Likes, Comentários, Engagement Rate, Outlier Score, VPH).
+  - Abas internas contextualizadas ao domínio:
+    - *Aba Métricas & Breakdown:* KPIs detalhados, série histórica e benchmark comparativo com a média do canal.
+    - *Aba Conteúdo / Transcrição / Edição:* Decomposição de ganchos nos primeiros 30s, tópicos-chave e campo de notas com salvamento reativo.
+    - *Aba Histórico & JSON Audit:* Visualizador do payload bruto em JSON syntax-highlighted com trilha forense imutável de \`audit_logs\`.
+  - Estados de Loading Skeleton translúcido e Empty State temático em cada aba.
 `;
   }
 
@@ -1180,7 +2412,7 @@ ${blueprint.validations.map(v => `- **Validação:** ${v}`).join('\n')}
 - **better-sqlite3 / DatabaseSync:** Banco de dados relacional embutido com WAL mode (\`PRAGMA journal_mode = WAL;\`) e timeouts defensivos (\`PRAGMA busy_timeout = 10000;\`).
 - **express / node:http:** Roteamento determinístico REST com validação de payload síncrona e códigos de erro amigáveis.
 - **lucide-icons:** Ícones vetoriais SVG inline estruturados para navegação semântica em abas.
-- **Nicho & Domínio Ativo (DOCSIMP):** Adaptadores de **${blueprint.domainName}** (${blueprint.domainKey === 'health' ? 'HEALTHCARE_APPOINTMENTS' : blueprint.domainKey === 'devtools' ? 'DEVTOOLS_ISSUES' : 'FINANCE_SAAS'}) provisionados autonomamente pelo MarketDiscoveryService na Onda 0.
+- **Nicho & Domínio Ativo (DOCSIMP):** Adaptadores de **${blueprint.domainName}** (${blueprint.domainKey === 'health' ? 'HEALTHCARE_APPOINTMENTS' : blueprint.domainKey === 'devtools' ? 'DEVTOOLS_ISSUES' : blueprint.domainKey === 'creator_economy' ? 'CREATOR_YOUTUBE_ANALYTICS' : 'FINANCE_SAAS'}) provisionados autonomamente pelo MarketDiscoveryService na Onda 0.
 
 ### Chaves de Ambiente & Graceful Mock Fallback
 O backend deve operar de modo 100% autônomo e offline através de Graceful Mock Fallback:
@@ -1416,6 +2648,13 @@ O simulador de pentest Red Team executará asserções contra todas as mutaçõe
     }
 
     Logger.info(`[ProjectLivingSpecService] Onda 0: 5 especificações vivas gravadas com sucesso em ${specsDir} e AGENTS.md provisionado na raiz.`);
+
+    // 7. Sincroniza specs ricas diretamente para a raiz da memória (.ai-dev-hub/project.md, architecture.md, decisions.md)
+    try {
+      ProjectLivingSpecService.syncSpecsToRootMemory(resolvedProjectPath);
+    } catch (syncErr: any) {
+      Logger.warn(`[ProjectLivingSpecService] Falha não bloqueante ao sincronizar specs com raiz: ${syncErr.message}`);
+    }
 
     let executiveCardResult: { posted: boolean; messageId?: string; content: string } | undefined;
     if (input.projectId) {
@@ -2156,5 +3395,65 @@ O simulador de pentest Red Team executará asserções contra todas as mutaçõe
       Logger.warn(`[ProjectLivingSpecService] Falha ao gravar contratos sincronizados em BACKEND.md: ${err.message}`);
       return { synced: false, tables, routes, backendMdPath: backendPath };
     }
+  }
+
+  /**
+   * Sincroniza os arquivos ricos de .ai-dev-hub/specs/ para os arquivos canônicos da raiz .ai-dev-hub/
+   * (project.md, architecture.md, decisions.md)
+   */
+  public static syncSpecsToRootMemory(projectPath: string): boolean {
+    if (!projectPath || !fs.existsSync(projectPath)) return false;
+    const aiDevHubDir = path.join(projectPath, '.ai-dev-hub');
+    const specsDir = path.join(aiDevHubDir, 'specs');
+    if (!fs.existsSync(specsDir)) return false;
+
+    const read = (p: string) => (fs.existsSync(p) ? fs.readFileSync(p, 'utf-8') : '');
+
+    const conteudo = read(path.join(specsDir, 'CONTEUDO.md'));
+    const jornadas = read(path.join(specsDir, 'JORNADAS.md'));
+    const market = read(path.join(aiDevHubDir, 'market-research-rea.md')) || read(path.join(projectPath, 'market-research-rea.md'));
+
+    const backend = read(path.join(specsDir, 'BACKEND.md'));
+    const design = read(path.join(specsDir, 'DESIGN.md')) || read(path.join(projectPath, 'DESIGN.md'));
+    const reaBlueprint = read(path.join(aiDevHubDir, 'rea-blueprint.md')) || read(path.join(projectPath, 'rea-blueprint.md'));
+
+    const principios = read(path.join(specsDir, 'PRINCIPIOS.md'));
+
+    // 1. project.md
+    if (conteudo || jornadas || market) {
+      const projectMdContent = [
+        '# Visão Geral e Escopo do Produto (DecoHUB Living Spec)',
+        '',
+        conteudo ? `## Especificação de Conteúdo e REA\n\n${conteudo}` : '',
+        jornadas ? `## Jornadas de Usuário e Homologação\n\n${jornadas}` : '',
+        market ? `## Pesquisa de Mercado e Diferenciais\n\n${market}` : ''
+      ].filter(Boolean).join('\n\n');
+      fs.writeFileSync(path.join(aiDevHubDir, 'project.md'), projectMdContent, 'utf-8');
+    }
+
+    // 2. architecture.md
+    if (backend || design || reaBlueprint) {
+      const archMdContent = [
+        '# Arquitetura Técnica e Engenharia de Sistema (DecoHUB Living Spec)',
+        '',
+        backend ? `## Contratos de Banco de Dados e API REST\n\n${backend}` : '',
+        design ? `## Design System e Interface Visual\n\n${design}` : '',
+        reaBlueprint ? `## SaaS Blueprint & Pilares REA\n\n${reaBlueprint}` : ''
+      ].filter(Boolean).join('\n\n');
+      fs.writeFileSync(path.join(aiDevHubDir, 'architecture.md'), archMdContent, 'utf-8');
+    }
+
+    // 3. decisions.md
+    if (principios) {
+      const decisionsMdContent = [
+        '# Log de Decisões Técnicas e Princípios Invariantes (DecoHUB Living Spec)',
+        '',
+        principios
+      ].join('\n\n');
+      fs.writeFileSync(path.join(aiDevHubDir, 'decisions.md'), decisionsMdContent, 'utf-8');
+    }
+
+    Logger.info(`[ProjectLivingSpecService] Sincronização de specs para memória raiz (.ai-dev-hub/) concluída em ${projectPath}.`);
+    return true;
   }
 }

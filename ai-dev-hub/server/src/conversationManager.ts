@@ -63,7 +63,7 @@ export interface SendMessageOptions {
 
 export class ConversationManager {
   private static _validationOverride: ((convId: string) => boolean) | null = null;
-  private static _createOverride: ((params: GetOrCreateConversationParams, title: string) => string) | null = null;
+  private static _createOverride: ((params: GetOrCreateConversationParams, title: string) => string | Promise<string>) | null = null;
   private static _sendMessageOverride: ((convId: string, prompt: string) => void) | null = null;
 
   /**
@@ -76,7 +76,7 @@ export class ConversationManager {
   /**
    * For deterministic testing: override agentapi conversation creation
    */
-  static setCreateOverride(fn: ((params: GetOrCreateConversationParams, title: string) => string) | null) {
+  static setCreateOverride(fn: ((params: GetOrCreateConversationParams, title: string) => string | Promise<string>) | null) {
     this._createOverride = fn;
   }
 
@@ -185,7 +185,7 @@ export class ConversationManager {
   /**
    * Finds an existing active leaf and healthy conversation or creates a new persistent one.
    */
-  static getOrCreateConversation(params: GetOrCreateConversationParams): { conversationId: string; isNew: boolean } {
+  static async getOrCreateConversation(params: GetOrCreateConversationParams): Promise<{ conversationId: string; isNew: boolean }> {
     const {
       projectId = null,
       accountProfileId,
@@ -308,10 +308,10 @@ export class ConversationManager {
     // Create new conversation via agentapi
     let conversationId: string;
     if (this._createOverride) {
-      conversationId = this._createOverride(params, title);
+      conversationId = await this._createOverride(params, title);
     } else {
       const prompt = initialPrompt || `Sessão persistente do DecoHUB iniciada para papel ${role}.`;
-      conversationId = AgentApiGateway.newConversation({
+      conversationId = await AgentApiGateway.newConversation({
         model,
         title,
         prompt,
@@ -417,7 +417,7 @@ export class ConversationManager {
   /**
    * Core reuse-first sendMessage method with controlled handoff strictly on verified PROJECT_CONTEXT_MISMATCH.
    */
-  static sendMessageOrRotate(options: SendMessageOptions): { conversationId: string; rotated: boolean } {
+  static async sendMessageOrRotate(options: SendMessageOptions): Promise<{ conversationId: string; rotated: boolean }> {
     const {
       conversationId,
       prompt,
@@ -460,7 +460,7 @@ export class ConversationManager {
       // Retire the mismatched conversation
       this.retireConversation(targetConvId, 'PROJECT_CONTEXT_MISMATCH');
 
-      const handoffResult = this.getOrCreateConversation({
+      const handoffResult = await this.getOrCreateConversation({
         projectId,
         accountProfileId,
         role,

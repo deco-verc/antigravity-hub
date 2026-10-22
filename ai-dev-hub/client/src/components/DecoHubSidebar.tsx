@@ -211,7 +211,7 @@ export const DecoHubSidebar: React.FC<DecoHubSidebarProps> = ({
 
       {/* 6. Rodapé discreto com atalho para Avançado */}
       <div className="p-3 border-t border-[#1a1e2d] flex items-center justify-between text-[11px] text-slate-400">
-        <span className="font-medium text-slate-400">DecoHUB v1.0</span>
+        <span className="font-medium text-slate-400">DecoHUB v1.1 (Direct Runtime)</span>
         <button
           type="button"
           onClick={onOpenAdvanced}

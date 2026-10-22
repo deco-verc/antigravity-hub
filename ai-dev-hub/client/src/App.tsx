@@ -8,6 +8,8 @@ import { DecoHubChatView } from './components/DecoHubChatView';
 import { DecoHubTasksView } from './components/DecoHubTasksView';
 import { DecoHubFilesView } from './components/DecoHubFilesView';
 import { DecoHubActivityView } from './components/DecoHubActivityView';
+import { DecoHubLivePreviewView } from './components/DecoHubLivePreviewView';
+import { DecoHubGitDiffView } from './components/DecoHubGitDiffView';
 import { DecoHubRightPanel } from './components/DecoHubRightPanel';
 import { AdvancedDashboardModal } from './components/AdvancedDashboardModal';
 
@@ -115,13 +117,13 @@ export const App: React.FC = () => {
     loadActiveAccountForProject(id);
   };
 
-  // Navigation: 5 main tabs (Chat, Overview, Tasks, Files, Activity)
-  const [activeMainTab, setActiveMainTab] = useState<'chat' | 'overview' | 'tasks' | 'files' | 'activity'>(() => {
+  // Navigation: 7 main tabs (Chat, Overview, Tasks, Files, Activity, Preview, Diff)
+  const [activeMainTab, setActiveMainTab] = useState<'chat' | 'overview' | 'tasks' | 'files' | 'activity' | 'preview' | 'diff'>(() => {
     return (localStorage.getItem('ai_dev_last_tab') as any) || 'chat';
   });
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(false);
 
-  const switchTab = (tab: 'chat' | 'overview' | 'tasks' | 'files' | 'activity') => {
+  const switchTab = (tab: 'chat' | 'overview' | 'tasks' | 'files' | 'activity' | 'preview' | 'diff') => {
     setActiveMainTab(tab);
     localStorage.setItem('ai_dev_last_tab', tab);
   };
@@ -760,6 +762,35 @@ export const App: React.FC = () => {
                   >
                     Atividade
                   </button>
+
+                  <button
+                    type="button"
+                    onClick={() => switchTab('preview')}
+                    className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition-all flex items-center gap-1.5 ${
+                      activeMainTab === 'preview'
+                        ? 'border-indigo-500 text-white bg-indigo-600/10'
+                        : 'border-transparent text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <span>🌐 Live Preview</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => switchTab('diff')}
+                    className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition-all flex items-center gap-1.5 ${
+                      activeMainTab === 'diff'
+                        ? 'border-indigo-500 text-white bg-indigo-600/10'
+                        : 'border-transparent text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <span>🔀 Git Diff</span>
+                    {projectDetails.gitInfo?.statusSummary && projectDetails.gitInfo.statusSummary.total > 0 && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#1b2033] text-indigo-300 font-mono">
+                        {projectDetails.gitInfo.statusSummary.total}
+                      </span>
+                    )}
+                  </button>
                 </div>
 
                 <ProjectOperationsBar
@@ -776,6 +807,7 @@ export const App: React.FC = () => {
                     <DecoHubChatView
                       key={projectDetails.id}
                       project={projectDetails}
+                      projectRun={projectRun}
                       messages={messages}
                       activeAccount={activeAccount}
                       agentStatus={agentStatus}
@@ -815,6 +847,18 @@ export const App: React.FC = () => {
 
                   {activeMainTab === 'activity' && (
                     <DecoHubActivityView
+                      project={projectDetails}
+                    />
+                  )}
+
+                  {activeMainTab === 'preview' && (
+                    <DecoHubLivePreviewView
+                      project={projectDetails}
+                    />
+                  )}
+
+                  {activeMainTab === 'diff' && (
+                    <DecoHubGitDiffView
                       project={projectDetails}
                     />
                   )}

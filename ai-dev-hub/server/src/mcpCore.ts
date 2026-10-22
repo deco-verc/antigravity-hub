@@ -1,3 +1,7 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { execSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import { db } from './db.js';
 import { MemoryManager } from './memoryManager.js';
 import { GitManager } from './gitManager.js';
@@ -8,7 +12,7 @@ import { AutonomousManager } from './autonomousManager.js';
 import { SecurityManager } from './security.js';
 import { Logger } from './logger.js';
 import { GitHubMcpClient } from './githubMcpClient.js';
-import crypto from 'node:crypto';
+import { EngineeringContextService } from './engineeringContextService.js';
 
 export interface McpToolDefinition {
   name: string;
@@ -102,6 +106,67 @@ export class McpCore {
       totalCalls: this.totalCalls,
       lastCallTimestamp: this.lastCallTimestamp
     };
+  }
+
+  /**
+   * Poka-Yoke Guardrail: Pré-validação instantânea de compilação/sintaxe antes de aceitar o relatório do Builder.
+   * Evita reprovações desnecessárias no Supervisor se o Builder esquecer um import ou deixar erro sintático.
+   */
+  static runPokaYokePreFlightCheck(projectPath: string, filesChanged?: string[]): string | null {
+    try {
+      if (!fs.existsSync(projectPath)) return null;
+
+      // 1. Se existir tsconfig.json, valida compilação com npx tsc --noEmit
+      const tsconfigPath = path.join(projectPath, 'tsconfig.json');
+      if (fs.existsSync(tsconfigPath)) {
+        try {
+          execSync('npx tsc --noEmit --pretty false', {
+            cwd: projectPath,
+            timeout: 15000,
+            stdio: 'pipe',
+            windowsHide: true,
+            env: { ...process.env, CI: 'true' }
+          });
+        } catch (err: any) {
+          const stdout = err.stdout ? err.stdout.toString('utf-8') : '';
+          const stderr = err.stderr ? err.stderr.toString('utf-8') : '';
+          const combined = (stdout + '\n' + stderr).trim();
+          if (combined && (combined.includes('error TS') || /TS\d{4}:/.test(combined))) {
+            return combined.slice(0, 3000);
+          }
+        }
+      }
+
+      // 2. Validação sintática rápida com node --check para arquivos JS/TS
+      if (Array.isArray(filesChanged) && filesChanged.length > 0) {
+        const syntaxErrors: string[] = [];
+        for (const relFile of filesChanged) {
+          if (typeof relFile === 'string' && (relFile.endsWith('.js') || relFile.endsWith('.mjs') || relFile.endsWith('.cjs'))) {
+            const absFile = path.resolve(projectPath, relFile);
+            if (fs.existsSync(absFile)) {
+              try {
+                execSync(`node --check "${absFile}"`, {
+                  cwd: projectPath,
+                  timeout: 5000,
+                  stdio: 'pipe',
+                  windowsHide: true
+                });
+              } catch (err: any) {
+                const errOutput = (err.stderr?.toString('utf-8') || err.stdout?.toString('utf-8') || err.message).trim();
+                syntaxErrors.push(`Erro de sintaxe em ${relFile}:\n${errOutput}`);
+              }
+            }
+          }
+        }
+        if (syntaxErrors.length > 0) {
+          return syntaxErrors.join('\n\n').slice(0, 3000);
+        }
+      }
+
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   static initTools() {
@@ -269,6 +334,16 @@ export class McpCore {
       handler: (args) => {
         let projectIdentifier = args?.project || args?.project_id;
         let runRow: any = null;
+        if (!projectIdentifier && (args?.taskId || args?.task_id)) {
+          const tId = args.taskId || args.task_id;
+          const autoTask: any = db.prepare('SELECT project_id, run_id FROM autonomous_tasks WHERE id = ? OR id LIKE ? LIMIT 1').get(tId, `${tId}%`);
+          if (autoTask?.project_id) {
+            projectIdentifier = autoTask.project_id;
+            if (!runRow && autoTask.run_id) {
+              runRow = db.prepare('SELECT id, project_id, status FROM autonomous_runs WHERE id = ?').get(autoTask.run_id);
+            }
+          }
+        }
         if (args?.run_id) {
           runRow = db.prepare('SELECT id, project_id, status FROM autonomous_runs WHERE id = ? OR id LIKE ? ORDER BY created_at DESC LIMIT 1')
             .get(args.run_id, `${args.run_id}%`);
@@ -277,6 +352,18 @@ export class McpCore {
           }
         }
         const project = SessionManager.resolveProject(projectIdentifier);
+        if (args?.taskId || args?.task_id) {
+          const tId = args.taskId || args.task_id;
+          const specificTask: any = db.prepare('SELECT * FROM autonomous_tasks WHERE id = ? OR id LIKE ? LIMIT 1').get(tId, `${tId}%`);
+          if (specificTask) {
+            return {
+              task: specificTask,
+              projectId: project.id,
+              projectName: project.name,
+              projectPath: project.path
+            };
+          }
+        }
         const memory = MemoryManager.readMemoryFiles(project.path);
         const allTasks = MemoryManager.parseTasks(memory.tasksMd);
         const autonomousTasks = runRow
@@ -910,7 +997,45 @@ export class McpCore {
         },
         required: ['run_id', 'task_id', 'status', 'files_changed', 'implemented']
       },
-      handler: (args) => {
+      handler: async (args) => {
+        let projectPath: string | null = null;
+        if (args?.run_id) {
+          const run: any = db.prepare('SELECT project_id FROM autonomous_runs WHERE id = ?').get(args.run_id);
+          if (run?.project_id) {
+            const project: any = db.prepare('SELECT path FROM projects WHERE id = ?').get(run.project_id);
+            if (project?.path) {
+              projectPath = project.path;
+            }
+          }
+        }
+
+        // 1. Normalizar caminhos em files_changed para caminhos relativos com barras normais
+        if (Array.isArray(args?.files_changed) && projectPath) {
+          const normProj = projectPath.replace(/\\/g, '/').toLowerCase();
+          args.files_changed = args.files_changed.map((f: string) => {
+            if (typeof f !== 'string') return f;
+            let norm = f.replace(/\\/g, '/');
+            if (norm.toLowerCase().startsWith(normProj)) {
+              norm = norm.slice(normProj.length);
+              if (norm.startsWith('/')) norm = norm.slice(1);
+            }
+            return norm;
+          });
+        }
+
+        // 2. Guardrail Poka-Yoke: se o Worker relatar 'success', verificar se compila e não quebrou sintaxe
+        if (args?.status === 'success' && projectPath) {
+          const pokaYokeError = McpCore.runPokaYokePreFlightCheck(projectPath, args.files_changed);
+          if (pokaYokeError) {
+            return {
+              status: 'poka_yoke_fix_required',
+              accepted: false,
+              message: 'POKA-YOKE GUARDRAIL: Erro de compilação ou sintaxe detectado nos arquivos modificados antes da submissão. Corrija o erro apontado abaixo e submeta novamente.',
+              diagnostics: pokaYokeError
+            };
+          }
+        }
+
         return AutonomousManager.submitBuilderReport({
           runId: args.run_id,
           taskId: args.task_id,
@@ -1161,6 +1286,81 @@ export class McpCore {
         return { success: true, issuesSynced: issues.length };
       }
     });
+
+    // 41. get_project_repomap_and_specs
+    this.registerTool({
+      name: 'get_project_repomap_and_specs',
+      description: 'Retorna o RepoMap compacto (símbolos, rotas Express, tabelas SQLite) e/ou as Especificações Vivas (conteudo, design, backend, jornadas, principios) do projeto para guiar a implementação sem adivinhação.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          project: { type: 'string', description: 'Nome, ID ou caminho do projeto (opcional se houver projeto ativo)' },
+          spec: { type: 'string', description: 'Especificação desejada ("conteudo", "design", "backend", "jornadas", "principios", ou "all")' },
+          include_repomap: { type: 'boolean', description: 'Se true, inclui o RepoMap de símbolos e rotas' }
+        }
+      },
+      handler: (args) => {
+        let projectPath: string | null = null;
+        if (args?.project) {
+          const found: any = db.prepare('SELECT path FROM projects WHERE id = ? OR name = ? OR path = ?').get(args.project, args.project, args.project);
+          if (found) projectPath = found.path;
+          else if (fs.existsSync(args.project)) projectPath = args.project;
+        }
+
+        if (!projectPath) {
+          const activeRun: any = db.prepare("SELECT project_id FROM autonomous_runs WHERE status IN ('running', 'building', 'planning') ORDER BY updated_at DESC LIMIT 1").get();
+          if (activeRun?.project_id) {
+            const proj: any = db.prepare('SELECT path FROM projects WHERE id = ?').get(activeRun.project_id);
+            if (proj?.path) projectPath = proj.path;
+          }
+        }
+
+        if (!projectPath) {
+          const latestProj: any = db.prepare('SELECT path FROM projects ORDER BY updated_at DESC LIMIT 1').get();
+          if (latestProj?.path) projectPath = latestProj.path;
+        }
+
+        if (!projectPath || !fs.existsSync(projectPath)) {
+          return { error: 'Projeto não encontrado para carregar RepoMap e Especificações.' };
+        }
+
+        const result: Record<string, any> = {};
+
+        if (args?.include_repomap !== false) {
+          result.repoMap = EngineeringContextService.buildCompactRepoMap(projectPath);
+        }
+
+        const requestedSpec = (args?.spec || 'all').toLowerCase();
+        const specsDir = path.join(projectPath, '.ai-dev-hub', 'specs');
+        const specFiles: Record<string, string> = {
+          conteudo: 'conteudo.md',
+          design: 'design.md',
+          backend: 'backend.md',
+          jornadas: 'jornadas.md',
+          principios: 'principios.md'
+        };
+
+        const specsContent: Record<string, string> = {};
+        for (const [key, filename] of Object.entries(specFiles)) {
+          if (requestedSpec === 'all' || requestedSpec === key) {
+            const specFilePath = path.join(specsDir, filename);
+            if (fs.existsSync(specFilePath)) {
+              try {
+                specsContent[key] = fs.readFileSync(specFilePath, 'utf-8');
+              } catch {}
+            }
+          }
+        }
+
+        if (Object.keys(specsContent).length > 0) {
+          result.specs = specsContent;
+        } else if (fs.existsSync(path.join(specsDir, 'specs.md'))) {
+          result.specs = { unified: fs.readFileSync(path.join(specsDir, 'specs.md'), 'utf-8') };
+        }
+
+        return result;
+      }
+    });
   }
 
   // Handle standard JSON-RPC 2.0 messages (Used by both stdio and HTTP/SSE)
@@ -1179,7 +1379,8 @@ export class McpCore {
           result: {
             protocolVersion: '2024-11-05',
             capabilities: {
-              tools: { listChanged: false }
+              tools: { listChanged: false },
+              resources: { subscribe: false, listChanged: false }
             },
             serverInfo: {
               name: 'ai-dev-hub-mcp',
@@ -1195,6 +1396,136 @@ export class McpCore {
 
       if (method === 'ping') {
         return { jsonrpc: '2.0', id, result: {} };
+      }
+
+      if (method === 'resources/list') {
+        return {
+          jsonrpc: '2.0',
+          id,
+          result: {
+            resources: [
+              {
+                uri: 'decohub://context/repomap',
+                name: 'RepoMap Compacto do Projeto',
+                description: 'Mapa de símbolos, assinaturas de classes/funções, rotas Express e tabelas SQLite do projeto ativo',
+                mimeType: 'text/plain'
+              },
+              {
+                uri: 'decohub://specs/conteudo',
+                name: 'Especificação: Conteúdo e Textos Reais',
+                description: 'Textos de interface, títulos, métricas e copys autênticos do produto',
+                mimeType: 'text/markdown'
+              },
+              {
+                uri: 'decohub://specs/design',
+                name: 'Especificação: Design System e UI Tokens',
+                description: 'Paleta de cores, tipografia, grid e componentes visuais do produto',
+                mimeType: 'text/markdown'
+              },
+              {
+                uri: 'decohub://specs/backend',
+                name: 'Especificação: Backend, Rotas e Schemas',
+                description: 'Contratos de API REST, schemas SQLite e fluxos de dados do backend',
+                mimeType: 'text/markdown'
+              },
+              {
+                uri: 'decohub://specs/jornadas',
+                name: 'Especificação: Jornadas Críticas do Usuário',
+                description: 'Jornadas de ponta a ponta, passos do fluxo e critérios de aceite',
+                mimeType: 'text/markdown'
+              },
+              {
+                uri: 'decohub://specs/principios',
+                name: 'Especificação: Princípios Arquiteturais e Guardrails',
+                description: 'Diretrizes não negociáveis, stack tecnológica e regras de segurança',
+                mimeType: 'text/markdown'
+              }
+            ]
+          }
+        };
+      }
+
+      if (method === 'resources/read') {
+        const uri = params?.uri as string;
+        if (!uri) {
+          return {
+            jsonrpc: '2.0',
+            id,
+            error: { code: -32602, message: 'Parâmetro "uri" é obrigatório em resources/read' }
+          };
+        }
+
+        let projectPath: string | null = null;
+        const activeRun: any = db.prepare("SELECT project_id FROM autonomous_runs WHERE status IN ('running', 'building', 'planning') ORDER BY updated_at DESC LIMIT 1").get();
+        if (activeRun?.project_id) {
+          const proj: any = db.prepare('SELECT path FROM projects WHERE id = ?').get(activeRun.project_id);
+          if (proj?.path) projectPath = proj.path;
+        }
+        if (!projectPath) {
+          const latestProj: any = db.prepare('SELECT path FROM projects ORDER BY updated_at DESC LIMIT 1').get();
+          if (latestProj?.path) projectPath = latestProj.path;
+        }
+
+        if (!projectPath || !fs.existsSync(projectPath)) {
+          return {
+            jsonrpc: '2.0',
+            id,
+            error: { code: -32603, message: 'Nenhum projeto ativo disponível no AI DEV HUB' }
+          };
+        }
+
+        if (uri === 'decohub://context/repomap') {
+          const repoMapText = EngineeringContextService.buildCompactRepoMap(projectPath);
+          return {
+            jsonrpc: '2.0',
+            id,
+            result: {
+              contents: [
+                {
+                  uri,
+                  mimeType: 'text/plain',
+                  text: repoMapText
+                }
+              ]
+            }
+          };
+        }
+
+        if (uri.startsWith('decohub://specs/')) {
+          const specKey = uri.replace('decohub://specs/', '').trim();
+          const specFilePath = path.join(projectPath, '.ai-dev-hub', 'specs', `${specKey}.md`);
+          let specContent = '';
+          if (fs.existsSync(specFilePath)) {
+            specContent = fs.readFileSync(specFilePath, 'utf-8');
+          } else {
+            const unifiedPath = path.join(projectPath, '.ai-dev-hub', 'specs', 'specs.md');
+            if (fs.existsSync(unifiedPath)) {
+              specContent = fs.readFileSync(unifiedPath, 'utf-8');
+            } else {
+              specContent = `# Especificação ${specKey}\nNenhum arquivo de especificação dedicado encontrado para "${specKey}".`;
+            }
+          }
+
+          return {
+            jsonrpc: '2.0',
+            id,
+            result: {
+              contents: [
+                {
+                  uri,
+                  mimeType: 'text/markdown',
+                  text: specContent
+                }
+              ]
+            }
+          };
+        }
+
+        return {
+          jsonrpc: '2.0',
+          id,
+          error: { code: -32602, message: `Resource desconhecido: ${uri}` }
+        };
       }
 
       if (method === 'tools/list') {

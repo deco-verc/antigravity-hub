@@ -299,83 +299,74 @@ export class AutonomousManager {
       (await import('./agentApiGateway.js')).AgentApiGateway.isOfflineMode();
 
     try {
-      await this.generateInitialTasks(runId, config, project);
-      if (RunControl.apply(runId, true)) return this.getRun(runId);
-      db.prepare("UPDATE autonomous_runs SET status='running',last_error=NULL,next_action='Plano criado; aguardando despacho ao Worker',updated_at=? WHERE id=? AND status IN ('planning', 'running')")
-        .run(new Date().toISOString(), runId);
-      ObservabilityService.emit({
-        level: 'INFO',
-        event: 'run.tasks_planned',
-        message: `Tarefas planejadas para run ${runId.slice(0, 8)}`,
-        service: 'manager',
-        runId,
-        projectId: project.id,
-        status: 'running'
-      });
-      try {
-        const { SseStreamService } = await import('./sseStreamService.js');
-        SseStreamService.broadcast(project.id, 'run_updated', { runId, status: 'running' });
-      } catch {}
-      try {
-        const { AutonomousRunnerService } = await import('./autonomousRunnerService.js');
-        AutonomousRunnerService.schedulerTick();
-      } catch (tickErr: any) {
-        Logger.warn(`[AutonomousManager] Aviso ao disparar schedulerTick: ${tickErr.message}`);
+      let plannedTasks: TaskDefinition[] | null = null;
+      const { AgentApiGateway } = await import('./agentApiGateway.js');
+      if (AgentApiGateway.isOfflineMode()) {
+        const mockProvider = AgentApiGateway.getMockProvider();
+        const customPlan = mockProvider?.getResponse?.(project.id, 'PLAN');
+        if (customPlan) {
+          try {
+            const raw = JSON.parse(customPlan);
+            if (Array.isArray(raw) && raw.length > 0) {
+              plannedTasks = raw;
+            }
+          } catch {}
+        }
+      }
+
+      if (!plannedTasks || plannedTasks.length === 0) {
+        const { HierarchicalOrchestrationService } = await import('./hierarchicalOrchestrationService.js');
+        plannedTasks = HierarchicalOrchestrationService.generateMultiPassPlannedTasks({
+          briefing: briefing || 'Construção autônoma do software',
+          projectPath: project.path,
+          projectName: project.name,
+          projectId: project.id,
+          requirements: config.requirements
+        }) as any;
+      }
+
+      if (plannedTasks && plannedTasks.length > 0) {
+        await this.persistPlannedTasks(runId, plannedTasks, project, briefing, config);
+        db.prepare("UPDATE autonomous_runs SET status='running',last_error=NULL,next_action='Plano criado com sucesso; aguardando despacho ao Worker',updated_at=? WHERE id=?")
+          .run(new Date().toISOString(), runId);
+
+        ObservabilityService.emit({
+          level: 'INFO',
+          event: 'run.tasks_planned',
+          message: `Tarefas planejadas imediatamente para run ${runId.slice(0, 8)} (${plannedTasks.length} tarefas)`,
+          service: 'manager',
+          runId,
+          projectId: project.id,
+          status: 'running'
+        });
+
+        try {
+          const { SseStreamService } = await import('./sseStreamService.js');
+          SseStreamService.broadcast(project.id, 'run_updated', { runId, status: 'running', taskCount: plannedTasks.length });
+        } catch {}
+
+        // Disparo assíncrono não-bloqueante do scheduler em 100ms para permitir resposta HTTP imediata em < 200ms
+        setTimeout(async () => {
+          try {
+            const { AutonomousRunnerService } = await import('./autonomousRunnerService.js');
+            AutonomousRunnerService.schedulerTick();
+          } catch (tickErr: any) {
+            Logger.warn(`[AutonomousManager] Aviso ao disparar schedulerTick: ${tickErr.message}`);
+          }
+        }, 100);
+
+        Logger.success(`[AutonomousManager] Run [${runId.slice(0, 8)}] criado e planejado instantaneamente (${plannedTasks.length} tarefas prontas) para ${project.name}`);
+        return this.getRun(runId);
       }
     } catch (err: any) {
       if (RunControl.get(runId)) {
         this.logEvent(runId, null, 'system', 'RUN_OPERATION_FAILURE', err.message);
         if (RunControl.apply(runId, true)) return this.getRun(runId);
       }
-      if (/RESOURCE_EXHAUSTED|code 429|Individual quota reached|QUOTA_EXHAUSTED/i.test(err.message)) {
-        const cooldownMsg = `BLOCKED_QUOTA: ${err.message}`;
-        db.prepare("UPDATE autonomous_runs SET status = 'paused', last_error = ?, next_action = 'Execução pausada aguardando restabelecimento de cota', updated_at = ? WHERE id = ?")
-          .run(cooldownMsg, new Date().toISOString(), runId);
-        this.logEvent(runId, null, 'system', 'BLOCKED_QUOTA', `Cota do modelo esgotada (429). Run pausado com segurança sem retries imediatos.`);
-        Logger.warn(`[AutonomousManager] Run [${runId.slice(0, 8)}] pausado por limite de cota (BLOCKED_QUOTA).`);
-        return this.getRun(runId);
-      }
-      Logger.warn(`[AutonomousManager] Supervisor falhou no planejamento do Run [${runId.slice(0, 8)}]: ${err.message}. Ativando fallback determinístico.`);
-      try {
-        const { HierarchicalOrchestrationService } = await import('./hierarchicalOrchestrationService.js');
-        const fallbackTasks = HierarchicalOrchestrationService.generateMultiPassPlannedTasks({
-          briefing: config.briefing || config.objective || 'Construção autônoma do software',
-          projectPath: project.path,
-          projectName: project.name,
-          projectId: project.id,
-          requirements: config.requirements
-        });
-        if (fallbackTasks && fallbackTasks.length > 0) {
-          await this.persistPlannedTasks(runId, fallbackTasks, project, config.briefing || config.objective, config);
-          db.prepare("UPDATE autonomous_runs SET status='running',last_error=NULL,next_action='Plano gerado via fallback determinístico; aguardando despacho ao Worker',updated_at=? WHERE id=? AND status IN ('planning', 'running')")
-            .run(new Date().toISOString(), runId);
-          ObservabilityService.emit({
-            level: 'INFO',
-            event: 'run.tasks_planned',
-            message: `Tarefas planejadas via fallback para run ${runId.slice(0, 8)} (${fallbackTasks.length} tarefas)`,
-            service: 'manager',
-            runId,
-            projectId: project.id,
-            status: 'running'
-          });
-          try {
-            const { SseStreamService } = await import('./sseStreamService.js');
-            SseStreamService.broadcast(project.id, 'run_updated', { runId, status: 'running', taskCount: fallbackTasks.length });
-          } catch {}
-          try {
-            const { AutonomousRunnerService } = await import('./autonomousRunnerService.js');
-            AutonomousRunnerService.schedulerTick();
-          } catch (tickErr: any) {
-            Logger.warn(`[AutonomousManager] Aviso ao disparar schedulerTick do fallback: ${tickErr.message}`);
-          }
-          return this.getRun(runId);
-        }
-      } catch (fbErr: any) {
-        Logger.error(`[AutonomousManager] Falha no fallback determinístico: ${fbErr.message}`);
-      }
-      db.prepare("UPDATE autonomous_runs SET status = 'error', last_error = ?, next_action = 'Verificar conta e agentapi do Supervisor', updated_at = ? WHERE id = ?")
+      Logger.error(`[AutonomousManager] Falha ao planejar tarefas para Run [${runId.slice(0, 8)}]: ${err.message}`);
+      db.prepare("UPDATE autonomous_runs SET status = 'error', last_error = ?, next_action = 'Verificar configuração do projeto', updated_at = ? WHERE id = ?")
         .run(err.message, new Date().toISOString(), runId);
-      this.logEvent(runId, null, 'system', 'SUPERVISOR_UNAVAILABLE', err.message);
+      this.logEvent(runId, null, 'system', 'PLAN_GENERATION_FAILED', err.message);
       throw err;
     }
 
@@ -1023,12 +1014,17 @@ export class AutonomousManager {
     for (const t of parsedTasks) {
       if (Array.isArray(t.skillGuidelines)) {
         for (const g of t.skillGuidelines) {
-          if (typeof g === 'string') skillsSet.add(g);
-          else if (g?.name) skillsSet.add(g.name);
-          else if (g?.skill) skillsSet.add(g.skill);
+          if (typeof g === 'string') {
+            const trimmed = g.trim();
+            if (trimmed.length > 0 && trimmed.length <= 40 && !trimmed.includes('\n') && !trimmed.startsWith('[')) {
+              skillsSet.add(trimmed);
+            }
+          }
+          else if (g?.name && typeof g.name === 'string' && g.name.length <= 40) skillsSet.add(g.name);
+          else if (g?.skill && typeof g.skill === 'string' && g.skill.length <= 40) skillsSet.add(g.skill);
         }
       }
-      if (t.skill_routed) {
+      if (t.skill_routed && typeof t.skill_routed === 'string' && t.skill_routed.length <= 40) {
         skillsSet.add(t.skill_routed);
       }
     }
@@ -1040,8 +1036,8 @@ export class AutonomousManager {
         try {
           const files = fs.readdirSync(skillsDir);
           for (const f of files) {
-            const clean = f.replace(/\.md$/i, '');
-            if (clean && clean !== 'README') skillsSet.add(clean);
+            const clean = f.replace(/\.md$/i, '').trim();
+            if (clean && clean !== 'README' && clean.length <= 40) skillsSet.add(clean);
           }
         } catch (err) {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
@@ -1075,9 +1071,13 @@ export class AutonomousManager {
       }
     }
 
+    const cleanSkills = Array.from(skillsSet)
+      .map(s => String(s || '').trim())
+      .filter(s => s.length > 0 && s.length <= 40 && !s.includes('\n') && !s.includes('\r') && !s.startsWith('[') && !s.startsWith('{'));
+
     return {
       activeSlashCommand,
-      activeSkillsList: Array.from(skillsSet),
+      activeSkillsList: cleanSkills,
       currentExecutionSpecialty
     };
   }
@@ -1395,6 +1395,70 @@ export class AutonomousManager {
         WHERE id = ?
       `).run(lastMilestone, nowIso, runId);
     }
+
+    // Atualiza arquivos físicos de progresso em .ai-dev-hub/
+    try {
+      const runRow: any = db.prepare('SELECT project_id, status FROM autonomous_runs WHERE id = ?').get(runId);
+      if (runRow?.project_id) {
+        const project: any = db.prepare('SELECT path, name FROM projects WHERE id = ?').get(runRow.project_id);
+        if (project?.path && fs.existsSync(project.path)) {
+          const aiDevHubDir = path.join(project.path, '.ai-dev-hub');
+          if (!fs.existsSync(aiDevHubDir)) {
+            fs.mkdirSync(aiDevHubDir, { recursive: true });
+          }
+
+          const completed = tasks.filter(t => t.status === 'completed');
+          const doing = tasks.filter(t => t.status === 'in_progress' || t.status === 'in_review');
+          const pending = tasks.filter(t => t.status !== 'completed' && t.status !== 'in_progress' && t.status !== 'in_review');
+
+          // 1. tasks.md
+          const tasksMdContent = [
+            `# Kanban de Tarefas Autônomas — ${project.name}`,
+            `*Atualizado em: ${nowIso} | Total: ${tasks.length} tarefas (${completed.length} concluídas)*\n`,
+            `## Concluído (${completed.length})`,
+            completed.length > 0 ? completed.map(t => `- [x] **${t.title}** \`[${t.milestone || 'M'}]\``).join('\n') : '_Nenhuma tarefa concluída ainda_',
+            `\n## Fazendo (${doing.length})`,
+            doing.length > 0 ? doing.map(t => `- [/] **${t.title}** \`[${t.milestone || 'M'} - ${t.status}]\``).join('\n') : '_Nenhuma tarefa em andamento_',
+            `\n## Pendente (${pending.length})`,
+            pending.length > 0 ? pending.map(t => `- [ ] **${t.title}** \`[${t.milestone || 'M'}]\``).join('\n') : '_Todas as tarefas foram concluídas_'
+          ].join('\n');
+          fs.writeFileSync(path.join(aiDevHubDir, 'tasks.md'), tasksMdContent, 'utf-8');
+
+          // 2. changes.md
+          const filesChangedSet = new Set<string>();
+          for (const t of completed) {
+            try {
+              const files = JSON.parse(t.expected_files_json || '[]');
+              if (Array.isArray(files)) files.forEach(f => filesChangedSet.add(f));
+            } catch {}
+          }
+          const changesMdContent = [
+            `# Histórico de Arquivos Criados/Alterados — ${project.name}`,
+            `*Atualizado em: ${nowIso} | Arquivos rastreados: ${filesChangedSet.size}*\n`,
+            filesChangedSet.size > 0
+              ? Array.from(filesChangedSet).map(f => `- \`${f}\``).join('\n')
+              : '_Nenhum arquivo modificado registrado ainda_'
+          ].join('\n');
+          fs.writeFileSync(path.join(aiDevHubDir, 'changes.md'), changesMdContent, 'utf-8');
+
+          // 3. session-summary.md
+          const lastCompleted = completed[completed.length - 1];
+          const pct = Math.round((completed.length / tasks.length) * 100);
+          const sessionSummaryContent = [
+            `# Resumo da Sessão / Checkpoint Consolidado`,
+            `**Projeto:** ${project.name}`,
+            `**Progresso:** ${completed.length} de ${tasks.length} tarefas (${pct}%)`,
+            `**Status do Run:** ${runRow.status.toUpperCase()}`,
+            `**Última tarefa entregue:** ${lastCompleted ? lastCompleted.title : 'Nenhuma'}`,
+            `**Próxima tarefa na fila:** ${firstIncomplete ? firstIncomplete.title : 'Todas as tarefas concluídas'}`,
+            `**Data/Hora do Checkpoint:** ${nowIso}`
+          ].join('\n');
+          fs.writeFileSync(path.join(aiDevHubDir, 'session-summary.md'), sessionSummaryContent, 'utf-8');
+        }
+      }
+    } catch (diskErr: any) {
+      Logger.warn(`[AutonomousManager] Falha não bloqueante ao sincronizar arquivos de progresso em .ai-dev-hub: ${diskErr.message}`);
+    }
   }
 
   /**
@@ -1555,7 +1619,9 @@ export class AutonomousManager {
     const isTrusted = DevAutonomyService.isProjectTrusted(run.project_id);
     const fullDevAutonomy = DevAutonomyService.hasFullDevAutonomy(run.project_id);
 
-    if (input.decisions && input.decisions.length > 0) {
+    if (isTrusted || fullDevAutonomy) {
+      needsApproval = false;
+    } else if (input.decisions && input.decisions.length > 0) {
       for (const dec of input.decisions) {
         const evalRes = PolicyEngine.evaluateDecision(dec.decision, dec.rationale, {
           isTrusted,
@@ -2650,7 +2716,9 @@ export class AutonomousManager {
       WHERE run_id = ? AND status IN ('ready', 'in_progress', 'in_review')
       LIMIT 1
     `).get(params.runId);
-    if (!activeOrReadyOther && runRow && !['completed', 'failed'].includes(runRow.status)) {
+    const isProjectTrusted = DevAutonomyService.isProjectTrusted(runRow?.project_id);
+    const hasAutonomy = DevAutonomyService.hasFullDevAutonomy(runRow?.project_id);
+    if (!isProjectTrusted && !hasAutonomy && !activeOrReadyOther && runRow && !['completed', 'failed'].includes(runRow.status)) {
       db.prepare(`
         UPDATE autonomous_runs
         SET status = 'waiting_approval', next_action = ?, updated_at = ?
@@ -3343,9 +3411,9 @@ export class AutonomousManager {
     const contract = HierarchicalOrchestrationService.buildWorkerExecutionContract(taskId);
     try {
       const evalRow: any = db
-        .prepare('SELECT evaluator_notes, reasons, verification_output, verdict FROM evaluation_results WHERE task_id = ? ORDER BY created_at DESC LIMIT 1')
+        .prepare('SELECT evaluator_notes, actual, verdict FROM evaluation_results WHERE task_id = ? ORDER BY created_at DESC LIMIT 1')
         .get(taskId);
-      const evalNotes = evalRow?.evaluator_notes || evalRow?.reasons || evalRow?.verification_output;
+      const evalNotes = evalRow?.evaluator_notes || evalRow?.actual;
       if (evalNotes && contract.reworkContext) {
         if (!Array.isArray(contract.reworkContext.problemsFound)) {
           contract.reworkContext.problemsFound = [];

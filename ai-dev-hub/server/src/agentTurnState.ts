@@ -141,69 +141,72 @@ export function observeTranscript(file: string,baselineLines=0) {
   if (!entries.length && !fs.existsSync(file)) {
     return {state:'UNAVAILABLE' as const,entries:[],pendingTools:[] as string[],lastStep:null,abortedOnStepError:false};
   }
-  entries=entries.slice(baselineLines);
-  const last=entries.at(-1);
-  const pendingTools: string[]=(last?.tool_calls || []).map((tool:any)=>tool.name).filter(Boolean);
-  const fatal=entries.find(entry=>entry.type==='ERROR_MESSAGE'&&/RESOURCE_EXHAUSTED|429|UNAUTHENTICATED|AUTH_ERROR/i.test(String(entry.error||entry.content||'')));
-  const abortedOnStepError=Boolean(!fatal&&last&&last.type!=='PLANNER_RESPONSE'&&(last.status==='ERROR'||last.status==='CANCELED')&&!pendingTools.length);
+  if (baselineLines > 0) {
+    if (baselineLines >= entries.length) {
+      // Nenhuma linha nova foi gravada pelo modelo após o envio do turno atual
+      return {state:'RUNNING' as const,entries:[],pendingTools:[] as string[],lastStep:null,abortedOnStepError:false};
+    }
+    entries = entries.slice(baselineLines);
+  }
+  
+  // Ignora checkpoints puramente de infraestrutura para avaliar o estado operacional real
+  const operationalEntries = entries.filter(e => e.type !== 'CHECKPOINT');
+  const last = operationalEntries.at(-1);
 
-  // Detecção abrangente de conclusão de turno:
-  // a) last?.type === 'PLANNER_RESPONSE' && last.status === 'DONE' && !pendingTools.length
-  // b) (last?.type === 'ASSISTANT_RESPONSE' || last?.type === 'MODEL_TURN' || last?.type === 'MESSAGE' || last?.role === 'assistant') && (last?.status === 'COMPLETED' || last?.status === 'DONE' || last?.content) && !pendingTools.length
-  // c) O log registrar um bloco final de resposta com ferramenta encerrada
-  const isPlannerDone = Boolean(
-    last?.type === 'PLANNER_RESPONSE' &&
-    (last.status === 'DONE' || last.status === 'COMPLETED') &&
-    !pendingTools.length
+  // Ferramentas pendentes só existem se a última entrada operacional for uma chamada de ferramenta do modelo
+  const isLastToolResult = Boolean(
+    last &&
+    (last.type === 'GENERIC' || last.type === 'GENERIC_TOOL_CALL_RESULT')
   );
 
-  const isAssistantDone = Boolean(
+  const pendingTools: string[] = (!isLastToolResult && last?.tool_calls && Array.isArray(last.tool_calls))
+    ? last.tool_calls.map((tool: any) => tool?.name).filter(Boolean)
+    : [];
+
+  const fatal = entries.find(entry => entry.type === 'ERROR_MESSAGE' && /RESOURCE_EXHAUSTED|429|UNAUTHENTICATED|AUTH_ERROR/i.test(String(entry.error || entry.content || '')));
+  const abortedOnStepError = Boolean(!fatal && last && last.type !== 'PLANNER_RESPONSE' && !isLastToolResult && (last.status === 'ERROR' || last.status === 'CANCELED') && !pendingTools.length);
+
+  // Um turno do modelo só está COMPLETO se a ÚLTIMA entrada operacional:
+  // 1. For uma resposta do assistente/modelo (e NÃO um resultado de execução de ferramenta nem entrada de usuário)
+  // 2. Não possuir chamadas de ferramentas pendentes
+  // 3. Estiver com status concluído ou contiver conteúdo substantivo de texto/código emitido pelo modelo
+  const isModelTurnEntry = Boolean(
+    last &&
+    !isLastToolResult &&
+    last.type !== 'USER_INPUT' &&
+    last.type !== 'SYSTEM_MESSAGE' &&
+    last.role !== 'user' &&
+    last.source !== 'USER_EXPLICIT' &&
     (
-      last?.type === 'ASSISTANT_RESPONSE' ||
-      last?.type === 'MODEL_TURN' ||
-      last?.type === 'MESSAGE' ||
-      last?.role === 'assistant' ||
-      last?.source === 'MODEL'
-    ) &&
-    (last?.status === 'COMPLETED' || last?.status === 'DONE' || Boolean(last?.content)) &&
-    !pendingTools.length
-  );
-
-  const isFinalResponseWithClosedTool = Boolean(
-    !pendingTools.length &&
-    entries.length > 0 &&
-    entries.some(e =>
-      (e.type === 'PLANNER_RESPONSE' || e.type === 'ASSISTANT_RESPONSE' || e.type === 'MODEL_TURN' || e.role === 'assistant' || e.source === 'MODEL') &&
-      e.content
-    ) &&
-    (last?.status === 'DONE' || last?.status === 'COMPLETED')
-  );
-
-  // Considerar COMPLETE se o último registro do modelo contiver texto ou blocos de código e não possuir ferramentas pendentes
-  const lastModelEntry = [...entries].reverse().find(e =>
-    e.source === 'MODEL' ||
-    e.role === 'assistant' ||
-    ['PLANNER_RESPONSE', 'ASSISTANT_RESPONSE', 'MODEL_TURN', 'MESSAGE'].includes(e.type)
-  );
-
-  const hasModelTextOrCode = Boolean(
-    lastModelEntry &&
-    (
-      (typeof lastModelEntry.content === 'string' && lastModelEntry.content.trim().length > 0) ||
-      (lastModelEntry.content && typeof lastModelEntry.content === 'object') ||
-      (typeof lastModelEntry.text === 'string' && lastModelEntry.text.trim().length > 0) ||
-      (lastModelEntry.thinking && typeof lastModelEntry.thinking === 'string' && lastModelEntry.thinking.trim().length > 0)
+      last.type === 'PLANNER_RESPONSE' ||
+      last.type === 'ASSISTANT_RESPONSE' ||
+      last.type === 'MODEL_TURN' ||
+      last.type === 'MESSAGE' ||
+      last.role === 'assistant' ||
+      (last.source === 'MODEL' && last.type !== 'GENERIC')
     )
   );
 
-  const isModelTextComplete = Boolean(
-    hasModelTextOrCode &&
-    pendingTools.length === 0 &&
-    (!last || (last.type !== 'USER_INPUT' && last.role !== 'user' && last.source !== 'USER_EXPLICIT'))
+  const hasModelContent = Boolean(
+    last &&
+    (
+      (typeof last.content === 'string' && last.content.trim().length > 0) ||
+      (last.content && typeof last.content === 'object') ||
+      (typeof last.text === 'string' && last.text.trim().length > 0) ||
+      (last.status === 'DONE' || last.status === 'COMPLETED')
+    )
   );
 
-  const isComplete = Boolean(!fatal && (isPlannerDone || isAssistantDone || isFinalResponseWithClosedTool || isModelTextComplete));
-  const state = fatal ? 'ERROR' : isComplete ? 'COMPLETE' : pendingTools.length ? 'PENDING_TOOL' : entries.length ? 'RUNNING' : 'UNAVAILABLE';
+  const isComplete = Boolean(!fatal && isModelTurnEntry && pendingTools.length === 0 && hasModelContent);
+  const state = fatal
+    ? 'ERROR'
+    : isComplete
+      ? 'COMPLETE'
+      : pendingTools.length
+        ? 'PENDING_TOOL'
+        : entries.length
+          ? 'RUNNING'
+          : 'UNAVAILABLE';
   return {state,entries,pendingTools,lastStep:last?.step_index??null,abortedOnStepError};
 }
 
@@ -211,22 +214,21 @@ export function observeTranscript(file: string,baselineLines=0) {
 export class AgentTurnState {
   static get(conversationId: string): any {return db.prepare('SELECT * FROM agent_turn_observations WHERE conversation_id=?').get(conversationId);}
   static forTask(taskId: string): any {return db.prepare('SELECT * FROM agent_turn_observations WHERE task_id=? ORDER BY dispatched_at DESC LIMIT 1').get(taskId);}
-  static progress(record: any) {return observeTranscript(path.join(record.brain_dir,record.conversation_id,'.system_generated/logs/transcript.jsonl'),record.baseline_lines);}
+  static progress(record: any) {
+    const transcriptPath = (record.brain_dir && (record.brain_dir.endsWith(record.conversation_id) || record.brain_dir.endsWith(record.conversation_id.replace(/\\/g, '/'))))
+      ? path.join(record.brain_dir, '.system_generated', 'logs', 'transcript.jsonl')
+      : path.join(record.brain_dir, record.conversation_id, '.system_generated', 'logs', 'transcript.jsonl');
+    return observeTranscript(transcriptPath, record.baseline_lines);
+  }
   static begin(conversationId: string,projectPath: string,brainDir: string,taskId?: string): number {
     const prior=this.get(conversationId);
     if(prior&&['IN_FLIGHT','UNCERTAIN'].includes(prior.phase)){
-      const priorTask: any = prior.task_id ? db.prepare('SELECT status FROM autonomous_tasks WHERE id=?').get(prior.task_id) : null;
-      const dispatchedTime = prior.dispatched_at ? new Date(prior.dispatched_at).getTime() : 0;
-      const elapsedSec = dispatchedTime > 0 ? (Date.now() - dispatchedTime) / 1000 : Infinity;
-      const isMetaChat = taskId === undefined || taskId.startsWith('meta-') || taskId.startsWith('metachat-') || conversationId.startsWith('meta-') || conversationId.startsWith('metachat-');
-
-      if (priorTask?.status === 'completed' || elapsedSec > 15 || isMetaChat) {
-        this.setPhase(conversationId, 'CONSUMED');
-      } else {
-        throw new Error('AGENT_TURN_UNCERTAIN: previous turn requires reconciliation before another message');
-      }
+      // Auto-consome qualquer observação anterior em IN_FLIGHT ou UNCERTAIN para iniciar o novo turno normalmente sem travar o Worker
+      this.setPhase(conversationId, 'CONSUMED');
     }
-    const file=path.join(brainDir,conversationId,'.system_generated/logs/transcript.jsonl');
+    const file = (brainDir && (brainDir.endsWith(conversationId) || brainDir.endsWith(conversationId.replace(/\\/g, '/'))))
+      ? path.join(brainDir, '.system_generated', 'logs', 'transcript.jsonl')
+      : path.join(brainDir, conversationId, '.system_generated', 'logs', 'transcript.jsonl');
     const baselineLines=fs.existsSync(file)?fs.readFileSync(file,'utf8').split(/\r?\n/).filter(Boolean).length:0;
     const files=captureFileInventory(projectPath);
     db.prepare(`INSERT INTO agent_turn_observations(conversation_id,task_id,project_path,brain_dir,baseline_lines,baseline_files_json,phase,dispatched_at)

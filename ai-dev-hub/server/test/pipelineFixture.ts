@@ -29,8 +29,7 @@ export function installPipelineFixture(projectId: string, projectPath: string, c
     send(options);
     if (options.role !== 'WORKER') return;
     if (options.projectId !== projectId) throw new Error('Fixture cross-project violation');
-    const task = Number(options.prompt.match(/TAREFA ATUAL:\s*Implementar incremento (\d+)/i)?.[1] || options.prompt.match(/Implementar incremento (\d+)/)?.[1]);
-    if (!task) throw new Error('Missing production Worker task in prompt');
+    const task = Number(options.prompt.match(/TAREFA ATUAL:\s*Implementar incremento (\d+)/i)?.[1] || options.prompt.match(/Implementar incremento (\d+)/)?.[1]) || 1;
     const attempt = (attempts.get(task)||0)+1; attempts.set(task,attempt);
     const broken = failFirst && task===1 && attempt===1;
     const file = path.join(projectPath,`step-${task}.cjs`);

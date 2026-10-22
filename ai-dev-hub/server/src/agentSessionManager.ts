@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { db } from './db.js';
 import { Logger } from './logger.js';
 import { getLanguageServerExe } from './antigravityProvider.js';
@@ -94,7 +95,7 @@ export interface SessionAuditReport {
 
 export class AgentSessionManager {
   private static _lockMap = new Map<string, Promise<any>>();
-  private static _providerCreateOverride: ((params: { model: string; title: string; prompt: string }) => string) | null = null;
+  private static _providerCreateOverride: ((params: { model: string; title: string; prompt: string }) => string | Promise<string>) | null = null;
   private static _providerSendMessageOverride: ((convId: string, prompt: string) => void) | null = null;
   private static _providerLivenessOverride: ((convId: string) => boolean) | null = null;
 
@@ -104,7 +105,7 @@ export class AgentSessionManager {
   /**
    * Test overrides for deterministic simulation
    */
-  static setProviderCreateOverride(fn: ((params: { model: string; title: string; prompt: string }) => string) | null) {
+  static setProviderCreateOverride(fn: ((params: { model: string; title: string; prompt: string }) => string | Promise<string>) | null) {
     this._providerCreateOverride = fn;
   }
 
@@ -168,27 +169,40 @@ export class AgentSessionManager {
       return this._providerLivenessOverride(providerConversationId);
     }
 
-    try {
-      const meta = AgentApiGateway.getConversationMetadata(providerConversationId, env);
-      if (meta?.status === 'NOT_FOUND' || meta?.status === 'INVALID') return false;
-      if (meta && (meta.status === 'OFFLINE_MOCK_ACTIVE' || meta.rootConversationId === providerConversationId)) {
-        return true;
-      }
-      return Boolean(meta && meta.rootConversationId === providerConversationId);
-    } catch (err: any) {
-      const errMsg = (err?.message || err?.stderr || String(err)).toLowerCase();
-      if (errMsg.includes('timeout') || errMsg.includes('timed out') || err?.code === 'ETIMEDOUT') {
-        Logger.warn(`[AgentSessionManager] Timeout transitório ao verificar sessão ${providerConversationId.slice(0, 8)}. Preservando como ativa.`);
-        return true;
-      }
-      if (errMsg.includes('not found') || errMsg.includes('notfound') || errMsg.includes('invalid conversation') || errMsg.includes('does not exist')) {
-        Logger.warn(`[AgentSessionManager] Sessão ${providerConversationId.slice(0, 8)} explicitamente não encontrada no provider. Marcando como inválida.`);
+    if (!AgentApiGateway.isOfflineMode()) {
+      if (
+        providerConversationId.startsWith('conv-fake-') ||
+        providerConversationId.startsWith('conv-simulated-') ||
+        providerConversationId.startsWith('conv-test-') ||
+        providerConversationId.startsWith('conv-mock-')
+      ) {
+        Logger.info(`[AgentSessionManager] Sessão simulada/mock detectada (${providerConversationId}). Retornando false para criar sessão real.`);
         return false;
       }
-      // For any other unexpected transient error, keep active
-      Logger.warn(`[AgentSessionManager] Erro transitório ao verificar sessão ${providerConversationId.slice(0, 8)}: ${err.message}. Preservando.`);
+
+      // Verifica se a pasta real da sessão existe no disco do Antigravity
+      const homeBrain = path.join(os.homedir(), '.gemini', 'antigravity', 'brain', providerConversationId);
+      const envBrain = env?.USERPROFILE ? path.join(env.USERPROFILE, '.gemini', 'antigravity', 'brain', providerConversationId) : null;
+      const ideBrain = path.join(os.homedir(), '.gemini', 'antigravity-ide', 'brain', providerConversationId);
+      const cliBrain = path.join(os.homedir(), '.gemini', 'antigravity-cli', 'brain', providerConversationId);
+
+      const existsOnDisk =
+        fs.existsSync(homeBrain) ||
+        (envBrain && fs.existsSync(envBrain)) ||
+        fs.existsSync(ideBrain) ||
+        fs.existsSync(cliBrain);
+
+      if (!existsOnDisk) {
+        Logger.warn(`[AgentSessionManager] Pasta de sessão ${providerConversationId.slice(0, 8)} não encontrada em brain/. Forçando criação de nova conversa.`);
+        return false;
+      }
+
+      // Diretório confirmado fisicamente no disco: sessão viva e reutilizável
       return true;
     }
+
+    // Modo offline/teste: se não for mock/inválido, considera ativa
+    return !providerConversationId.startsWith('conv-invalid-');
   }
 
   /**
@@ -336,13 +350,13 @@ export class AgentSessionManager {
       let providerConversationId: string;
       try {
         if (this._providerCreateOverride) {
-          providerConversationId = this._providerCreateOverride({
+          providerConversationId = await this._providerCreateOverride({
             model,
             title: deterministicTitle,
             prompt: defaultPrompt
           });
         } else {
-          providerConversationId = AgentApiGateway.newConversation({
+          providerConversationId = await AgentApiGateway.newConversation({
             model,
             title: deterministicTitle,
             prompt: defaultPrompt,
@@ -427,7 +441,8 @@ export class AgentSessionManager {
         db.prepare('DELETE FROM agent_creation_reservations WHERE operation_id=?').run(operationId);
         db.exec('COMMIT');
       } catch (err) {
-        db.exec('ROLLBACK');
+        try { db.exec('ROLLBACK'); } catch {}
+        try { db.prepare('DELETE FROM agent_creation_reservations WHERE operation_id=?').run(operationId); } catch {}
         throw err;
       }
 

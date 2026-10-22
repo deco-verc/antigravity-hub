@@ -138,7 +138,7 @@ test('4. Servicos internos consultam ModelRegistry e nao possuem fallbacks diver
 
   // ConversationManager
   const profileId = createTestProfile('Perfil Conv Servicos');
-  const { conversationId } = ConversationManager.getOrCreateConversation({
+  const { conversationId } = await ConversationManager.getOrCreateConversation({
     projectId: project.id,
     accountProfileId: profileId,
     role: 'builder'
@@ -316,13 +316,13 @@ test('8. Evidencias e catalogo informam TIER com exactVariant null e verificacao
 // ---------------------------------------------------------------------------
 // 9. A configuração atinge a chamada física do provedor (agentapi new-conversation --model=flash)
 // ---------------------------------------------------------------------------
-test('9. A chamada fisica para criacao de conversa recebe rigorosamente --model=flash', () => {
+test('9. A chamada fisica para criacao de conversa recebe rigorosamente --model=flash', async () => {
   const project = createTestProject('Projeto Gateway Fisico');
   const modelToUse = ModelRegistry.resolveModel({ role: 'builder', projectId: project.id });
   assert.equal(modelToUse, 'flash');
 
   // Invocar AgentApiGateway.newConversation
-  const convId = AgentApiGateway.newConversation({
+  const convId = await AgentApiGateway.newConversation({
     model: modelToUse,
     title: 'Teste de Invocacao de Modelo Fisico',
     prompt: 'Verificar argumento de modelo',

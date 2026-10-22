@@ -178,7 +178,7 @@ export class DesignSkillService {
       };
     }
 
-    if (/dark telemetry|telemetr(y|ia)|cockpit|terminal|raycast|analytics|posthog|monitoring/i.test(text)) {
+    if (/dark telemetry|telemetr(y|ia)|cockpit|terminal|raycast|analytics|posthog|monitoring|youtube|video|viral|creator|viewstats|1of10/i.test(text)) {
       return {
         archetype: 'dark-telemetry',
         dials: { variance: 5, motion: 3, density: 8 },

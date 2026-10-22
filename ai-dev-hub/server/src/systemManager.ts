@@ -40,13 +40,64 @@ export interface DiagnosticCheck {
 }
 
 export class SystemManager {
-  private static cachedToolVersions: {
-    node: string;
-    npm: string;
-    python: string;
-    git: string;
-    expiresAt: number;
-  } | null = null;
+  private static cachedTools: { node: string; npm: string; python: string; git: string } | null = null;
+  private static isResolvingTools = false;
+
+  static resolveToolsOnce(): { node: string; npm: string; python: string; git: string } {
+    if (this.cachedTools) return this.cachedTools;
+
+    const preliminary = {
+      node: process.version,
+      npm: 'Detectando...',
+      python: 'Detectando...',
+      git: 'Detectando...'
+    };
+
+    if (this.isResolvingTools) return preliminary;
+    this.isResolvingTools = true;
+
+    // Resolução assíncrona única em background para nunca travar o Event Loop do polling
+    setImmediate(() => {
+      try {
+        let npmVer = 'Não detectado';
+        try {
+          npmVer = execSync('npm.cmd -v', { encoding: 'utf-8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+        } catch {
+          try {
+            npmVer = execSync('npm -v', { encoding: 'utf-8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+          } catch {}
+        }
+
+        let pythonVer = 'Não detectado';
+        try {
+          pythonVer = execSync('python --version', { encoding: 'utf-8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+        } catch {}
+
+        let gitVer = 'Não detectado';
+        try {
+          gitVer = execSync('git --version', { encoding: 'utf-8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+        } catch {}
+
+        this.cachedTools = {
+          node: process.version,
+          npm: npmVer,
+          python: pythonVer,
+          git: gitVer
+        };
+      } catch (err: any) {
+        this.cachedTools = {
+          node: process.version,
+          npm: 'N/A',
+          python: 'N/A',
+          git: 'N/A'
+        };
+      } finally {
+        this.isResolvingTools = false;
+      }
+    });
+
+    return preliminary;
+  }
 
   static getHubDataDir(): string {
     return resolveHubDataDir();
@@ -57,73 +108,8 @@ export class SystemManager {
   }
 
   static getHealth(): SystemHealthData {
-    const now = Date.now();
-    let nodeVer = process.version;
-    let npmVer = 'Não detectado';
-    let pythonVer = 'Não detectado';
-    let gitVer = 'Não detectado';
-
-    // 1. Tool versions com cache de 5 minutos (elimina execSync síncrono no polling de 10s)
-    if (this.cachedToolVersions && this.cachedToolVersions.expiresAt > now) {
-      nodeVer = this.cachedToolVersions.node;
-      npmVer = this.cachedToolVersions.npm;
-      pythonVer = this.cachedToolVersions.python;
-      gitVer = this.cachedToolVersions.git;
-    } else {
-      try {
-        npmVer = execSync('npm.cmd -v', { encoding: 'utf-8', timeout: 3000 }).trim();
-      } catch {
-        try {
-          npmVer = execSync('npm -v', { encoding: 'utf-8', timeout: 3000 }).trim();
-        } catch (err) {
-          if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-            (globalThis as any).logger.warn({
-              event: "server.handled_exception",
-              file: "systemManager",
-              error: (err as any)?.message || String(err)
-            });
-          } else {
-            console.warn("[WARN][server:systemManager]", err);
-          }
-        }
-      }
-
-      try {
-        pythonVer = execSync('python --version', { encoding: 'utf-8', timeout: 3000 }).trim();
-      } catch (err) {
-        if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-          (globalThis as any).logger.warn({
-            event: "server.handled_exception",
-            file: "systemManager",
-            error: (err as any)?.message || String(err)
-          });
-        } else {
-          console.warn("[WARN][server:systemManager]", err);
-        }
-      }
-
-      try {
-        gitVer = execSync('git --version', { encoding: 'utf-8', timeout: 3000 }).trim();
-      } catch (err) {
-        if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-          (globalThis as any).logger.warn({
-            event: "server.handled_exception",
-            file: "systemManager",
-            error: (err as any)?.message || String(err)
-          });
-        } else {
-          console.warn("[WARN][server:systemManager]", err);
-        }
-      }
-
-      this.cachedToolVersions = {
-        node: nodeVer,
-        npm: npmVer,
-        python: pythonVer,
-        git: gitVer,
-        expiresAt: now + (5 * 60 * 1000)
-      };
-    }
+    // 1. Tool versions obtidas instantaneamente da memória (< 1ms) sem nenhum execSync no request loop
+    const tools = this.cachedTools || this.resolveToolsOnce();
 
     // 2. DB Info
     const dbPath = this.getDbPath();
@@ -154,10 +140,10 @@ export class SystemManager {
         sizeFormatted: formatSize(dbSize)
       },
       tools: {
-        node: nodeVer,
-        npm: npmVer,
-        python: pythonVer,
-        git: gitVer
+        node: tools.node,
+        npm: tools.npm,
+        python: tools.python,
+        git: tools.git
       },
       os: {
         platform: `${os.type()} (${process.platform})`,

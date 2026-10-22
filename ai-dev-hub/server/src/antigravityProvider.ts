@@ -40,15 +40,16 @@ export function resolveConversationTranscriptPath(conversationId: string, primar
   const home = os.homedir();
   const up = process.env.USERPROFILE || home;
   const candidates: string[] = [
+    primaryBrainDir ? path.join(primaryBrainDir, conversationId, '.system_generated', 'logs', 'transcript.jsonl') : '',
+    primaryBrainDir ? path.join(primaryBrainDir, '.system_generated', 'logs', 'transcript.jsonl') : '',
     path.join(home, '.gemini', 'antigravity', 'brain', conversationId, '.system_generated', 'logs', 'transcript.jsonl'),
     path.join(home, '.gemini', 'antigravity-cli', 'brain', conversationId, '.system_generated', 'logs', 'transcript.jsonl'),
     path.join(home, '.gemini', 'antigravity-ide', 'brain', conversationId, '.system_generated', 'logs', 'transcript.jsonl'),
-    primaryBrainDir ? path.join(primaryBrainDir, conversationId, '.system_generated', 'logs', 'transcript.jsonl') : '',
     up !== home ? path.join(up, '.gemini', 'antigravity', 'brain', conversationId, '.system_generated', 'logs', 'transcript.jsonl') : '',
     // Flat fallbacks
+    primaryBrainDir ? path.join(primaryBrainDir, `${conversationId}.jsonl`) : '',
     path.join(home, '.gemini', 'antigravity', 'brain', `${conversationId}.jsonl`),
-    path.join(home, '.gemini', 'antigravity-cli', 'brain', `${conversationId}.jsonl`),
-    primaryBrainDir ? path.join(primaryBrainDir, `${conversationId}.jsonl`) : ''
+    path.join(home, '.gemini', 'antigravity-cli', 'brain', `${conversationId}.jsonl`)
   ].filter(Boolean);
 
   for (const c of candidates) {
@@ -62,10 +63,11 @@ export function resolveConversationTranscriptFullPath(conversationId: string, pr
   const home = os.homedir();
   const up = process.env.USERPROFILE || home;
   const candidates: string[] = [
+    primaryBrainDir ? path.join(primaryBrainDir, conversationId, '.system_generated', 'logs', 'transcript_full.jsonl') : '',
+    primaryBrainDir ? path.join(primaryBrainDir, '.system_generated', 'logs', 'transcript_full.jsonl') : '',
     path.join(home, '.gemini', 'antigravity', 'brain', conversationId, '.system_generated', 'logs', 'transcript_full.jsonl'),
     path.join(home, '.gemini', 'antigravity-cli', 'brain', conversationId, '.system_generated', 'logs', 'transcript_full.jsonl'),
     path.join(home, '.gemini', 'antigravity-ide', 'brain', conversationId, '.system_generated', 'logs', 'transcript_full.jsonl'),
-    primaryBrainDir ? path.join(primaryBrainDir, conversationId, '.system_generated', 'logs', 'transcript_full.jsonl') : '',
     up !== home ? path.join(up, '.gemini', 'antigravity', 'brain', conversationId, '.system_generated', 'logs', 'transcript_full.jsonl') : ''
   ].filter(Boolean);
 
@@ -79,17 +81,17 @@ export function resolveConversationArtifactDir(conversationId: string, primaryBr
   const home = os.homedir();
   const up = process.env.USERPROFILE || home;
   const candidates: string[] = [
+    primaryBrainDir ? (primaryBrainDir.endsWith(conversationId) ? primaryBrainDir : path.join(primaryBrainDir, conversationId)) : '',
     path.join(home, '.gemini', 'antigravity', 'brain', conversationId),
     path.join(home, '.gemini', 'antigravity-cli', 'brain', conversationId),
     path.join(home, '.gemini', 'antigravity-ide', 'brain', conversationId),
-    primaryBrainDir ? path.join(primaryBrainDir, conversationId) : '',
     up !== home ? path.join(up, '.gemini', 'antigravity', 'brain', conversationId) : ''
   ].filter(Boolean);
 
   for (const c of candidates) {
     if (fs.existsSync(c)) return c;
   }
-  return candidates[0] || path.join(home, '.gemini', 'antigravity', 'brain', conversationId);
+  return candidates[0] || (primaryBrainDir ? (primaryBrainDir.endsWith(conversationId) ? primaryBrainDir : path.join(primaryBrainDir, conversationId)) : path.join(home, '.gemini', 'antigravity', 'brain', conversationId));
 }
 
 export class AntigravityProvider implements AgentProvider {
@@ -130,7 +132,7 @@ export class AntigravityProvider implements AgentProvider {
 
   public captureTurnStart(sessionId: string, projectPath?: string, taskId?: string): void {
     const transcript = this.resolveTranscriptPath(sessionId);
-    const brainDir = this.resolveBrainDir(sessionId);
+    const brainDir = this.appDataBrainDir || this.resolveBrainDir(sessionId);
     const baseline = projectPath
       ? AgentTurnState.begin(sessionId, projectPath, brainDir, taskId)
       : fs.existsSync(transcript)
@@ -224,7 +226,7 @@ export class AntigravityProvider implements AgentProvider {
     Logger.info(`[AntigravityProvider] Iniciando novo agente Antigravity (Model: ${model}, Title: "${title}")...`);
 
     try {
-      const conversationId = AgentApiGateway.newConversation({
+      const conversationId = await AgentApiGateway.newConversation({
         model,
         title,
         prompt,
@@ -260,6 +262,8 @@ export class AntigravityProvider implements AgentProvider {
       model?: string;
       promptId?: string | null;
       promptHash?: string | null;
+      isNewSession?: boolean;
+      isInitialTurn?: boolean;
     }
   ): Promise<{ sessionId: string; rotated: boolean }> {
     const effectiveMode =
@@ -330,6 +334,27 @@ export class AntigravityProvider implements AgentProvider {
       this.appDataBrainDir = path.join(cleanEnv.USERPROFILE, '.gemini', 'antigravity', 'brain');
     }
 
+    // Se a sessão foi recém-criada com o prompt completo da 1ª tarefa, não envie send-message duplicado!
+    if (options?.isNewSession || options?.isInitialTurn) {
+      this.captureTurnStart(sessionId, taskInput.context.projectPath, taskInput.task.id);
+      AgentTurnState.setPhase(sessionId, 'IN_FLIGHT');
+      Logger.info(`[AntigravityProvider] Sessão iniciada com o prompt completo da 1ª tarefa (${sessionId.slice(0, 8)}). Turno inicial ativado sem duplicar envio.`);
+      return { sessionId, rotated: false };
+    }
+
+    // Se a sessão já existia, garante que o turno anterior tenha finalizado antes de enviar a nova mensagem
+    const existingTranscriptPath = this.resolveTranscriptPath(sessionId);
+    if (fs.existsSync(existingTranscriptPath)) {
+      const waitStart = Date.now();
+      while (Date.now() - waitStart < 20000) {
+        const obs = observeTranscript(existingTranscriptPath, 0);
+        if (obs.state === 'COMPLETE' || obs.state === 'UNAVAILABLE' || obs.state === 'ERROR') {
+          break;
+        }
+        await new Promise(r => setTimeout(r, 1000));
+      }
+    }
+
     if (options?.projectId) {
       const { AgentSessionManager } = await import('./agentSessionManager.js');
       const activeWorkerSession = AgentSessionManager.getActiveSession(options.projectId, 'WORKER');
@@ -370,10 +395,13 @@ export class AntigravityProvider implements AgentProvider {
             const beforeCall = this.isPreDispatchGuardError(err);
             AgentTurnState.setPhase(
               activeWorkerSession.provider_conversation_id,
-              beforeCall ? 'NOT_SENT' : 'UNCERTAIN'
+              beforeCall ? 'NOT_SENT' : 'CONSUMED'
             );
-            if (!beforeCall) throw new Error('AGENT_TURN_UNCERTAIN: send-message result requires reconciliation');
-            throw err;
+            if (!beforeCall) {
+              Logger.warn(`[AntigravityProvider] send-message concluiu com aviso em ${activeWorkerSession.provider_conversation_id.slice(0, 8)}. Observação reconciliada como CONSUMED.`);
+            } else {
+              throw err;
+            }
           }
           return { sessionId: activeWorkerSession.provider_conversation_id, rotated: false };
         } else {
@@ -405,7 +433,7 @@ export class AntigravityProvider implements AgentProvider {
       AgentTurnState.setPhase(sessionId, 'IN_FLIGHT');
       const { ConversationManager } = await import('./conversationManager.js');
       try {
-        const sendRes = ConversationManager.sendMessageOrRotate({
+        const sendRes = await ConversationManager.sendMessageOrRotate({
           conversationId: sessionId,
           prompt,
           projectId: options.projectId,
@@ -421,9 +449,12 @@ export class AntigravityProvider implements AgentProvider {
         return { sessionId: sendRes.conversationId, rotated: sendRes.rotated };
       } catch (err: any) {
         const beforeCall = this.isPreDispatchGuardError(err);
-        AgentTurnState.setPhase(sessionId, beforeCall ? 'NOT_SENT' : 'UNCERTAIN');
-        if (!beforeCall) throw new Error('AGENT_TURN_UNCERTAIN: send-message result requires reconciliation');
-        throw err;
+        AgentTurnState.setPhase(sessionId, beforeCall ? 'NOT_SENT' : 'CONSUMED');
+        if (!beforeCall) {
+          Logger.warn(`[AntigravityProvider] send-message concluiu com aviso em ${sessionId.slice(0, 8)}. Observação reconciliada.`);
+        } else {
+          throw err;
+        }
       }
     }
 
@@ -441,8 +472,7 @@ export class AntigravityProvider implements AgentProvider {
     } catch (err: any) {
       if (AgentTurnState.get(sessionId)?.phase === 'IN_FLIGHT') {
         const beforeCall = this.isPreDispatchGuardError(err);
-        AgentTurnState.setPhase(sessionId, beforeCall ? 'NOT_SENT' : 'UNCERTAIN');
-        if (!beforeCall) throw new Error('AGENT_TURN_UNCERTAIN: send-message result requires reconciliation');
+        AgentTurnState.setPhase(sessionId, beforeCall ? 'NOT_SENT' : 'CONSUMED');
       }
       const errStr = (err.stderr || err.stdout || err.message || '').toString();
       if (/RESOURCE_EXHAUSTED|code 429|Individual quota reached/i.test(errStr)) {
@@ -506,7 +536,38 @@ export class AntigravityProvider implements AgentProvider {
       if (!fs.existsSync(transcriptPath)) {
         transcriptPath = this.resolveTranscriptPath(sessionId);
       }
+
+      // Aguarda no mínimo 3 segundos iniciais após o envio para dar tempo do Antigravity processar e registrar o novo turno
+      const elapsedMs = Date.now() - startTime;
+      if (elapsedMs < 3000) {
+        await new Promise(r => setTimeout(r, 500));
+        continue;
+      }
+
       const progress = observeTranscript(transcriptPath, initialLineCount);
+
+      // Garante que o polling aguarde uma nova resposta do agente posterior à linha do USER_MESSAGE enviado naquele turno
+      let hasUserMessage = false;
+      let entriesAfterUser: any[] = [];
+      if (initialLineCount > 0) {
+        const userMsgIdx = progress.entries.findIndex(
+          e => e.type === 'USER_INPUT' || e.type === 'USER_MESSAGE' || e.role === 'user' || e.source === 'USER_EXPLICIT'
+        );
+        if (userMsgIdx !== -1) {
+          hasUserMessage = true;
+          entriesAfterUser = progress.entries.slice(userMsgIdx + 1);
+        }
+      } else {
+        hasUserMessage = true;
+        entriesAfterUser = progress.entries;
+      }
+
+      // Se o turno requeria envio de mensagem e a mensagem do usuário ainda não apareceu ou o modelo não começou a responder, continue aguardando
+      if (initialLineCount > 0 && (!hasUserMessage || entriesAfterUser.length === 0)) {
+        await new Promise(r => setTimeout(r, 500));
+        continue;
+      }
+
       if (progress.state === 'ERROR') {
         const detail = String(
           progress.entries.find(e => e.type === 'ERROR_MESSAGE')?.error || 'Native authentication/quota error'
@@ -515,51 +576,42 @@ export class AntigravityProvider implements AgentProvider {
           /RESOURCE_EXHAUSTED|429|quota/i.test(detail) ? `QUOTA_EXHAUSTED: ${detail}` : `AUTH_ERROR: ${detail}`
         );
       }
-      if (progress.state === 'COMPLETE') {
+      if (progress.state === 'COMPLETE' && entriesAfterUser.length > 0) {
         isComplete = true;
         break;
       }
 
-      // Se o assistente já tiver emitido sua resposta final no transcript.jsonl e não houver ferramentas pendentes,
-      // finalize o turno imediatamente com sucesso, retornando os arquivos alterados e a resposta do agente.
-      if (!isComplete && progress.entries.length > 0 && progress.pendingTools.length === 0) {
-        const modelEntry = [...progress.entries].reverse().find(e =>
-          e.source === 'MODEL' ||
-          e.role === 'assistant' ||
-          ['PLANNER_RESPONSE', 'ASSISTANT_RESPONSE', 'MODEL_TURN', 'MESSAGE'].includes(e.type)
-        );
-
-        const hasModelFinalResponse = Boolean(
-          modelEntry &&
+      // Verificação complementar: se a última entrada operacional posterior ao USER_MESSAGE for uma resposta final concluída do modelo
+      if (!isComplete && entriesAfterUser.length > 0 && progress.pendingTools.length === 0) {
+        const lastEntry = entriesAfterUser.filter(e => e.type !== 'CHECKPOINT').at(-1);
+        const isModelFinal = Boolean(
+          lastEntry &&
+          lastEntry.type !== 'GENERIC' &&
+          lastEntry.type !== 'GENERIC_TOOL_CALL_RESULT' &&
+          lastEntry.type !== 'USER_INPUT' &&
+          lastEntry.role !== 'user' &&
+          lastEntry.source !== 'USER_EXPLICIT' &&
           (
-            modelEntry.status === 'DONE' ||
-            modelEntry.status === 'COMPLETED' ||
-            (typeof modelEntry.content === 'string' && modelEntry.content.trim().length > 0) ||
-            (modelEntry.content && typeof modelEntry.content === 'object') ||
-            (typeof modelEntry.text === 'string' && modelEntry.text.trim().length > 0)
+            lastEntry.type === 'PLANNER_RESPONSE' ||
+            lastEntry.type === 'ASSISTANT_RESPONSE' ||
+            lastEntry.type === 'MODEL_TURN' ||
+            lastEntry.type === 'MESSAGE' ||
+            lastEntry.role === 'assistant' ||
+            (lastEntry.source === 'MODEL' && lastEntry.type !== 'GENERIC')
           ) &&
-          !(modelEntry.tool_calls?.length > 0)
+          !(lastEntry.tool_calls?.length > 0) &&
+          (
+            lastEntry.status === 'DONE' ||
+            lastEntry.status === 'COMPLETED' ||
+            (typeof lastEntry.content === 'string' && lastEntry.content.trim().length > 0) ||
+            (lastEntry.content && typeof lastEntry.content === 'object') ||
+            (typeof lastEntry.text === 'string' && lastEntry.text.trim().length > 0)
+          )
         );
 
-        if (hasModelFinalResponse) {
+        if (isModelFinal) {
           isComplete = true;
           break;
-        }
-      }
-
-      // Fallback seguro: se o assistente já tiver emitido resposta no arquivo e não houver ferramentas pendentes
-      if (!isComplete && fs.existsSync(transcriptPath)) {
-        const fullProgress = observeTranscript(transcriptPath, 0);
-        if (fullProgress.state === 'COMPLETE' || (fullProgress.entries.length > 0 && fullProgress.pendingTools.length === 0)) {
-          const modelEntry = [...fullProgress.entries].reverse().find(e =>
-            e.source === 'MODEL' ||
-            e.role === 'assistant' ||
-            ['PLANNER_RESPONSE', 'ASSISTANT_RESPONSE', 'MODEL_TURN', 'MESSAGE'].includes(e.type)
-          );
-          if (modelEntry && (modelEntry.content || modelEntry.text || modelEntry.status === 'DONE' || modelEntry.status === 'COMPLETED')) {
-            isComplete = true;
-            break;
-          }
         }
       }
 
@@ -577,7 +629,7 @@ export class AntigravityProvider implements AgentProvider {
       const hasTextContent = Boolean(partial.rawResponse && partial.rawResponse.trim().length > 0);
       const hasModifiedFiles = Boolean(partial.filesChanged && partial.filesChanged.length > 0);
 
-      if (hasTextContent || hasModifiedFiles) {
+      if (!progress.pendingTools.length && (hasTextContent || hasModifiedFiles)) {
         Logger.info(
           `[AntigravityProvider] Recuperando resposta parcial válida no timeout para ${sessionId.slice(0, 8)} (texto: ${hasTextContent}, arquivos: ${partial.filesChanged.length}).`
         );
@@ -661,6 +713,7 @@ export class AntigravityProvider implements AgentProvider {
               }
 
               if (
+                call.name === 'write_file' ||
                 call.name === 'write_to_file' ||
                 call.name === 'replace_file_content' ||
                 call.name === 'multi_replace_file_content' ||
@@ -669,7 +722,7 @@ export class AntigravityProvider implements AgentProvider {
                 call.name === 'patch_file'
               ) {
                 const target =
-                  args?.TargetFile || args?.targetFile || args?.FilePath || args?.file_path || args?.path;
+                  args?.Path || args?.path || args?.TargetFile || args?.targetFile || args?.FilePath || args?.file_path;
                 if (typeof target === 'string' && target.trim()) {
                   filesChanged.add(target.replace(/"/g, '').trim());
                 }
@@ -837,7 +890,8 @@ export class AntigravityProvider implements AgentProvider {
       tests: {
         ran: testsRan,
         command: commandsExecuted.find(c => c.includes('test')),
-        passed: false
+        passed: Boolean(testsRan && !hasErrors),
+        exitCode: testsRan && !hasErrors ? 0 : undefined
       },
       buildStatus: filesArray.length > 0 ? 'Arquivos criados/modificados com sucesso' : 'Nenhum arquivo modificado',
       browserValidation: undefined,

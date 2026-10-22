@@ -873,3 +873,23 @@
   * `ai-dev-hub/server/src/gitManager.ts`
   * `ai-dev-hub/server/src/routes.ts`
   * `ai-dev-hub/desktop/main.cjs`
+
+### [21/10/2026] Sessão #78 (Antigravity Agent)
+- `ai-dev-hub/server/src/antigravityProvider.ts`
+- `ai-dev-hub/server/src/geminiSupervisorProvider.ts`
+- `ai-dev-hub/server/src/autonomousManager.ts`
+- `ai-dev-hub/server/test/nativeTurnRecovery.test.ts`
+
+### [22/10/2026] Sessão #85 (Antigravity Agent)
+- `ai-dev-hub/server/src/marketDiscoveryService.ts`
+- `ai-dev-hub/server/src/projectLivingSpecService.ts`
+- `ai-dev-hub/server/src/designSkillService.ts`
+- `ai-dev-hub/server/src/hierarchicalOrchestrationService.ts`
+- `C:/IA/test-projects/viralytsearch/.ai-dev-hub/market-research-rea.md`
+- `C:/IA/test-projects/viralytsearch/.ai-dev-hub/specs/CONTEUDO.md`
+- `C:/IA/test-projects/viralytsearch/.ai-dev-hub/specs/DESIGN.md`
+- `C:/IA/test-projects/viralytsearch/.ai-dev-hub/specs/BACKEND.md`
+- `C:/IA/test-projects/viralytsearch/.ai-dev-hub/specs/PRINCIPIOS.md`
+- `C:/IA/test-projects/viralytsearch/.ai-dev-hub/specs/JORNADAS.md`
+- `C:/IA/test-projects/viralytsearch/.ai-dev-hub/project.md`
+- `C:/IA/test-projects/viralytsearch/.ai-dev-hub/architecture.md`

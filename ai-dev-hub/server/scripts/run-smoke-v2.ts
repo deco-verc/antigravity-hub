@@ -83,7 +83,7 @@ async function main() {
   `).run(workerId, profileId, nowIso, nowIso);
 
   // 7. Get or create persistent conversation
-  const convResult = ConversationManager.getOrCreateConversation({
+  const convResult = await ConversationManager.getOrCreateConversation({
     projectId: 'proj-fable-smoke-v2',
     accountProfileId: profileId,
     role: 'worker',

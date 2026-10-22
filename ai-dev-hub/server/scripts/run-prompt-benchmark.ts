@@ -285,7 +285,7 @@ async function runScenarioExecution(
   );
 
   // 4. Create isolated conversation chain for this scenario + variant (Section 18)
-  const convRes = ConversationManager.getOrCreateConversation({
+  const convRes = await ConversationManager.getOrCreateConversation({
     projectId: scenario.id,
     accountProfileId: ACCOUNT_PROFILE_ID,
     role: 'worker',

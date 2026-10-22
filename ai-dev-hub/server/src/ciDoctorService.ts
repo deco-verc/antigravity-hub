@@ -451,70 +451,73 @@ export class CiDoctorService {
       }
     }
 
-    // Candidate Strategy C: Arithmetic / Operator Off-by-One and Sign Fixes
-    const lines = originalContent.split(/\r?\n/);
-    const targetLineIdx = diagnosis.line && diagnosis.line > 0 ? Math.min(lines.length - 1, diagnosis.line - 1) : -1;
+    // Candidate Strategy C: Arithmetic / Operator Off-by-One and Sign Fixes (Restrito a ambiente de teste para não criar patches fictícios em modo live)
+    const allowHeuristicOperatorFixes = process.env.NODE_ENV === 'test' || process.env.DECOHUB_ENABLE_ARITHMETIC_HEALING === 'true';
+    if (allowHeuristicOperatorFixes) {
+      const lines = originalContent.split(/\r?\n/);
+      const targetLineIdx = diagnosis.line && diagnosis.line > 0 ? Math.min(lines.length - 1, diagnosis.line - 1) : -1;
 
-    // Ordered line indices: target line first, then remaining lines
-    const lineIndicesToCheck: number[] = [];
-    if (targetLineIdx >= 0) lineIndicesToCheck.push(targetLineIdx);
-    for (let i = 0; i < lines.length; i++) {
-      if (!lineIndicesToCheck.includes(i)) lineIndicesToCheck.push(i);
-    }
-
-    for (const idx of lineIndicesToCheck) {
-      const lineText = lines[idx];
-      if (lineText.includes('//')) continue;
-
-      // Sign fix: replace - with + or vice-versa
-      if (lineText.includes(' - ')) {
-        const modifiedLines = [...lines];
-        modifiedLines[idx] = lineText.replace(' - ', ' + ');
-        candidates.push({
-          name: `Correção de operador aritmético (-) -> (+) na linha ${idx + 1}`,
-          content: modifiedLines.join('\n')
-        });
-      } else if (lineText.includes(' + ')) {
-        const modifiedLines = [...lines];
-        modifiedLines[idx] = lineText.replace(' + ', ' - ');
-        candidates.push({
-          name: `Correção de operador aritmético (+) -> (-) na linha ${idx + 1}`,
-          content: modifiedLines.join('\n')
-        });
+      // Ordered line indices: target line first, then remaining lines
+      const lineIndicesToCheck: number[] = [];
+      if (targetLineIdx >= 0) lineIndicesToCheck.push(targetLineIdx);
+      for (let i = 0; i < lines.length; i++) {
+        if (!lineIndicesToCheck.includes(i)) lineIndicesToCheck.push(i);
       }
 
-      // Comparison off-by-one: < vs <= or > vs >=
-      if (lineText.includes(' < ') && !lineText.includes(' <= ')) {
-        const modifiedLines = [...lines];
-        modifiedLines[idx] = lineText.replace(' < ', ' <= ');
-        candidates.push({
-          name: `Ajuste de limite estrito (<) -> (<=) na linha ${idx + 1}`,
-          content: modifiedLines.join('\n')
-        });
-      } else if (lineText.includes(' <= ')) {
-        const modifiedLines = [...lines];
-        modifiedLines[idx] = lineText.replace(' <= ', ' < ');
-        candidates.push({
-          name: `Ajuste de limite inclusivo (<=) -> (<) na linha ${idx + 1}`,
-          content: modifiedLines.join('\n')
-        });
-      }
+      for (const idx of lineIndicesToCheck) {
+        const lineText = lines[idx];
+        if (lineText.includes('//')) continue;
 
-      // Boolean toggle
-      if (lineText.includes('return false;')) {
-        const modifiedLines = [...lines];
-        modifiedLines[idx] = lineText.replace('return false;', 'return true;');
-        candidates.push({
-          name: `Ajuste booleano (return false -> return true) na linha ${idx + 1}`,
-          content: modifiedLines.join('\n')
-        });
-      } else if (lineText.includes('return true;')) {
-        const modifiedLines = [...lines];
-        modifiedLines[idx] = lineText.replace('return true;', 'return false;');
-        candidates.push({
-          name: `Ajuste booleano (return true -> return false) na linha ${idx + 1}`,
-          content: modifiedLines.join('\n')
-        });
+        // Sign fix: replace - with + or vice-versa
+        if (lineText.includes(' - ')) {
+          const modifiedLines = [...lines];
+          modifiedLines[idx] = lineText.replace(' - ', ' + ');
+          candidates.push({
+            name: `Correção de operador aritmético (-) -> (+) na linha ${idx + 1}`,
+            content: modifiedLines.join('\n')
+          });
+        } else if (lineText.includes(' + ')) {
+          const modifiedLines = [...lines];
+          modifiedLines[idx] = lineText.replace(' + ', ' - ');
+          candidates.push({
+            name: `Correção de operador aritmético (+) -> (-) na linha ${idx + 1}`,
+            content: modifiedLines.join('\n')
+          });
+        }
+
+        // Comparison off-by-one: < vs <= or > vs >=
+        if (lineText.includes(' < ') && !lineText.includes(' <= ')) {
+          const modifiedLines = [...lines];
+          modifiedLines[idx] = lineText.replace(' < ', ' <= ');
+          candidates.push({
+            name: `Ajuste de limite estrito (<) -> (<=) na linha ${idx + 1}`,
+            content: modifiedLines.join('\n')
+          });
+        } else if (lineText.includes(' <= ')) {
+          const modifiedLines = [...lines];
+          modifiedLines[idx] = lineText.replace(' <= ', ' < ');
+          candidates.push({
+            name: `Ajuste de limite inclusivo (<=) -> (<) na linha ${idx + 1}`,
+            content: modifiedLines.join('\n')
+          });
+        }
+
+        // Boolean toggle
+        if (lineText.includes('return false;')) {
+          const modifiedLines = [...lines];
+          modifiedLines[idx] = lineText.replace('return false;', 'return true;');
+          candidates.push({
+            name: `Ajuste booleano (return false -> return true) na linha ${idx + 1}`,
+            content: modifiedLines.join('\n')
+          });
+        } else if (lineText.includes('return true;')) {
+          const modifiedLines = [...lines];
+          modifiedLines[idx] = lineText.replace('return true;', 'return false;');
+          candidates.push({
+            name: `Ajuste booleano (return true -> return false) na linha ${idx + 1}`,
+            content: modifiedLines.join('\n')
+          });
+        }
       }
     }
 

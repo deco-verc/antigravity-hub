@@ -1,0 +1,1 @@
+const assert=require('node:assert/strict');const i=Number(process.argv[2]||1);const {add}=require('./step-'+i+'.cjs');assert.equal(add(2,3),5);assert.equal(add(-1,1),0);assert.throws(()=>add(NaN,1),TypeError);console.log('acceptance verified step '+i);

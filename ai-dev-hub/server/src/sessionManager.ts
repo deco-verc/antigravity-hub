@@ -42,22 +42,54 @@ export interface SearchResultItem {
 }
 
 export class SessionManager {
-  static resolveProject(projectIdOrPath: string): any {
-    if (!projectIdOrPath) throw new Error('ID ou caminho do projeto é obrigatório.');
+  static resolveProject(projectIdOrPath?: string): any {
+    if (projectIdOrPath && projectIdOrPath.trim()) {
+      const clean = projectIdOrPath.trim();
+      // 1. Try finding by ID
+      let project: any = db.prepare('SELECT * FROM projects WHERE id = ?').get(clean);
+      if (project) return project;
 
-    // 1. Try finding by ID
-    let project: any = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectIdOrPath);
-    if (project) return project;
+      // 2. Try finding by path
+      try {
+        const resolved = path.resolve(clean);
+        project = db.prepare('SELECT * FROM projects WHERE path = ?').get(resolved);
+        if (project) return project;
+      } catch {}
 
-    // 2. Try finding by path
-    const resolved = path.resolve(projectIdOrPath.trim());
-    project = db.prepare('SELECT * FROM projects WHERE path = ?').get(resolved);
-    if (project) return project;
+      // 3. Try finding by case-insensitive name
+      project = db.prepare('SELECT * FROM projects WHERE LOWER(name) = LOWER(?)').get(clean);
+      if (project) return project;
 
-    // 3. Try finding by case-insensitive name
-    project = db.prepare('SELECT * FROM projects WHERE LOWER(name) = LOWER(?)').get(projectIdOrPath.trim());
-    if (project) return project;
+      // 4. Try finding if clean is a taskId
+      try {
+        const taskRow: any = db.prepare('SELECT project_id FROM autonomous_tasks WHERE id = ? OR id LIKE ? LIMIT 1').get(clean, `${clean}%`);
+        if (taskRow?.project_id) {
+          project = db.prepare('SELECT * FROM projects WHERE id = ?').get(taskRow.project_id);
+          if (project) return project;
+        }
+      } catch {}
+    }
 
+    // Auto-fallback: Check active autonomous run
+    try {
+      const activeRun: any = db.prepare("SELECT project_id FROM autonomous_runs WHERE status = 'running' ORDER BY updated_at DESC LIMIT 1").get();
+      if (activeRun?.project_id) {
+        const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(activeRun.project_id);
+        if (project) return project;
+      }
+    } catch {}
+
+    // Fallback: Check if there is only 1 active project
+    try {
+      const activeProjects: any[] = db.prepare("SELECT * FROM projects WHERE status = 'active' LIMIT 2").all();
+      if (activeProjects.length === 1) {
+        return activeProjects[0];
+      }
+    } catch {}
+
+    if (!projectIdOrPath) {
+      throw new Error('ID ou caminho do projeto é obrigatório.');
+    }
     throw new Error(`Projeto não encontrado para o identificador ou caminho: "${projectIdOrPath}"`);
   }
 

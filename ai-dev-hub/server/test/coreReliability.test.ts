@@ -706,13 +706,13 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
       assert.strictEqual(createdConvIds.length, initialCount, 'Heartbeats must NEVER create conversations');
     });
 
-    test('5 Worker probes reuse dedicated probe conversation (creates exactly 1 conversation)', () => {
+    test('5 Worker probes reuse dedicated probe conversation (creates exactly 1 conversation)', async () => {
       const testProfileId = 'acc-probe-reuse-test';
       const beforeCount = createdConvIds.length;
 
       let firstProbeConv: string | null = null;
       for (let i = 0; i < 5; i++) {
-        const res = ConversationManager.getOrCreateConversation({
+        const res = await ConversationManager.getOrCreateConversation({
           accountProfileId: testProfileId,
           role: 'probe',
           model: 'flash'
@@ -730,12 +730,12 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
       assert.strictEqual(createdConvIds.length, beforeCount + 1, '5 probes must generate exactly 1 dedicated conversation');
     });
 
-    test('Worker executes Task 1, Task 2, and Task 3 reusing W1 without creating new conversations', () => {
+    test('Worker executes Task 1, Task 2, and Task 3 reusing W1 without creating new conversations', async () => {
       const workerId = 'worker-flow-test-1';
       const profileId = 'acc-flow-test';
       const projectId = 'proj-flow-test';
 
-      const task1Conv = ConversationManager.getOrCreateConversation({
+      const task1Conv = await ConversationManager.getOrCreateConversation({
         projectId,
         accountProfileId: profileId,
         role: 'worker',
@@ -744,7 +744,7 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
       });
       assert.strictEqual(task1Conv.isNew, true, 'Task 1 initiates worker conversation W1');
 
-      const task2Conv = ConversationManager.getOrCreateConversation({
+      const task2Conv = await ConversationManager.getOrCreateConversation({
         projectId,
         accountProfileId: profileId,
         role: 'worker',
@@ -754,7 +754,7 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
       assert.strictEqual(task2Conv.isNew, false, 'Task 2 MUST reuse W1');
       assert.strictEqual(task2Conv.conversationId, task1Conv.conversationId);
 
-      const task3Conv = ConversationManager.getOrCreateConversation({
+      const task3Conv = await ConversationManager.getOrCreateConversation({
         projectId,
         accountProfileId: profileId,
         role: 'worker',
@@ -765,12 +765,12 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
       assert.strictEqual(task3Conv.conversationId, task1Conv.conversationId);
     });
 
-    test('Supervisor Plan and Review reuse S1 without creating separate chat per role event', () => {
+    test('Supervisor Plan and Review reuse S1 without creating separate chat per role event', async () => {
       const projectId = 'proj-sup-test';
       const profileId = 'acc-sup-test';
 
       // Plan phase
-      const planConv = ConversationManager.getOrCreateConversation({
+      const planConv = await ConversationManager.getOrCreateConversation({
         projectId,
         accountProfileId: profileId,
         role: 'supervisor',
@@ -780,7 +780,7 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
       assert.strictEqual(planConv.isNew, true, 'Plan creates Supervisor S1');
 
       // Review phase for Task 1
-      const review1Conv = ConversationManager.getOrCreateConversation({
+      const review1Conv = await ConversationManager.getOrCreateConversation({
         projectId,
         accountProfileId: profileId,
         role: 'supervisor',
@@ -790,7 +790,7 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
       assert.strictEqual(review1Conv.conversationId, planConv.conversationId);
 
       // Review phase for Task 2
-      const review2Conv = ConversationManager.getOrCreateConversation({
+      const review2Conv = await ConversationManager.getOrCreateConversation({
         projectId,
         accountProfileId: profileId,
         role: 'supervisor',
@@ -800,13 +800,13 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
       assert.strictEqual(review2Conv.conversationId, planConv.conversationId);
     });
 
-    test('Controlled rotation on CONTEXT_THRESHOLD creates exactly W2 with audited chain', () => {
+    test('Controlled rotation on CONTEXT_THRESHOLD creates exactly W2 with audited chain', async () => {
       const workerId = 'worker-rot-test';
       const profileId = 'acc-rot-test';
       const projectId = 'proj-rot-test';
 
       // W1 initial
-      const w1 = ConversationManager.getOrCreateConversation({
+      const w1 = await ConversationManager.getOrCreateConversation({
         projectId,
         accountProfileId: profileId,
         role: 'worker',
@@ -822,7 +822,7 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
       assert.strictEqual(w1Record.rotation_reason, 'CONTEXT_THRESHOLD');
 
       // Now request conversation for next task -> creates W2
-      const w2 = ConversationManager.getOrCreateConversation({
+      const w2 = await ConversationManager.getOrCreateConversation({
         projectId,
         accountProfileId: profileId,
         role: 'worker',
@@ -842,12 +842,12 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
     // ========================================================================
     // Controlled Handoff & Project Mismatch Tests
     // ========================================================================
-    test('Normal reuse: send-message succeeds without creating new conversations', () => {
+    test('Normal reuse: send-message succeeds without creating new conversations', async () => {
       const workerId = 'worker-reuse-test';
       const profileId = 'acc-reuse-test';
       const projectId = 'proj-reuse-test';
 
-      const initial = ConversationManager.getOrCreateConversation({
+      const initial = await ConversationManager.getOrCreateConversation({
         projectId,
         accountProfileId: profileId,
         role: 'worker',
@@ -862,7 +862,7 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
         assert.strictEqual(convId, initial.conversationId);
       });
 
-      const res = ConversationManager.sendMessageOrRotate({
+      const res = await ConversationManager.sendMessageOrRotate({
         conversationId: initial.conversationId,
         prompt: 'Execute task 1',
         projectId,
@@ -881,12 +881,12 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
       assert.strictEqual(record.turn_count, 2, 'Initial creation is turn 1, send-message increases to turn 2');
     });
 
-    test('Project mismatch detection: triggers controlled handoff and sets parent link', () => {
+    test('Project mismatch detection: triggers controlled handoff and sets parent link', async () => {
       const workerId = 'worker-mismatch-test';
       const profileId = 'acc-mismatch-test';
       const projectId = 'proj-mismatch-test';
 
-      const convA = ConversationManager.getOrCreateConversation({
+      const convA = await ConversationManager.getOrCreateConversation({
         projectId,
         accountProfileId: profileId,
         role: 'worker',
@@ -900,7 +900,7 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
         throw err;
       });
 
-      const res = ConversationManager.sendMessageOrRotate({
+      const res = await ConversationManager.sendMessageOrRotate({
         conversationId: convA.conversationId,
         prompt: 'Execute task after mismatch',
         projectId,
@@ -926,7 +926,7 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
       assert.strictEqual(recordB.rotation_reason, 'PROJECT_CONTEXT_MISMATCH');
     });
 
-    test('Reuse after handoff: subsequent messages reuse new active leaf B without creating C', () => {
+    test('Reuse after handoff: subsequent messages reuse new active leaf B without creating C', async () => {
       const workerId = 'worker-mismatch-test';
       const profileId = 'acc-mismatch-test';
       const projectId = 'proj-mismatch-test';
@@ -941,7 +941,7 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
         assert.strictEqual(convId, activeLeaf.conversation_id);
       });
 
-      const res = ConversationManager.sendMessageOrRotate({
+      const res = await ConversationManager.sendMessageOrRotate({
         conversationId: activeLeaf.conversation_id,
         prompt: 'Execute task on new active leaf',
         projectId,
@@ -956,12 +956,12 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
       assert.strictEqual(sendCalls, 1);
     });
 
-    test('Generic PermissionDenied (auth/token/other) is NOT treated as mismatch and throws error', () => {
+    test('Generic PermissionDenied (auth/token/other) is NOT treated as mismatch and throws error', async () => {
       const workerId = 'worker-perm-test';
       const profileId = 'acc-perm-test';
       const projectId = 'proj-perm-test';
 
-      const conv = ConversationManager.getOrCreateConversation({
+      const conv = await ConversationManager.getOrCreateConversation({
         projectId,
         accountProfileId: profileId,
         role: 'worker',
@@ -974,8 +974,8 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
         throw err;
       });
 
-      assert.throws(() => {
-        ConversationManager.sendMessageOrRotate({
+      await assert.rejects(async () => {
+        await ConversationManager.sendMessageOrRotate({
           conversationId: conv.conversationId,
           prompt: 'Execute task under expired token',
           projectId,
@@ -1354,7 +1354,7 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
         return id;
       });
 
-      const res = ConversationManager.getOrCreateConversation({
+      const res = await ConversationManager.getOrCreateConversation({
         projectId: 'proj-1',
         accountProfileId: profileId,
         role: 'worker',
@@ -1391,7 +1391,7 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
       });
 
       // First task creates Fable Worker
-      const res1 = ConversationManager.getOrCreateConversation({
+      const res1 = await ConversationManager.getOrCreateConversation({
         projectId: 'proj-reuse',
         accountProfileId: profileId,
         role: 'worker',
@@ -1404,7 +1404,7 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
       assert.strictEqual(createdCount, 1);
 
       // Second task requests same promptId
-      const res2 = ConversationManager.getOrCreateConversation({
+      const res2 = await ConversationManager.getOrCreateConversation({
         projectId: 'proj-reuse',
         accountProfileId: profileId,
         role: 'worker',
@@ -1442,7 +1442,7 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
         return 'conv-probe-test-' + uniqueSuffix;
       });
 
-      ConversationManager.getOrCreateConversation({
+      await ConversationManager.getOrCreateConversation({
         accountProfileId: profileId,
         role: 'probe',
         model: 'flash',
@@ -1467,7 +1467,7 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
         return 'conv-sup-inv-check-' + uniqueSuffix;
       });
 
-      ConversationManager.getOrCreateConversation({
+      await ConversationManager.getOrCreateConversation({
         projectId,
         accountProfileId: profileId,
         role: 'supervisor',
@@ -1602,7 +1602,7 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
         return 'conv-sup-bench-check-' + Date.now();
       });
 
-      ConversationManager.getOrCreateConversation({
+      await ConversationManager.getOrCreateConversation({
         projectId: 'proj-sup-bench',
         accountProfileId: 'acc-sup-bench-' + Date.now(),
         role: 'supervisor',
@@ -1617,7 +1617,7 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
         return 'conv-probe-bench-check-' + Date.now();
       });
 
-      ConversationManager.getOrCreateConversation({
+      await ConversationManager.getOrCreateConversation({
         accountProfileId: 'acc-probe-bench-' + Date.now(),
         role: 'probe',
         model: 'flash',
@@ -1768,7 +1768,7 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
         return 'conv-sup-v2-check-' + Date.now();
       });
 
-      ConversationManager.getOrCreateConversation({
+      await ConversationManager.getOrCreateConversation({
         projectId: 'proj-sup-v2',
         accountProfileId: 'acc-sup-v2-' + Date.now(),
         role: 'supervisor',
@@ -1806,7 +1806,7 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
         return id;
       });
 
-      const res = ConversationManager.getOrCreateConversation({
+      const res = await ConversationManager.getOrCreateConversation({
         projectId: 'proj-rot',
         accountProfileId: profileId,
         role: 'worker',
@@ -1841,7 +1841,7 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
         return 'conv-v2-reuse-' + uniqueSuffix + '-' + createdCount;
       });
 
-      const res1 = ConversationManager.getOrCreateConversation({
+      const res1 = await ConversationManager.getOrCreateConversation({
         projectId: 'proj-v2-reuse',
         accountProfileId: profileId,
         role: 'worker',
@@ -1854,7 +1854,7 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
       assert.strictEqual(createdCount, 1);
 
       // Second task with same V2 prompt reuses without creating new conversation
-      const res2 = ConversationManager.getOrCreateConversation({
+      const res2 = await ConversationManager.getOrCreateConversation({
         projectId: 'proj-v2-reuse',
         accountProfileId: profileId,
         role: 'worker',
@@ -1936,16 +1936,17 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
 
     test('Test 3 — Evaluator Granularity: unconditional exit(0) is INCONCLUSIVE', async () => {
       const { IndependentEvaluator } = await import('../src/independentEvaluator.js');
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evaluator-inconclusive-'));
       const contract = IndependentEvaluator.createSuccessContract({
         taskId: 'task-eval-pass',
         projectId: 'proj-eval',
-        projectPath: process.cwd(),
+        projectPath: dir,
         objective: 'Test pass',
         acceptanceCriteria: ['Must pass'],
         verificationCommand: 'node -e "process.exit(0)"'
       });
 
-      const res = await IndependentEvaluator.evaluate(contract.id, process.cwd(), {
+      const res = await IndependentEvaluator.evaluate(contract.id, dir, {
         status: 'success',
         filesChanged: ['index.ts']
       });
@@ -1981,16 +1982,17 @@ describe('DecoHUB Core Reliability & Deterministic Hardening Suite', () => {
 
     test('Test 5 — Evaluator Granularity: INCONCLUSIVE when no steps and no files changed', async () => {
       const { IndependentEvaluator } = await import('../src/independentEvaluator.js');
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evaluator-inconclusive-5-'));
       const contract = IndependentEvaluator.createSuccessContract({
         taskId: 'task-eval-inconclusive',
         projectId: 'proj-eval',
-        projectPath: process.cwd(),
+        projectPath: dir,
         objective: 'Test inconclusive',
         acceptanceCriteria: ['Criteria'],
         verificationSteps: []
       });
 
-      const res = await IndependentEvaluator.evaluate(contract.id, process.cwd(), {
+      const res = await IndependentEvaluator.evaluate(contract.id, dir, {
         status: 'failure',
         filesChanged: []
       });

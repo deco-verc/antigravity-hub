@@ -37,6 +37,8 @@
     "test:chat-screenshots": "node --import tsx --import ./test/testSetup.ts --test test/chatCompletionScreenshots.test.ts",
     "test:rea-saas": "node --import tsx --import ./test/testSetup.ts --test test/reaSaaSMasterArchitecture.test.ts",
     "test:circuit-breaker": "node --import tsx --import ./test/testSetup.ts --test test/sessionCircuitBreakerAndReuse.test.ts",
+    "test:agent-api": "node --import tsx --import ./test/testSetup.ts --test test/agentApiGateway.test.ts",
+    "test:core-reliability": "node --import tsx --import ./test/testSetup.ts --test test/coreReliability.test.ts",
     "test:operations": "node --import tsx --import ./test/testSetup.ts --test test/projectOperationsAndEnvStudio.test.ts",
     "test:pentest": "node --import tsx --import ./test/testSetup.ts --test test/securityPentestSimulator.test.ts",
     "test:ux-simulator": "node --import tsx --import ./test/testSetup.ts --test test/userExperienceSimulator.test.ts",

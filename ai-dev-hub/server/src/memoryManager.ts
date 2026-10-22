@@ -142,6 +142,21 @@ Analisar arquivos existentes ou iniciar desenvolvimento da primeira funcionalida
 
   static readMemoryFiles(projectPath: string): ProjectMemory {
     const memDir = this.getMemoryDir(projectPath);
+    const specsDir = path.join(memDir, 'specs');
+    if (fs.existsSync(specsDir)) {
+      const projPath = path.join(memDir, 'project.md');
+      const isStaleOrEmpty = !fs.existsSync(projPath) || (fs.existsSync(projPath) && fs.statSync(projPath).size < 300);
+      if (isStaleOrEmpty) {
+        try {
+          import('./projectLivingSpecService.js').then(({ ProjectLivingSpecService }) => {
+            ProjectLivingSpecService.syncSpecsToRootMemory(projectPath);
+          }).catch(() => {});
+        } catch {
+          // Non-blocking
+        }
+      }
+    }
+
     const read = (filename: string): string => {
       const filePath = path.join(memDir, filename);
       if (fs.existsSync(filePath)) {

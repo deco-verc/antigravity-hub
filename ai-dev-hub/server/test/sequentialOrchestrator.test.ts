@@ -420,11 +420,11 @@ test('Sequential Orchestration, Idempotency & Intelligent Evaluation Suite (24 S
   // -------------------------------------------------------------
   // Scenario 15: Persistent conversation reused across tasks
   // -------------------------------------------------------------
-  await t.test('Scenario 15: Conversation continuity — persistent conversation is reused across tasks', () => {
+  await t.test('Scenario 15: Conversation continuity — persistent conversation is reused across tasks', async () => {
     ConversationManager.setValidationOverride(() => true);
     ConversationManager.setCreateOverride((_p, title) => `conv-mock-${Date.now()}`);
 
-    const res1 = ConversationManager.getOrCreateConversation({
+    const res1 = await ConversationManager.getOrCreateConversation({
       projectId: projId,
       accountProfileId: 'acc-pro-1',
       role: 'worker',
@@ -435,7 +435,7 @@ test('Sequential Orchestration, Idempotency & Intelligent Evaluation Suite (24 S
     assert.equal(res1.isNew, true);
 
     // Second call for next task on same project/worker
-    const res2 = ConversationManager.getOrCreateConversation({
+    const res2 = await ConversationManager.getOrCreateConversation({
       projectId: projId,
       accountProfileId: 'acc-pro-1',
       role: 'worker',

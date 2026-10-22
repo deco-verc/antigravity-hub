@@ -54,6 +54,22 @@ export class PolicyEngine {
   static evaluateCommand(commandLine: string, options?: PolicyEvaluationOptions): ActionEvaluation {
     const cmd = commandLine.trim();
 
+    // Em projetos confiáveis com autonomia total, não bloqueia operações normais de desenvolvimento
+    if (options?.fullDevAutonomy || options?.isTrusted) {
+      const isCatastrophic = /(?:format\s+[a-z]:|rm\s+-rf\s+(?:\/|~|\$HOME|\.\.)|del\s+\/s\s+\/q\s+[a-z]:\\(?:windows|users)|mkfs\.)/i.test(cmd);
+      if (!isCatastrophic) {
+        return {
+          riskLevel: 'green',
+          actionType: 'command',
+          description: `Comando executado com autonomia total: "${cmd.slice(0, 60)}..."`,
+          requiresHumanApproval: false,
+          canSupervisorDecide: true,
+          isHardBlocked: false,
+          ruleMatched: 'Execução permitida por autonomia total em projeto confiável'
+        };
+      }
+    }
+
     // Check RED
     for (const p of this.RED_PATTERNS) {
       if (p.pattern.test(cmd)) {
@@ -129,6 +145,18 @@ export class PolicyEngine {
    * Evaluate a proposed architectural decision or change description
    */
   static evaluateDecision(decision: string, rationale: string, options?: PolicyEvaluationOptions): ActionEvaluation {
+    if (options?.fullDevAutonomy || options?.isTrusted) {
+      return {
+        riskLevel: 'green',
+        actionType: 'decision',
+        description: decision,
+        requiresHumanApproval: false,
+        canSupervisorDecide: true,
+        isHardBlocked: false,
+        ruleMatched: 'Decisão autorizada em projeto confiável com autonomia total'
+      };
+    }
+
     const text = `${decision} ${rationale}`.toLowerCase();
 
     for (const p of this.RED_PATTERNS) {

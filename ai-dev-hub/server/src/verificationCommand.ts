@@ -241,7 +241,7 @@ export function validateVerificationCommand(
   };
 }
 
-function hasAnyTestFilesOnDisk(projectPath: string): boolean {
+export function hasAnyTestFilesOnDisk(projectPath: string): boolean {
   if (!fs.existsSync(projectPath)) return false;
   const scan = (dir: string, depth: number): boolean => {
     if (depth > 6) return false;
@@ -382,6 +382,30 @@ export function normalizeOrRecoverVerificationCommand(
         originalCommand: raw,
         recovered: true,
         reason: 'package.json ou script test ausente no projeto; recuperado para validação segura de arquivos criados'
+      };
+    }
+  }
+
+  // 1.5 Auto-promoção de comandos triviais quando há testes válidos no projeto
+  const isTrivialCommand = !raw || /^(?:node\s+-e\s+["']\s*process\.exit\(0\);?["']|exit\s+0|true\b|echo\b)/i.test(raw);
+  if (isTrivialCommand) {
+    const npmTestValid = validateVerificationCommand('npm test', projectPath, { allowUncreatedFiles: false }).valid;
+    if (npmTestValid) {
+      return {
+        validInitially: false,
+        command: 'npm test',
+        originalCommand: raw,
+        recovered: true,
+        reason: 'Comando trivial ou vazio auto-promovido para o executor de testes canônico do projeto (npm test)'
+      };
+    }
+    if (hasAnyTestFilesOnDisk(projectPath)) {
+      return {
+        validInitially: false,
+        command: 'node --test',
+        originalCommand: raw,
+        recovered: true,
+        reason: 'Comando trivial ou vazio auto-promovido para testes encontrados em disco (node --test)'
       };
     }
   }

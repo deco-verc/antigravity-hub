@@ -42,6 +42,7 @@ import { SlashCommandItem } from '../types';
 
 interface DecoHubChatViewProps {
   project: FullProjectDetails;
+  projectRun?: AutonomousRun | null;
   messages: ChatMessage[];
   activeAccount: AccountProfile | null;
   agentStatus: 'ready' | 'working' | 'error';
@@ -57,6 +58,7 @@ import { ImageCarouselLightbox, LightboxImageItem } from './ImageCarouselLightbo
 
 export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
   project,
+  projectRun,
   messages,
   activeAccount,
   agentStatus,
@@ -78,6 +80,7 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
   currentProjectRef.current = project.id;
 
   const [activeRun, setActiveRun] = useState<AutonomousRun | null>(null);
+  const effectiveRun = activeRun || projectRun || null;
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [carouselLightbox, setCarouselLightbox] = useState<{
     isOpen: boolean;
@@ -105,7 +108,14 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
     setHomologationEvidence(null);
     setActiveRun(null);
     fetchEvidence();
-  }, [project.id, activeRun?.status]);
+    fetchActiveRun();
+  }, [project.id]);
+
+  useEffect(() => {
+    if (effectiveRun?.status) {
+      fetchEvidence();
+    }
+  }, [effectiveRun?.status]);
 
   const handleOpenLiveApp = async () => {
     setIsStartingPreview(true);
@@ -379,10 +389,10 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
   };
 
   const handlePauseResume = async () => {
-    if (!activeRun || isActionLoading) return;
+    if (!effectiveRun || isActionLoading) return;
     setIsActionLoading(true);
     try {
-      const updated = await api.resumeAutonomousRun(activeRun.id);
+      const updated = await api.resumeAutonomousRun(effectiveRun.id);
       setActiveRun(updated);
       await fetchActiveRun();
     } catch (err: any) {
@@ -393,11 +403,11 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
   };
 
   const handleResolveApproval = async (decision: 'approved' | 'rejected') => {
-    if (!activeRun || isActionLoading) return;
+    if (!effectiveRun || isActionLoading) return;
     setIsActionLoading(true);
     try {
       // Find pending approval or send resume
-      const updated = await api.resumeAutonomousRun(activeRun.id);
+      const updated = await api.resumeAutonomousRun(effectiveRun.id);
       setActiveRun(updated);
     } catch (err: any) {
       alert(`Falha ao resolver aprovação: ${err.message}`);
@@ -415,7 +425,7 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
         setInputText('');
         await api.sendMessage(project.id, text, crypto.randomUUID(), { forceNew: true });
       } else {
-        const objective = activeRun?.objective || `Novo Plano de Desenvolvimento para ${project.name}`;
+        const objective = effectiveRun?.objective || `Novo Plano de Desenvolvimento para ${project.name}`;
         const newRun = await api.createAutonomousRun({
           projectId: project.id,
           name: `Novo Plano #${new Date().toLocaleTimeString('pt-BR')}`,
@@ -436,10 +446,10 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
   };
 
   const handleRetryRun = async () => {
-    if (!activeRun || isActionLoading) return;
+    if (!effectiveRun || isActionLoading) return;
     setIsActionLoading(true);
     try {
-      const updated = await api.resumeAutonomousRun(activeRun.id);
+      const updated = await api.resumeAutonomousRun(effectiveRun.id);
       setActiveRun(updated);
       await fetchActiveRun();
       await onRefreshMessages?.();
@@ -451,33 +461,33 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
   };
 
   // Derive honest status flags
-  const isRunWaitingApproval = activeRun?.status === 'waiting_approval' || Boolean(activeRun?.last_error && /AGENT_NATIVE_TOOL_PENDING/.test(activeRun.last_error));
-  const isRunWaitingResource = activeRun?.status === 'waiting_resource';
-  const isRunBlocked = activeRun?.status === 'blocked';
-  const isRunError = activeRun?.status === 'error' || agentStatus === 'error';
-  const isRunPaused = activeRun?.status === 'paused';
-  const isRunCompleted = activeRun?.status === 'completed';
+  const isRunWaitingApproval = effectiveRun?.status === 'waiting_approval' || Boolean(effectiveRun?.last_error && /AGENT_NATIVE_TOOL_PENDING/.test(effectiveRun.last_error));
+  const isRunWaitingResource = effectiveRun?.status === 'waiting_resource';
+  const isRunBlocked = effectiveRun?.status === 'blocked';
+  const isRunError = effectiveRun?.status === 'error' || agentStatus === 'error';
+  const isRunPaused = effectiveRun?.status === 'paused';
+  const isRunCompleted = effectiveRun?.status === 'completed';
 
   // Specific state distinctions: Self-Healing vs Reviewing vs Executing
-  const hasReworkTask = activeRun?.tasks?.some(t =>
+  const hasReworkTask = effectiveRun?.tasks?.some(t =>
     t.status === 'needs_changes' ||
     t.lifecycle_state === 'REWORK_REQUIRED' ||
     t.review_decision === 'REJECTED' ||
     (t as any).reviewDecision === 'REJECTED'
   );
-  const hasReviewTask = activeRun?.tasks?.some(t =>
+  const hasReviewTask = effectiveRun?.tasks?.some(t =>
     t.status === 'in_review' ||
     t.lifecycle_state === 'REVIEW_PENDING' ||
     t.lifecycle_state === 'COMMIT_PENDING'
   );
   const isRunSelfHealing = Boolean(hasReworkTask);
-  const isRunReviewing = (activeRun?.status === 'reviewing' || Boolean(hasReviewTask)) && !isRunSelfHealing;
-  const isRunActive = activeRun && ['running', 'building', 'testing', 'reviewing', 'planning', 'waiting_for_worker'].includes(activeRun.status);
+  const isRunReviewing = (effectiveRun?.status === 'reviewing' || Boolean(hasReviewTask)) && !isRunSelfHealing;
+  const isRunActive = effectiveRun && ['running', 'building', 'testing', 'reviewing', 'planning', 'waiting_for_worker'].includes(effectiveRun.status);
 
   // Real progress calculation with strict 95% ceiling enforcement
-  const totalTasks = activeRun?.tasks?.length || 0;
-  const completedTasks = activeRun?.tasks?.filter(t => t.status === 'completed' || t.lifecycle_state === 'COMPLETED').length || 0;
-  const progressPct = resolveRunProgressPct(activeRun);
+  const totalTasks = effectiveRun?.tasks?.length || 0;
+  const completedTasks = effectiveRun?.tasks?.filter(t => t.status === 'completed' || t.lifecycle_state === 'COMPLETED').length || 0;
+  const progressPct = resolveRunProgressPct(effectiveRun);
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[#080a10] overflow-hidden">
@@ -541,7 +551,7 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
           ) : isRunActive ? (
             <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 text-xs font-medium">
               <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
-              <span>{activeRun?.status === 'planning' ? 'Planejando' : 'Em execução'}</span>
+              <span>{effectiveRun?.status === 'planning' ? 'Planejando' : 'Em execução'}</span>
             </div>
           ) : (
             <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-medium">
@@ -577,7 +587,7 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
             </div>
           )}
 
-          {activeRun && totalTasks > 0 && (
+          {effectiveRun && totalTasks > 0 && (
             <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#141824] border border-[#23293d] text-xs font-mono text-slate-300">
               <span className="text-slate-400">Progresso:</span>
               <span className="text-indigo-400 font-bold tabular-nums">{progressPct}%</span>
@@ -613,7 +623,7 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
       {/* 2. Área Compacta de Atividade Atual Fixa no Topo (HUD de Execução Real) */}
       <div className="px-6 pt-3 flex-shrink-0 max-w-4xl mx-auto w-full">
         <DecoHubCurrentActivityWidget
-          run={activeRun}
+          run={effectiveRun}
           agentStatus={agentStatus}
           evidence={homologationEvidence}
           onContinueOrResume={handlePauseResume}
