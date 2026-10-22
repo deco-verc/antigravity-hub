@@ -3,6 +3,8 @@ import {
   MetaChatMessageItem,
   MetaChatRecompileResult,
   MetaChatLiveStatus,
+  MetaChatAutopilotStatus,
+  DecoMindMlStatus,
   MetaChatThread,
   MetaChatLiveActivity,
   MetaChatLiveStep,
@@ -42,7 +44,8 @@ import {
   PanelLeftClose,
   MessageSquare,
   Activity,
-  CheckSquare
+  CheckSquare,
+  Play
 } from 'lucide-react';
 import { SlashCommandMenu } from './SlashCommandMenu';
 import { SlashCommandItem } from '../types';
@@ -80,6 +83,147 @@ function formatElapsed(seconds: number): string {
   return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}s`;
 }
 
+function formatInline(text: string): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  const regex = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    const token = match[0];
+    if (token.startsWith('**') && token.endsWith('**')) {
+      parts.push(
+        <strong key={`b-${match.index}`} className="font-semibold text-white">
+          {token.slice(2, -2)}
+        </strong>
+      );
+    } else if (token.startsWith('`') && token.endsWith('`')) {
+      parts.push(
+        <code key={`c-${match.index}`} className="px-1.5 py-0.5 rounded bg-[#101424] border border-[#222b45] font-mono text-[11px] text-cyan-300">
+          {token.slice(1, -1)}
+        </code>
+      );
+    }
+    lastIndex = regex.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts.length > 0 ? parts : text;
+}
+
+function renderTextLines(textBlock: string, keyPrefix: string): React.ReactNode {
+  const lines = textBlock.split(/\r?\n/);
+  return (
+    <div key={keyPrefix} className="space-y-1">
+      {lines.map((line, idx) => {
+        const trimmed = line.trim();
+        if (!trimmed) {
+          return <div key={idx} className="h-1.5" />;
+        }
+        if (trimmed === '---') {
+          return <hr key={idx} className="border-[#222b45] my-2.5" />;
+        }
+        if (trimmed.startsWith('# ')) {
+          return (
+            <h1 key={idx} className="text-base font-bold text-white mt-3 mb-1">
+              {formatInline(trimmed.slice(2))}
+            </h1>
+          );
+        }
+        if (trimmed.startsWith('## ')) {
+          return (
+            <h2 key={idx} className="text-sm font-bold text-slate-100 mt-2.5 mb-1">
+              {formatInline(trimmed.slice(3))}
+            </h2>
+          );
+        }
+        if (trimmed.startsWith('### ')) {
+          return (
+            <h3 key={idx} className="text-xs font-bold text-indigo-300 mt-2 mb-0.5 uppercase tracking-wide">
+              {formatInline(trimmed.slice(4))}
+            </h3>
+          );
+        }
+        if (trimmed.startsWith('#### ')) {
+          return (
+            <h4 key={idx} className="text-xs font-semibold text-slate-200 mt-1.5 mb-0.5">
+              {formatInline(trimmed.slice(5))}
+            </h4>
+          );
+        }
+        if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+          return (
+            <div key={idx} className="flex items-start gap-2 ml-2 text-slate-300 text-xs">
+              <span className="text-indigo-400 mt-0.5">•</span>
+              <span className="flex-1">{formatInline(trimmed.slice(2))}</span>
+            </div>
+          );
+        }
+        const numMatch = trimmed.match(/^(\d+)\.\s+(.*)$/);
+        if (numMatch) {
+          return (
+            <div key={idx} className="flex items-start gap-2 ml-2 text-slate-300 text-xs">
+              <span className="text-cyan-400 font-mono text-[11px] font-semibold">{numMatch[1]}.</span>
+              <span className="flex-1">{formatInline(numMatch[2])}</span>
+            </div>
+          );
+        }
+        return (
+          <p key={idx} className="text-xs leading-relaxed text-slate-300">
+            {formatInline(line)}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+function renderFormattedMetaChatContent(content: string, isUser: boolean): React.ReactNode {
+  if (isUser) {
+    return <div className="whitespace-pre-wrap font-sans">{content}</div>;
+  }
+
+  const codeBlockRegex = /```([a-zA-Z0-9_-]*)\r?\n([\s\S]*?)```/g;
+  const sections: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = codeBlockRegex.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      const textBlock = content.slice(lastIndex, match.index);
+      sections.push(renderTextLines(textBlock, `txt-${lastIndex}`));
+    }
+
+    const lang = match[1] || 'code';
+    const code = match[2];
+    sections.push(
+      <div key={`code-${match.index}`} className="my-2.5 rounded-xl border border-[#222b45] overflow-hidden bg-[#070a12]">
+        <div className="flex items-center justify-between px-3 py-1 bg-[#0d1222] border-b border-[#222b45] text-[10px] font-mono text-slate-400">
+          <span>{lang}</span>
+        </div>
+        <pre className="p-3 overflow-x-auto text-[11px] font-mono text-slate-200 leading-relaxed">
+          <code>{code}</code>
+        </pre>
+      </div>
+    );
+
+    lastIndex = codeBlockRegex.lastIndex;
+  }
+
+  if (lastIndex < content.length) {
+    const textBlock = content.slice(lastIndex);
+    sections.push(renderTextLines(textBlock, `txt-${lastIndex}`));
+  }
+
+  return <div className="space-y-1.5 text-xs text-slate-200 leading-relaxed">{sections}</div>;
+}
+
 export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
   onBack,
   onShowToast,
@@ -98,6 +242,14 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
   const [commandFilter, setCommandFilter] = useState('');
   const [isRecompiling, setIsRecompiling] = useState(false);
   const [recompileResult, setRecompileResult] = useState<MetaChatRecompileResult | null>(null);
+
+  // Autopilot State (Zero-Prompt Auto-Evolução)
+  const [autopilotStatus, setAutopilotStatus] = useState<MetaChatAutopilotStatus | null>(null);
+  const [autopilotTargetCycles, setAutopilotTargetCycles] = useState<number>(() => {
+    return Number(localStorage.getItem('decohub_metachat_autopilot_cycles') || 1);
+  });
+  const [isStartingAutopilot, setIsStartingAutopilot] = useState(false);
+  const [mlStatus, setMlStatus] = useState<DecoMindMlStatus | null>(null);
 
   // Multi-Threads State
   const [threads, setThreads] = useState<MetaChatThread[]>([]);
@@ -464,6 +616,34 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
     };
   }, [activeThreadId]);
 
+  // Polling de 1200ms para sincronizar Autopilot, DecoMind ML e mensagens de ciclos autônomos
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const [status, ml] = await Promise.all([
+          api.getMetaChatAutopilotStatus().catch(() => null),
+          api.getMlStatus().catch(() => null)
+        ]);
+        if (ml) setMlStatus(ml);
+        if (status) {
+          setAutopilotStatus(prev => {
+            if (
+              status.completedCycles !== prev?.completedCycles ||
+              status.isExecutingCycle !== prev?.isExecutingCycle ||
+              status.enabled !== prev?.enabled
+            ) {
+              loadMessages(activeThreadId);
+              loadThreads(activeThreadId);
+            }
+            return status;
+          });
+        }
+      } catch {}
+    }, 1200);
+
+    return () => clearInterval(interval);
+  }, [activeThreadId]);
+
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as Node;
@@ -675,6 +855,43 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
       onShowToast?.('error', err.message || 'Erro ao recompilar');
     } finally {
       setIsRecompiling(false);
+    }
+  };
+
+  const handleToggleAutopilot = async (customCycles?: number) => {
+    if (autopilotStatus?.enabled) {
+      try {
+        const stopped = await api.stopMetaChatAutopilot();
+        setAutopilotStatus(stopped);
+        onShowToast?.('info', 'Autopilot pausado com sucesso.');
+      } catch (err: any) {
+        onShowToast?.('error', `Falha ao pausar Autopilot: ${err.message}`);
+      }
+      return;
+    }
+
+    const cyclesToRun = customCycles !== undefined ? customCycles : autopilotTargetCycles;
+    setIsStartingAutopilot(true);
+    try {
+      let modelForThread = 'gemini-3.8-flash';
+      if (selectedModel === 'pro' || selectedModel === 'gemini-3.8-pro') modelForThread = 'gemini-3.8-pro';
+
+      const started = await api.startMetaChatAutopilot({
+        maxCycles: cyclesToRun,
+        cooldownSeconds: 15,
+        model: modelForThread,
+        accountId: effectiveActiveAccount?.id,
+        threadId: activeThreadId
+      });
+      setAutopilotStatus(started);
+      onShowToast?.('success', `Autopilot ativado (${cyclesToRun === 0 ? 'Modo Contínuo' : `${cyclesToRun} ciclos`})!`);
+      if (started.activeThreadId && started.activeThreadId !== activeThreadId) {
+        await handleSelectThread(started.activeThreadId);
+      }
+    } catch (err: any) {
+      onShowToast?.('error', `Falha ao iniciar Autopilot: ${err.message}`);
+    } finally {
+      setIsStartingAutopilot(false);
     }
   };
 
@@ -931,6 +1148,77 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
             <span className="text-[11px] font-medium hidden sm:inline">Rapid Switch</span>
           </button>
 
+          {/* C2. Controle Autopilot Auto-Evolução (Zero-Prompt) */}
+          <div className="flex items-center gap-1.5 p-1 rounded-xl bg-[#0f1320] border border-[#23293d]">
+            <div className="flex items-center gap-1 pl-1 pr-0.5">
+              <select
+                value={autopilotTargetCycles}
+                onChange={e => {
+                  const val = Number(e.target.value);
+                  setAutopilotTargetCycles(val);
+                  localStorage.setItem('decohub_metachat_autopilot_cycles', String(val));
+                }}
+                disabled={autopilotStatus?.enabled}
+                className="bg-[#141824] border border-[#23293d] text-slate-200 text-[11px] rounded-lg px-2 py-1 outline-none disabled:opacity-50 cursor-pointer"
+                title="Meta de Ciclos do Autopilot"
+              >
+                <option value={1}>1 Ciclo</option>
+                <option value={3}>3 Ciclos</option>
+                <option value={5}>5 Ciclos</option>
+                <option value={0}>Contínuo (Overnight)</option>
+              </select>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => handleToggleAutopilot()}
+              disabled={isStartingAutopilot}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                autopilotStatus?.enabled
+                  ? 'bg-emerald-600/20 border border-emerald-500/50 text-emerald-300 hover:bg-emerald-600/30 shadow-lg shadow-emerald-500/10'
+                  : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-sm'
+              }`}
+              title={autopilotStatus?.enabled ? 'Clique para pausar o Autopilot' : 'Ativar auto-evolução contínua zero-prompt'}
+            >
+              {autopilotStatus?.enabled ? (
+                <>
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                  <span className="font-mono text-[11px]">
+                    {autopilotStatus.isExecutingCycle ? 'Evoluindo' : 'Pausar'}
+                    {autopilotStatus.maxCycles > 0 ? ` (${autopilotStatus.completedCycles}/${autopilotStatus.maxCycles})` : ' (Contínuo)'}
+                  </span>
+                  <span className="text-[10px] opacity-75 font-mono hidden lg:inline">
+                    · +{autopilotStatus.keptEvolutions} / -{autopilotStatus.revertedEvolutions}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Play className="w-3 h-3 fill-current" />
+                  <span>Autopilot Auto-Evolução</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* Indicador DecoMind ML Telemetria Compacta */}
+          {mlStatus && (
+            <div
+              className="hidden xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-[#0a0f1d] border border-cyan-500/25 text-[11px] text-cyan-300 font-mono shadow-sm"
+              title={`DecoMind ML: ${mlStatus.samplesSeen} amostras observadas, ${(mlStatus.runningAccuracy * 100).toFixed(0)}% acurácia online, Brier Loss: ${mlStatus.runningBrierLoss.toFixed(3)}, ${mlStatus.episodicMemoriesCount} vacinas Q-Learning`}
+            >
+              <Cpu className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="font-semibold text-slate-300">DecoMind ML:</span>
+              <span className="font-semibold text-white">{mlStatus.samplesSeen} N</span>
+              <span className="text-slate-500">·</span>
+              <span className="text-emerald-400 font-semibold">{(mlStatus.runningAccuracy * 100).toFixed(0)}% Acc</span>
+              <span className="text-slate-500">·</span>
+              <span className="text-indigo-300">{mlStatus.episodicMemoriesCount} Q-Mem</span>
+            </div>
+          )}
+
           {/* D. Recompilar e Atualizar Produção */}
           <button
             type="button"
@@ -1068,12 +1356,22 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
                           {new Date(t.updated_at).toLocaleDateString([], { day: '2-digit', month: '2-digit' })}{' '}
                           {new Date(t.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
-                        {t.files_modified_count > 0 && (
-                          <span className="px-1.5 py-0.2 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 flex items-center gap-1 font-sans">
-                            <FileCode className="w-2.5 h-2.5" />
-                            <span>{t.files_modified_count} modificado(s)</span>
-                          </span>
-                        )}
+                        <div className="flex items-center gap-1">
+                          {t.provider_conversation_id && (
+                            <span
+                              className="px-1.5 py-0.5 rounded bg-cyan-950/60 text-cyan-300 border border-cyan-800/40 text-[9px] font-mono"
+                              title={`Vinculado ao chat Antigravity: ${t.provider_conversation_id}`}
+                            >
+                              chat:{t.provider_conversation_id.slice(0, 6)}
+                            </span>
+                          )}
+                          {t.files_modified_count > 0 && (
+                            <span className="px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 flex items-center gap-1 font-sans">
+                              <FileCode className="w-2.5 h-2.5" />
+                              <span>{t.files_modified_count} modificado(s)</span>
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
@@ -1104,6 +1402,33 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
                 Conectado ao <strong>Antigravity Language Server</strong> para modificar, refatorar e testar o próprio código do DecoHUB.
                 Todas as alterações passam pelo <strong>Typecheck Guard</strong> em tempo real.
               </p>
+            </div>
+
+            {/* Card em Destaque: Iniciar Auto-Evolução Autônoma (Zero-Prompt) */}
+            <div className="max-w-md mx-auto p-4 rounded-2xl bg-gradient-to-b from-[#0e1628] to-[#0a0f1d] border border-emerald-500/30 shadow-xl space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                    <Zap className="w-4 h-4" />
+                  </div>
+                  <span className="text-xs font-bold text-white">Auto-Evolução Autônoma (Zero-Prompt)</span>
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                  Karpathy + Gödel
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-300 text-left leading-relaxed">
+                Caça gargalos empíricos no <code className="text-emerald-300 font-mono text-[10px]">hub.db</code>, projeta e aplica a correção cirúrgica, roda testes, recompila o <code className="text-emerald-300 font-mono text-[10px]">decohub_unpacked</code> e sincroniza em produção 100% sozinho.
+              </p>
+              <button
+                type="button"
+                onClick={() => handleToggleAutopilot(1)}
+                disabled={autopilotStatus?.enabled || isStartingAutopilot}
+                className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-semibold shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                <Play className="w-3.5 h-3.5 fill-current" />
+                <span>Iniciar Auto-Evolução em 1 Clique (Zero-Prompt)</span>
+              </button>
             </div>
 
             {/* Sugestões Rápidas */}
@@ -1213,9 +1538,7 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
                     </div>
                   )}
 
-                  <div className="whitespace-pre-wrap font-sans">
-                    {msg.content}
-                  </div>
+                  {renderFormattedMetaChatContent(msg.content, isUser)}
 
                   {/* Badges e Relatório de Execução Técnica */}
                   {!isUser && meta && (

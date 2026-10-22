@@ -129,12 +129,18 @@ export class NativeWorkspaceBinding {
       if (autoProvision) return this.ensureBinding(projectId, accountProfileId, userProfileDir);
       throw new Error('NATIVE_WORKSPACE_UNBOUND');
     }
-    if (candidates.length !== 1) throw new Error('NATIVE_WORKSPACE_PROJECT_AMBIGUOUS');
+    let chosenCandidate = candidates[0];
+    if (candidates.length > 1) {
+      const boundRow = db.prepare('SELECT native_project_id FROM native_workspace_bindings WHERE project_id = ?').get(projectId) as any;
+      if (boundRow?.native_project_id && candidates.includes(boundRow.native_project_id)) {
+        chosenCandidate = boundRow.native_project_id;
+      }
+    }
 
     return this.bind({
       projectId,
       accountProfileId,
-      nativeProjectId: candidates[0],
+      nativeProjectId: chosenCandidate,
       userProfileDir,
       workspacePath: project.path
     });
@@ -307,7 +313,20 @@ export class NativeWorkspaceBinding {
     if (candidates.length === 1) {
       nativeProjectId = candidates[0];
     } else if (candidates.length > 1) {
-      throw new Error('NATIVE_WORKSPACE_PROJECT_AMBIGUOUS');
+      // Se houver mais de um manifesto válido para a mesma pasta, prioriza o já vinculado ao projectId no banco ou o mais recente
+      const boundRow = db.prepare('SELECT native_project_id FROM native_workspace_bindings WHERE project_id = ?').get(projectId) as any;
+      if (boundRow?.native_project_id && candidates.includes(boundRow.native_project_id)) {
+        nativeProjectId = boundRow.native_project_id;
+      } else {
+        const sorted = [...candidates].sort((a, b) => {
+          const fileA = path.join(directory, `${a}.json`);
+          const fileB = path.join(directory, `${b}.json`);
+          const mtimeA = fs.existsSync(fileA) ? fs.statSync(fileA).mtimeMs : 0;
+          const mtimeB = fs.existsSync(fileB) ? fs.statSync(fileB).mtimeMs : 0;
+          return mtimeB - mtimeA;
+        });
+        nativeProjectId = sorted[0];
+      }
     } else {
       nativeProjectId = randomUUID();
       const configFile = path.join(directory, `${nativeProjectId}.json`);

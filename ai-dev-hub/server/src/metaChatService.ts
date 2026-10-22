@@ -158,8 +158,34 @@ export interface MetaChatResponse {
   telemetry?: MetaChatLiveActivity | MetaChatLiveStatus;
 }
 
+export interface MetaChatAutopilotStatus {
+  enabled: boolean;
+  isExecutingCycle: boolean;
+  mode: 'CONTINUOUS' | 'BATCH';
+  maxCycles: number;
+  completedCycles: number;
+  keptEvolutions: number;
+  revertedEvolutions: number;
+  cooldownSeconds: number;
+  activeThreadId?: string;
+  lastCycleSummary?: string;
+  startedAt?: string;
+}
+
 export class MetaChatService {
   private static _repoRoot: string | null = null;
+  private static _autopilotState: MetaChatAutopilotStatus = {
+    enabled: false,
+    isExecutingCycle: false,
+    mode: 'BATCH',
+    maxCycles: 1,
+    completedCycles: 0,
+    keptEvolutions: 0,
+    revertedEvolutions: 0,
+    cooldownSeconds: 15
+  };
+  private static _autopilotAbortController: AbortController | null = null;
+  private static _autopilotLoopPromise: Promise<void> | null = null;
   private static _liveStatus: MetaChatLiveStatus = {
     isRunning: false,
     isExecuting: false,
@@ -487,7 +513,7 @@ export class MetaChatService {
 
       db.prepare(`
         UPDATE meta_chat_threads
-        SET title = ?, model = ?, effort = ?, account_id = ?, status = ?, files_modified_count = ?, last_message_preview = ?, updated_at = ?
+        SET title = ?, model = ?, effort = ?, account_id = ?, status = ?, files_modified_count = ?, last_message_preview = ?, provider_conversation_id = ?, updated_at = ?
         WHERE id = ?
       `).run(
         updated.title,
@@ -497,6 +523,7 @@ export class MetaChatService {
         updated.status,
         updated.files_modified_count,
         updated.last_message_preview ?? null,
+        updated.provider_conversation_id ?? null,
         updated.updated_at,
         threadId
       );
@@ -1146,15 +1173,18 @@ export class MetaChatService {
         db.prepare('DELETE FROM meta_chat_messages WHERE thread_id = ?').run(threadId);
         db.prepare(`
           UPDATE meta_chat_threads
-          SET files_modified_count = 0, last_message_preview = NULL, updated_at = ?
+          SET files_modified_count = 0, last_message_preview = NULL, provider_conversation_id = NULL, updated_at = ?
           WHERE id = ?
         `).run(new Date().toISOString(), threadId);
+        try {
+          db.prepare("DELETE FROM system_settings WHERE key LIKE ?").run(`metachat_conversation_id:thread:${threadId}%`);
+        } catch {}
         Logger.info(`[MetaChatService] Histórico da thread ${threadId} reiniciado com sucesso.`);
       } else {
         db.exec('DELETE FROM meta_chat_messages');
         db.prepare(`
           UPDATE meta_chat_threads
-          SET files_modified_count = 0, last_message_preview = NULL, updated_at = ?
+          SET files_modified_count = 0, last_message_preview = NULL, provider_conversation_id = NULL, updated_at = ?
         `).run(new Date().toISOString());
         db.prepare("DELETE FROM system_settings WHERE key LIKE 'metachat_conversation_id%'").run();
         this._accountConversations.clear();
@@ -1171,8 +1201,38 @@ export class MetaChatService {
     }
   }
 
-  static getActiveConversationId(accountProfileId?: string | null): string | null {
+  static getActiveConversationId(accountProfileId?: string | null, threadId?: string | null): string | null {
     try {
+      if (threadId) {
+        // 1. Chave escopada por thread e perfil de conta
+        const scopedRow = db
+          .prepare('SELECT value FROM system_settings WHERE key = ?')
+          .get(`metachat_conversation_id:thread:${threadId}:${accountProfileId || 'default'}`) as any;
+        if (scopedRow?.value) {
+          return scopedRow.value;
+        }
+
+        // 2. Coluna provider_conversation_id na tabela meta_chat_threads
+        const threadRow = this.getThread(threadId);
+        if (threadRow?.provider_conversation_id) {
+          if (!accountProfileId || !threadRow.account_id || threadRow.account_id === accountProfileId) {
+            return threadRow.provider_conversation_id;
+          }
+        }
+
+        // 3. Se a thread existir, tiver provider_conversation_id === null e ainda não possuir nenhuma mensagem do assistente,
+        // retorna null (forçando abertura de uma conversa nova e limpa no Antigravity para essa thread!)
+        if (threadRow && !threadRow.provider_conversation_id) {
+          const assistantMsgCount = (db.prepare(
+            "SELECT count(*) as cnt FROM meta_chat_messages WHERE thread_id = ? AND role = 'assistant'"
+          ).get(threadId) as any)?.cnt || 0;
+          if (assistantMsgCount === 0) {
+            return null;
+          }
+        }
+      }
+
+      // Fallback legado por conta ou global
       if (accountProfileId && this._accountConversations.has(accountProfileId)) {
         return this._accountConversations.get(accountProfileId)!;
       }
@@ -1194,9 +1254,31 @@ export class MetaChatService {
     }
   }
 
-  static setActiveConversationId(id: string | null, accountProfileId?: string | null): void {
+  static setActiveConversationId(id: string | null, accountProfileId?: string | null, threadId?: string | null): void {
     try {
       const now = new Date().toISOString();
+      if (threadId) {
+        const threadKey = `metachat_conversation_id:thread:${threadId}:${accountProfileId || 'default'}`;
+        if (!id) {
+          db.prepare('DELETE FROM system_settings WHERE key = ?').run(threadKey);
+          this.updateThread(threadId, {
+            provider_conversation_id: null,
+            ...(accountProfileId ? { account_id: accountProfileId } : {})
+          });
+        } else {
+          db.prepare(`
+            INSERT INTO system_settings (key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+          `).run(threadKey, id, now);
+          this.updateThread(threadId, {
+            provider_conversation_id: id,
+            ...(accountProfileId ? { account_id: accountProfileId } : {})
+          });
+        }
+      }
+
+      // Atualização legada/global para compatibilidade de testes
       if (!id) {
         db.prepare("DELETE FROM system_settings WHERE key = 'metachat_conversation_id'").run();
         if (accountProfileId) {
@@ -1305,11 +1387,7 @@ export class MetaChatService {
                 entry.content &&
                 !(entry.tool_calls?.length > 0)
               ) {
-                if (
-                  Array.isArray(entry.truncated_fields) &&
-                  entry.truncated_fields.includes('content') &&
-                  fs.existsSync(transcriptFullPath)
-                ) {
+                if (fs.existsSync(transcriptFullPath)) {
                   try {
                     const fullLines = fs
                       .readFileSync(transcriptFullPath, 'utf-8')
@@ -1319,20 +1397,23 @@ export class MetaChatService {
                     for (let j = fullLines.length - 1; j >= 0; j--) {
                       const fullEntry = JSON.parse(fullLines[j]);
                       if (fullEntry.step_index === entry.step_index && fullEntry.content) {
-                        return fullEntry.content;
+                        if (String(fullEntry.content).length >= String(entry.content).length) {
+                          return fullEntry.content;
+                        }
+                        break;
                       }
                     }
                   } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "metaChatService",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:metaChatService]", err);
-      }
-    }
+                    if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+                      (globalThis as any).logger.warn({
+                        event: "server.handled_exception",
+                        file: "metaChatService",
+                        error: (err as any)?.message || String(err)
+                      });
+                    } else {
+                      console.warn("[WARN][server:metaChatService]", err);
+                    }
+                  }
                 }
                 return entry.content;
               }
@@ -1453,6 +1534,7 @@ export class MetaChatService {
         try {
           if (fs.existsSync(full)) {
             const stat = fs.statSync(full);
+            if (stat.isDirectory()) continue;
             let hash: string | undefined;
             let content: string | null = null;
             if (stat.size < 2000000) {
@@ -1840,7 +1922,9 @@ export class MetaChatService {
   /**
    * Full Build & Production Sync: Recompiles DecoHUB and syncs to app.asar.unpacked.
    */
-  static async recompileAndSync(): Promise<{
+  static async recompileAndSync(options?: {
+    skipRestart?: boolean;
+  }): Promise<{
     success: boolean;
     message: string;
     durationMs: number;
@@ -1928,7 +2012,7 @@ export class MetaChatService {
     const isDesktop = process.env.ELECTRON_RUN_AS_NODE === '1' || Boolean(process.env.AI_DEV_HUB_DATA_DIR);
     let restarted = false;
 
-    if (isDesktop && synced) {
+    if (isDesktop && synced && !options?.skipRestart) {
       restarted = true;
       Logger.info('[MetaChatService] Ambiente Desktop Electron detectado. Notificando serviceManager e agendando reinício limpo do serviço...');
       if (process.env.AI_DEV_HUB_DATA_DIR && fs.existsSync(process.env.AI_DEV_HUB_DATA_DIR)) {
@@ -1956,6 +2040,344 @@ export class MetaChatService {
       synced,
       restarted
     };
+  }
+
+  /**
+   * Coletor Automático de Telemetria Forense para o Autopilot:
+   * Consulta em modo somente-leitura o hub.db (tarefas com rework/retries,
+   * evaluation_results reprovadas, lições aprendidas) e .ai-dev-hub/lessons.md,
+   * analisa ciclos prévios da thread para evitar repetições,
+   * e monta automaticamente a missão de auto-evolução sem necessidade de prompts manuais.
+   */
+  static collectSystemTelemetryDossier(threadId?: string): { prompt: string; telemetry: any } {
+    let problematicTasks: any[] = [];
+    try {
+      problematicTasks = db.prepare(`
+        SELECT id, title, status, review_decision, retry_count, replan_reason, blocking_reason, review_result_json, updated_at
+        FROM autonomous_tasks
+        WHERE status = 'failed' OR review_decision = 'REWORK_REQUIRED' OR retry_count > 0
+        ORDER BY updated_at DESC
+        LIMIT 6
+      `).all();
+    } catch {}
+
+    let rejectedEvaluations: any[] = [];
+    try {
+      rejectedEvaluations = db.prepare(`
+        SELECT id, task_id, verdict, evaluator_verdict, failed_criteria_json, evaluator_notes, created_at
+        FROM evaluation_results
+        WHERE verdict != 'PASS' OR evaluator_verdict != 'PASS'
+        ORDER BY created_at DESC
+        LIMIT 6
+      `).all();
+    } catch {}
+
+    let operationalLessons: any[] = [];
+    try {
+      operationalLessons = db.prepare(`
+        SELECT problem_summary, root_cause, failed_strategy, working_strategy, occurrences
+        FROM operational_lessons
+        ORDER BY updated_at DESC
+        LIMIT 5
+      `).all();
+    } catch {}
+
+    let lessonsMdContent = '';
+    const root = this.getDecoHubRoot();
+    const lessonsPath = path.join(root, '.ai-dev-hub', 'lessons.md');
+    if (fs.existsSync(lessonsPath)) {
+      try {
+        lessonsMdContent = fs.readFileSync(lessonsPath, 'utf-8').slice(0, 2000);
+      } catch {}
+    }
+
+    let pastEvolutionsSummary = '';
+    if (threadId) {
+      try {
+        const pastMsgs = db.prepare(`
+          SELECT content, created_at FROM meta_chat_messages
+          WHERE thread_id = ? AND role IN ('assistant', 'system')
+          ORDER BY created_at DESC LIMIT 10
+        `).all(threadId) as Array<{ content: string; created_at: string }>;
+        if (pastMsgs.length > 0) {
+          pastEvolutionsSummary = pastMsgs
+            .map(m => {
+              const lines = m.content.split('\n').filter(l => /(?:Ciclo|Gargalo|Implementad|Corrigid|Fix|Evolu[çc][ãa]o)/i.test(l));
+              return lines.slice(0, 3).join(' | ');
+            })
+            .filter(Boolean)
+            .join('\n');
+        }
+      } catch {}
+    }
+
+    const problematicTasksFormatted = problematicTasks.length > 0
+      ? problematicTasks.map(t => `- [${String(t.status || '').toUpperCase()} | Rework/Retries: ${t.retry_count}] ${t.title} (Motivo: ${t.replan_reason || t.blocking_reason || t.review_decision || 'N/A'})`).join('\n')
+      : 'Nenhuma tarefa com falha crítica ou rework excessivo registrada no momento.';
+
+    const rejectedEvalsFormatted = rejectedEvaluations.length > 0
+      ? rejectedEvaluations.map(e => `- [Avaliação ${e.verdict || e.evaluator_verdict}] Tarefa ${String(e.task_id || '').slice(0, 8)}: ${e.evaluator_notes || e.failed_criteria_json || 'Critério reprovado'}`).join('\n')
+      : 'Sem reprovações ativas de avaliador recente.';
+
+    const lessonsFormatted = operationalLessons.length > 0
+      ? operationalLessons.map(l => `- Problema: ${l.problem_summary} -> Causa Raiz: ${l.root_cause} (Estratégia eficaz: ${l.working_strategy})`).join('\n')
+      : (lessonsMdContent ? lessonsMdContent.slice(0, 800) : 'Nenhuma lição anterior registrada.');
+
+    let mlTelemetrySummary = '';
+    try {
+      const { DecoMindMlService } = require('./decoMindMlService.js');
+      const mlStatus = DecoMindMlService.getSystemMlStatus();
+      const underperforming = (mlStatus.topUnderperformingArms || []).map((a: any) => `${a.arm_key} (Reward: ${(a.mean_reward * 100).toFixed(0)}%)`).join(', ');
+      mlTelemetrySummary = `- Modelos/Bandits com Menor Recompensa: ${underperforming || 'Nenhum'}\n- Acurácia Online do Preditor de Risco: ${(mlStatus.runningAccuracy * 100).toFixed(1)}% (Amostras: ${mlStatus.samplesSeen})\n- Vacinas Episódicas Aprendidas: ${mlStatus.episodicMemoriesCount}`;
+    } catch {}
+
+    const prompt = `# MISSÃO AUTÔNOMA DE AUTO-EVOLUÇÃO (AUTOPILOT CYCLE) — ZERO-PROMPT
+
+Você é o Engenheiro Principal do DecoHUB operando no modo Autopilot de Auto-Evolução Contínua (inspirado no Karpathy Autoresearch Loop e Darwin Gödel Machine).
+Sua missão neste ciclo é diagnosticar a telemetria empírica real do sistema abaixo, selecionar o próximo gargalo inédito de maior impacto que ainda não foi resolvido e implementar uma melhoria cirúrgica definitiva com testes automatizados.
+
+### 1. TELEMETRIA COLETADA DO SISTEMA:
+- **Tarefas com Re-trabalho/Retry:**
+${problematicTasksFormatted}
+
+- **Reprovações Recentes de Avaliador Independente:**
+${rejectedEvalsFormatted}
+
+- **Lições Operacionais Registradas:**
+${lessonsFormatted}
+
+- **Telemetria de Machine Learning (DecoMind ML):**
+${mlTelemetrySummary || 'DecoMind ML ativo e calibrado.'}
+
+- **Evoluções Já Implementadas em Ciclos Anteriores (NÃO REPETIR):**
+${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.'}
+
+### 2. DIRETRIZES DE EXECUÇÃO CIRÚRGICA:
+1. Identifique um gargalo real e inédito no DecoHUB (em server/src/ ou client/src/) que impacta estabilidade, velocidade, observabilidade ou resiliência.
+2. Aplique a alteração diretamente usando blocos de código markdown \`\`\`ts [FILE: caminho/do/arquivo.ts] ... \`\`\` ou edite cirurgicamente.
+3. Garanta 100% de compatibilidade e tipagem estrita TypeScript (sem violar tipos).
+4. Crie ou atualize um teste em server/test/ que comprove a solução implementada.
+5. Emita ao final um Briefing Executivo estruturado contendo:
+   - ### 1. Diagnóstico do Gargalo Selecionado
+   - ### 2. Alteração Cirúrgica Implementada
+   - ### 3. Validação Automatizada e Portões de Qualidade
+   - ### 4. Status Final e Próximo Alvo`;
+
+    return {
+      prompt,
+      telemetry: {
+        problematicTasksCount: problematicTasks.length,
+        rejectedEvaluationsCount: rejectedEvaluations.length,
+        operationalLessonsCount: operationalLessons.length,
+        hasLessonsMd: Boolean(lessonsMdContent),
+        pastEvolutionsCount: pastEvolutionsSummary ? pastEvolutionsSummary.split('\n').length : 0
+      }
+    };
+  }
+
+  static getAutopilotStatus(): MetaChatAutopilotStatus {
+    return { ...this._autopilotState };
+  }
+
+  static stopAutopilot(): MetaChatAutopilotStatus {
+    this._autopilotState.enabled = false;
+    if (this._autopilotAbortController) {
+      try {
+        this._autopilotAbortController.abort();
+      } catch {}
+    }
+    Logger.info('[MetaChatService] Autopilot interrompido pelo usuário.');
+    return this.getAutopilotStatus();
+  }
+
+  static async waitForAutopilotCompletion(timeoutMs = 60000): Promise<MetaChatAutopilotStatus> {
+    const start = Date.now();
+    while (this._autopilotState.enabled && (Date.now() - start < timeoutMs)) {
+      if (this._autopilotLoopPromise) {
+        await Promise.race([
+          this._autopilotLoopPromise,
+          new Promise(r => setTimeout(r, 200))
+        ]);
+      } else {
+        await new Promise(r => setTimeout(r, 200));
+      }
+    }
+    return this.getAutopilotStatus();
+  }
+
+  static async startAutopilot(options?: {
+    maxCycles?: number;
+    cooldownSeconds?: number;
+    model?: string;
+    accountId?: string;
+    threadId?: string;
+  }): Promise<MetaChatAutopilotStatus> {
+    if (this._autopilotState.enabled && this._autopilotState.isExecutingCycle) {
+      return this.getAutopilotStatus();
+    }
+
+    const maxCycles = options?.maxCycles !== undefined ? options.maxCycles : 1;
+    const cooldownSeconds = options?.cooldownSeconds !== undefined ? options.cooldownSeconds : 15;
+    const mode = maxCycles === 0 ? 'CONTINUOUS' : 'BATCH';
+
+    let threadId = options?.threadId;
+    if (!threadId) {
+      const existingThreads = this.listThreads();
+      const autopilotThread = existingThreads.find(t => t.title.includes('Autopilot') || t.title.includes('Auto-Evolução Autônoma'));
+      if (autopilotThread) {
+        threadId = autopilotThread.id;
+      } else {
+        const created = this.createThread({
+          title: 'Auto-Evolução Autônoma (Autopilot)',
+          model: options?.model || 'gemini-3.8-flash',
+          effort: 'HIGH'
+        });
+        threadId = created.id;
+      }
+    }
+
+    this.setActiveThreadId(threadId);
+
+    this._autopilotAbortController = new AbortController();
+    this._autopilotState = {
+      enabled: true,
+      isExecutingCycle: false,
+      mode,
+      maxCycles,
+      completedCycles: 0,
+      keptEvolutions: 0,
+      revertedEvolutions: 0,
+      cooldownSeconds,
+      activeThreadId: threadId,
+      startedAt: new Date().toISOString()
+    };
+
+    this._autopilotLoopPromise = this._runAutopilotLoop({
+      maxCycles,
+      cooldownSeconds,
+      model: options?.model,
+      accountId: options?.accountId,
+      threadId
+    }).catch(err => {
+      Logger.error(`[MetaChatService] Erro fatal no loop do Autopilot: ${err.message}`);
+      this._autopilotState.enabled = false;
+      this._autopilotState.isExecutingCycle = false;
+    });
+
+    return this.getAutopilotStatus();
+  }
+
+  private static async _runAutopilotLoop(options: {
+    maxCycles: number;
+    cooldownSeconds: number;
+    model?: string;
+    accountId?: string;
+    threadId: string;
+  }): Promise<void> {
+    const isTestOrOffline = AgentApiGateway.isOfflineMode() || process.env.NODE_ENV === 'test' || Boolean(process.env.NODE_TEST_CONTEXT);
+    const actualCooldownMs = isTestOrOffline ? 50 : Math.max(500, options.cooldownSeconds * 1000);
+
+    while (this._autopilotState.enabled) {
+      if (this._autopilotState.maxCycles > 0 && this._autopilotState.completedCycles >= this._autopilotState.maxCycles) {
+        Logger.info(`[MetaChatService] Meta de ciclos do Autopilot atingida (${this._autopilotState.completedCycles}/${this._autopilotState.maxCycles}). Finalizando loop.`);
+        break;
+      }
+
+      const currentCycle = this._autopilotState.completedCycles + 1;
+      this._autopilotState.isExecutingCycle = true;
+      Logger.info(`[MetaChatService] [Autopilot] Iniciando Ciclo #${currentCycle} (meta: ${this._autopilotState.maxCycles === 0 ? 'Contínuo' : this._autopilotState.maxCycles})...`);
+
+      try {
+        const dossier = this.collectSystemTelemetryDossier(options.threadId);
+
+        this.addMessage({
+          role: 'system',
+          content: `[AUTOPILOT CICLO #${currentCycle}] Diagnóstico coletado. Disparando auto-evolução autônoma...`,
+          thread_id: options.threadId
+        });
+
+        const res = await this.handleUserMessage(dossier.prompt, {
+          threadId: options.threadId,
+          model: options.model || 'gemini-3.8-flash',
+          reasoningMode: 'high',
+          accountId: options.accountId,
+          runTests: true
+        });
+
+        if (res.typecheck.passed && !res.selfHealed && res.filesChanged.length > 0) {
+          this._autopilotState.keptEvolutions++;
+          this._autopilotState.lastCycleSummary = `Ciclo #${currentCycle} PROMOVIDO (KEEP): ${res.filesChanged.length} arquivos alterados.`;
+          Logger.success(`[MetaChatService] [Autopilot] Ciclo #${currentCycle} aprovado com sucesso! Sincronizando build...`);
+
+          if (!isTestOrOffline) {
+            try {
+              await this.recompileAndSync({ skipRestart: true });
+            } catch (syncErr: any) {
+              Logger.warn(`[MetaChatService] [Autopilot] Aviso na recompilação do Ciclo #${currentCycle}: ${syncErr.message}`);
+            }
+          }
+
+          this.addMessage({
+            role: 'system',
+            content: `[AUTOPILOT CICLO #${currentCycle} CONCLUÍDO - KEEP] Evolução promovida e sincronizada no decohub_unpacked (${res.filesChanged.length} arquivos atualizados).`,
+            thread_id: options.threadId
+          });
+        } else {
+          if (res.selfHealed) {
+            this._autopilotState.revertedEvolutions++;
+            this._autopilotState.lastCycleSummary = `Ciclo #${currentCycle} REVERTIDO (DISCARD/ROLLBACK): Typecheck quebrado.`;
+          } else {
+            this._autopilotState.lastCycleSummary = `Ciclo #${currentCycle} FINALIZADO sem alterações de arquivos.`;
+          }
+          this.addMessage({
+            role: 'system',
+            content: `[AUTOPILOT CICLO #${currentCycle} FINALIZADO] ${this._autopilotState.lastCycleSummary}`,
+            thread_id: options.threadId
+          });
+        }
+      } catch (cycleErr: any) {
+        Logger.error(`[MetaChatService] [Autopilot] Erro no Ciclo #${currentCycle}: ${cycleErr.message}`);
+        this._autopilotState.lastCycleSummary = `Ciclo #${currentCycle} FALHOU: ${cycleErr.message}`;
+      } finally {
+        this._autopilotState.completedCycles++;
+        this._autopilotState.isExecutingCycle = false;
+      }
+
+      if (!this._autopilotState.enabled) break;
+      if (this._autopilotState.maxCycles > 0 && this._autopilotState.completedCycles >= this._autopilotState.maxCycles) {
+        break;
+      }
+
+      Logger.info(`[MetaChatService] [Autopilot] Aguardando cooldown de ${actualCooldownMs}ms antes do próximo ciclo...`);
+      await new Promise(resolve => setTimeout(resolve, actualCooldownMs));
+    }
+
+    this._autopilotState.enabled = false;
+    this._autopilotState.isExecutingCycle = false;
+    Logger.info('[MetaChatService] [Autopilot] Loop concluído.');
+  }
+
+  static triggerReactiveSelfHealIfNeeded(failureContext: {
+    taskId: string;
+    projectId: string;
+    reworkCount: number;
+    reason: string;
+  }): boolean {
+    if (this._autopilotState.enabled || this._autopilotState.isExecutingCycle) {
+      return false;
+    }
+    if (failureContext.reworkCount < 2) {
+      return false;
+    }
+
+    Logger.info(`[MetaChatService] [Reactive Self-Heal] Rework repetido detectado na tarefa ${failureContext.taskId} (rework: ${failureContext.reworkCount}). Disparando 1 ciclo de Autopilot.`);
+    this.startAutopilot({
+      maxCycles: 1,
+      cooldownSeconds: 5
+    }).catch(err => {
+      Logger.warn(`[MetaChatService] Falha ao disparar reactive self-heal: ${err.message}`);
+    });
+    return true;
   }
 
   /**
@@ -2002,7 +2424,7 @@ export class MetaChatService {
       }
     });
 
-    let activeConvId = this.getActiveConversationId(requestedAccountId);
+    let activeConvId = this.getActiveConversationId(requestedAccountId, currentThread.id);
     const baselineBefore = this.captureFileBaseline(root);
 
     this._currentExecution = {
@@ -2201,7 +2623,7 @@ export class MetaChatService {
 
         const projectBinding = this.ensureDecoHubProject(requestedAccountId);
         let effectiveAccountId = projectBinding.accountProfile.id;
-        activeConvId = this.getActiveConversationId(effectiveAccountId);
+        activeConvId = this.getActiveConversationId(effectiveAccountId, currentThread.id);
 
         const resolvedConfig = ModelRegistry.resolveModelConfig({
           preference: requestedModel,
@@ -2245,7 +2667,7 @@ export class MetaChatService {
                 projectId: 'decohub-meta',
                 role: 'CONVERSATIONAL'
               });
-              this.setActiveConversationId(activeConvId, requestedAccountId);
+              this.setActiveConversationId(activeConvId, requestedAccountId, currentThread.id);
             }
 
             const candidate = mockProvider.getResponse?.(activeConvId!, 'CONVERSATIONAL');
@@ -2300,7 +2722,7 @@ export class MetaChatService {
 
           if (!activeConvId) {
             activeConvId = `conv-metachat-offline-${Date.now().toString(36)}`;
-            this.setActiveConversationId(activeConvId, requestedAccountId);
+            this.setActiveConversationId(activeConvId, requestedAccountId, currentThread.id);
           }
 
           this.recordLiveStep({
@@ -2468,7 +2890,12 @@ export class MetaChatService {
             `   [ENDFILE]`,
             `2. Mantenha os padrões arquiteturais existentes, tipagem estrita de TypeScript e testes verdes.`,
             `3. Não altere arquivos em .git/, node_modules/ ou .ai-dev-hub/.`,
-            `4. Padrão Corporativo Limpo: ZERO emojis decorativos em código, logs ou mensagens. Jamais repita o enunciado do usuário no início da resposta. Explique objetivamente as modificações aplicadas.`
+            `4. Padrão Corporativo Limpo: ZERO emojis decorativos em código, logs ou mensagens. Jamais repita o enunciado do usuário no início da resposta. Explique objetivamente as modificações aplicadas.`,
+            `5. Contrato Obrigatório de Briefing Final: Encerre OBRIGATORIAMENTE sua resposta com um Briefing Executivo Completo contendo rigorosamente as 4 seções Markdown:`,
+            `   ### 1. Diagnóstico e Escopo Analisado`,
+            `   ### 2. Alterações Cirúrgicas Aplicadas`,
+            `   ### 3. Verificação de Integridade (Typecheck & Testes)`,
+            `   ### 4. Status Final e Próximos Passos`
           ]
             .filter(Boolean)
             .join('\n\n');
@@ -2520,7 +2947,7 @@ export class MetaChatService {
           let sendSucceeded = false;
           if (activeConvId && this.isConversationValid(activeConvId, userProfileDir)) {
             try {
-              antigravityProvider.captureTurnStart(activeConvId, root);
+              antigravityProvider.captureTurnStart(activeConvId, root, 'metachat-' + currentThread.id);
               AgentApiGateway.sendMessage({
                 conversationId: activeConvId,
                 prompt: fullPrompt,
@@ -2543,7 +2970,7 @@ export class MetaChatService {
             try {
               activeConvId = await AgentApiGateway.newConversation({
                 model: cliModel,
-                title: 'DecoHUB Meta-Chat',
+                title: 'DecoHUB Meta-Chat: ' + (currentThread.title || 'Auto-Evolução').replace(/"/g, "'").slice(0, 50),
                 prompt: fullPrompt,
                 projectId: projectBinding.project.id,
                 role: 'CONVERSATIONAL',
@@ -2551,8 +2978,13 @@ export class MetaChatService {
                 cwd: root,
                 env: execEnv
               });
-              this.setActiveConversationId(activeConvId, effectiveAccountId);
-              antigravityProvider.captureTurnStart(activeConvId, root);
+              this.setActiveConversationId(activeConvId, effectiveAccountId, currentThread.id);
+              initialLineCount = 0;
+              if (this._currentExecution) {
+                this._currentExecution.lastTranscriptLineCount = 0;
+              }
+              (antigravityProvider as any).turnStarts?.set(activeConvId, 0);
+              antigravityProvider.captureTurnStart(activeConvId, root, 'metachat-' + currentThread.id);
             } catch (createErr: any) {
               const errMsg = createErr?.message || String(createErr);
               const isRuntimeUnavailable =
@@ -2626,7 +3058,7 @@ export class MetaChatService {
               const fromTranscript = await this.waitForTranscriptResponse(
                 activeConvId,
                 initialLineCount,
-                4000,
+                15000,
                 userProfileDir
               );
               if (fromTranscript && fromTranscript.trim()) {
@@ -2716,17 +3148,106 @@ export class MetaChatService {
 
             if (!typecheckResult.passed) {
               Logger.warn(
-                `[MetaChatService] Typecheck quebrou após turno do Antigravity. Acionando Autoproteção Ativa...`
+                `[MetaChatService] Typecheck apontou erros após turno do Antigravity. Tentando auto-reparo antes do rollback...`
               );
-              this.updatePipelineTask('task-verify', 'failed', 'Erro no Typecheck: rollback executado');
-              this.recordLiveStep({
-                type: 'GUARD',
-                target: 'Rollback Automático',
-                status: 'done',
-                details: 'Autoproteção Ativa: restaurando integridade do repositório'
-              });
-              this.rollbackChangedFiles(root, filesChanged, baselineBefore);
-              selfHealed = true;
+
+              let healedOnRetry = false;
+              if (!AgentApiGateway.isOfflineMode() && activeConvId && !this._currentExecution?.cancelRequested) {
+                this.updatePipelineTask('task-verify', 'in_progress', 'Auto-Reparo TypeScript em andamento...');
+                this.recordLiveStep({
+                  type: 'GUARD',
+                  target: 'Auto-Reparo TypeScript',
+                  status: 'running',
+                  details: 'Enviando diagnóstico do compilador para auto-correção na mesma conversa'
+                });
+                this.updateLiveStatus({
+                  phase: 'Solicitando auto-reparo de tipagem ao Antigravity...',
+                  lastStep: 'Self-Healing TypeScript Guard'
+                });
+
+                const rawDiag = typecheckResult.output ? typecheckResult.output.slice(0, 3500) : 'Erros de tipagem detectados pelo tsc.';
+                const repairPrompt = [
+                  `=== AUTO-REPARO DE TYPECHECK OBRIGATÓRIO ===`,
+                  `A execução anterior gerou erros de compilação/tipagem TypeScript estrita no DecoHUB:`,
+                  `\`\`\`text`,
+                  rawDiag,
+                  `\`\`\``,
+                  `Corrija IMEDIATAMENTE os erros acima nos arquivos modificados usando as ferramentas de edição ou blocos [FILE: ...].`,
+                  `Mantenha tipagem estrita (strict: true), preserve todos os métodos existentes e encerre com o Briefing Executivo atualizado.`
+                ].join('\n\n');
+
+                try {
+                  antigravityProvider.captureTurnStart(activeConvId, root, 'metachat-' + currentThread.id);
+                  AgentApiGateway.sendMessage({
+                    conversationId: activeConvId,
+                    prompt: repairPrompt,
+                    projectId: projectBinding.project.id,
+                    role: 'CONVERSATIONAL',
+                    caller: 'MetaChatService.selfHealingTypecheck',
+                    cwd: root,
+                    env: execEnv
+                  });
+
+                  const repairTurnResult = await antigravityProvider.getResult(
+                    activeConvId,
+                    180000,
+                    root,
+                    () => Boolean(this._currentExecution?.cancelRequested || TurnCancellationManager.isCancelled('metachat', activeConvId))
+                  );
+
+                  const repairReport = (repairTurnResult.rawResponse || (repairTurnResult as any).finalResponse || '').trim();
+                  if (repairReport) {
+                    agentReport = repairReport;
+                    const parsedBlocks = this.parseCodeDirectives(repairReport);
+                    for (const pb of parsedBlocks) {
+                      if (pb.action === 'write' && typeof pb.content === 'string') {
+                        try {
+                          const fullPath = this.validatePathWithinRepo(pb.filePath);
+                          const relPath = path.relative(root, fullPath).replace(/\\/g, '/');
+                          this.writeFile(relPath, pb.content);
+                          if (!filesChanged.includes(relPath)) filesChanged.push(relPath);
+                        } catch {}
+                      }
+                    }
+                  }
+
+                  const repairChanged = this.diffFileBaseline(root, baselineBefore, repairTurnResult.filesChanged);
+                  for (const rc of repairChanged) {
+                    if (!filesChanged.includes(rc)) filesChanged.push(rc);
+                  }
+
+                  typecheckResult = await this.runTypecheck(target, filesChanged);
+                  if (typecheckResult.passed) {
+                    healedOnRetry = true;
+                    Logger.success('[MetaChatService] Auto-reparo de Typecheck bem-sucedido!');
+                  }
+                } catch (repairErr: any) {
+                  Logger.warn(`[MetaChatService] Falha durante tentativa de auto-reparo: ${repairErr.message}`);
+                }
+              }
+
+              if (!healedOnRetry) {
+                Logger.warn(
+                  `[MetaChatService] Typecheck permaneceu quebrado após tentativa. Acionando Rollback de Segurança...`
+                );
+                this.updatePipelineTask('task-verify', 'failed', 'Erro no Typecheck: rollback executado');
+                this.recordLiveStep({
+                  type: 'GUARD',
+                  target: 'Rollback Automático',
+                  status: 'done',
+                  details: 'Autoproteção Ativa: restaurando integridade do repositório'
+                });
+                this.rollbackChangedFiles(root, filesChanged, baselineBefore);
+                selfHealed = true;
+              } else {
+                this.updatePipelineTask('task-verify', 'completed', `Auto-reparo aprovado em ${typecheckResult.durationMs}ms`);
+                this.recordLiveStep({
+                  type: 'GUARD',
+                  target: 'Auto-Reparo TypeScript',
+                  status: 'done',
+                  details: 'Tipos corrigidos com sucesso sem necessidade de rollback'
+                });
+              }
             } else {
               this.updatePipelineTask('task-verify', 'completed', `Aprovado em ${typecheckResult.durationMs}ms`);
             }

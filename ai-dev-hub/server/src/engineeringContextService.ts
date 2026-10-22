@@ -444,6 +444,51 @@ export class EngineeringContextService {
   }
 
   /**
+   * Detects TypeScript and Node.js module conventions to prevent LSP and ESM import errors.
+   */
+  static detectTypeScriptModuleConventions(projectPath: string): string {
+    if (!fs.existsSync(projectPath)) return '';
+
+    const lines: string[] = [];
+    const pkgPath = path.join(projectPath, 'package.json');
+    const tsconfigPath = path.join(projectPath, 'tsconfig.json');
+
+    let isEsm = false;
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+        isEsm = pkg.type === 'module';
+      } catch {}
+    }
+
+    let hasTsConfig = false;
+    let outDir = '';
+    if (fs.existsSync(tsconfigPath)) {
+      try {
+        hasTsConfig = true;
+        const tsconfig = JSON.parse(fs.readFileSync(tsconfigPath, 'utf-8'));
+        outDir = tsconfig.compilerOptions?.outDir || '';
+      } catch {}
+    }
+
+    if (hasTsConfig || isEsm) {
+      lines.push('DIRETRIZES DE MÓDULOS NODE.JS & TYPESCRIPT (ANTI-LSP-ERROR):');
+      lines.push('- Imports da biblioteca padrão do Node: use SEMPRE named/namespace imports:');
+      lines.push("  * 'import * as fs from \"node:fs\";'");
+      lines.push("  * 'import * as path from \"node:path\";'");
+      lines.push("  * 'import * as http from \"node:http\";'");
+      lines.push("  * 'import assert from \"node:assert/strict\";' (ou 'import { strict as assert } from \"node:assert\";')");
+      lines.push('- NUNCA use default import de módulos da biblioteca padrão (ex: NÃO use "import fs from \"node:fs\"") para evitar [LSP_SYNTAX_ERROR] "has no default export".');
+      if (outDir) {
+        lines.push(`- Build TypeScript: Este projeto possui compilador com '${outDir}'. Se testes importarem de '${outDir}', certifique-se de executar 'npm run build' após alterar 'src/'.`);
+      }
+      lines.push('- Isolamento de Testes: crie bancos de dados de teste isolados (ex: paths temporários ou em memória) e feche conexões e servidores HTTP no teardown para garantir exit code 0 determinístico.');
+    }
+
+    return lines.join('\n');
+  }
+
+  /**
    * Assembles an authoritative Engineering Context Package for a project and task.
    * Completely isolated per projectPath with intelligent relevance selection.
    */
@@ -586,6 +631,8 @@ export class EngineeringContextService {
     });
     const contextUtilizationRatio = freshContextEnvelope.contextUtilizationRatio;
 
+    const tsConventions = EngineeringContextService.detectTypeScriptModuleConventions(projectPath);
+
     // 11. Generate compact prompt block (safe for Native Gemini task prompt injection)
     const promptParts = [
       `[CONSTITUIÇÃO DO PROJETO & DIRETRIZES DE ENGENHARIA — KARPATHY LAYER (Hash: ${contextHash})]`,
@@ -596,9 +643,11 @@ export class EngineeringContextService {
       `4. GOAL-DRIVEN: Toda tarefa tem objetivo declarado, critérios binários e comando de verificação único simples (${verificationCommand}).`,
       `5. OPERATIONAL AUTONOMY: Permissão expressa para executar comandos no workspace, encerrar processos efêmeros e testar sem travas.`,
       `6. FULL-STACK, APPSEC & ANTI-SLOP: Portas 4000-4999 (proibido 3001/3000/5173), SPA em GET /, JSON em /api/health, tokens :root, SVGs e blindagem SQLi (?) e XSS.`,
+      `7. NODE/TYPESCRIPT & ESM INTEROP: Em projetos Node.js/TS, use imports ESM canônicos: 'import * as fs from "node:fs"', 'import * as path from "node:path"', 'import * as http from "node:http"', 'import assert from "node:assert/strict"' (ou 'import { strict as assert } from "node:assert"'). NUNCA use default import de módulos CJS da biblioteca padrão sem export default. Em projetos TypeScript com 'outDir: ./dist', compile ('npm run build') antes de rodar testes que importam de dist.`,
       ``,
       autonomyBlock,
       ``,
+      tsConventions ? `${tsConventions}\n` : '',
       compactProgram ? `CONSTITUIÇÃO ESPECÍFICA DO PROJETO:\n${compactProgram}\n` : '',
       decisionsSnippet ? `DECISÕES TÉCNICAS RELEVANTES (PRESERVAR):\n${decisionsSnippet}\n` : '',
       lessonsSnippet ? `LIÇÕES OPERACIONAIS APRENDIDAS (EVITAR REPETIÇÃO DE FALHAS):\n${lessonsSnippet}\n` : '',

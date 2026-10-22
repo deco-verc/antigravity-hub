@@ -4870,6 +4870,47 @@ apiRouter.post('/metachat/restart', async (_req, res) => {
   }
 });
 
+apiRouter.get('/metachat/autopilot/status', (_req, res) => {
+  try {
+    res.json(MetaChatService.getAutopilotStatus());
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.post('/metachat/autopilot/start', async (req, res) => {
+  try {
+    const { maxCycles, cooldownSeconds, model, accountId, threadId } = req.body || {};
+    const status = await MetaChatService.startAutopilot({
+      maxCycles: typeof maxCycles === 'number' ? maxCycles : undefined,
+      cooldownSeconds: typeof cooldownSeconds === 'number' ? cooldownSeconds : undefined,
+      model: typeof model === 'string' ? model : undefined,
+      accountId: typeof accountId === 'string' ? accountId : undefined,
+      threadId: typeof threadId === 'string' ? threadId : undefined
+    });
+    res.json(status);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.post('/metachat/autopilot/stop', (_req, res) => {
+  try {
+    res.json(MetaChatService.stopAutopilot());
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.get('/ml/status', (_req, res) => {
+  try {
+    const { DecoMindMlService } = require('./decoMindMlService.js');
+    res.json(DecoMindMlService.getSystemMlStatus());
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 
 

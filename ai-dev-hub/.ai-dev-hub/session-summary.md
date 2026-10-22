@@ -1,5 +1,5 @@
-# Resumo da Sessão Atual — Sessão #86
-Data: 22/10/2026, 01:10:32
+# Resumo da Sessão Atual — Sessão #89
+Data: 22/10/2026, 04:07:48
 
 ----------------------------------
 ESTADO ATUAL DO PROJETO
@@ -11,33 +11,26 @@ Objetivo:
 Centralizar o desenvolvimento autônomo local e orquestração de agentes de IA com preservação de memória permanente, continuidade multi-contas (Google Pro 1, Google Pro 2, etc.) e interface Simple IDE unificada (Desktop Electron + Web React).
 
 IMPLEMENTADO:
-- Perfil de domínio creator_economy no MarketDiscoveryService com benchmarks (1of10, VidIQ, Viewstats, TubeBuddy, OpusClip), fórmulas (outlier_score, engagement_rate, views_per_hour) e entidades SQLite reais
 - Especificações canônicas de 5 seções especializadas em ProjectLivingSpecService (01-Dashboard, 02-Registros, 03-Operacoes, 04-Auditoria, 05-Configuracoes) com componentes anatômicos 16:9, Outlier Pills e Drawer 520px
 - Desbloqueio de escopo no HierarchicalOrchestrationService para arquivos de projeto legítimos em public/, src/, test/, docs e configs
 - Regeneração e sincronização completa dos Living Specs de ViralYTSearch
 - Reconciliação e desbloqueio da Tarefa 24 (GT-7) em hub.db
 
 ALTERAÇÕES RECENTES:
-- ai-dev-hub/server/src/marketDiscoveryService.ts
-- ai-dev-hub/server/src/projectLivingSpecService.ts
-- ai-dev-hub/server/src/designSkillService.ts
-- ai-dev-hub/server/src/hierarchicalOrchestrationService.ts
-- C:/IA/test-projects/viralytsearch/.ai-dev-hub/market-research-rea.md
-- C:/IA/test-projects/viralytsearch/.ai-dev-hub/specs/CONTEUDO.md
-- C:/IA/test-projects/viralytsearch/.ai-dev-hub/specs/DESIGN.md
-- C:/IA/test-projects/viralytsearch/.ai-dev-hub/specs/BACKEND.md
-- C:/IA/test-projects/viralytsearch/.ai-dev-hub/specs/PRINCIPIOS.md
-- C:/IA/test-projects/viralytsearch/.ai-dev-hub/specs/JORNADAS.md
-- C:/IA/test-projects/viralytsearch/.ai-dev-hub/project.md
-- C:/IA/test-projects/viralytsearch/.ai-dev-hub/architecture.md
+- ai-dev-hub/changes.md (modified)
+- .ai-dev-hub/decisions.md (modified)
+- .ai-dev-hub/session-summary.md (modified)
+- .ai-dev-hub/tasks.md (modified)
+- Iniciardecohub.bat (modified)
+- client/src/App.tsx (modified)
+- client/src/components/DecoHubChatView.tsx (modified)
+- client/src/components/DecoHubCurrentActivityWidget.tsx (modified)
 
 PROBLEMAS:
 - Nenhum bloqueio registrado
-
-PRÓXIMA TAREFA:
-Acompanhar a progressão contínua da Onda 7 (Sidebar, Topbar, Command Palette) no pipeline autônomo de ViralYTSearch
-
-DECISÕES IMPORTANTES:
+- PRÓXIMA TAREFA:
+- Acompanhar a progressão contínua da Onda 7 (Sidebar, Topbar, Command Palette) no pipeline autônomo de ViralYTSearch
+- DECISÕES IMPORTANTES:
 - Implementação de retry de curto alcance no `AgentApiGateway` para chamadas físicas `new-conversation` e `send-message` (até 2 retries com backoff síncrono de 500ms e re-descoberta de binário via `AntigravityDiscovery.discover({ forceRefresh: true })` em falhas transitórias de processo/IO, preservando bloqueio imediato para `FailClosedGuardError` e `AUTHORIZATION_GUARD`). Implementação do watchdog de auto-recuperação `AutonomousRunnerService.attemptResourceRecovery` integrado ao `schedulerTick` para inspecionar runs em `waiting_resource`, restaurando o run para `running`, zerando falhas consecutivas, limpando `last_error`, registrando o evento `RUNTIME_RECOVERED_AUTOMATICALLY` e disparando o agendador sem exigir clique manual. Implementação do Self-Healing de verificação no `AutonomousRunnerService` quando o `IndependentEvaluator` retorna `BLOCKED` por falha técnica de comando ou script reparável: recuperação/normalização do comando (`normalizeOrRecoverVerificationCommand`), roteamento para retrabalho do Worker (`REWORK_REQUIRED` / `CHANGES_REQUESTED`) com feedback de diagnóstico factual detalhado mantendo o run em `running` enquanto `retry_count < maxRetries`. Preservação rigorosa de guardas de segurança: bloqueio intransigente (`pauseForVerification`) mantido para `TAMPERING_DETECTED` (adulteração de testes protegidos) e exaustão de limites de retentativa (`retry_count >= maxRetries`). Criação da suíte `test/autonomousSelfHealingAndRecovery.test.ts` e inclusão no `package.json`, elevando a suíte oficial para 53 arquivos de teste e 511 testes (100% passando com 0 falhas).
 - Substituição do portão tudo-ou-nada (`validTasks.length === rawTasks.length`) por `GeminiSupervisorProvider.sanitizeAndRepairPlannedTask`, capaz de reparar tarefas parciais e descartar apenas entradas corrompidas limpando referências de dependências quebradas. Implementação da arquitetura de planejamento Multi-Pass em Duas Ondas (Onda 1: `buildArchitecturalBlueprintPrompt` / `planArchitecturalBlueprint` e Onda 2: `buildMajorTaskExpansionPrompt` / `expandMajorTaskIntoMicrotasks`) com encadeamento de dependências inter-Grandes Tarefas e detecção de ciclos via `detectCircularDependencies`. Implementação do gerador determinístico `HierarchicalOrchestrationService.generateMultiPassPlannedTasks` para modo offline/testes gerando > 15 microtarefas distribuídas em 6 Grandes Tarefas (`GT-1` a `GT-6`). Criação da suíte `test/multiPassDeepPlanning.test.ts` e reintegração ao `package.json`, elevando a suíte oficial para 52 arquivos de teste (508 testes, 100% aprovados, 0 falhas).
 - Reintegração dos 9 arquivos de teste omitidos ao script `test` em `server/package.json` (total de 51 suítes e 505 testes), correção estrutural do `AntigravityConversationalService` para roteamento limpo de mensagens conversacionais sem vazamento de respostas `'PLAN'` em modo offline, ajuste do título de diagnóstico para `Diagnóstico do Erro` em consultas `ERROR_QUERY`, e ampliação da rastreabilidade semântica e de testes (`taskCorpus`, sufixos e categoria `testing`) em `HierarchicalOrchestrationService.persistHierarchicalPlan`.
@@ -273,6 +266,41 @@ DECISÕES IMPORTANTES:
 - Substituição do dump de arquivos inteiros por resumos estruturados de assinaturas AST (< 30% da janela de tokens)
 - Eliminação total de Atomics.wait, fallback direto para qualquer language server ativo e cancelamento instantâneo de chat
 - Planejamento Síncrono de Alta Performance no AutonomousManager com Hidratação Imediata de Tarefas e Eliminação da Race Condition de PLAN_MISSING
+- Priorização de Runs Recentes (`ORDER BY updated_at DESC LIMIT 1`) e Auto-Geração Determinística de Tarefas no Step do AutonomousRunnerService
+- Sincronização Dupla SSE + Polling Fallback no Frontend: Registro de `run_updated` no `sseClient.ts`, propagação bidirecional de `projectRun` para o `App.tsx` e polling a cada 2.5s no `DecoHubChatView`
+- Resolução da priorização de diretório de brain, alinhamento de perfis isolados e restauração de despacho no nativeTurnRecovery
+- INSTRUÇÃO PARA O PRÓXIMO AGENTE:
+- Analise primeiro os arquivos de memória e o Git.
+- Não refaça tarefas concluídas.
+- Continue do estado atual.
+- ---------------------------------
+- PRÓXIMA TAREFA:
+- Monitoramento contínuo e execução de novos ciclos autônomos conforme backlog
+- DECISÕES IMPORTANTES:
+- Priorização de Runs Recentes (`ORDER BY updated_at DESC LIMIT 1`) e Auto-Geração Determinística de Tarefas no Step do AutonomousRunnerService
+- Sincronização Dupla SSE + Polling Fallback no Frontend: Registro de `run_updated` no `sseClient.ts`, propagação bidirecional de `projectRun` para o `App.tsx` e polling a cada 2.5s no `DecoHubChatView`
+- Resolução da priorização de diretório de brain, alinhamento de perfis isolados e restauração de despacho no nativeTurnRecovery
+- INSTRUÇÃO PARA O PRÓXIMO AGENTE:
+- Analise primeiro os arquivos de memória e o Git.
+- Não refaça tarefas concluídas.
+- Continue do estado atual.
+- ---------------------------------
+- PRÓXIMA TAREFA:
+- Monitoramento contínuo e execução de novos ciclos autônomos conforme backlog
+- DECISÕES IMPORTANTES:
+- Priorização de Runs Recentes (`ORDER BY updated_at DESC LIMIT 1`) e Auto-Geração Determinística de Tarefas no Step do AutonomousRunnerService
+- Sincronização Dupla SSE + Polling Fallback no Frontend: Registro de `run_updated` no `sseClient.ts`, propagação bidirecional de `projectRun` para o `App.tsx` e polling a cada 2.5s no `DecoHubChatView`
+- Resolução da priorização de diretório de brain, alinhamento de perfis isolados e restauração de despacho no nativeTurnRecovery
+- INSTRUÇÃO PARA O PRÓXIMO AGENTE:
+- Analise primeiro os arquivos de memória e o Git.
+- Não refaça tarefas concluídas.
+- Continue do estado atual.
+- ---------------------------------
+
+PRÓXIMA TAREFA:
+Monitoramento contínuo e execução de novos ciclos autônomos conforme backlog
+
+DECISÕES IMPORTANTES:
 - Priorização de Runs Recentes (`ORDER BY updated_at DESC LIMIT 1`) e Auto-Geração Determinística de Tarefas no Step do AutonomousRunnerService
 - Sincronização Dupla SSE + Polling Fallback no Frontend: Registro de `run_updated` no `sseClient.ts`, propagação bidirecional de `projectRun` para o `App.tsx` e polling a cada 2.5s no `DecoHubChatView`
 - Resolução da priorização de diretório de brain, alinhamento de perfis isolados e restauração de despacho no nativeTurnRecovery

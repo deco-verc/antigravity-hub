@@ -143,6 +143,9 @@ export interface WorkerPromptInput {
   lspDiagnosticsSnippet?: string;
   astSymbolSummaryBlock?: string;
   repoMapSnippet?: string;
+  dependencies?: string[];
+  attemptNumber?: number;
+  skillCategory?: string;
 }
 
 export interface ArchitecturalBlueprintPromptInput {
@@ -582,7 +585,7 @@ export class PromptArchitectureService {
         sections.push(
           `OBJETIVO DESTE MODO: Implementar o código funcional cirúrgico e completo para atender a 100% dos critérios da tarefa.`,
           `DIRETRIZES DE IMPLEMENTAÇÃO DE ALTA PRECISÃO:`,
-          `- INSPECIONE ANTES DE CODAR: Verifique os arquivos existentes no projeto (package.json, esquemas de banco, serviços e rotas) para manter total consistência de imports (CommonJS vs ESM) e nomes de propriedades JSON.`,
+          `- INSPECIONE ANTES DE CODAR: Verifique os arquivos existentes no projeto (package.json, esquemas de banco, serviços e rotas) para manter total consistência de imports (CommonJS vs ESM) e nomes de propriedades JSON. Em Node.js/TypeScript, use SEMPRE imports canônicos com namespace para bibliotecas padrão: 'import * as fs from "node:fs"', 'import * as path from "node:path"', 'import * as http from "node:http"', 'import assert from "node:assert/strict"'. NUNCA use default import de módulos da biblioteca padrão sem export default para evitar erros de LSP.`,
           `- ESCOPO CIRÚRGICO E COMPLETO: Implemente toda a lógica real exigida (zero placeholders, zero TODOs, zero funções vazias). Não reformate arquivos fora do escopo. Altere apenas o necessário (escopo cirúrgico).`,
           `- PADRÃO DE QUALIDADE FULL-STACK (RECEITAS CANÓNICAS OBRIGATÓRIAS QUANDO APLICÁVEL):`,
           `  * Banco/Domínio (SQLite): use queries parametrizadas (db.prepare('... WHERE id = ?').get(id)), valide números finitos e não-negativos (Number.isFinite(val) && val >= 0) e garanta seedIfEmpty() idempotente com 15-30 registros realistas.`,
@@ -641,6 +644,11 @@ export class PromptArchitectureService {
           `OBJETIVO DESTE MODO: Criar ou expandir suíte de testes automatizados independentes.`,
           `DIRETRIZES DE TESTE:`,
           `- Crie casos de teste rigorosos incluindo happy paths, entradas inválidas (valores negativos, campos vazios, payloads malformados), limites e fallbacks DOCSIMP.`,
+          `- CONVENÇÃO CANÔNICA DE IMPORTS TYPESCRIPT / NODE.JS (ZERO ERROS DE LSP):`,
+          `  * Use SEMPRE: import * as fs from 'node:fs'; import * as path from 'node:path'; import * as http from 'node:http'; import assert from 'node:assert/strict';`,
+          `  * NUNCA use default import de módulos da biblioteca padrão (ex: 'import fs from "node:fs"') sem esModuleInterop ou onde não há default export.`,
+          `  * Em projetos TypeScript com 'outDir: ./dist', se o teste importar arquivos compilados, execute a compilação (npm run build) antes de rodar os testes.`,
+          `  * Isole instâncias de banco (DatabaseSync/SQLite) com caminhos temporários e encerre servidores efêmeros no teardown para garantir testes determinísticos.`,
           `- É EXPRESSAMENTE PROIBIDO enfraquecer testes existentes, remover asserções ou utilizar .skip/xit.`,
           `- Execute a suíte de testes (${input.verificationCommand || 'npm test'}) e garanta que todos os testes passem com exit code 0.`
         );
@@ -842,6 +850,45 @@ export class PromptArchitectureService {
       }
     } catch (repoErr: any) {
       Logger.warn(`[PromptArchitectureService] Falha não bloqueante ao gerar RepoMap: ${repoErr.message}`);
+    }
+
+    // DecoMind ML Engine: Predição de Risco Online & Vacinas Episódicas Aprendidas
+    try {
+      const { DecoMindMlService } = require('./decoMindMlService.js');
+      const mlRisk = DecoMindMlService.predictReworkRiskFromTask({
+        taskTitle: input.taskTitle,
+        taskDescription: input.taskDescription,
+        expectedFiles: input.expectedScopeFiles || [],
+        dependencies: input.dependencies || input.completedDependenciesSummary || [],
+        attempts: input.attemptNumber || 0,
+        category: input.skillCategory || input.stageCode || 'GENERAL'
+      }, input.projectPath);
+
+      const mlVaccines = DecoMindMlService.retrieveTopEpisodicVaccines(
+        `${input.taskTitle} ${input.taskDescription} ${(input.expectedScopeFiles || []).join(' ')}`,
+        input.skillCategory || input.stageCode || 'GENERAL',
+        3
+      );
+
+      const mlLines: string[] = [
+        `\n=== [DECOMIND ML — PREDIÇÃO DE RISCO & VACINAS EPISÓDICAS APRENDIDAS] ===`,
+        `PROBABILIDADE CALCULADA DE REWORK: ${(mlRisk.probability * 100).toFixed(1)}% (Nível: ${mlRisk.riskTier})`
+      ];
+
+      if (mlRisk.topRiskFactors?.length) {
+        mlLines.push(`FATORES PREDITIVOS DE RISCO DETECTADOS: ${mlRisk.topRiskFactors.join(', ')}`);
+      }
+
+      if (mlVaccines.length > 0) {
+        mlLines.push(`VACINAS EPISÓDICAS APRENDIDAS RELEVANTES (Q-Value Reinforcement):`);
+        for (const v of mlVaccines) {
+          mlLines.push(`- [Score: ${v.similarityScore?.toFixed(2) || '0.50'} | Q: ${v.q_value.toFixed(2)}] Padrão: ${v.error_pattern} -> Solução: ${v.surgical_vaccine}`);
+        }
+      }
+      mlLines.push(`=== FIM DO BLOCO DECOMIND ML ===\n`);
+      sections.push(mlLines.join('\n'));
+    } catch (mlErr: any) {
+      Logger.warn(`[PromptArchitectureService] Aviso não bloqueante ao injetar DecoMind ML: ${mlErr.message}`);
     }
 
     sections.push(`=== FIM DO CONTEXTO REAL ===`);

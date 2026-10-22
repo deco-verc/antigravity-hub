@@ -1130,7 +1130,7 @@ export class PlaywrightVisualInspector {
             });
           }
         }
-        return JSON.stringify(discovered);
+        return discovered;
       }
 
       // 2. Explicit sections
@@ -1155,10 +1155,10 @@ export class PlaywrightVisualInspector {
             });
           }
         }
-        return JSON.stringify(discovered);
+        return discovered;
       }
 
-      return JSON.stringify([{ type: 'page', name: document.title || 'Dashboard', selector: null, index: 0 }]);
+      return [{ type: 'page', name: document.title || 'Dashboard', selector: null, index: 0 }];
     }`;
 
     const evalRes = this.runCli(['-s=' + sessionId, 'eval', discoveryScript, '--raw'], projectPath, 5000);

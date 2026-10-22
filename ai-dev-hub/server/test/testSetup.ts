@@ -11,6 +11,7 @@ import os from 'node:os';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 // 1. Force offline mode and disable live agentapi
+process.env.NODE_ENV = 'test';
 process.env.DECOHUB_OFFLINE_MODE = 'true';
 process.env.DECOHUB_ALLOW_LIVE_AGENTAPI = 'false';
 

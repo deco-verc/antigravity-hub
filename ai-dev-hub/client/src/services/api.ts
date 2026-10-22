@@ -51,6 +51,8 @@ import {
   MetaChatResponseData,
   MetaChatRecompileResult,
   MetaChatLiveStatus,
+  MetaChatAutopilotStatus,
+  DecoMindMlStatus,
   SlashCommandItem
 } from '../types';
 
@@ -1622,6 +1624,45 @@ export const api = {
       const err = await res.json().catch(() => ({ error: 'Falha ao recompilar DecoHUB' }));
       throw new Error(err.error || 'Falha ao recompilar DecoHUB');
     }
+    return res.json();
+  },
+
+  async getMetaChatAutopilotStatus(): Promise<MetaChatAutopilotStatus> {
+    const res = await fetch(`${API_BASE}/metachat/autopilot/status`);
+    if (!res.ok) throw new Error('Falha ao obter status do Autopilot');
+    return res.json();
+  },
+
+  async startMetaChatAutopilot(payload?: {
+    maxCycles?: number;
+    cooldownSeconds?: number;
+    model?: string;
+    accountId?: string;
+    threadId?: string;
+  }): Promise<MetaChatAutopilotStatus> {
+    const res = await fetch(`${API_BASE}/metachat/autopilot/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {})
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Falha ao iniciar Autopilot' }));
+      throw new Error(err.error || 'Falha ao iniciar Autopilot');
+    }
+    return res.json();
+  },
+
+  async stopMetaChatAutopilot(): Promise<MetaChatAutopilotStatus> {
+    const res = await fetch(`${API_BASE}/metachat/autopilot/stop`, {
+      method: 'POST'
+    });
+    if (!res.ok) throw new Error('Falha ao pausar Autopilot');
+    return res.json();
+  },
+
+  async getMlStatus(): Promise<DecoMindMlStatus> {
+    const res = await fetch(`${API_BASE}/ml/status`);
+    if (!res.ok) throw new Error('Falha ao obter telemetria do DecoMind ML');
     return res.json();
   },
 

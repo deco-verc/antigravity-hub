@@ -1428,6 +1428,47 @@ export interface MetaChatLiveStatus {
   cancelRequested?: boolean;
 }
 
+export interface MetaChatAutopilotStatus {
+  enabled: boolean;
+  isExecutingCycle: boolean;
+  mode: 'CONTINUOUS' | 'BATCH';
+  maxCycles: number;
+  completedCycles: number;
+  keptEvolutions: number;
+  revertedEvolutions: number;
+  cooldownSeconds: number;
+  activeThreadId?: string;
+  lastCycleSummary?: string;
+  startedAt?: string;
+}
+
+export interface DecoMindMlStatus {
+  samplesSeen: number;
+  runningAccuracy: number;
+  runningBrierLoss: number;
+  weights: number[];
+  topBanditArms: Array<{
+    arm_key: string;
+    category: string;
+    model_tier: string;
+    effort_level: string;
+    pulls: number;
+    mean_reward: number;
+  }>;
+  topEpisodicMemories: Array<{
+    id: string;
+    task_category: string;
+    error_pattern: string;
+    surgical_vaccine: string;
+    q_value: number;
+  }>;
+  topUnderperformingArms?: Array<{
+    arm_key: string;
+    mean_reward: number;
+  }>;
+  episodicMemoriesCount: number;
+}
+
 export interface SlashCommandItem {
   command: string;
   aliases: string[];

@@ -684,16 +684,8 @@ export class UserExperienceSimulator {
               const url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url) || '';
               let bodyText = '';
               try { bodyText = await cloned.text(); } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "userExperienceSimulator",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:userExperienceSimulator]", err);
-      }
-    }
+                // browser context: no node logger
+              }
               window.__uxNetworkLog.push({
                 type: 'fetch',
                 url,
@@ -768,16 +760,8 @@ export class UserExperienceSimulator {
         // Click through tabs
         for (const el of navItems.slice(0, 4)) {
           try { el.click(); } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "userExperienceSimulator",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:userExperienceSimulator]", err);
-      }
-    }
+            // browser context: no node logger
+          }
         }
 
         return ({
@@ -852,16 +836,8 @@ export class UserExperienceSimulator {
               const tabBtn = document.querySelector(\`[data-tab="\${parentPane.id.replace('pane-', '')}"], [href="#\${parentPane.id}"]\`);
               if (tabBtn) {
                 try { tabBtn.click(); } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "userExperienceSimulator",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:userExperienceSimulator]", err);
-      }
-    }
+                  // browser context: no node logger
+                }
               }
             }
             form = anyForm;
@@ -936,16 +912,8 @@ export class UserExperienceSimulator {
             submitBtn.click();
             buttonClicked = true;
           } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "userExperienceSimulator",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:userExperienceSimulator]", err);
-      }
-    }
+            // browser context: no node logger
+          }
         }
 
         return ({
@@ -995,7 +963,7 @@ export class UserExperienceSimulator {
       if (fs.existsSync(shot2)) evidenceScreenshots.push(shot2);
 
       const hasApiErrors = apiErrorsDetected.length > 0;
-      const formPassed = !hasApiErrors && (netData.itemRenderedInDom || j2Data.buttonClicked);
+      const formPassed = !hasApiErrors && (Boolean(netData?.itemRenderedInDom) || Boolean(j2Data?.buttonClicked));
 
       formInteractionResult = {
         name: 'form_fill_submit_and_live_update',
@@ -1028,16 +996,8 @@ export class UserExperienceSimulator {
         const tabs = Array.from(document.querySelectorAll('nav button, [role="tab"], .tab, .tab-btn'));
         for (const t of tabs) {
           try { t.click(); } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "userExperienceSimulator",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:userExperienceSimulator]", err);
-      }
-    }
+            // browser context: no node logger
+          }
         }
         const bodyText = (document.body ? document.body.innerText : '');
         const itemPersisted = bodyText.includes('${testItemName}');
@@ -1136,16 +1096,8 @@ export class UserExperienceSimulator {
           try {
             btn.click();
           } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "userExperienceSimulator",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:userExperienceSimulator]", err);
-      }
-    }
+            // browser context: no node logger
+          }
 
           const currentBodyHtmlLen = document.body ? document.body.innerHTML.length : 0;
           const currentLogCount = (window.__uxNetworkLog || []).length;

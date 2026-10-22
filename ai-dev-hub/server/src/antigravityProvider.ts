@@ -13,7 +13,7 @@ import { AntigravityDiscovery } from './antigravityDiscovery.js';
 import { PromptArchitectureService } from './promptArchitectureService.js';
 import { AgentApiGateway } from './agentApiGateway.js';
 import { ModelRegistry } from './modelRegistry.js';
-import { AgentTurnState, captureFileInventory, changedFiles, observeTranscript } from './agentTurnState.js';
+import { AgentTurnState, captureFileInventory, changedFiles, observeTranscript, isRawToolOrCommandOutput } from './agentTurnState.js';
 import { TurnCancellationManager, activeTurnCancellations } from './turnCancellationManager.js';
 
 export function getLanguageServerExe(): string {
@@ -537,9 +537,10 @@ export class AntigravityProvider implements AgentProvider {
         transcriptPath = this.resolveTranscriptPath(sessionId);
       }
 
-      // Aguarda no mínimo 3 segundos iniciais após o envio para dar tempo do Antigravity processar e registrar o novo turno
+      // Aguarda no mínimo 3 segundos iniciais após o envio para dar tempo do Antigravity processar e registrar o novo turno (ignorado em ambiente de teste ou offline)
       const elapsedMs = Date.now() - startTime;
-      if (elapsedMs < 3000) {
+      const isTestEnv = process.env.NODE_ENV === 'test' || Boolean(process.env.NODE_TEST_CONTEXT) || AgentApiGateway.isOfflineMode();
+      if (!isTestEnv && elapsedMs < 3000) {
         await new Promise(r => setTimeout(r, 500));
         continue;
       }
@@ -577,6 +578,35 @@ export class AntigravityProvider implements AgentProvider {
         );
       }
       if (progress.state === 'COMPLETE' && entriesAfterUser.length > 0) {
+        if (timeoutMs > 5000 && !isTestEnv) {
+          const lastOperational = entriesAfterUser.filter(e => e.type !== 'CHECKPOINT').at(-1);
+          const lastText = String(lastOperational?.content || lastOperational?.text || '');
+          const isBriefingFinal = /(?:###\s*3\.|###\s*4\.|Status Final|Matriz de Valida[çc][ãa]o|Briefing Executivo)/i.test(lastText);
+
+          if (isBriefingFinal) {
+            const prevEntryCount = progress.entries.length;
+            await new Promise(r => setTimeout(r, 2000));
+            const recheck = observeTranscript(transcriptPath, initialLineCount);
+            if (recheck.state !== 'COMPLETE' || recheck.entries.length > prevEntryCount) {
+              continue;
+            }
+          } else {
+            // Em modo HIGH ou raciocínio intermediário, executa 3 checagens consecutivas de 2500ms (7.5s de silêncio real)
+            let quiet = true;
+            for (let check = 0; check < 3; check++) {
+              const prevCount = progress.entries.length;
+              await new Promise(r => setTimeout(r, 2500));
+              const recheck = observeTranscript(transcriptPath, initialLineCount);
+              if (recheck.state !== 'COMPLETE' || recheck.entries.length > prevCount) {
+                quiet = false;
+                break;
+              }
+            }
+            if (!quiet) {
+              continue;
+            }
+          }
+        }
         isComplete = true;
         break;
       }
@@ -584,7 +614,11 @@ export class AntigravityProvider implements AgentProvider {
       // Verificação complementar: se a última entrada operacional posterior ao USER_MESSAGE for uma resposta final concluída do modelo
       if (!isComplete && entriesAfterUser.length > 0 && progress.pendingTools.length === 0) {
         const lastEntry = entriesAfterUser.filter(e => e.type !== 'CHECKPOINT').at(-1);
+        const lastEntryText = String(lastEntry?.content || lastEntry?.text || '');
+        const isRawTool = isRawToolOrCommandOutput(lastEntryText);
+
         const isModelFinal = Boolean(
+          !isRawTool &&
           lastEntry &&
           lastEntry.type !== 'GENERIC' &&
           lastEntry.type !== 'GENERIC_TOOL_CALL_RESULT' &&
@@ -610,6 +644,32 @@ export class AntigravityProvider implements AgentProvider {
         );
 
         if (isModelFinal) {
+          if (timeoutMs > 5000 && !isTestEnv) {
+            const isBriefingFinal = /(?:###\s*3\.|###\s*4\.|Status Final|Matriz de Valida[çc][ãa]o|Briefing Executivo)/i.test(lastEntryText);
+
+            if (isBriefingFinal) {
+              const prevEntryCount = progress.entries.length;
+              await new Promise(r => setTimeout(r, 2000));
+              const recheck = observeTranscript(transcriptPath, initialLineCount);
+              if (recheck.state !== 'COMPLETE' || recheck.entries.length > prevEntryCount) {
+                continue;
+              }
+            } else {
+              let quiet = true;
+              for (let check = 0; check < 3; check++) {
+                const prevCount = progress.entries.length;
+                await new Promise(r => setTimeout(r, 2500));
+                const recheck = observeTranscript(transcriptPath, initialLineCount);
+                if (recheck.state !== 'COMPLETE' || recheck.entries.length > prevCount) {
+                  quiet = false;
+                  break;
+                }
+              }
+              if (!quiet) {
+                continue;
+              }
+            }
+          }
           isComplete = true;
           break;
         }
@@ -666,6 +726,7 @@ export class AntigravityProvider implements AgentProvider {
     const filesChanged = new Set<string>();
     let toolCallsCount = 0;
     const commandsExecuted: string[] = [];
+    const plannerNarrativeBlocks: string[] = [];
     let finalResponse = '';
     let agentThoughts = '';
     let hasErrors = false;
@@ -753,32 +814,38 @@ export class AntigravityProvider implements AgentProvider {
             entry.content
           ) {
             let fullContent = entry.content;
-            if (Array.isArray(entry.truncated_fields) && entry.truncated_fields.includes('content')) {
-              const fullPath = this.resolveTranscriptFullPath(sessionId);
-              if (fs.existsSync(fullPath)) {
-                try {
-                  const fullLines = fs.readFileSync(fullPath, 'utf-8').trim().split('\n').filter(Boolean);
-                  for (let j = fullLines.length - 1; j >= 0; j--) {
-                    const fe = JSON.parse(fullLines[j]);
-                    if (fe.step_index === entry.step_index && fe.content) {
+            const fullPath = this.resolveTranscriptFullPath(sessionId);
+            if (fs.existsSync(fullPath)) {
+              try {
+                const fullLines = fs.readFileSync(fullPath, 'utf-8').trim().split('\n').filter(Boolean);
+                for (let j = fullLines.length - 1; j >= 0; j--) {
+                  const fe = JSON.parse(fullLines[j]);
+                  if (fe.step_index === entry.step_index && fe.content) {
+                    if (String(fe.content).length >= String(entry.content).length) {
                       fullContent = fe.content;
-                      break;
                     }
+                    break;
                   }
-                } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "antigravityProvider",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:antigravityProvider]", err);
-      }
-    }
+                }
+              } catch (err) {
+                if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+                  (globalThis as any).logger.warn({
+                    event: "server.handled_exception",
+                    file: "antigravityProvider",
+                    error: (err as any)?.message || String(err)
+                  });
+                } else {
+                  console.warn("[WARN][server:antigravityProvider]", err);
+                }
               }
             }
-            finalResponse = fullContent;
+            if (!isRawToolOrCommandOutput(String(fullContent))) {
+              finalResponse = fullContent;
+              const trimmed = String(fullContent).trim();
+              if (trimmed && !plannerNarrativeBlocks.includes(trimmed)) {
+                plannerNarrativeBlocks.push(trimmed);
+              }
+            }
           }
         } catch (err) {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
@@ -791,6 +858,20 @@ export class AntigravityProvider implements AgentProvider {
         console.warn("[WARN][server:antigravityProvider]", err);
       }
     }
+      }
+
+      if (plannerNarrativeBlocks.length > 1) {
+        const lastBlock = plannerNarrativeBlocks[plannerNarrativeBlocks.length - 1];
+        if (lastBlock.length < 350) {
+          finalResponse = plannerNarrativeBlocks.join('\n\n---\n\n');
+        } else {
+          const substantialPrior = plannerNarrativeBlocks
+            .slice(0, -1)
+            .filter(b => b.length >= 180 && !lastBlock.includes(b));
+          finalResponse = [...substantialPrior, lastBlock].join('\n\n---\n\n');
+        }
+      } else if (plannerNarrativeBlocks.length === 1) {
+        finalResponse = plannerNarrativeBlocks[0];
       }
     } catch (err: any) {
       Logger.error(`[AntigravityProvider] Erro ao parsear transcript: ${err.message}`);

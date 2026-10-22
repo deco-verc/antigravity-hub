@@ -3845,6 +3845,25 @@ export class AutonomousRunnerService {
         }
       }
 
+      // DecoMind ML Engine: Aprendizado de Máquina Online & Atualização de Q-Values
+      try {
+        const { DecoMindMlService } = await import('./decoMindMlService.js');
+        DecoMindMlService.recordTaskOutcome({
+          taskId: task.id,
+          projectId: project.id,
+          task,
+          projectPath,
+          verdict: evaluationResult.taskIsDone ? 'PASS' : 'REWORK_REQUIRED',
+          armKey: `${task.skill_routed || 'GENERAL'}::${(run.config?.model || 'flash')}::${engineeringPackage?.adaptiveEffort?.effortLevel || 'HIGH'}`,
+          durationMs: Math.max(1000, Date.now() - new Date(task.created_at || Date.now()).getTime()),
+          reworkCause: evaluationResult.taskIsDone ? undefined : (evaluationResult.actual || evaluationResult.verdict),
+          errorPattern: evaluationResult.taskIsDone ? undefined : (agentResult.problems?.join('; ') || evaluationResult.verdict),
+          solutionVaccine: evaluationResult.taskIsDone && task.retry_count > 0 ? (agentResult.implemented?.join('; ') || 'Correção aplicada com sucesso') : undefined
+        });
+      } catch (mlErr: any) {
+        Logger.warn(`[AutonomousRunner] Aviso não bloqueante no DecoMind ML: ${mlErr.message}`);
+      }
+
       return {
         runId: run.id,
         taskId: task.id,

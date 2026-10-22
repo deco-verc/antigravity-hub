@@ -127,6 +127,62 @@ export function captureFileInventory(root: string): FileInventory {
 export function changedFiles(before: FileInventory,after: FileInventory): string[] {
   return [...new Set([...Object.keys(before),...Object.keys(after)])].filter(file=>before[file]!==after[file]).sort();
 }
+
+/**
+ * Predicado utilitário que detecta se um bloco de texto é na verdade uma saída crua de ferramenta/terminal
+ * (run_command, grep, listing, etc.) e NÃO uma resposta narrativa ou conclusão real emitida pelo modelo.
+ */
+export function isRawToolOrCommandOutput(text: string): boolean {
+  if (!text || typeof text !== 'string') return false;
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+
+  const hasCreatedAt = /^Created At:\s+\d{4}-\d{2}-\d{2}/m.test(trimmed);
+  const hasExitCode = /Command exited with code \d+/m.test(trimmed);
+  const hasCommandOutput = /^Command output:/m.test(trimmed) || /The tool's output was truncated/i.test(trimmed);
+  const hasToolRunning = /Tool is running as a background task/i.test(trimmed);
+  const hasLogOutput = /^Log output:/m.test(trimmed);
+  const hasShowingLines = /^Showing lines \d+-\d+ of \d+/m.test(trimmed);
+
+  if (hasCreatedAt || hasExitCode || hasCommandOutput || hasToolRunning || hasLogOutput || hasShowingLines) {
+    const stripped = trimmed
+      .replace(/^Created At:\s+[^\r\n]+/gm, '')
+      .replace(/^Completed At:\s+[^\r\n]+/gm, '')
+      .replace(/^Command exited with code \d+/gm, '')
+      .replace(/^Command output:/gm, '')
+      .replace(/^Showing lines \d+-\d+ of \d+/gm, '')
+      .replace(/^Log output:/gm, '')
+      .replace(/^Last progress:[^\r\n]+/gm, '')
+      .replace(/The tool's output was truncated[^\r\n]*/gi, '')
+      .replace(/Tool is running as a background task[^\r\n]*/gi, '')
+      .replace(/Task logs are available at:[^\r\n]*/gi, '')
+      .replace(/Task:[^\r\n]*/gi, '')
+      .replace(/Status:[^\r\n]*/gi, '')
+      .replace(/Log:[^\r\n]*/gi, '')
+      .replace(/Diret[óo]rio:[^\r\n]*/gi, '')
+      .replace(/Mode\s+LastWriteTime\s+Length\s+Name[^\r\n]*/gi, '')
+      .replace(/-+[a-z-]+\s+\d{2}\/\d{2}\/\d{4}[^\r\n]*/gi, '')
+      .trim();
+
+    if (!stripped || stripped.length < 25) {
+      return true;
+    }
+
+    if (hasCreatedAt && (hasExitCode || hasCommandOutput || hasShowingLines)) {
+      const hasNarrative = /(?:vou|vamos|implementar|corrigir|analisando|conclu|resultado|portanto|conforme|passo|###|\*\*)/i.test(stripped);
+      if (!hasNarrative) {
+        return true;
+      }
+    }
+  }
+
+  if (/^Command exited with code \d+/m.test(trimmed) && !/(?:###|conclu[íi]do|sucesso|implementado)/i.test(trimmed)) {
+    return true;
+  }
+
+  return false;
+}
+
 export function observeTranscript(file: string,baselineLines=0) {
   let entries: any[]=[];
   if (fs.existsSync(file)) {
@@ -187,6 +243,12 @@ export function observeTranscript(file: string,baselineLines=0) {
     )
   );
 
+  const lastContent = typeof last?.content === 'string'
+    ? last.content
+    : (typeof last?.text === 'string' ? last.text : '');
+
+  const isRawOutput = isRawToolOrCommandOutput(lastContent);
+
   const hasModelContent = Boolean(
     last &&
     (
@@ -197,14 +259,14 @@ export function observeTranscript(file: string,baselineLines=0) {
     )
   );
 
-  const isComplete = Boolean(!fatal && isModelTurnEntry && pendingTools.length === 0 && hasModelContent);
+  const isComplete = Boolean(!fatal && isModelTurnEntry && pendingTools.length === 0 && hasModelContent && !isRawOutput);
   const state = fatal
     ? 'ERROR'
     : isComplete
       ? 'COMPLETE'
-      : pendingTools.length
+      : (pendingTools.length > 0)
         ? 'PENDING_TOOL'
-        : entries.length
+        : (isRawOutput || entries.length > 0)
           ? 'RUNNING'
           : 'UNAVAILABLE';
   return {state,entries,pendingTools,lastStep:last?.step_index??null,abortedOnStepError};
@@ -223,8 +285,19 @@ export class AgentTurnState {
   static begin(conversationId: string,projectPath: string,brainDir: string,taskId?: string): number {
     const prior=this.get(conversationId);
     if(prior&&['IN_FLIGHT','UNCERTAIN'].includes(prior.phase)){
-      // Auto-consome qualquer observação anterior em IN_FLIGHT ou UNCERTAIN para iniciar o novo turno normalmente sem travar o Worker
-      this.setPhase(conversationId, 'CONSUMED');
+      const isConversationalOrMetaChat = !prior.task_id || String(prior.task_id).startsWith('metachat-');
+      let priorTask: any = null;
+      if (prior.task_id && !isConversationalOrMetaChat) {
+        try {
+          priorTask = db.prepare('SELECT status FROM autonomous_tasks WHERE id = ?').get(prior.task_id);
+        } catch {}
+      }
+
+      if ((priorTask && priorTask.status === 'completed') || isConversationalOrMetaChat) {
+        this.setPhase(conversationId, 'CONSUMED');
+      } else {
+        throw new Error('AGENT_TURN_UNCERTAIN: previous turn requires reconciliation before another message');
+      }
     }
     const file = (brainDir && (brainDir.endsWith(conversationId) || brainDir.endsWith(conversationId.replace(/\\/g, '/'))))
       ? path.join(brainDir, '.system_generated', 'logs', 'transcript.jsonl')

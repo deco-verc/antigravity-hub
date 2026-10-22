@@ -2168,17 +2168,45 @@ export class IndependentEvaluator {
     let visualInspectionResult: VisualInspectionResult | undefined = undefined;
     let userJourneyResult: UserJourneyResult | undefined = undefined;
     let securityPentestResult: SecurityPentestResult | undefined = undefined;
+
+    // Detecção discriminada e de alta precisão de tarefa de Frontend/UI:
+    // Tarefas cujo objetivo seja explicitamente de backend, testes unitários, testes de integração REST,
+    // migrations de banco, regras de domínio ou scripts não devem disparar Playwright Visual Inspector
+    // nem UserExperienceSimulator apenas pela existência passiva de um public/index.html prévio.
+    const isExplicitBackendOrTestTask = Boolean(
+      contract.objective &&
+      /(teste[s]?\s+(de\s+)?(integra[çc][ãa]o|unit[áa]rio[s]?|dom[íi]nio|contrato[s]?)|testes?\s+unit[áa]rios?|testes?\s+de\s+integra[çc][ãa]o|\bunit\b|\bintegration\b|\bbackend\b|endpoint[s]?|\bapi\b|\broute[s]?|\brota[s]?|middleware[s]?|database|banco\s+de\s+dados|migration[s]?|migra[çc][ãa]o|m[áa]quina[s]?\s+de\s+estado|stateMachine|domain|calculator|service[s]?|seed)/i.test(
+        contract.objective
+      ) &&
+      !/(frontend|front-end|\bui\b|interface|layout|estilo|css|tela|dashboard|componente\s+visual|drawer|modal|aba\b)/i.test(
+        contract.objective
+      )
+    );
+
+    const hasChangedFrontendFiles = Boolean(
+      builderReport.filesChanged &&
+      builderReport.filesChanged.some(f => /\.(html|css|jsx|tsx|vue|svelte)$/i.test(f))
+    );
+
+    const hasExpectedFrontendFiles = Boolean(
+      options?.expectedScopeFiles &&
+      options.expectedScopeFiles.some(f => /\.(html|css|jsx|tsx|vue|svelte)$/i.test(f))
+    );
+
+    const isObjectiveFrontend = Boolean(
+      contract.objective &&
+      /frontend|front-end|\bui\b|interface|layout|tela|dashboard|component|page|view|estilo|css|html|drawer|modal|grid|svg|lucide/i.test(
+        contract.objective
+      )
+    );
+
     const isFrontendTask = options?.effortLevel === 'MINIMAL' && !options?.forceLiveBrowser
       ? false
-      : Boolean(
-          (contract.objective &&
-            /frontend|front-end|\bui\b|interface|layout|tela|dashboard|component|page|view|estilo|css|html/i.test(
-              contract.objective
-            )) ||
-            (builderReport.filesChanged &&
-              builderReport.filesChanged.some(f => /\.(html|css|jsx|tsx|vue|svelte)$/i.test(f))) ||
-            PlaywrightVisualInspector.findCandidateHtmlFile(projectPath)
-        );
+      : options?.forceLiveBrowser
+        ? true
+        : isExplicitBackendOrTestTask && !hasChangedFrontendFiles
+          ? false
+          : (isObjectiveFrontend || hasChangedFrontendFiles || (hasExpectedFrontendFiles && Boolean(PlaywrightVisualInspector.findCandidateHtmlFile(projectPath))));
 
     const shouldRunSecurityPentest = Boolean(
       isFrontendTask ||

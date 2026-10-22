@@ -10,6 +10,8 @@ import { db } from '../src/db.js';
 import { DevAutonomyService } from '../src/devAutonomyService.js';
 import { NativeWorkspaceBinding } from '../src/nativeWorkspaceBinding.js';
 import { AgentApiGateway } from '../src/agentApiGateway.js';
+import { observeTranscript, isRawToolOrCommandOutput } from '../src/agentTurnState.js';
+import { AntigravityProvider } from '../src/antigravityProvider.js';
 
 describe('FASE 15: DecoHUB Meta-Chat — Auto-Evolução & Self-Healing Guard', () => {
   const root = MetaChatService.getDecoHubRoot();
@@ -603,5 +605,103 @@ export const FORMAT_2 = 2;
         try { fs.unlinkSync(brokenPath); } catch {}
       }
     }
+  });
+
+  it('20. Isolamento Estrito de Conversas por Thread (provider_conversation_id) e Reset Seguro', async () => {
+    // 20.1 Criação de Threads independentes
+    const tA = MetaChatService.createThread({ title: 'Thread Alpha - Diagnóstico' });
+    const tB = MetaChatService.createThread({ title: 'Thread Beta - Refatoração' });
+
+    // 20.2 Associação de conversas distintas no provider
+    MetaChatService.setActiveConversationId('conv-alpha-001', 'acc-pro-1', tA.id);
+    MetaChatService.setActiveConversationId('conv-beta-002', 'acc-pro-1', tB.id);
+
+    // 20.3 Validação de isolamento do ID de conversa ativo por Thread
+    assert.equal(MetaChatService.getActiveConversationId('acc-pro-1', tA.id), 'conv-alpha-001');
+    assert.equal(MetaChatService.getActiveConversationId('acc-pro-1', tB.id), 'conv-beta-002');
+
+    // 20.4 Validação no registro da tabela meta_chat_threads
+    const storedA = MetaChatService.getThread(tA.id);
+    const storedB = MetaChatService.getThread(tB.id);
+    assert.equal(storedA?.provider_conversation_id, 'conv-alpha-001');
+    assert.equal(storedB?.provider_conversation_id, 'conv-beta-002');
+
+    // 20.5 Nova Thread sem mensagens deve retornar null (força nova conversa no primeiro envio)
+    const tC = MetaChatService.createThread({ title: 'Thread Gamma - Nova' });
+    assert.equal(MetaChatService.getActiveConversationId('acc-pro-1', tC.id), null);
+
+    // 20.6 Reset de Alpha não pode afetar Beta
+    MetaChatService.resetMessages(tA.id);
+    assert.equal(MetaChatService.getActiveConversationId('acc-pro-1', tA.id), null);
+    assert.equal(MetaChatService.getThread(tA.id)?.provider_conversation_id, null);
+
+    // Beta permanece 100% preservada
+    assert.equal(MetaChatService.getActiveConversationId('acc-pro-1', tB.id), 'conv-beta-002');
+    assert.equal(MetaChatService.getThread(tB.id)?.provider_conversation_id, 'conv-beta-002');
+  });
+
+  it('21. Bloqueio de Falsos Positivos: isRawToolOrCommandOutput impede encerramento prematuro e contaminação de resposta', () => {
+    // 21.1 Detecta saída de comando bruto como tool output
+    const rawOutput = `Created At: 2026-10-22T02:05:09-03:00\nCompleted At: 2026-10-22T02:05:09-03:00\nCommand exited with code 0.\nCommand output:\nserver/src/agentGuidelines.ts:280: return true;`;
+    assert.equal(isRawToolOrCommandOutput(rawOutput), true);
+
+    // 21.2 Não confunde respostas reais do assistente
+    const genuineAssistantResponse = `Aqui está a implementação concluída no arquivo utils.ts:\n\`\`\`ts\nexport const ready = true;\n\`\`\``;
+    assert.equal(isRawToolOrCommandOutput(genuineAssistantResponse), false);
+
+    // 21.3 observeTranscript mantém estado RUNNING se última entrada for saída crua de comando
+    const tempDir = fs.mkdtempSync(path.join(path.join(root, 'server', 'test'), 'temp-raw-observe-'));
+    const transcriptFile = path.join(tempDir, 'transcript.jsonl');
+    try {
+      const lines = [
+        JSON.stringify({ step_index: 0, type: 'USER_INPUT', content: 'Execute a busca' }),
+        JSON.stringify({
+          step_index: 1,
+          type: 'PLANNER_RESPONSE',
+          role: 'assistant',
+          content: rawOutput,
+          tool_calls: []
+        })
+      ];
+      fs.writeFileSync(transcriptFile, lines.join('\n') + '\n', 'utf8');
+
+      const obs = observeTranscript(transcriptFile, 0);
+      assert.equal(obs.state, 'RUNNING', 'Estado deve permanecer RUNNING enquanto for apenas saída crua de comando');
+    } finally {
+      try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it('22. Coletor Automático de Telemetria Forense (collectSystemTelemetryDossier)', () => {
+    const thread = MetaChatService.createThread({ title: 'Thread Autopilot Telemetria' });
+    const dossier = MetaChatService.collectSystemTelemetryDossier(thread.id);
+
+    assert.equal(typeof dossier.prompt, 'string');
+    assert.ok(dossier.prompt.length > 200);
+    assert.ok(dossier.prompt.includes('# MISSÃO AUTÔNOMA DE AUTO-EVOLUÇÃO'));
+    assert.ok(dossier.prompt.includes('### 1. TELEMETRIA COLETADA DO SISTEMA:'));
+    assert.ok(dossier.prompt.includes('### 2. DIRETRIZES DE EXECUÇÃO CIRÚRGICA:'));
+    assert.equal(typeof dossier.telemetry.problematicTasksCount, 'number');
+    assert.equal(typeof dossier.telemetry.rejectedEvaluationsCount, 'number');
+  });
+
+  it('23. Daemon Autônomo "Meta-Chat Autopilot": Execução de 2 ciclos autônomos sem intervenção humana', async () => {
+    // 23.1 Inicia Autopilot com meta de 2 ciclos e cooldown zero
+    const initialStatus = await MetaChatService.startAutopilot({
+      maxCycles: 2,
+      cooldownSeconds: 0
+    });
+
+    assert.equal(initialStatus.enabled, true);
+    assert.equal(initialStatus.maxCycles, 2);
+    assert.equal(initialStatus.mode, 'BATCH');
+    assert.ok(initialStatus.activeThreadId);
+
+    // 23.2 Aguarda a conclusão dos 2 ciclos com timeout
+    const finalStatus = await MetaChatService.waitForAutopilotCompletion(20000);
+
+    assert.equal(finalStatus.enabled, false);
+    assert.equal(finalStatus.completedCycles, 2);
+    assert.ok(finalStatus.lastCycleSummary && finalStatus.lastCycleSummary.length > 0);
   });
 });

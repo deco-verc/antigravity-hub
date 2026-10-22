@@ -38,10 +38,14 @@ function inferLayerRank(task: TaskGraphNode): number {
   const text = `${task.title || ''} ${task.description || ''} ${task.stageTitle || ''} ${task.stageCode || ''}`.toLowerCase();
   if (/\b(scaffold|setup|init|inicializa|bootstrap|config|package\.json)\b/i.test(text)) return 1;
   if (/\b(banco|db|database|sqlite|migra|schema|tabela|table|model|entidade)\b/i.test(text)) return 2;
+  if (/\b(teste[s]?\s+unit[áa]rio[s]?|unit\s+test|unit[áa]rio)\b/i.test(text) && /\b(dominio|domínio|regra|calcul|invariante)\b/i.test(text)) return 3.5;
   if (/\b(service|serviço|dominio|domínio|regra|negocio|core)\b/i.test(text)) return 3;
+  if (/\b(teste[s]?\s+de\s+integra[çc][ãa]o|integration\s+test)\b/i.test(text) && /\b(api|rota|route|endpoint|rest)\b/i.test(text)) return 4.5;
   if (/\b(api|rota|route|endpoint|controller|backend|server|express)\b/i.test(text)) return 4;
   if (/\b(ui|frontend|front-end|tela|view|css|html|component|dashboard|drawer|modal|aba)\b/i.test(text)) return 5;
-  if (/\b(teste|test|e2e|valid|regress|pentest|ux|smoke)\b/i.test(text)) return 6;
+  if (/\b(e2e|ponta\s+a\s+ponta|jornada|fluxo\s+completo|persist[êe]ncia\s+f5|ux\s+simulator|smoke)\b/i.test(text)) return 6;
+  if (/\b(auditoria|pentest|appsec|seguran[çc]a|path\s+traversal|entrega\s+final|valida[çc][ãa]o\s+integrada|crit[ée]rios\s+e\s+entrega)\b/i.test(text)) return 7;
+  if (/\b(teste|test|valid|regress)\b/i.test(text)) return 5.8;
   return 3.5;
 }
 

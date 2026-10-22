@@ -1738,6 +1738,71 @@ export function ensureDefensiveMigrations(targetDb: any = db): void {
       }
     }
 
+  // DecoMind ML Engine Tables
+  try {
+    targetDb.exec(`
+      CREATE TABLE IF NOT EXISTS ml_bandit_arms (
+        arm_key TEXT PRIMARY KEY,
+        category TEXT NOT NULL,
+        model_tier TEXT NOT NULL,
+        effort_level TEXT NOT NULL,
+        alpha REAL DEFAULT 2.0,
+        beta REAL DEFAULT 1.0,
+        pulls INTEGER DEFAULT 0,
+        avg_duration_ms REAL DEFAULT 0,
+        mean_reward REAL DEFAULT 0.66,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS ml_logistic_weights (
+        model_name TEXT PRIMARY KEY,
+        weights_json TEXT NOT NULL,
+        learning_rate REAL DEFAULT 0.05,
+        l2_lambda REAL DEFAULT 0.001,
+        samples_seen INTEGER DEFAULT 0,
+        running_accuracy REAL DEFAULT 0,
+        running_brier_loss REAL DEFAULT 0,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS ml_episodic_memories (
+        id TEXT PRIMARY KEY,
+        task_category TEXT NOT NULL,
+        signature_tokens_json TEXT NOT NULL,
+        error_pattern TEXT NOT NULL,
+        root_cause TEXT NOT NULL,
+        surgical_vaccine TEXT NOT NULL,
+        q_value REAL DEFAULT 0.5,
+        retrievals INTEGER DEFAULT 0,
+        successes_after_retrieval INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS ml_training_samples (
+        id TEXT PRIMARY KEY,
+        task_id TEXT,
+        project_id TEXT,
+        features_json TEXT NOT NULL,
+        predicted_risk REAL NOT NULL,
+        actual_rework INTEGER NOT NULL,
+        selected_arm TEXT,
+        reward REAL NOT NULL,
+        created_at TEXT NOT NULL
+      );
+    `);
+  } catch (err) {
+    if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+      (globalThis as any).logger.warn({
+        event: "server.handled_exception",
+        file: "db",
+        error: (err as any)?.message || String(err)
+      });
+    } else {
+      console.warn("[WARN][server:db]", err);
+    }
+  }
+
   // Auto-migrate legacy meta_chat_messages without thread_id into thread-default
   try {
     const orphanMsgs = targetDb.prepare("SELECT COUNT(*) as c FROM meta_chat_messages WHERE thread_id IS NULL OR thread_id = ''").get() as any;
