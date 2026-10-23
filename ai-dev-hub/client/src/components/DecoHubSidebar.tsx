@@ -88,7 +88,9 @@ export const DecoHubSidebar: React.FC<DecoHubSidebarProps> = ({
           type="button"
           onClick={() => {
             if (isMetaChatActive && projects.length > 0) {
-              onSelectProject(activeProjectId || projects[0].id);
+              const nonMeta = projects.filter(p => p.id !== 'decohub-meta');
+              const fallback = nonMeta.length > 0 ? nonMeta[0].id : projects[0].id;
+              onSelectProject(activeProjectId || fallback);
             }
           }}
           className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
@@ -178,7 +180,7 @@ export const DecoHubSidebar: React.FC<DecoHubSidebarProps> = ({
           </div>
         ) : (
           filteredProjects.map(proj => {
-            const isActive = proj.id === activeProjectId;
+            const isActive = !isMetaChatActive && proj.id === activeProjectId;
             return (
               <button
                 key={proj.id}

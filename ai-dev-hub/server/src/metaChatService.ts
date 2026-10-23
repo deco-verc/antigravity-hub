@@ -13,7 +13,7 @@ import { AntigravityDiscovery } from './antigravityDiscovery.js';
 import { AccountProfileManager } from './accountProfileManager.js';
 import { NativeWorkspaceBinding } from './nativeWorkspaceBinding.js';
 import { ModelRegistry } from './modelRegistry.js';
-import { AntigravityProvider } from './antigravityProvider.js';
+import { AntigravityProvider, isToolDump } from './antigravityProvider.js';
 import { DevAutonomyService } from './devAutonomyService.js';
 import { TurnCancellationManager } from './turnCancellationManager.js';
 import { ExecutionCoordinator } from './executionCoordinator.js';
@@ -1385,6 +1385,7 @@ export class MetaChatService {
                 entry.type === 'PLANNER_RESPONSE' &&
                 entry.status === 'DONE' &&
                 entry.content &&
+                !isToolDump(String(entry.content)) &&
                 !(entry.tool_calls?.length > 0)
               ) {
                 if (fs.existsSync(transcriptFullPath)) {
@@ -1396,7 +1397,12 @@ export class MetaChatService {
                       .filter(Boolean);
                     for (let j = fullLines.length - 1; j >= 0; j--) {
                       const fullEntry = JSON.parse(fullLines[j]);
-                      if (fullEntry.step_index === entry.step_index && fullEntry.content) {
+                      if (
+                        fullEntry.step_index === entry.step_index &&
+                        (!fullEntry.type || fullEntry.type === 'PLANNER_RESPONSE') &&
+                        fullEntry.content &&
+                        !isToolDump(String(fullEntry.content))
+                      ) {
                         if (String(fullEntry.content).length >= String(entry.content).length) {
                           return fullEntry.content;
                         }
@@ -1582,7 +1588,10 @@ export class MetaChatService {
 
     for (const line of afterPorcelain) {
       const file = line.slice(3).trim().replace(/^"|"$/g, '').replace(/\\/g, '/');
+      // IGNORE_DIRS_AND_INTERNAL_ARTIFACTS_IN_DIFF
+      if (!file || file.endsWith('/') || file.includes('.ai-dev-hub')) continue;
       const full = path.join(root, file);
+      try { if (fs.existsSync(full) && fs.statSync(full).isDirectory()) continue; } catch {}
 
       if (!beforeBaseline.has(file)) {
         // File was NOT in git status before the turn -> Newly modified or created in this turn
@@ -1793,8 +1802,8 @@ export class MetaChatService {
       const id = 'decohub-meta';
       db.prepare(`
         INSERT OR REPLACE INTO projects (id, name, path, stack, status, is_trusted, full_dev_autonomy, active_account_profile_id, created_at, updated_at)
-        VALUES (?, 'DecoHUB Engine', ?, 'TypeScript', 'active', 1, 1, ?, ?, ?)
-      `).run(id, root, profile.id, nowIso, nowIso);
+        VALUES (?, 'DecoHUB Engine', ?, 'TypeScript', 'active', 1, 1, ?, '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z')
+      `).run(id, root, profile.id);
       proj = {
         id,
         name: 'DecoHUB Engine',
@@ -1806,7 +1815,7 @@ export class MetaChatService {
     } else if (!proj.is_trusted || !proj.full_dev_autonomy || proj.active_account_profile_id !== profile.id) {
       db.prepare(
         'UPDATE projects SET is_trusted = 1, full_dev_autonomy = 1, active_account_profile_id = ?, updated_at = ? WHERE id = ?'
-      ).run(profile.id, nowIso, proj.id);
+      ).run(profile.id, '2020-01-01T00:00:00.000Z', proj.id);
       proj.is_trusted = 1;
       proj.full_dev_autonomy = 1;
       proj.active_account_profile_id = profile.id;
@@ -2891,11 +2900,11 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
             `2. Mantenha os padrões arquiteturais existentes, tipagem estrita de TypeScript e testes verdes.`,
             `3. Não altere arquivos em .git/, node_modules/ ou .ai-dev-hub/.`,
             `4. Padrão Corporativo Limpo: ZERO emojis decorativos em código, logs ou mensagens. Jamais repita o enunciado do usuário no início da resposta. Explique objetivamente as modificações aplicadas.`,
-            `5. Contrato Obrigatório de Briefing Final: Encerre OBRIGATORIAMENTE sua resposta com um Briefing Executivo Completo contendo rigorosamente as 4 seções Markdown:`,
-            `   ### 1. Diagnóstico e Escopo Analisado`,
-            `   ### 2. Alterações Cirúrgicas Aplicadas`,
-            `   ### 3. Verificação de Integridade (Typecheck & Testes)`,
-            `   ### 4. Status Final e Próximos Passos`
+            `5. FORMATO DA RESPOSTA AO USUÁRIO (SIMPLES, DIRETO E SEM CÓDIGO BRUTO):`,
+            `   - Responda em linguagem natural, clara e direta, sem despejar trechos longos de código, números de linha ou logs de terminal.`,
+            `   - Explique de forma enxuta:`,
+            `     **O que foi feito:** resumo claro e humano da solução aplicada e do problema resolvido.`,
+            `     **Arquivos alterados:** lista curta explicando em 1 linha o que mudou em cada arquivo.`
           ]
             .filter(Boolean)
             .join('\n\n');
@@ -3272,21 +3281,24 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
               `O DecoHUB desfez as alterações automaticamente para manter o repositório 100% íntegro e estável.\n\n` +
               (agentReport ? `**Relatório do Agente Antigravity:**\n${agentReport}` : '');
           } else if (filesChanged.length > 0) {
-            const telemetryFooter =
-              `\n\n[MODIFIED] **Arquivos Modificados no DecoHUB:**\n` +
-              filesChanged.map(f => `- \`${f}\``).join('\n') +
-              `\n\n` +
-              `[TYPECHECK] **Typecheck Guard:** Aprovado em ${typecheckResult.durationMs}ms (0 erros de compilação).\n` +
+            const sanitized = MetaChatService.sanitizeMetaChatReply(agentReport, filesChanged);
+            let telemetryFooter = '';
+            if (!sanitized.includes('**Arquivos alterados:**') && !sanitized.includes('[MODIFIED]')) {
+              telemetryFooter += `\n\n**Arquivos alterados:**\n` + filesChanged.map(f => `- \`${f}\``).join('\n');
+            }
+            telemetryFooter +=
+              `\n\n[TYPECHECK] **Typecheck Guard:** Aprovado em ${typecheckResult.durationMs}ms (0 erros de compilação).\n` +
               `\nClique em **"Recompilar e Atualizar Produção"** para empacotar as melhorias no executável local.`;
             reply =
-              (agentReport
-                ? agentReport
-                : `[AGENTE] As alterações solicitadas foram executadas com sucesso no repositório DecoHUB.`) +
+              (sanitized
+                ? sanitized
+                : `**O que foi feito:** As alterações solicitadas foram executadas com sucesso no repositório DecoHUB.`) +
               telemetryFooter;
           } else {
+            const sanitized = MetaChatService.sanitizeMetaChatReply(agentReport, []);
             reply =
-              agentReport ||
-              `[META-CHAT] **DecoHUB Meta-Chat:**\n\nTurno concluído no Antigravity. Nenhuma modificação direta em arquivos foi necessária para responder à instrução.`;
+              sanitized ||
+              `**O que foi feito:** Turno concluído no Antigravity. Nenhuma modificação direta em arquivos foi necessária para responder à instrução.`;
           }
         }
       }
@@ -3548,5 +3560,29 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
     }
 
     return directives;
+  }
+
+  public static sanitizeMetaChatReply(rawText: string, filesChanged: string[] = []): string {
+    if (!rawText || typeof rawText !== 'string') return '';
+    let cleaned = rawText
+      .replace(/^Created At:\s+[^\r\n]+/gm, '')
+      .replace(/^Completed At:\s+[^\r\n]+/gm, '')
+      .replace(/Showing lines \d+-\d+ of \d+[^\r\n]*/gm, '')
+      .replace(/Made \d+ replacements? in [^\r\n]*/gm, '')
+      .replace(/^Command exited with code \d+[^\r\n]*/gm, '')
+      .replace(/^Command output:[^\r\n]*/gm, '')
+      .replace(/^Log output:[^\r\n]*/gm, '')
+      .replace(/The tool's output was truncated[^\r\n]*/gi, '')
+      .replace(/\[FILE:\s*[^\]]+\][\s\S]*?\[ENDFILE\]/g, '')
+      .trim();
+
+    if (!cleaned) {
+      if (filesChanged.length > 0) {
+        return `**O que foi feito:** As alterações solicitadas foram aplicadas com sucesso no repositório DecoHUB.\n\n**Arquivos alterados:**\n` +
+          filesChanged.map(f => `- \`${f}\`: atualizado conforme solicitado.`).join('\n');
+      }
+      return `Operação concluída com sucesso no DecoHUB.`;
+    }
+    return cleaned;
   }
 }

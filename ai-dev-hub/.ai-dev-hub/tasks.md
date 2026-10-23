@@ -85,6 +85,8 @@
 - [ ] Validação do fluxo completo de chat e planejamento no projeto ViralYTSearch no aplicativo Desktop
 - [ ] Acompanhar a conclusão da tarefa 1.1 e progressão autônoma das próximas etapas do ViralYTSearch
 - [ ] Acompanhar a progressão contínua da Onda 7 (Sidebar, Topbar, Command Palette) no pipeline autônomo de ViralYTSearch
+- [ ] Disparar a execução da Etapa 1 do YouTubeViralSearch 2 no DecoHUB com o prompt backend-first gerado.
+- [ ] Executar o projeto YouTubeViralSearch 2 ou nova automação com o motor completo do DecoHUB
 
 ## Concluído
 - [x] FASE 3: Resiliência Autônoma — Auto-Recovery de AGENTAPI_UNAVAILABLE e Self-Healing de Verificação: Implementação de retry transiente no AgentApiGateway com até 2 tentativas e re-descoberta dinâmica de binário do Antigravity (AntigravityDiscovery.discover({ forceRefresh: true })); implementação de watchdog de auto-recuperação (attemptResourceRecovery e integração em schedulerTick) para runs em waiting_resource que restaura status para running, zera falhas transitórias, registra RUNTIME_RECOVERED_AUTOMATICALLY e aciona o ciclo autônomo sem intervenção manual; implementação do Self-Healing de verificação no AutonomousRunnerService convertendo veredictos técnicos BLOCKED em REWORK_REQUIRED com feedback diagnóstico estruturado para o Worker e normalização de comandos via normalizeOrRecoverVerificationCommand enquanto retry_count < maxRetries sem pausar o run; preservação estrita de travas de segurança para TAMPERING_DETECTED e exaustão de retries (pauseForVerification mantido); criação do arquivo de teste test/autonomousSelfHealingAndRecovery.test.ts cobrindo os 3 cenários; integração no package.json elevando a suíte oficial para 53 arquivos de teste e 511 testes passando 100% (0 falhas) com TypeScript build limpo.
@@ -550,3 +552,13 @@
 - [x] Desbloqueio de escopo no HierarchicalOrchestrationService para arquivos de projeto legítimos em public/, src/, test/, docs e configs
 - [x] Regeneração e sincronização completa dos Living Specs de ViralYTSearch
 - [x] Reconciliação e desbloqueio da Tarefa 24 (GT-7) em hub.db
+- [x] Instalação do REA (rea-agents@latest) e Playwright em pasta isolada rea-engine-repo
+- [x] Configuração do servidor MCP do REA no Antigravity com profile de schema full
+- [x] Engenharia reversa real e captura de screenshots Desktop e Mobile de Tally.so, n8n.io e Attio.com
+- [x] Injeção dos 3 Blueprints no DOCSIMP, ReaSaaSMasterService, DesignSkillService e SkillRouter
+- [x] Validação com testes unitários passando 100% no servidor do ai-dev-hub
+- [x] Criação dos Prompts Canônicos de Evolução Backend-First para o YouTubeViralSearch 2
+- [x] ETAPA 1: Fim do sequestro de domínio por MRR/Fintech e adição do perfil nativo youtube_viral_intelligence com Zero MRR e tabelas canônicas
+- [x] ETAPA 2: Planejamento sequencial em 2 Grandes Fases Macros (GT-1 a GT-7 Backend-First; GT-8 a GT-12 Refinamento Profundo Frontend com Tally, n8n, Attio e Playwright)
+- [x] ETAPA 3: Fusão completa de skills no SkillRouter com injeção priorizada dos blueprints REA, documentações SaaS e skills visuais (slice 0..6)
+- [x] ETAPA 4: Validação de tipos (server e client typecheck), suítes de teste focadas (5/5 no finalCheckpoints, 15/15 living-specs, 8/8 wave0, 5/5 skill-sync, 5/5 rea-saas), build de server/client e sincronização com app.asar.unpacked

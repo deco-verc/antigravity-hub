@@ -1207,6 +1207,774 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs (entity, entity_i
       accentColor: '#3b82f6'
     },
 
+    youtube_viral_intelligence: {
+      domainKey: 'youtube_viral_intelligence',
+      domainName: 'YouTube Viral Search, Video Intelligence & Creator SaaS',
+      targetAudience: 'Criadores de conteúdo, canais do YouTube, agências e estrategistas de mídia que buscam minerar referências virais, analisar métricas de engajamento, decompor headlines/transcrições e prever tendências com Outlier Multipliers.',
+      referenceApps: [
+        '1of10.com (Outlier Video Finder)',
+        'VidIQ (Viral Velocity & Keyword Research)',
+        'Viewstats by MrBeast (Thumbnail & Retention Analytics)',
+        'TubeBuddy (Channel Explorer)',
+        'OpusClip / Descript (Transcript & Hook Analysis)',
+        'n8n.io (Workflow Pipeline Engine)',
+        'Attio.com (Data Grid Engine)',
+        'Tally.so (Form UX)'
+      ],
+      marketBenchmark: 'Líderes de mercado automatizam a identificação de virais por Outlier Score, analisam padrões de thumbnail, velocidade de visualizações por hora (VPH) e decompõem ganchos de transcrição e headline para roteirização com esteiras estilo n8n e monetização SaaS via PIX.',
+      differentials: [
+        'Radar de Outliers com cálculo preditivo de multiplicador viral comparado ao baseline do canal (3x a 50x)',
+        'Slide-Over Drawer com decomposição em 3 abas: Headline Hooks com score CTR, Transcrição timestamped com cópia em 1 clique e Análise de Thumbnail (cores, contraste e emoção)',
+        'Monetização SaaS nativa com planos Pro, PushinPay PIX com QR Code dinâmico e limite de cota de buscas com Cloudflare Turnstile',
+        'Esteira estilo n8n (workflow_runs) com latência por etapa: Harvester -> Outlier Filter -> Transcript/Headline/Thumbnail Extractor'
+      ],
+      sections: [
+        {
+          code: '01',
+          name: 'Dashboard',
+          tabId: 'dashboard',
+          kpis: [
+            'Vídeos Minerados: 1.420 (Δ% +18.4%)',
+            'Outliers Críticos (>5x): 84 vídeos',
+            'Taxa de Engajamento Média: 6.8% (Δ% +1.2%)',
+            'Cota de Buscas Restante: 42/50 buscas'
+          ],
+          chart: 'Gráfico SVG interativo de Curva de Velocidade Viral (Views/Hora vs Tempo) com tooltips e eixos em tabular-nums',
+          gridColumns: ['Thumbnail', 'Título do Vídeo', 'Canal', 'Visualizações', 'Outlier Score', 'Engajamento (%)', 'Publicado Em', 'Ações'],
+          filters: ['Filtro por Outlier Score (>3x, >5x, >10x)', 'Filtro por Nicho', 'Busca debounce por título ou canal'],
+          drawerContent: 'Slide-Over Drawer com preview 16:9, gráfico de retenção estimada, tags de tração, métricas detalhadas (likes, comentários, VPH) e notas de roteiro',
+          modalContent: 'Modal de Nova Busca / Importação de Vídeo com cálculo instantâneo de Outlier Score',
+          seedSummary: '25 vídeos virais realistas de nichos como Finanças, Tecnologia, Produtividade e Curiosidades com métricas e thumbnails'
+        },
+        {
+          code: '02',
+          name: 'Breakdown',
+          tabId: 'breakdown',
+          kpis: [
+            'Headlines Analisadas: 180',
+            'Ganchos de Alta Retenção: 64',
+            'Score CTR Médio: 8.6 / 10',
+            'Transcrições Processadas: 142'
+          ],
+          chart: 'Gráfico SVG de distribuição de Hooks (Curiosidade, Contraintuitivo, Urgência, História)',
+          gridColumns: ['ID', 'Título', 'Tipo de Gancho', 'Score CTR', 'Thumbnail Contraste', 'Emoção Predominante', 'Ações'],
+          filters: ['Tipo de Gancho', 'Faixa de CTR Score', 'Busca debounce'],
+          drawerContent: 'Slide-Over com abas dedicadas para Headline/Hooks, Transcrição Interativa com Cópia em 1 Clique e Inspeção de Thumbnail',
+          modalContent: 'Modal de Decomposição Manual de Vídeo e Geração de Hooks Alternativos',
+          seedSummary: '25 breakdowns detalhados de headline, transcrições timestamped e cores dominantes de thumbnail'
+        },
+        {
+          code: '03',
+          name: 'Esteira',
+          tabId: 'esteira',
+          kpis: [
+            'Pipelines Concluídos: 48 (100% sucesso)',
+            'Latência Média: 420ms por etapa',
+            'Vídeos Minerados (Harvester): 1.420',
+            'Outliers Filtrados (>3x): 84'
+          ],
+          chart: 'Gráfico SVG de latência por estágio da esteira (Harvester, Outlier Filter, Extractor)',
+          gridColumns: ['ID Pipeline', 'Nome do Pipeline', 'Estágio', 'Status', 'Latência (ms)', 'Itens Processados', 'Criado Em', 'Ações'],
+          filters: ['Todos os Estágios', 'Status (idle, running, completed, failed)'],
+          drawerContent: 'Drawer com detalhamento da esteira estilo n8n, breakdown de latência por nó e log de execução',
+          modalContent: 'Modal de Nova Execução de Pipeline Harvester',
+          seedSummary: '12 execuções de esteira de mineração e extração com latência por nó'
+        },
+        {
+          code: '04',
+          name: 'Assinatura',
+          tabId: 'assinatura',
+          kpis: [
+            'Plano Atual: Pro Creator',
+            'Cota de Buscas: 8 / 500 usadas',
+            'Status Pagamento: Ativo (PIX)',
+            'Renovação: em 28 dias'
+          ],
+          chart: 'Gráfico SVG de consumo diário da cota de buscas da assinatura',
+          gridColumns: ['ID Transação', 'Plano', 'Valor (R$)', 'Status PIX', 'Data', 'Ações'],
+          filters: ['Todos os Planos', 'Status (Pago, Pendente, Expirado)'],
+          drawerContent: 'Drawer com QR Code PIX ampliado, código copia-e-cola e status de confirmação em tempo real',
+          modalContent: 'Modal de Upgrade de Plano com seleção Pro/Enterprise e geração de PIX via PushinPay',
+          seedSummary: 'Histórico de pagamentos PIX simulados com status pagos e chaves de teste'
+        },
+        {
+          code: '05',
+          name: 'Auditoria',
+          tabId: 'auditoria',
+          kpis: [
+            'Logs Registrados: 312',
+            'Atores do Sistema: 3',
+            'Sessões Ativas: 4',
+            'Turnstile Verificados: 100%'
+          ],
+          chart: 'Gráfico SVG de linha do tempo de operações auditadas e logins protegidos com Turnstile',
+          gridColumns: ['Timestamp', 'Ator', 'Ação', 'Entidade', 'ID Alvo', 'Diff JSON', 'Ações'],
+          filters: ['Ação (CREATE, UPDATE, DELETE)', 'Entidade (viral_videos, video_breakdowns, subscriptions)'],
+          drawerContent: 'Visualizador de JSON diff com metadados de sessão e IP mascarado',
+          modalContent: 'Modal de Exportação de Logs e Verificação de Status do Turnstile',
+          seedSummary: '35 logs de auditoria imutáveis com registros de buscas, favoritos e pagamentos'
+        }
+      ],
+      sqliteSchema: `-- Esquema Relacional SQLite - YouTube Viral Search & Video Intelligence
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  full_name TEXT NOT NULL,
+  supabase_uid TEXT UNIQUE,
+  plan_tier TEXT NOT NULL DEFAULT 'free' CHECK (plan_tier IN ('free', 'pro', 'enterprise')),
+  search_quota_limit INTEGER NOT NULL DEFAULT 50,
+  search_quota_used INTEGER NOT NULL DEFAULT 0,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  session_token TEXT NOT NULL UNIQUE,
+  turnstile_verified INTEGER NOT NULL DEFAULT 1,
+  ip_address TEXT,
+  user_agent TEXT,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (user_id) REFERENCES users (id)
+);
+
+CREATE TABLE IF NOT EXISTS subscriptions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  plan_tier TEXT NOT NULL,
+  amount_cents INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'past_due', 'canceled', 'trialing')),
+  pix_provider TEXT NOT NULL DEFAULT 'pushinpay',
+  current_period_end TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (user_id) REFERENCES users (id)
+);
+
+CREATE TABLE IF NOT EXISTS pix_payments (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  subscription_id TEXT,
+  amount_cents INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'expired', 'failed')),
+  qr_code_base64 TEXT,
+  qr_code_copy_paste TEXT,
+  provider_tx_id TEXT UNIQUE,
+  webhook_payload_json TEXT,
+  paid_at TEXT,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (user_id) REFERENCES users (id)
+);
+
+CREATE TABLE IF NOT EXISTS channels (
+  id TEXT PRIMARY KEY,
+  youtube_channel_id TEXT NOT NULL UNIQUE,
+  channel_name TEXT NOT NULL,
+  subscriber_count INTEGER NOT NULL DEFAULT 0,
+  total_videos INTEGER NOT NULL DEFAULT 0,
+  avg_views INTEGER NOT NULL DEFAULT 0,
+  niche TEXT NOT NULL DEFAULT 'general',
+  avatar_url TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS viral_videos (
+  id TEXT PRIMARY KEY,
+  youtube_id TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  channel_name TEXT NOT NULL,
+  subscriber_count INTEGER NOT NULL DEFAULT 0,
+  views_count INTEGER NOT NULL DEFAULT 0,
+  likes_count INTEGER NOT NULL DEFAULT 0,
+  comments_count INTEGER NOT NULL DEFAULT 0,
+  duration_sec INTEGER NOT NULL DEFAULT 0,
+  published_at TEXT NOT NULL,
+  outlier_multiplier REAL NOT NULL DEFAULT 1.0,
+  viral_score REAL NOT NULL DEFAULT 1.0,
+  engagement_rate REAL NOT NULL DEFAULT 0.0,
+  niche TEXT NOT NULL DEFAULT 'general',
+  language TEXT NOT NULL DEFAULT 'pt-BR',
+  thumbnail_url TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (channel_id) REFERENCES channels (id)
+);
+
+CREATE TABLE IF NOT EXISTS video_breakdowns (
+  id TEXT PRIMARY KEY,
+  video_id TEXT NOT NULL UNIQUE,
+  headline_original TEXT NOT NULL,
+  hook_category TEXT NOT NULL DEFAULT 'curiosity',
+  ctr_score REAL NOT NULL DEFAULT 8.5,
+  power_words_json TEXT NOT NULL DEFAULT '[]',
+  generated_variations_json TEXT NOT NULL DEFAULT '[]',
+  transcript_hook_0_30s TEXT NOT NULL,
+  transcript_body_segments_json TEXT NOT NULL DEFAULT '[]',
+  transcript_cta TEXT NOT NULL,
+  full_text TEXT NOT NULL,
+  thumbnail_hd_url TEXT NOT NULL,
+  thumbnail_overlay_text TEXT,
+  visual_emotion TEXT NOT NULL DEFAULT 'curiosity',
+  contrast_score REAL NOT NULL DEFAULT 8.2,
+  dominant_hex_palette_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (video_id) REFERENCES viral_videos (id)
+);
+
+CREATE TABLE IF NOT EXISTS workflow_runs (
+  id TEXT PRIMARY KEY,
+  pipeline_name TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('idle', 'running', 'completed', 'failed')),
+  stage TEXT NOT NULL CHECK (stage IN ('harvester', 'outlier_filter', 'extractor', 'done')),
+  latency_ms INTEGER NOT NULL DEFAULT 0,
+  stages_latency_json TEXT NOT NULL DEFAULT '{}',
+  items_processed INTEGER NOT NULL DEFAULT 0,
+  error_log TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS saved_collections (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  video_ids_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (user_id) REFERENCES users (id)
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id TEXT PRIMARY KEY,
+  actor TEXT NOT NULL,
+  action TEXT NOT NULL,
+  entity TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  diff_json TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_viral_videos_outlier ON viral_videos (outlier_multiplier DESC);
+CREATE INDEX IF NOT EXISTS idx_viral_videos_niche ON viral_videos (niche);
+CREATE INDEX IF NOT EXISTS idx_viral_videos_channel ON viral_videos (channel_id);
+CREATE INDEX IF NOT EXISTS idx_video_breakdowns_video ON video_breakdowns (video_id);
+CREATE INDEX IF NOT EXISTS idx_pix_payments_user ON pix_payments (user_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_stage ON workflow_runs (stage);
+CREATE INDEX IF NOT EXISTS idx_saved_collections_user ON saved_collections (user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs (entity, entity_id);`,
+      restContracts: [
+        {
+          method: 'GET',
+          path: '/api/health',
+          requestBody: 'N/A',
+          responseBody: '{ status: "ok", uptime: number, database: "connected", timestamp: string }',
+          description: 'Healthcheck de integridade operacional do backend e SQLite'
+        },
+        {
+          method: 'POST',
+          path: '/api/auth/register',
+          requestBody: '{ email: string, password: string, fullName: string, turnstileToken: string }',
+          responseBody: '{ user: object, sessionToken: string } (Status 201)',
+          description: 'Registro de usuário com validação anti-bot Turnstile e criação de sessão'
+        },
+        {
+          method: 'POST',
+          path: '/api/auth/login',
+          requestBody: '{ email: string, password: string, turnstileToken: string }',
+          responseBody: '{ user: object, sessionToken: string }',
+          description: 'Autenticação compatível com Supabase Auth e fallback local SQLite'
+        },
+        {
+          method: 'POST',
+          path: '/api/auth/logout',
+          requestBody: 'Header: Authorization: Bearer <sessionToken>',
+          responseBody: '{ success: true }',
+          description: 'Encerramento de sessão autenticada'
+        },
+        {
+          method: 'POST',
+          path: '/api/auth/verify-turnstile',
+          requestBody: '{ token: string }',
+          responseBody: '{ success: boolean, hostname?: string }',
+          description: 'Verificação do token Cloudflare Turnstile'
+        },
+        {
+          method: 'GET',
+          path: '/api/auth/me',
+          requestBody: 'Header: Authorization: Bearer <sessionToken>',
+          responseBody: '{ id: string, email: string, fullName: string, planTier: string, searchQuota: object }',
+          description: 'Retorna perfil do usuário autenticado e cota de buscas atual'
+        },
+        {
+          method: 'GET',
+          path: '/api/billing/plans',
+          requestBody: 'N/A',
+          responseBody: 'Array<{ id: string, name: string, priceCents: number, quota: number, features: string[] }>',
+          description: 'Lista planos de assinatura disponíveis com limites de cota'
+        },
+        {
+          method: 'POST',
+          path: '/api/billing/checkout-pix',
+          requestBody: '{ planTier: "pro" | "enterprise" }',
+          responseBody: '{ paymentId: string, qrCodeBase64: string, qrCodeCopyPaste: string, amountCents: number, expiresAt: string }',
+          description: 'Gera cobrança PIX via PushinPay com QR Code e Copia-e-Cola'
+        },
+        {
+          method: 'POST',
+          path: '/api/webhooks/pushinpay',
+          requestBody: '{ providerTxId: string, status: "paid", amountCents: number, signature: string }',
+          responseBody: '{ received: true, upgraded: boolean }',
+          description: 'Webhook PushinPay para confirmação de pagamento e upgrade automático de plano'
+        },
+        {
+          method: 'GET',
+          path: '/api/videos',
+          requestBody: 'Query: ?niche=&minOutlier=&minViews=&q=&sort=&page=&limit=',
+          responseBody: 'Array<{ id: string, youtube_id: string, title: string, channel_name: string, subscriber_count: number, views_count: number, outlier_multiplier: number, viral_score: number, engagement_rate: number, thumbnail_url: string }>',
+          description: 'Listagem dos vídeos minerados com paginação, filtros compostos e busca debounce'
+        },
+        {
+          method: 'GET',
+          path: '/api/videos/:id/breakdown',
+          requestBody: 'N/A',
+          responseBody: '{ video: object, headline: object, transcript: object, thumbnail: object }',
+          description: 'Decomposição em 3 eixos: Headline Hooks, Transcrição timestamped e Análise de Thumbnail'
+        },
+        {
+          method: 'POST',
+          path: '/api/workflows/harvest',
+          requestBody: '{ niche?: string, query?: string }',
+          responseBody: '{ runId: string, status: "completed", processedCount: number, stagesLatency: object }',
+          description: 'Executa esteira estilo n8n (Harvester -> Outlier Filter -> Extractor)'
+        },
+        {
+          method: 'GET',
+          path: '/api/workflows/runs',
+          requestBody: 'Query: ?stage=&status=&limit=',
+          responseBody: 'Array<{ id: string, pipeline_name: string, status: string, stage: string, latency_ms: number, items_processed: number, created_at: string }>',
+          description: 'Lista histórico de execuções de esteira com latência por etapa'
+        },
+        {
+          method: 'GET',
+          path: '/api/collections',
+          requestBody: 'N/A',
+          responseBody: 'Array<{ id: string, name: string, description: string, videoCount: number, videos: array }>',
+          description: 'Listagem de coleções salvas do usuário'
+        },
+        {
+          method: 'POST',
+          path: '/api/collections',
+          requestBody: '{ name: string, description?: string, videoId?: string }',
+          responseBody: '{ id: string, name: string } (Status 201)',
+          description: 'Criação ou salvamento de vídeo em coleção'
+        },
+        {
+          method: 'POST',
+          path: '/api/export/csv',
+          requestBody: '{ entity: "viral_videos" | "video_breakdowns" | "audit_logs" }',
+          responseBody: 'Content-Type: text/csv',
+          description: 'Exportação em lote em conformidade com RFC-4180'
+        },
+        {
+          method: 'GET',
+          path: '/api/kpis',
+          requestBody: 'N/A',
+          responseBody: '{ totalVideos: number, criticalOutliers: number, avgEngagement: number, quotaUsed: number, quotaLimit: number }',
+          description: 'Cards de métricas consolidadas de viralidade e cota'
+        },
+        {
+          method: 'GET',
+          path: '/api/audit-logs',
+          requestBody: 'Query: ?entity=&limit=',
+          responseBody: 'Array<{ id: string, actor: string, action: string, entity: string, entity_id: string, diff_json: string, created_at: string }>',
+          description: 'Trilha de auditoria imutável com diff JSON'
+        }
+      ],
+      formulas: [
+        'outlier_multiplier = Number((views_count / Math.max(channel_avg_views, 1)).toFixed(2))',
+        'viral_score = Number(((views_count / Math.max(subscriber_count, 1)) * (likes_count / Math.max(views_count, 1)) * 100).toFixed(2))',
+        'engagement_rate = Number((((likes_count + comments_count) / Math.max(views_count, 1)) * 100).toFixed(2))',
+        'views_per_hour = Math.round(views_count / Math.max((Date.now() - new Date(published_at).getTime()) / 3600000, 1))',
+        'variacao_percentual_delta = ((valor_atual - valor_anterior) / valor_anterior) * 100'
+      ],
+      validations: [
+        'youtube_id deve conter identificador de vídeo válido do YouTube (HTTP 400)',
+        'title deve ter pelo menos 3 caracteres (HTTP 400)',
+        'views_count deve ser número inteiro maior ou igual a zero (HTTP 400)',
+        'thumbnail_url deve ser uma URL válida ou asset local (HTTP 400)',
+        'amount_cents deve ser número inteiro positivo em centavos (HTTP 400)',
+        'turnstileToken é obrigatório em rotas de autenticação (HTTP 400)'
+      ],
+      envKeys: [
+        'PORT=4000',
+        'DATABASE_PATH=./data/viralytsearch.db',
+        'SUPABASE_URL=mock_supabase_url',
+        'SUPABASE_ANON_KEY=mock_supabase_anon_key',
+        'CLOUDFLARE_TURNSTILE_SECRET_KEY=mock_turnstile_secret',
+        'PUSHINPAY_API_TOKEN=mock_pushinpay_token',
+        'UPSTASH_REDIS_REST_URL=mock_redis_url'
+      ],
+      archetype: 'dark-telemetry',
+      accentColor: '#ef4444'
+    },
+
+    creator_viral_video: {
+      domainKey: 'creator_viral_video',
+      domainName: 'Creator Economy / YouTube Viral Search & Video Intelligence',
+      targetAudience: 'Criadores de conteúdo, canais do YouTube, agências e estrategistas de mídia que buscam minerar referências virais, analisar métricas de engajamento e prever tendências com Outlier Multipliers.',
+      referenceApps: [
+        '1of10.com (Outlier Video Finder)',
+        'VidIQ (Viral Velocity & Keyword Research)',
+        'Viewstats by MrBeast (Thumbnail & Retention Analytics)',
+        'TubeBuddy (Channel Explorer)',
+        'OpusClip / Descript (Transcript & Hook Analysis)'
+      ],
+      marketBenchmark: 'Líderes de mercado automatizam a identificação de virais por Outlier Score, analisam padrões de thumbnail, velocidade de visualizações por hora (VPH) e decompõem ganchos de transcrição e headline para roteirização com monetização SaaS via PIX.',
+      differentials: [
+        'Radar de Outliers com cálculo preditivo de multiplicador viral comparado ao baseline do canal (3x a 50x)',
+        'Slide-Over Drawer com decomposição em 3 abas: Headline Hooks com score CTR, Transcrição timestamped com cópia em 1 clique e Análise de Thumbnail (cores, contraste e emoção)',
+        'Monetização SaaS nativa com planos Pro, PushinPay PIX com QR Code dinâmico e limite de cota de buscas com Cloudflare Turnstile'
+      ],
+      sections: [
+        {
+          code: '01',
+          name: 'Dashboard',
+          tabId: 'dashboard',
+          kpis: [
+            'Vídeos Minerados: 1.420 (Δ% +18.4%)',
+            'Outliers Críticos (>5x): 84 vídeos',
+            'Taxa de Engajamento Média: 6.8% (Δ% +1.2%)',
+            'Cota de Buscas Restante: 42/50 buscas'
+          ],
+          chart: 'Gráfico SVG interativo de Curva de Velocidade Viral (Views/Hora vs Tempo) com tooltips e eixos em tabular-nums',
+          gridColumns: ['Thumbnail', 'Título do Vídeo', 'Canal', 'Visualizações', 'Outlier Score', 'Engajamento (%)', 'Publicado Em', 'Ações'],
+          filters: ['Filtro por Outlier Score (>3x, >5x, >10x)', 'Filtro por Nicho', 'Busca debounce por título ou canal'],
+          drawerContent: 'Slide-Over Drawer com preview 16:9, gráfico de retenção estimada, tags de tração, métricas detalhadas (likes, comentários, VPH) e notas de roteiro',
+          modalContent: 'Modal de Nova Busca / Importação de Vídeo com cálculo instantâneo de Outlier Score',
+          seedSummary: '25 vídeos virais realistas de nichos como Finanças, Tecnologia, Produtividade e Curiosidades com métricas e thumbnails'
+        },
+        {
+          code: '02',
+          name: 'Breakdown',
+          tabId: 'breakdown',
+          kpis: [
+            'Headlines Analisadas: 180',
+            'Ganchos de Alta Retenção: 64',
+            'Score CTR Médio: 8.6 / 10',
+            'Transcrições Processadas: 142'
+          ],
+          chart: 'Gráfico SVG de distribuição de Hooks (Curiosidade, Contraintuitivo, Urgência, História)',
+          gridColumns: ['ID', 'Título', 'Tipo de Gancho', 'Score CTR', 'Thumbnail Contraste', 'Emoção Predominante', 'Ações'],
+          filters: ['Tipo de Gancho', 'Faixa de CTR Score', 'Busca debounce'],
+          drawerContent: 'Slide-Over com abas dedicadas para Headline/Hooks, Transcrição Interativa com Cópia em 1 Clique e Inspeção de Thumbnail',
+          modalContent: 'Modal de Decomposição Manual de Vídeo e Geração de Hooks Alternativos',
+          seedSummary: '25 breakdowns detalhados de headline, transcrições timestamped e cores dominantes de thumbnail'
+        },
+        {
+          code: '03',
+          name: 'Colecoes',
+          tabId: 'colecoes',
+          kpis: [
+            'Coleções Salvas: 12',
+            'Vídeos Favoritados: 96',
+            'Nichos Monitorados: 8',
+            'Exportações Realizadas: 34'
+          ],
+          chart: 'Gráfico SVG de volume de vídeos favoritados por nicho',
+          gridColumns: ['ID Coleção', 'Nome da Coleção', 'Descrição', 'Qtd Vídeos', 'Criado Em', 'Ações'],
+          filters: ['Todos os Nichos', 'Busca debounce'],
+          drawerContent: 'Visualizador dos vídeos contidos na coleção com ação de remover ou exportar',
+          modalContent: 'Modal de Nova Coleção de Vídeos Virais',
+          seedSummary: '8 coleções pré-configuradas com vídeos agrupados por temas e canais'
+        },
+        {
+          code: '04',
+          name: 'Assinatura',
+          tabId: 'assinatura',
+          kpis: [
+            'Plano Atual: Pro Creator',
+            'Cota de Buscas: 8 / 500 usadas',
+            'Status Pagamento: Ativo (PIX)',
+            'Renovação: em 28 dias'
+          ],
+          chart: 'Gráfico SVG de consumo diário da cota de buscas da assinatura',
+          gridColumns: ['ID Transação', 'Plano', 'Valor (R$)', 'Status PIX', 'Data', 'Ações'],
+          filters: ['Todos os Planos', 'Status (Pago, Pendente, Expirado)'],
+          drawerContent: 'Drawer com QR Code PIX ampliado, código copia-e-cola e status de confirmação em tempo real',
+          modalContent: 'Modal de Upgrade de Plano com seleção Pro/Enterprise e geração de PIX via PushinPay',
+          seedSummary: 'Histórico de pagamentos PIX simulados com status pagos e chaves de teste'
+        },
+        {
+          code: '05',
+          name: 'Auditoria',
+          tabId: 'auditoria',
+          kpis: [
+            'Logs Registrados: 312',
+            'Atores do Sistema: 3',
+            'Sessões Ativas: 4',
+            'Turnstile Verificados: 100%'
+          ],
+          chart: 'Gráfico SVG de linha do tempo de operações auditadas e logins protegidos com Turnstile',
+          gridColumns: ['Timestamp', 'Ator', 'Ação', 'Entidade', 'ID Alvo', 'Diff JSON', 'Ações'],
+          filters: ['Ação (CREATE, UPDATE, DELETE)', 'Entidade (viral_videos, video_breakdowns, subscriptions)'],
+          drawerContent: 'Visualizador de JSON diff com metadados de sessão e IP mascarado',
+          modalContent: 'Modal de Exportação de Logs e Verificação de Status do Turnstile',
+          seedSummary: '35 logs de auditoria imutáveis com registros de buscas, favoritos e pagamentos'
+        }
+      ],
+      sqliteSchema: `-- Esquema Relacional SQLite - Creator Economy / YouTube Viral Search & Video Intelligence
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  full_name TEXT NOT NULL,
+  supabase_uid TEXT UNIQUE,
+  plan_tier TEXT NOT NULL DEFAULT 'free' CHECK (plan_tier IN ('free', 'pro', 'enterprise')),
+  search_quota_limit INTEGER NOT NULL DEFAULT 50,
+  search_quota_used INTEGER NOT NULL DEFAULT 0,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  session_token TEXT NOT NULL UNIQUE,
+  turnstile_verified INTEGER NOT NULL DEFAULT 1,
+  ip_address TEXT,
+  user_agent TEXT,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (user_id) REFERENCES users (id)
+);
+
+CREATE TABLE IF NOT EXISTS subscriptions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  plan_tier TEXT NOT NULL,
+  amount_cents INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'past_due', 'canceled', 'trialing')),
+  pix_provider TEXT NOT NULL DEFAULT 'pushinpay',
+  current_period_end TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (user_id) REFERENCES users (id)
+);
+
+CREATE TABLE IF NOT EXISTS pix_payments (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  subscription_id TEXT,
+  amount_cents INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'expired', 'failed')),
+  qr_code_base64 TEXT,
+  qr_code_copy_paste TEXT,
+  provider_tx_id TEXT UNIQUE,
+  webhook_payload_json TEXT,
+  paid_at TEXT,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (user_id) REFERENCES users (id)
+);
+
+CREATE TABLE IF NOT EXISTS viral_videos (
+  id TEXT PRIMARY KEY,
+  youtube_video_id TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL,
+  channel_name TEXT NOT NULL,
+  channel_subscribers INTEGER NOT NULL DEFAULT 0,
+  views_count INTEGER NOT NULL DEFAULT 0,
+  likes_count INTEGER NOT NULL DEFAULT 0,
+  comments_count INTEGER NOT NULL DEFAULT 0,
+  duration_seconds INTEGER NOT NULL DEFAULT 0,
+  published_at TEXT NOT NULL,
+  viral_ratio_score REAL NOT NULL DEFAULT 1.0,
+  outlier_multiplier REAL NOT NULL DEFAULT 1.0,
+  engagement_rate REAL NOT NULL DEFAULT 0.0,
+  niche TEXT NOT NULL DEFAULT 'general',
+  language TEXT NOT NULL DEFAULT 'pt-BR',
+  thumbnail_url TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS video_breakdowns (
+  id TEXT PRIMARY KEY,
+  video_id TEXT NOT NULL UNIQUE,
+  headline_text TEXT NOT NULL,
+  headline_hook_type TEXT NOT NULL DEFAULT 'curiosity',
+  headline_ctr_score REAL NOT NULL DEFAULT 8.5,
+  headline_triggers_json TEXT NOT NULL DEFAULT '[]',
+  headline_variations_json TEXT NOT NULL DEFAULT '[]',
+  transcript_hook TEXT NOT NULL,
+  transcript_body TEXT NOT NULL,
+  transcript_cta TEXT NOT NULL,
+  transcript_full_timestamped_json TEXT NOT NULL DEFAULT '[]',
+  thumbnail_dominant_colors_json TEXT NOT NULL DEFAULT '[]',
+  thumbnail_text_overlay TEXT,
+  thumbnail_emotion TEXT NOT NULL DEFAULT 'curiosity',
+  thumbnail_contrast_score REAL NOT NULL DEFAULT 8.2,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (video_id) REFERENCES viral_videos (id)
+);
+
+CREATE TABLE IF NOT EXISTS saved_collections (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  video_ids_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (user_id) REFERENCES users (id)
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id TEXT PRIMARY KEY,
+  actor TEXT NOT NULL,
+  action TEXT NOT NULL,
+  entity TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  diff_json TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_viral_videos_outlier ON viral_videos (outlier_multiplier DESC);
+CREATE INDEX IF NOT EXISTS idx_viral_videos_niche ON viral_videos (niche);
+CREATE INDEX IF NOT EXISTS idx_video_breakdowns_video ON video_breakdowns (video_id);
+CREATE INDEX IF NOT EXISTS idx_pix_payments_user ON pix_payments (user_id);
+CREATE INDEX IF NOT EXISTS idx_saved_collections_user ON saved_collections (user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs (entity, entity_id);`,
+      restContracts: [
+        {
+          method: 'GET',
+          path: '/api/health',
+          requestBody: 'N/A',
+          responseBody: '{ status: "ok", uptime: number, database: "connected", timestamp: string }',
+          description: 'Healthcheck de integridade operacional do backend e SQLite'
+        },
+        {
+          method: 'POST',
+          path: '/api/auth/register',
+          requestBody: '{ email: string, password: string, fullName: string, turnstileToken: string }',
+          responseBody: '{ user: object, sessionToken: string } (Status 201)',
+          description: 'Registro de usuário com validação anti-bot Turnstile e criação de sessão'
+        },
+        {
+          method: 'POST',
+          path: '/api/auth/login',
+          requestBody: '{ email: string, password: string, turnstileToken: string }',
+          responseBody: '{ user: object, sessionToken: string }',
+          description: 'Autenticação compatível com Supabase Auth e fallback local SQLite'
+        },
+        {
+          method: 'POST',
+          path: '/api/auth/verify-turnstile',
+          requestBody: '{ token: string }',
+          responseBody: '{ success: boolean, hostname?: string }',
+          description: 'Verificação do token Cloudflare Turnstile'
+        },
+        {
+          method: 'GET',
+          path: '/api/auth/me',
+          requestBody: 'Header: Authorization: Bearer <sessionToken>',
+          responseBody: '{ id: string, email: string, fullName: string, planTier: string, searchQuota: object }',
+          description: 'Retorna perfil do usuário autenticado e cota de buscas atual'
+        },
+        {
+          method: 'GET',
+          path: '/api/videos',
+          requestBody: 'Query: ?niche=&minOutlier=&minViews=&format=&q=&sort=&page=&limit=',
+          responseBody: 'Array<{ id: string, youtube_video_id: string, title: string, channel_name: string, views_count: number, outlier_multiplier: number, engagement_rate: number, thumbnail_url: string }>',
+          description: 'Listagem dos vídeos minerados com paginação, filtros e busca debounce'
+        },
+        {
+          method: 'GET',
+          path: '/api/videos/:id/breakdown',
+          requestBody: 'N/A',
+          responseBody: '{ video: object, headline: object, transcript: object, thumbnail: object }',
+          description: 'Decomposição em 3 eixos: Headline Hooks, Transcrição timestamped e Análise de Thumbnail'
+        },
+        {
+          method: 'POST',
+          path: '/api/payments/pix-checkout',
+          requestBody: '{ planTier: "pro" | "enterprise" }',
+          responseBody: '{ paymentId: string, qrCodeBase64: string, qrCodeCopyPaste: string, amountCents: number, expiresAt: string }',
+          description: 'Gera cobrança PIX via PushinPay com QR Code e Copia-e-Cola'
+        },
+        {
+          method: 'POST',
+          path: '/api/webhooks/payment',
+          requestBody: '{ providerTxId: string, status: "paid", amountCents: number, signature: string }',
+          responseBody: '{ received: true, upgraded: boolean }',
+          description: 'Webhook PushinPay para confirmação de pagamento e upgrade automático de plano'
+        },
+        {
+          method: 'GET',
+          path: '/api/collections',
+          requestBody: 'N/A',
+          responseBody: 'Array<{ id: string, name: string, description: string, videoCount: number, videos: array }>',
+          description: 'Listagem de coleções salvas do usuário'
+        },
+        {
+          method: 'POST',
+          path: '/api/collections',
+          requestBody: '{ name: string, description?: string, videoId?: string }',
+          responseBody: '{ id: string, name: string } (Status 201)',
+          description: 'Criação ou salvamento de vídeo em coleção'
+        },
+        {
+          method: 'POST',
+          path: '/api/export/csv',
+          requestBody: '{ entity: "viral_videos" | "video_breakdowns" | "audit_logs" }',
+          responseBody: 'Content-Type: text/csv',
+          description: 'Exportação em lote em conformidade com RFC-4180'
+        },
+        {
+          method: 'GET',
+          path: '/api/kpis',
+          requestBody: 'N/A',
+          responseBody: '{ totalVideos: number, criticalOutliers: number, avgEngagement: number, quotaUsed: number, quotaLimit: number }',
+          description: 'Cards de métricas consolidadas de viralidade e cota'
+        },
+        {
+          method: 'GET',
+          path: '/api/audit-logs',
+          requestBody: 'Query: ?entity=&limit=',
+          responseBody: 'Array<{ id: string, actor: string, action: string, entity: string, entity_id: string, diff_json: string, created_at: string }>',
+          description: 'Trilha de auditoria imutável com diff JSON'
+        }
+      ],
+      formulas: [
+        'outlier_multiplier = Number((views_count / Math.max(channel_avg_views, 1)).toFixed(2))',
+        'viral_ratio_score = Number(((views_count / Math.max(channel_subscribers, 1)) * (likes_count / Math.max(views_count, 1)) * 100).toFixed(2))',
+        'engagement_rate = Number((((likes_count + comments_count) / Math.max(views_count, 1)) * 100).toFixed(2))',
+        'views_per_hour = Math.round(views_count / Math.max((Date.now() - new Date(published_at).getTime()) / 3600000, 1))',
+        'variacao_percentual_delta = ((valor_atual - valor_anterior) / valor_anterior) * 100'
+      ],
+      validations: [
+        'youtube_video_id deve conter exatamente 11 caracteres ou URL válida de YouTube (HTTP 400)',
+        'title deve ter pelo menos 3 caracteres (HTTP 400)',
+        'views_count deve ser número inteiro maior ou igual a zero (HTTP 400)',
+        'thumbnail_url deve ser uma URL válida ou asset local (HTTP 400)',
+        'amount_cents deve ser número inteiro positivo em centavos (HTTP 400)'
+      ],
+      envKeys: [
+        'PORT=4000',
+        'DATABASE_PATH=./data/viralytsearch.db',
+        'SUPABASE_URL=mock_supabase_url',
+        'SUPABASE_ANON_KEY=mock_supabase_anon_key',
+        'CLOUDFLARE_TURNSTILE_SECRET_KEY=mock_turnstile_secret',
+        'PUSHINPAY_API_TOKEN=mock_pushinpay_token',
+        'UPSTASH_REDIS_REST_URL=mock_redis_url'
+      ],
+      archetype: 'dark-telemetry',
+      accentColor: '#ef4444'
+    },
+
     creator_video_analytics: {
       domainKey: 'creator_video_analytics',
       domainName: 'Creator Economy / YouTube Viral Search & Analytics',
@@ -2112,35 +2880,117 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs (entity, entity_i
   };
 
   /**
+   * Dynamically constructs or specializes a domain blueprint strictly faithful to the user's briefing.
+   * Ensures that SQLite tables, filters, and screens match what was requested,
+   * while STRICTLY forbidding the injection of MRR, accounting records, or banking entries
+   * into projects whose core business is not accounting/fintech.
+   */
+  public static buildCustomBriefingBlueprint(briefing: string, baseBlueprint?: DomainSpecBlueprint): DomainSpecBlueprint {
+    const raw = briefing || '';
+    const text = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const base: DomainSpecBlueprint = baseBlueprint
+      ? JSON.parse(JSON.stringify(baseBlueprint))
+      : JSON.parse(JSON.stringify(this.DOMAIN_SPECS.youtube_viral_intelligence || this.DOMAIN_SPECS.creator_viral_video || this.DOMAIN_SPECS.general_saas));
+
+    // PROIBIÇÃO ESTRITA: Se o core business do produto não for contabilidade/banco digital,
+    // purgar qualquer métrica de MRR ou lançamentos contábeis.
+    const isPureFintech = /contabilidade|escritorio\s*contabil|banco\s*digital|erp\s*financeiro|conciliacao\s*bancaria|livro\s*caixa/i.test(text);
+
+    if (!isPureFintech && base.domainKey !== 'fintech') {
+      // Eliminar fórmulas com MRR ou termos contábeis
+      base.formulas = (base.formulas || []).filter((f: string) => !/mrr|conciliacao|contabil|saldo_liquido/i.test(f));
+      if (!base.formulas.some((f: string) => /variacao_percentual_delta/i.test(f))) {
+        base.formulas.push('variacao_percentual_delta = ((valor_atual - valor_anterior) / valor_anterior) * 100');
+      }
+
+      // Remover MRR de KPIs e seções
+      for (const sec of base.sections || []) {
+        sec.kpis = (sec.kpis || []).map((k: string) =>
+          k.replace(/MRR:\s*R\$\s*[\d\.,]+/i, 'Receita Operacional: R$ 14.850')
+           .replace(/\bMRR\b/g, 'Faturamento')
+           .replace(/Lançamentos Contábeis/i, 'Registros de Operação')
+        );
+      }
+    }
+
+    return base;
+  }
+
+  /**
+   * Sanitiza qualquer menção a MRR para projetos que não sejam estritamente contabilidade/fintech pura.
+   */
+  private static sanitizeZeroMrr(content: string, briefing: string, blueprint: DomainSpecBlueprint): string {
+    const text = (briefing || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const isPureFintech = blueprint.domainKey === 'fintech' && /\b(contabilidade|escritorio\s*contabil|banco\s*digital|erp\s*financeiro|conciliacao\s*bancaria|livro\s*caixa)\b/i.test(text);
+
+    if (!isPureFintech) {
+      return content
+        .replace(/\bMRR:\s*R\$\s*[\d\.,]+/gi, 'Receita Operacional: R$ 14.850')
+        .replace(/\bmrr\s*=\s*sum\([^)]+\)/gi, 'receita_total = sum(assinaturas_ativas_valor_mensal)')
+        .replace(/\bMRR\b/g, 'Faturamento');
+    }
+    return content;
+  }
+
+  /**
    * Resolves the best domain blueprint based on the user's briefing and context.
+   * Strictly prevents SaaS infrastructure mentions (banco de dados, sqlite, pix, etc.)
+   * from misclassifying the project as fintech.
    */
   public static resolveDomainBlueprint(briefing: string): DomainSpecBlueprint {
     const raw = briefing || '';
     const text = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
-    if (/youtube|video|viral|engajamento|views?|likes?|transcri|roteiro|nicho|canal|thumbnail|tiktok|reels|creator|copywriting/i.test(text)) {
-      return this.DOMAIN_SPECS.creator_video_analytics || this.DOMAIN_SPECS.creator_economy;
+    // 1. YouTube / Vídeos Virais / Creator Economy (Prioridade Máxima)
+    if (/youtube|video|viral|engajamento|views?|likes?|transcri|transcript|roteiro|nicho|canal|thumbnail|tiktok|reels|creator|copywriting|headline|outlier/i.test(text)) {
+      const blueprint = this.DOMAIN_SPECS.youtube_viral_intelligence || this.DOMAIN_SPECS.creator_viral_video || this.DOMAIN_SPECS.creator_video_analytics || this.DOMAIN_SPECS.creator_economy;
+      return this.buildCustomBriefingBlueprint(briefing, blueprint);
     }
+    // 2. IA / LLM / Agentes
     if (/ia|ai|llm|prompt|agente|agent|openai|claude|gemini|rag|embeddings|automacao\s*de\s*ia|langsmith/i.test(text)) {
-      return this.DOMAIN_SPECS.ai_automation_agents;
+      return this.buildCustomBriefingBlueprint(briefing, this.DOMAIN_SPECS.ai_automation_agents);
     }
+    // 3. EdTech / Cursos
     if (/curso|aula|aluno|estud|flashcard|mentoria|prova|trilha|ead|educa|edtech|quiz/i.test(text)) {
-      return this.DOMAIN_SPECS.edtech_learning;
+      return this.buildCustomBriefingBlueprint(briefing, this.DOMAIN_SPECS.edtech_learning);
     }
+    // 4. Logística
     if (/logistica|frete|entrega|rastreio|frota|remessa|carga|veiculo|motorista|armazem/i.test(text)) {
-      return this.DOMAIN_SPECS.logistics_operations;
+      return this.buildCustomBriefingBlueprint(briefing, this.DOMAIN_SPECS.logistics_operations);
     }
-    if (/banco|finan|pagamento|cobran|fatura|pix|cartao|transac|saldo|extrato|inadimpl|ledger|conta\s*a\s*pagar/i.test(text)) {
-      return this.DOMAIN_SPECS.fintech;
-    }
+    // 5. Devtools
     if (/dev|bug|issue|task|kanban|sprint|scrum|deploy|repositorio|git|engenharia|codigo|commit|backlog|linear/i.test(text)) {
-      return this.DOMAIN_SPECS.devtools;
+      return this.buildCustomBriefingBlueprint(briefing, this.DOMAIN_SPECS.devtools);
     }
+    // 6. Saúde
     if (/saude|clinic|medico|paciente|consulta|prontuario|odont|dentist|terapia|hospital|remedio|receita/i.test(text)) {
-      return this.DOMAIN_SPECS.health;
+      return this.buildCustomBriefingBlueprint(briefing, this.DOMAIN_SPECS.health);
     }
 
-    return this.DOMAIN_SPECS.general_saas;
+    // 7. Fintech: Somente se o core business do produto for explicitamente contabilidade, banco digital ou ERP financeiro!
+    const sanitizedForFintech = text
+      .replace(/banco\s+de\s+dados/g, ' ')
+      .replace(/sqlite/g, ' ')
+      .replace(/gateway\s*(de\s*pagamentos?)?/g, ' ')
+      .replace(/pagamentos?/g, ' ')
+      .replace(/pushinpay/g, ' ')
+      .replace(/pix/g, ' ')
+      .replace(/supabase/g, ' ')
+      .replace(/turnstile/g, ' ')
+      .replace(/cloudflare/g, ' ')
+      .replace(/billing/g, ' ')
+      .replace(/planos?(\s+de\s+assinatura)?/g, ' ')
+      .replace(/assinaturas?/g, ' ')
+      .replace(/checkout/g, ' ')
+      .replace(/cota\s+de\s+buscas?/g, ' ');
+
+    const isPureFintech = /\b(contabilidade|escritorio\s*contabil|banco\s*digital|erp\s*financeiro|conciliacao\s*bancaria|livro\s*caixa)\b/i.test(sanitizedForFintech);
+    if (isPureFintech || (/finan|contabil|cobranc|fatura|concilia|boleto|livro\s*caixa|contas\s*a\s*pagar|dre|saldo|extrato|inadimpl/i.test(sanitizedForFintech) && !/(youtube|video|viral|transcri|transcript|headline|thumbnail|outlier|creator)/i.test(text))) {
+      return this.buildCustomBriefingBlueprint(briefing, this.DOMAIN_SPECS.fintech);
+    }
+
+    // Fallback: Custom Briefing Blueprint sobre general_saas (sem MRR nem banco contábil!)
+    return this.buildCustomBriefingBlueprint(briefing, this.DOMAIN_SPECS.general_saas);
   }
 
   /**
@@ -2165,7 +3015,7 @@ ${s.kpis.map(k => `  - ${k}`).join('\n')}
       )
       .join('\n');
 
-    return `# ESPECIFICAÇÃO DE PRODUTO, SEÇÕES & REA (CONTEUDO.MD)
+    const content = `# ESPECIFICAÇÃO DE PRODUTO, SEÇÕES & REA (CONTEUDO.MD)
 
 > **Fonte Única de Verdade da Onda 0:** Este documento é o mapa canônico da interface, fluxos e conteúdo do **${projectName}**. Toda implementação frontend e backend deve cumprir rigorosamente as seções enumeradas abaixo.
 
@@ -2200,6 +3050,7 @@ ${sectionsBlock}
 - A base deve iniciar com **entre 15 e 30 registros ricos e realistas**, cobrindo todas as categorias, métodos e status definidos acima.
 - Proibido iniciar com tabelas zeradas ou dados artificiais ("Teste 1", "Lorem Ipsum").
 `;
+    return this.sanitizeZeroMrr(content, briefing, blueprint);
   }
 
   /**
@@ -2367,7 +3218,7 @@ Todo estilo de componentes deve consumir estritamente as variáveis abaixo, proi
       .map(c => `| \`${c.method}\` | \`${c.path}\` | \`${c.requestBody}\` | \`${c.responseBody}\` | ${c.description} |`)
       .join('\n');
 
-    return `# ESPECIFICAÇÃO DE BACKEND, BANCO SQLITE & CONTRATOS REST (BACKEND.MD)
+    const content = `# ESPECIFICAÇÃO DE BACKEND, BANCO SQLITE & CONTRATOS REST (BACKEND.MD)
 
 > **Contrato Canônico do Backend do ${projectName}:** Este documento é a Fonte Única de Verdade para schemas de banco de dados SQLite, contratos de requisição/resposta das rotas REST e fórmulas de domínio. O frontend (\`public/app.js\`) e o backend (\`src/server.js\`) devem consumir estritamente os mesmos nomes de propriedades JSON.
 
@@ -2421,6 +3272,7 @@ ${blueprint.envKeys.join('\n')}
 \`\`\`
 - Se as chaves externas não forem configuradas no ambiente, o sistema não deve falhar nem lançar exceções; ele deve utilizar geradores determinísticos em memória garantindo resposta aos endpoints REST.
 `;
+    return this.sanitizeZeroMrr(content, briefing, blueprint);
   }
 
   /**
@@ -2494,7 +3346,7 @@ ${blueprint.envKeys.join('\n')}
       )
       .join('\n');
 
-    return `# JORNADAS DE TESTE, VALIDAÇÃO VISUAL & HOMOLOGAÇÃO (JORNADAS.MD)
+    const content = `# JORNADAS DE TESTE, VALIDAÇÃO VISUAL & HOMOLOGAÇÃO (JORNADAS.MD)
 
 > **Fonte Canônica de Jornadas do ${projectName}:** Este documento dita as jornadas automatizadas de ponta a ponta, roteiros visuais para o PlaywrightVisualInspector, cenários de experiência do usuário (UX) com persistência pós-reload (F5) e regras de validação Red Team (AppSec).
 
@@ -2549,6 +3401,7 @@ O simulador de pentest Red Team executará asserções contra todas as mutaçõe
 - **Vazamento de Segredos (Secret Leak):**
   - Arquivos estáticos em \`public/\` não devem conter chaves de API sensíveis, senhas ou tokens privados hardcoded.
 `;
+    return this.sanitizeZeroMrr(content, briefing, blueprint);
   }
 
   /**

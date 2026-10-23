@@ -80,11 +80,11 @@ export class DagAutoHealer {
     const clonedTasks: T[] = tasks.map((task, idx) => {
       let rawTitle = (task.title || '').trim();
       if (!rawTitle) rawTitle = `Tarefa ${idx + 1}`;
-      const baseTitle = rawTitle.replace(/\s*\((?:Parte|Part)\s*\d+[^)]*\)$/i, '').trim() || rawTitle;
-      const norm = baseTitle.toLowerCase();
+      // PRESERVE_DISTINCT_PART_TITLES: Só desambigua se o título completo for 100% idêntico
+      const norm = rawTitle.toLowerCase();
       const count = (titleCounts.get(norm) || 0) + 1;
       titleCounts.set(norm, count);
-      const title = count > 1 ? `${baseTitle} (Parte ${count})` : rawTitle;
+      const title = count > 1 ? `${rawTitle} (#${count})` : rawTitle;
 
       return {
         ...task,

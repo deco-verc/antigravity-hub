@@ -490,7 +490,7 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
   const progressPct = resolveRunProgressPct(effectiveRun);
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#080a10] overflow-hidden">
+    <div className="flex-1 flex flex-col h-full min-h-0 bg-[#080a10] overflow-hidden">
       {/* 1. Header do Chat Minimalista */}
       <div className="px-6 py-3 bg-[#0e111a] border-b border-[#1b2033] flex items-center justify-between gap-3 flex-shrink-0 z-20">
         <div className="flex items-center gap-3">
@@ -620,57 +620,58 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
         </div>
       </div>
 
-      {/* 2. Área Compacta de Atividade Atual Fixa no Topo (HUD de Execução Real) */}
-      <div className="px-6 pt-3 flex-shrink-0 max-w-4xl mx-auto w-full">
-        <DecoHubCurrentActivityWidget
-          run={effectiveRun}
-          agentStatus={agentStatus}
-          evidence={homologationEvidence}
-          onContinueOrResume={handlePauseResume}
-          onResolveApproval={handleResolveApproval}
-          onOpenAdvanced={onOpenAdvanced}
-          onOpenLightbox={({ url, label, index = 0 }) => {
-            const screenshots: LightboxImageItem[] = (homologationEvidence?.screenshots || []).map((s, idx) => ({
-              url: api.getEvidenceFileUrl(project.id, s.filename),
-              label: s.label,
-              filename: s.filename,
-              title: s.title || s.label,
-              sectionName: s.sectionName,
-              index: s.index || idx + 1,
-              total: s.total || homologationEvidence?.screenshots.length,
-              sizeBytes: s.sizeBytes
-            }));
-            if (screenshots.length === 0) {
-              screenshots.push({
-                url,
-                label,
-                filename: 'screenshot.png',
-                title: label,
-                sectionName: label,
-                index: 1,
-                total: 1,
-                sizeBytes: 0
-              });
-            }
-            setCarouselLightbox({
-              isOpen: true,
-              images: screenshots,
-              initialIndex: index
-            });
-          }}
-          onOpenLiveApp={handleOpenLiveApp}
-          isStartingPreview={isStartingPreview}
-          isActionLoading={isActionLoading}
-        />
-      </div>
-
-      {/* 3. Área Central com Rolagem Inteligente */}
+      {/* 2. Contêiner de Rolagem Completa e Irrestrita (Status Cards + Histórico de Mensagens) */}
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-6 py-4 space-y-6 max-w-4xl mx-auto w-full"
+        className="flex flex-col flex-1 min-h-0 overflow-y-auto scroll-smooth custom-scrollbar [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-700/60"
       >
+        {/* Área Compacta de Atividade Atual (HUD de Execução Real) */}
+        <div className="px-6 pt-3 flex-shrink-0 max-w-4xl mx-auto w-full">
+          <DecoHubCurrentActivityWidget
+            run={effectiveRun}
+            agentStatus={agentStatus}
+            evidence={homologationEvidence}
+            onContinueOrResume={handlePauseResume}
+            onResolveApproval={handleResolveApproval}
+            onOpenAdvanced={onOpenAdvanced}
+            onOpenLightbox={({ url, label, index = 0 }) => {
+              const screenshots: LightboxImageItem[] = (homologationEvidence?.screenshots || []).map((s, idx) => ({
+                url: api.getEvidenceFileUrl(project.id, s.filename),
+                label: s.label,
+                filename: s.filename,
+                title: s.title || s.label,
+                sectionName: s.sectionName,
+                index: s.index || idx + 1,
+                total: s.total || homologationEvidence?.screenshots.length,
+                sizeBytes: s.sizeBytes
+              }));
+              if (screenshots.length === 0) {
+                screenshots.push({
+                  url,
+                  label,
+                  filename: 'screenshot.png',
+                  title: label,
+                  sectionName: label,
+                  index: 1,
+                  total: 1,
+                  sizeBytes: 0
+                });
+              }
+              setCarouselLightbox({
+                isOpen: true,
+                images: screenshots,
+                initialIndex: index
+              });
+            }}
+            onOpenLiveApp={handleOpenLiveApp}
+            isStartingPreview={isStartingPreview}
+            isActionLoading={isActionLoading}
+          />
+        </div>
+
         {/* Lista de Mensagens de Conversação Limpas */}
+        <div className="flex-1 px-6 py-4 space-y-6 max-w-4xl mx-auto w-full">
         {messages.length === 0 ? (
           <div className="py-16 text-center space-y-6">
             <div className="w-12 h-12 rounded-2xl bg-indigo-600/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center mx-auto">
@@ -827,16 +828,49 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
                             </p>
                           </div>
                         </div>
-                        {metadataObj?.overallScore !== undefined && (
-                          <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-mono text-[11px] font-bold">
-                            <span>{metadataObj.overallScore}%</span>
-                          </div>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {metadataObj?.overallScore !== undefined && (
+                            <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-mono text-[11px] font-bold">
+                              <span>{metadataObj.overallScore}%</span>
+                            </div>
+                          )}
+                          {screenshots.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const msgScreenshots = screenshots.map((item, i) => {
+                                  const cFilename = item.filename || (item.url ? item.url.split('/').pop()?.split('?')[0] : '') || `screenshot-${i+1}.png`;
+                                  const cUrl = api.getEvidenceFileUrl(project.id, cFilename);
+                                  return {
+                                    url: cUrl,
+                                    label: item.label || cFilename,
+                                    filename: cFilename,
+                                    title: (item as any).title || item.label || cFilename,
+                                    sectionName: (item as any).sectionName || item.label || cFilename,
+                                    index: (item as any).index || i + 1,
+                                    total: (item as any).total || screenshots.length,
+                                    sizeBytes: item.sizeBytes
+                                  };
+                                });
+                                setCarouselLightbox({
+                                  isOpen: true,
+                                  images: msgScreenshots,
+                                  initialIndex: 0
+                                });
+                              }}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-medium transition-colors cursor-pointer"
+                              title="Abrir galeria completa no visualizador carrossel"
+                            >
+                              <Maximize2 className="w-3.5 h-3.5" />
+                              <span>Expandir Galeria</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
 
-                      {/* Grid Responsivo de Screenshots */}
+                      {/* Grid Responsivo de Screenshots com Rolagem Interna */}
                       {screenshots.length > 0 && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 max-h-[360px] overflow-y-auto pr-1 custom-scrollbar [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-700/60">
                           {screenshots.map((s, idx) => {
                             const cleanFilename = s.filename || (s.url ? s.url.split('/').pop()?.split('?')[0] : '') || 'screenshot.png';
                             const cacheBuster = (s as any).timestamp ? new Date((s as any).timestamp).getTime() : Date.now();
@@ -866,7 +900,7 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
                                     initialIndex: idx
                                   });
                                 }}
-                                className="group cursor-pointer rounded-lg overflow-hidden border border-[#1e2538] bg-[#080b12] hover:border-indigo-500/60 transition-all shadow-sm flex flex-col"
+                                className="group cursor-pointer rounded-lg overflow-hidden border border-[#1e2538] bg-[#080b12] hover:scale-[1.02] hover:border-emerald-500/60 transition-all shadow-sm flex flex-col"
                               >
                                 <div className="relative aspect-video bg-[#05070d] flex items-center justify-center overflow-hidden">
                                   <img
@@ -877,6 +911,9 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
                                   />
                                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
                                     <Maximize2 className="w-4 h-4 drop-shadow" />
+                                  </div>
+                                  <div className="absolute bottom-0 inset-x-0 bg-black/75 py-0.5 px-1 text-[9px] text-center text-emerald-300 opacity-0 group-hover:opacity-100 transition-opacity font-medium tracking-tight pointer-events-none">
+                                    Clique para ampliar
                                   </div>
                                 </div>
                                 <div className="p-2 text-[11px] bg-[#0c101c]">
@@ -966,10 +1003,11 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
         )}
 
         <div ref={messagesEndRef} />
+        </div>
       </div>
 
-      {/* 3. Rodapé com Entrada de Instrução */}
-      <div className="p-4 bg-[#0e111a] border-t border-[#1b2033] flex-shrink-0">
+      {/* 3. Rodapé com Entrada de Instrução (Sempre Ancorado e Acessível) */}
+      <div className="p-4 bg-[#0e111a] border-t border-[#1b2033] flex-shrink-0 sticky bottom-0 z-20">
         <form onSubmit={handleSubmit} className="max-w-4xl mx-auto space-y-2">
           <div className="relative flex items-end rounded-2xl bg-[#080a10] border border-[#21273d] focus-within:border-indigo-500/60 transition-all p-2 shadow-inner">
             {/* Popover / Command Menu flutuante de Slash Commands */}

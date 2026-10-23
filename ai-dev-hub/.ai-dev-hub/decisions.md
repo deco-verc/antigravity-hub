@@ -500,3 +500,14 @@
 - **[21/10/2026] Resolução da priorização de diretório de brain, alinhamento de perfis isolados e restauração de despacho no nativeTurnRecovery**
   - **Decisão:** Resolução da priorização de diretório de brain, alinhamento de perfis isolados e restauração de despacho no nativeTurnRecovery
   - **Motivo:** Garante que caminhos primários de perfis/testes sejam verificados antes do diretório global de home, evitando misturas entre perfis e permitindo que o runner aguarde turnos multi-etapas de forma 100% determinística.
+
+### [22/10/2026] Decisões da Sessão #92
+- **Decisão:** Isolamento físico do REA em rea-engine-repo com ignoramento estrito no .gitignore para evitar poluição de commits no ai-dev-hub
+- **Decisão:** Injeção dos arquétipos e receitas de Product Matrix de Tally (form-block UX), n8n (visual workflow) e Attio (CRM data engine) no DesignSkillService e ReaSaaSMasterService
+
+### [22/10/2026] Decisões da Sessão #95
+- **Decisão:** Perfil youtube_viral_intelligence implementado com entidades canônicas (video_breakdowns separando Headline, Transcrição e Thumbnail, workflow_runs estilo n8n, canais, assinaturas e pagamentos PIX)
+- **Decisão:** Anti-sequestro Fintech: termos de infraestrutura SaaS (gateway, pix, pagamento, billing, turnstile, supabase) não convertem o projeto em fintech a menos que o core seja contabilidade/banco digital
+- **Decisão:** Zero MRR forçado em CONTEUDO.md, BACKEND.md e JORNADAS.md para projetos não contábeis
+- **Decisão:** Planejamento estruturado em 2 Fases Macros: Macro Fase 1 (GT-1 a GT-7 Backend-First + Frontend simples funcional) e Macro Fase 2 (GT-8 a GT-12 Refinamento com Tally, n8n, Attio, 7 skills visuais e Playwright)
+- **Decisão:** Fusão no SkillRouter priorizando blueprints REA (tally, n8n, attio), documentações SaaS e skills visuais com teto estrito de até 6 arquivos físicos

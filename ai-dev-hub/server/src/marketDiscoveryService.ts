@@ -181,6 +181,90 @@ export class MarketDiscoveryService {
         'Dashboard comercial com comparativo de metas, taxas de conversão e ranking de corretores/vendedores'
       ]
     },
+    youtube_viral_intelligence: {
+      domainName: 'YouTube Viral Search, Video Intelligence & Creator SaaS',
+      referenceApps: [
+        '1of10.com (Outlier Video Finder)',
+        'VidIQ (Viral Velocity & Keyword Research)',
+        'Viewstats by MrBeast (Thumbnail & Retention Analytics)',
+        'TubeBuddy (Channel Explorer)',
+        'OpusClip / Descript (Transcript & Hook Analysis)',
+        'n8n.io (Workflow Pipeline Engine)',
+        'Attio.com (Data Grid Engine)',
+        'Tally.so (Form UX)'
+      ],
+      marketDiagnosis:
+        'Criadores de conteúdo e equipes de mídia perdem dias minerando vídeos e testando títulos às cegas. Plataformas modernas automatizam a descoberta de vídeos virais por Outlier Score, decompõem headlines em hooks e scores CTR, analisam ganchos de transcrição com timestamps e avaliam contraste e emoção de thumbnails com esteiras estilo n8n.',
+      screenFlows: [
+        'App Shell com abas [role="tab"]: 01-Radar Viral & Busca, 02-Decomposição (Headlines & Transcrições), 03-Canais & Esteira, 04-Planos & Checkout PIX, 05-Auditoria & Configurações',
+        'Command Palette (Ctrl+K) com pesquisa rápida por nicho, canais monitorados e vídeos favoritos',
+        'Slide-Over Drawer (520px) com 3 abas dedicadas: Headline/Hooks, Transcrição Interativa com Cópia em 1 Clique e Inspeção de Thumbnail',
+        'Data Grid Bento com cards 16:9, filtros por Outlier Multiplier (>3x, >5x, >10x), Nicho, VPH e visualizações'
+      ],
+      coreEntities: [
+        'users (id, email, full_name, supabase_uid, plan_tier, search_quota_limit, search_quota_used, is_active, created_at)',
+        'auth_sessions (id, user_id, session_token, turnstile_verified, ip_address, expires_at, created_at)',
+        'subscriptions (id, user_id, plan_tier, amount_cents, status, pix_provider, current_period_end, created_at)',
+        'pix_payments (id, user_id, subscription_id, amount_cents, status, qr_code_base64, qr_code_copy_paste, provider_tx_id, paid_at, expires_at, created_at)',
+        'channels (id, youtube_channel_id, channel_name, subscriber_count, total_videos, avg_views, niche, avatar_url, created_at)',
+        'viral_videos (id, youtube_id, title, channel_id, channel_name, subscriber_count, views_count, likes_count, comments_count, duration_sec, published_at, outlier_multiplier, viral_score, engagement_rate, niche, language, thumbnail_url, created_at)',
+        'video_breakdowns (id, video_id, headline_original, hook_category, ctr_score, power_words_json, generated_variations_json, transcript_hook_0_30s, transcript_body_segments_json, transcript_cta, full_text, thumbnail_hd_url, thumbnail_overlay_text, visual_emotion, contrast_score, dominant_hex_palette_json, created_at)',
+        'workflow_runs (id, pipeline_name, status, stage, latency_ms, stages_latency_json, items_processed, error_log, created_at)',
+        'saved_collections (id, user_id, name, description, video_ids_json, created_at, updated_at)',
+        'audit_logs (id, actor, action, entity, entity_id, diff_json, created_at)'
+      ],
+      calculationFormulas: [
+        'outlier_multiplier = Number((views_count / Math.max(channel_avg_views, 1)).toFixed(2))',
+        'viral_score = Number(((views_count / Math.max(subscriber_count, 1)) * (likes_count / Math.max(views_count, 1)) * 100).toFixed(2))',
+        'engagement_rate = Number((((likes_count + comments_count) / Math.max(views_count, 1)) * 100).toFixed(2))',
+        'views_per_hour = Math.round(views_count / Math.max((Date.now() - new Date(published_at).getTime()) / 3600000, 1))'
+      ],
+      killerFeatures: [
+        'Radar de Outliers com cálculo preditivo de multiplicador viral comparado ao baseline do canal (3x a 50x)',
+        'Slide-Over Drawer com decomposição em 3 abas: Headline Hooks com score CTR, Transcrição timestamped com cópia em 1 clique e Análise de Thumbnail (cores, contraste e emoção)',
+        'Monetização SaaS nativa com planos Pro, PushinPay PIX com QR Code dinâmico e limite de cota de buscas com Cloudflare Turnstile',
+        'Esteira estilo n8n (workflow_runs) com latência por etapa: Harvester -> Outlier Filter -> Transcript/Headline/Thumbnail Extractor'
+      ]
+    },
+    creator_viral_video: {
+      domainName: 'YouTube Viral Search, Video Intelligence & Creator SaaS',
+      referenceApps: [
+        '1of10.com (Outlier Video Finder)',
+        'VidIQ (Viral Velocity & Keyword Research)',
+        'Viewstats by MrBeast (Thumbnail & Retention Analytics)',
+        'TubeBuddy (Channel Explorer)',
+        'OpusClip / Descript (Transcript & Hook Analysis)'
+      ],
+      marketDiagnosis:
+        'Criadores e equipes de mídia perdem dias minerando vídeos e testando títulos às cegas. Plataformas modernas automatizam a descoberta de vídeos virais por Outlier Score, decompõem headlines, analisam retenção/gancho da transcrição e avaliam contraste e emoção da thumbnail.',
+      screenFlows: [
+        'App Shell com abas [role="tab"]: 01-Radar Viral & Busca, 02-Decomposição (Headlines & Transcrições), 03-Coleções Salvas, 04-Planos & Checkout PIX, 05-Auditoria & Configurações',
+        'Command Palette (Ctrl+K) com pesquisa rápida por nicho, canais monitorados e vídeos favoritos',
+        'Slide-Over Drawer (520px) com 3 abas dedicadas: Headline/Hooks, Transcrição Interativa com Cópia em 1 Clique e Inspeção de Thumbnail',
+        'Data Grid Bento com cards 16:9, filtros por Outlier Multiplier (>3x, >5x, >10x), Nicho, VPH e visualizações'
+      ],
+      coreEntities: [
+        'users (id, email, full_name, supabase_uid, plan_tier, search_quota_limit, search_quota_used, is_active, created_at)',
+        'auth_sessions (id, user_id, session_token, turnstile_verified, ip_address, expires_at, created_at)',
+        'subscriptions (id, user_id, plan_tier, amount_cents, status, pix_provider, current_period_end, created_at)',
+        'pix_payments (id, user_id, subscription_id, amount_cents, status, qr_code_base64, qr_code_copy_paste, provider_tx_id, paid_at, expires_at, created_at)',
+        'viral_videos (id, youtube_video_id, title, channel_name, channel_subscribers, views_count, likes_count, comments_count, duration_seconds, published_at, viral_ratio_score, outlier_multiplier, engagement_rate, niche, language, thumbnail_url, created_at)',
+        'video_breakdowns (id, video_id, headline_text, headline_hook_type, headline_ctr_score, headline_triggers_json, headline_variations_json, transcript_hook, transcript_body, transcript_cta, transcript_full_timestamped_json, thumbnail_dominant_colors_json, thumbnail_text_overlay, thumbnail_emotion, thumbnail_contrast_score, created_at)',
+        'saved_collections (id, user_id, name, description, video_ids_json, created_at, updated_at)',
+        'audit_logs (id, actor, action, entity, entity_id, diff_json, created_at)'
+      ],
+      calculationFormulas: [
+        'outlier_multiplier = Number((views_count / Math.max(channel_avg_views, 1)).toFixed(2))',
+        'viral_ratio_score = Number(((views_count / Math.max(channel_subscribers, 1)) * (likes_count / Math.max(views_count, 1)) * 100).toFixed(2))',
+        'engagement_rate = Number((((likes_count + comments_count) / Math.max(views_count, 1)) * 100).toFixed(2))',
+        'views_per_hour = Math.round(views_count / Math.max((Date.now() - new Date(published_at).getTime()) / 3600000, 1))'
+      ],
+      killerFeatures: [
+        'Radar de Outliers com cálculo preditivo de multiplicador viral comparado ao baseline do canal (3x a 50x)',
+        'Slide-Over Drawer com decomposição em 3 abas: Headline Hooks com score CTR, Transcrição timestamped com cópia em 1 clique e Análise de Thumbnail (cores, contraste e emoção)',
+        'Monetização SaaS nativa com planos Pro, PushinPay PIX com QR Code dinâmico e limite de cota de buscas com Cloudflare Turnstile'
+      ]
+    },
     creator_video_analytics: {
       domainName: 'Creator Economy / YouTube Viral Search & Analytics',
       referenceApps: [
@@ -392,32 +476,60 @@ export class MarketDiscoveryService {
     const raw = briefing || '';
     const text = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
-    if (/youtube|video|viral|engajamento|views?|likes?|transcri|roteiro|nicho|canal|thumbnail|tiktok|reels|creator|copywriting/i.test(text)) {
-      return this.DOMAIN_PROFILES.creator_video_analytics || this.DOMAIN_PROFILES.creator_economy;
+    // 1. YouTube / Vídeos Virais / Creator Economy (Prioridade Alta)
+    if (/youtube|video|viral|engajamento|views?|likes?|transcri|transcript|roteiro|nicho|canal|thumbnail|tiktok|reels|creator|copywriting|headline|outlier/i.test(text)) {
+      return this.DOMAIN_PROFILES.youtube_viral_intelligence || this.DOMAIN_PROFILES.creator_viral_video || this.DOMAIN_PROFILES.creator_video_analytics || this.DOMAIN_PROFILES.creator_economy;
     }
-    if (/\b(?:ia|ai)\b|llm|prompt|agente|agent|automacao|automation|rag|whisper|openai|groq|anthropic|langchain|transcricao/i.test(text)) {
+    // 2. IA / LLM / Agentes
+    if (/\b(?:ia|ai)\b|llm|prompt|agente|agent|automacao|automation|rag|whisper|openai|groq|anthropic|langchain/i.test(text)) {
       return this.DOMAIN_PROFILES.ai_automation_agents;
     }
+    // 3. EdTech / Cursos
     if (/curso|aula|aluno|estud|flashcard|mentoria|prova|quiz|ensino|trilha|educacao|aprendizado/i.test(text)) {
       return this.DOMAIN_PROFILES.edtech_learning;
     }
+    // 4. Logística
     if (/estoque|frota|entrega|delivery|suprimento|producao|logistica|rastreio|armazem|frete|romaneio/i.test(text)) {
       return this.DOMAIN_PROFILES.logistics_operations;
     }
-    if (/banco|finan|pagamento|cobran|fatura|pix|cartao|transac|saldo|extrato|inadimpl|ledger|conta\s*a\s*pagar/i.test(text)) {
-      return this.DOMAIN_PROFILES.fintech;
-    }
+    // 5. Devtools
     if (/dev|bug|issue|task|kanban|sprint|scrum|deploy|repositorio|git|engenharia|codigo|commit|backlog/i.test(text)) {
       return this.DOMAIN_PROFILES.devtools;
     }
+    // 6. Saúde
     if (/saude|clinic|medico|paciente|consulta|prontuario|odont|dentist|terapia|hospital|remedio|receita|telemedicin/i.test(text)) {
       return this.DOMAIN_PROFILES.health;
     }
+    // 7. E-commerce
     if (/loja|e-commerce|ecommerce|produto|carrinho|restaurante|cardapio/i.test(text)) {
       return this.DOMAIN_PROFILES.ecommerce;
     }
+    // 8. CRM & Vendas
     if (/crm|venda|lead|proposta|pipeline|funil|comercial|cliente|negocio|prospeccao/i.test(text)) {
       return this.DOMAIN_PROFILES.crm_sales;
+    }
+
+    // 9. Fintech: Somente quando o core business do produto for explicitamente contabilidade, banco digital ou ERP financeiro!
+    // Removemos menções comuns de infraestrutura SaaS (pagamento, pix, checkout, etc.) para não sequestrar o domínio do usuário
+    const sanitizedForFintech = text
+      .replace(/banco\s+de\s+dados/g, ' ')
+      .replace(/sqlite/g, ' ')
+      .replace(/gateway\s*(de\s*pagamentos?)?/g, ' ')
+      .replace(/pagamentos?/g, ' ')
+      .replace(/pushinpay/g, ' ')
+      .replace(/pix/g, ' ')
+      .replace(/supabase/g, ' ')
+      .replace(/turnstile/g, ' ')
+      .replace(/cloudflare/g, ' ')
+      .replace(/billing/g, ' ')
+      .replace(/planos?(\s+de\s+assinatura)?/g, ' ')
+      .replace(/assinaturas?/g, ' ')
+      .replace(/checkout/g, ' ')
+      .replace(/cota\s+de\s+buscas?/g, ' ');
+
+    const isPureFintech = /\b(contabilidade|escritorio\s*contabil|banco\s*digital|erp\s*financeiro|conciliacao\s*bancaria|livro\s*caixa)\b/i.test(sanitizedForFintech);
+    if (isPureFintech || (/finan|contabil|cobranc|fatura|concilia|boleto|livro\s*caixa|contas\s*a\s*pagar|dre|saldo|extrato|inadimpl/i.test(sanitizedForFintech) && !/(youtube|video|viral|transcri|transcript|headline|thumbnail|outlier|creator)/i.test(text))) {
+      return this.DOMAIN_PROFILES.fintech;
     }
 
     return this.DOMAIN_PROFILES.general_saas;

@@ -620,15 +620,36 @@ export const DecoHubCurrentActivityWidget: React.FC<DecoHubCurrentActivityWidget
                 </p>
               </div>
             </div>
-            {evidence.overallScore !== undefined && (
-              <div className="flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 font-mono text-[11px] font-bold">
-                <span>{evidence.overallScore}% Homologado</span>
-              </div>
-            )}
+            <div className="flex items-center gap-2">
+              {evidence.overallScore !== undefined && (
+                <div className="flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 font-mono text-[11px] font-bold">
+                  <span>{evidence.overallScore}% Homologado</span>
+                </div>
+              )}
+              {evidence.screenshots.length > 0 && onOpenLightbox && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const first = evidence.screenshots[0];
+                    if (first) {
+                      const cleanFilename = first.filename || (first.url ? first.url.split('/').pop()?.split('?')[0] : '') || 'screenshot.png';
+                      const cacheBuster = first.updatedAt ? new Date(first.updatedAt).getTime() : Date.now();
+                      const resolvedUrl = api.getEvidenceFileUrl(run?.project_id || evidence.projectId || '', cleanFilename, cacheBuster);
+                      onOpenLightbox({ url: resolvedUrl, label: first.label || first.filename, index: 0 });
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-medium transition-colors cursor-pointer"
+                  title="Abrir galeria completa no visualizador carrossel"
+                >
+                  <Maximize2 className="w-3.5 h-3.5" />
+                  <span>Expandir Galeria</span>
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* Grid de Miniaturas Clicáveis */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+          {/* Grid de Miniaturas Clicáveis com Scroll Interno */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 max-h-[360px] overflow-y-auto pr-1 custom-scrollbar [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-700/60">
             {evidence.screenshots.map((s, idx) => {
               const cleanFilename = s.filename || (s.url ? s.url.split('/').pop()?.split('?')[0] : '') || 'screenshot.png';
               const cacheBuster = s.updatedAt ? new Date(s.updatedAt).getTime() : Date.now();
@@ -638,7 +659,7 @@ export const DecoHubCurrentActivityWidget: React.FC<DecoHubCurrentActivityWidget
                 <div
                   key={s.filename || idx}
                   onClick={() => onOpenLightbox?.({ url: resolvedUrl, label: s.label || s.filename, index: idx })}
-                  className="group cursor-pointer rounded-lg overflow-hidden border border-[#1e2538] bg-[#05070d] hover:border-indigo-500/60 transition-all shadow-sm flex flex-col"
+                  className="group cursor-pointer rounded-lg overflow-hidden border border-[#1e2538] bg-[#05070d] hover:scale-[1.02] hover:border-emerald-500/60 transition-all shadow-sm flex flex-col"
                   title="Clique para ampliar em tela cheia"
                 >
                   <div className="relative aspect-video bg-[#030508] flex items-center justify-center overflow-hidden">
@@ -650,6 +671,9 @@ export const DecoHubCurrentActivityWidget: React.FC<DecoHubCurrentActivityWidget
                     />
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
                       <Maximize2 className="w-3.5 h-3.5 drop-shadow" />
+                    </div>
+                    <div className="absolute bottom-0 inset-x-0 bg-black/75 py-0.5 px-1 text-[9px] text-center text-emerald-300 opacity-0 group-hover:opacity-100 transition-opacity font-medium tracking-tight pointer-events-none">
+                      Clique para ampliar
                     </div>
                   </div>
                   <div className="p-1.5 text-[10px] bg-[#0c101c]">

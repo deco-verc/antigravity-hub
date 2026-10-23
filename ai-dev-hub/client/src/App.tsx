@@ -230,7 +230,8 @@ export const App: React.FC = () => {
       const savedProjectId = localStorage.getItem('ai_dev_last_project');
       const savedAccountId = localStorage.getItem('ai_dev_last_account');
 
-      let initialProjId = projs.length > 0 ? projs[0].id : null;
+      const nonMeta = projs.filter(p => p.id !== 'decohub-meta');
+      let initialProjId = nonMeta.length > 0 ? nonMeta[0].id : (projs.length > 0 ? projs[0].id : null);
       if (savedProjectId && projs.some(p => p.id === savedProjectId)) {
         initialProjId = savedProjectId;
       }
@@ -306,8 +307,11 @@ export const App: React.FC = () => {
       const projs = await api.getProjects();
       setProjects(projs);
       setIsBackendOnline(true);
-      if (projs.length > 0 && !activeProjectId) {
-        setActiveProjectId(projs[0].id);
+      const currentActiveId = activeProjectRef.current || localStorage.getItem('ai_dev_last_project');
+      if (projs.length > 0 && !currentActiveId) {
+        const nonMeta = projs.filter(p => p.id !== 'decohub-meta');
+        const defaultProj = nonMeta.length > 0 ? nonMeta[0] : projs[0];
+        setActiveProjectId(defaultProj.id);
       }
     } catch (err) {
       setIsBackendOnline(false);
@@ -616,7 +620,7 @@ export const App: React.FC = () => {
         {/* 1. Left Sidebar: Minimalist DecoHUB Sidebar */}
         <DecoHubSidebar
           projects={projects}
-          activeProjectId={isMetaChatActive ? null : activeProjectId}
+          activeProjectId={activeProjectId}
           onSelectProject={handleSelectProject}
           onOpenMetaChat={() => setIsMetaChatActive(true)}
           isMetaChatActive={isMetaChatActive}
@@ -801,8 +805,8 @@ export const App: React.FC = () => {
               </div>
 
               {/* Tab Body and Right Panel */}
-              <div className="flex-1 flex overflow-hidden">
-                <div className="flex-1 flex flex-col h-full overflow-hidden">
+              <div className="flex-1 flex overflow-hidden min-h-0">
+                <div className="flex-1 flex flex-col h-full min-h-0 overflow-hidden">
                   {activeMainTab === 'chat' && (
                     <DecoHubChatView
                       key={projectDetails.id}

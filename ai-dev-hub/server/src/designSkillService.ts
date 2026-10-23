@@ -27,7 +27,10 @@ export type DesignArchetype =
   | 'dark-telemetry'
   | 'minimalist'
   | 'brutalist'
-  | 'soft';
+  | 'soft'
+  | 'tally'
+  | 'n8n'
+  | 'attio';
 
 export interface DesignProfile {
   archetype: DesignArchetype;
@@ -117,6 +120,36 @@ export class DesignSkillService {
    */
   static inferDesignProfile(briefing: string): DesignProfile {
     const text = (briefing || '').toLowerCase();
+
+    if (/\btally\b|\bforms?\b|\bformul[aá]rios?\b|\bquestion[aá]rios?\b|\bsurvey\b|\btypeform\b|\bslash-command\b|\bnotion-block\b/i.test(text)) {
+      return {
+        archetype: 'tally',
+        dials: { variance: 3, motion: 2, density: 4 },
+        designSystemFile: 'tally.md',
+        description:
+          'Tally Block Form UX: Formulários fluidos em blocos (tipo Notion), inputs inline sem atrito, navegação fluída por teclado e tipografia espaçada.'
+      };
+    }
+
+    if (/n8n|workflow|automa[çc][ãa]o\s+visual|node-graph|fluxo\s+de\s+trabalho|trigger-action|canvas\s+de\s+n[oó]s|pipeline/i.test(text)) {
+      return {
+        archetype: 'n8n',
+        dials: { variance: 4, motion: 4, density: 8 },
+        designSystemFile: 'n8n.md',
+        description:
+          'n8n Visual Workflow: Canvas interativo de nós encadeados, telemetria de execução em tempo real, painéis de nós conectáveis e depuração visual de dados.'
+      };
+    }
+
+    if (/attio|crm|data-engine|spreadsheet|planilha\s+din[aâ]mica|grid\s+interativo|tabela\s+customiz[aá]vel/i.test(text)) {
+      return {
+        archetype: 'attio',
+        dials: { variance: 2, motion: 3, density: 9 },
+        designSystemFile: 'attio.md',
+        description:
+          'Attio CRM Data Engine: Cockpit de dados ultra-denso, data grids estilo planilha, filtros booleanos compostos, drawers laterais rápidos e dark mode sofisticado.'
+      };
+    }
 
     if (/brutalis(t|ta)|industrial|raw grid|swiss grotesk|mechanical/i.test(text)) {
       return {
@@ -395,6 +428,123 @@ export class DesignSkillService {
    */
   static getProductMatrixRecipe(domainOrBriefing: string): ProductMatrixRecipe {
     const text = (domainOrBriefing || '').toLowerCase();
+
+    // 0a. Tally Form Block UX
+    if (/\btally\b|\bforms?\b|\bformul[aá]rios?\b|\bquestion[aá]rios?\b|\bsurvey\b|\btypeform\b|\bslash-command\b|\bnotion-block\b/i.test(text)) {
+      const cssTokens: Record<string, string> = {
+        '--bg': '#ffffff',
+        '--surface': '#fcfcfc',
+        '--surface-hover': '#f4f4f5',
+        '--border': '#e4e4e7',
+        '--border-focus': '#0070d7',
+        '--text': '#27272a',
+        '--text-muted': '#71717a',
+        '--accent': '#0070d7',
+        '--accent-hover': '#005bb5',
+        '--success': '#10b981',
+        '--warning': '#f59e0b',
+        '--danger': '#ef4444'
+      };
+      const cssTokensBlock = Object.entries(cssTokens)
+        .map(([k, v]) => `  ${k}: ${v};`)
+        .join('\n');
+      return {
+        domain: 'form-builder-ux',
+        archetype: 'tally',
+        fontPairing: "'Inter', -apple-system, sans-serif",
+        cssTokens,
+        cssTokensBlock: `:root {\n${cssTokensBlock}\n}`,
+        dials: { variance: 3, motion: 2, density: 4 },
+        animationChoreography:
+          'Avanço de campo fluído de 150ms com teclado (Enter avança, Shift+Tab recua), micro-progresso discreto no topo.',
+        antiSlopChecklist: [
+          'Inputs inline sem atrito com navegação 100% por teclado',
+          'Menu de comando rápido com barra "/" (slash command popup)',
+          'Opções selecionáveis em cartões discretos com feedback instantâneo de clique',
+          'Zero emojis em botões; ícones SVG monocromáticos sutis'
+        ],
+        description:
+          'Tally Form Block UX: Formulários fluidos tipo Notion, foco editorial em conteúdo, inputs inline e máxima conversão.'
+      };
+    }
+
+    // 0b. n8n Visual Workflow Automation
+    if (/n8n|workflow|automa[çc][ãa]o\s+visual|node-graph|fluxo\s+de\s+trabalho|trigger-action|canvas\s+de\s+n[oó]s|pipeline/i.test(text)) {
+      const cssTokens: Record<string, string> = {
+        '--bg': '#141416',
+        '--surface': '#1e1e24',
+        '--surface-hover': '#282832',
+        '--border': '#2d2d3a',
+        '--border-focus': '#ff6d5a',
+        '--text': '#f4f4f6',
+        '--text-muted': '#92929e',
+        '--accent': '#ff6d5a',
+        '--accent-hover': '#e65947',
+        '--success': '#2ecc71',
+        '--warning': '#f1c40f',
+        '--danger': '#e74c3c'
+      };
+      const cssTokensBlock = Object.entries(cssTokens)
+        .map(([k, v]) => `  ${k}: ${v};`)
+        .join('\n');
+      return {
+        domain: 'workflow-automation',
+        archetype: 'n8n',
+        fontPairing: "'Inter', 'Geist', monospace, sans-serif",
+        cssTokens,
+        cssTokensBlock: `:root {\n${cssTokensBlock}\n}`,
+        dials: { variance: 4, motion: 4, density: 8 },
+        animationChoreography:
+          'Conexões bezier animadas no canvas, pulso de execução no nó ativo, drawer de debug deslizando em 180ms.',
+        antiSlopChecklist: [
+          'Grid infinito com pan e zoom para nós encadeados (Trigger -> Action -> Output)',
+          'Badges de status de execução (sucesso/verde, falha/vermelho, executando/azul)',
+          'Painel lateral com inspeção de payload JSON e tempos em tabular-nums',
+          'Toolbar flutuante com auto-organizar e executar teste'
+        ],
+        description:
+          'n8n Visual Workflow: Canvas interativo de automação, nós conectáveis, debug de execução em tempo real e visual dark técnico.'
+      };
+    }
+
+    // 0c. Attio CRM Data Engine
+    if (/attio|crm|data-engine|spreadsheet|planilha\s+din[aâ]mica|grid\s+interativo|tabela\s+customiz[aá]vel|tabela\s+rica/i.test(text)) {
+      const cssTokens: Record<string, string> = {
+        '--bg': '#0f1115',
+        '--surface': '#17191f',
+        '--surface-hover': '#1e2129',
+        '--border': '#262933',
+        '--border-focus': '#3b82f6',
+        '--text': '#f1f3f7',
+        '--text-muted': '#787f91',
+        '--accent': '#3b82f6',
+        '--accent-hover': '#2563eb',
+        '--success': '#10b981',
+        '--warning': '#f59e0b',
+        '--danger': '#ef4444'
+      };
+      const cssTokensBlock = Object.entries(cssTokens)
+        .map(([k, v]) => `  ${k}: ${v};`)
+        .join('\n');
+      return {
+        domain: 'crm-data-engine',
+        archetype: 'attio',
+        fontPairing: "'Inter', -apple-system, sans-serif",
+        cssTokens,
+        cssTokensBlock: `:root {\n${cssTokensBlock}\n}`,
+        dials: { variance: 2, motion: 3, density: 9 },
+        animationChoreography:
+          'Slide-over detail drawer em 160ms, transição instantânea entre visualização Tabela e Kanban sem reload.',
+        antiSlopChecklist: [
+          'Colunas redimensionáveis com ordenação e filtros compostos',
+          'Alternância Tabela / Kanban com persistência de estado',
+          'Edição inline de células com sincronização otimista (optimistic-ui)',
+          'Bulk actions toolbar ao selecionar múltiplos registros com checkboxes'
+        ],
+        description:
+          'Attio CRM Data Engine: Cockpit de dados ultra-denso, data grids velozes, kanban toggle, gaveta de detalhes lateral e design dark sofisticado.'
+      };
+    }
 
     // 1. SaaS Subscriptions / Billing / MRR
     if (/saas|subscri(ption|ber)|assinatura|recorrente|mrr|churn|billing|fatura|pricing|plano/i.test(text)) {

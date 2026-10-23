@@ -246,12 +246,15 @@ export class ReaSaaSMasterService {
     const files = [
       'saas-master-shell-and-state.md',
       'saas-master-data-tables-and-bi.md',
-      'saas-master-backend-and-workflows.md'
+      'saas-master-backend-and-workflows.md',
+      'tally-form-block-ux_rea_blueprint.md',
+      'n8n-workflow-automation_rea_blueprint.md',
+      'attio-crm-data-engine_rea_blueprint.md'
     ];
 
     const sections: string[] = [
       '# DOSSIÊ CONSOLIDADO DE ARQUITETURA SAAS MASTER (ENGENHARIA REVERSA REA)',
-      '> Diretrizes canônicas extraídas via morluto/rea de referências líderes (Linear, Stripe, Notion, Cal.com).'
+      '> Diretrizes canônicas extraídas via morluto/rea de referências líderes (Linear, Stripe, Notion, Tally, n8n, Attio).'
     ];
 
     let loadedFilesCount = 0;
@@ -308,29 +311,47 @@ export class ReaSaaSMasterService {
     const blueprintsDir = this.getReaBlueprintsDir();
     const cacheFile = path.join(blueprintsDir, `${slug}_rea_blueprint.md`);
 
+    const candidates = [cacheFile];
+    const targetText = String(params.targetOrBriefing || '').toLowerCase();
+    if (/\btally\b|\bforms?\b|\bformul[aá]rio\b|\bquestion[aá]rio\b/i.test(targetText)) {
+      candidates.unshift(path.join(blueprintsDir, 'tally-form-block-ux_rea_blueprint.md'));
+      candidates.unshift(path.join(blueprintsDir, 'tally_rea_blueprint.md'));
+    }
+    if (/\bn8n\b|\bworkflows?\b|\bpipeline\b|\bnode-graph\b|\bautoma[çc]/i.test(targetText)) {
+      candidates.unshift(path.join(blueprintsDir, 'n8n-workflow-automation_rea_blueprint.md'));
+      candidates.unshift(path.join(blueprintsDir, 'n8n_rea_blueprint.md'));
+    }
+    if (/\battio\b|\bcrm\b|\bdata-engine\b|\bspreadsheet\b/i.test(targetText)) {
+      candidates.unshift(path.join(blueprintsDir, 'attio-crm-data-engine_rea_blueprint.md'));
+      candidates.unshift(path.join(blueprintsDir, 'attio_rea_blueprint.md'));
+    }
+
     let blueprintContent = '';
     let fromCache = false;
 
     // 1. Cache-First check
-    if (fs.existsSync(cacheFile)) {
-      try {
-        const cached = fs.readFileSync(cacheFile, 'utf-8');
-        if (cached.trim().length > 100) {
-          blueprintContent = cached;
-          fromCache = true;
-          Logger.info(`[ReaSaaSMasterService] Blueprint REA recuperado do cache: ${path.basename(cacheFile)}`);
+    for (const cand of candidates) {
+      if (fs.existsSync(cand)) {
+        try {
+          const cached = fs.readFileSync(cand, 'utf-8');
+          if (cached.trim().length > 100) {
+            blueprintContent = cached;
+            fromCache = true;
+            Logger.info(`[ReaSaaSMasterService] Blueprint REA recuperado do cache: ${path.basename(cand)}`);
+            break;
+          }
+        } catch (err) {
+          if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+            (globalThis as any).logger.warn({
+              event: "server.handled_exception",
+              file: "reaSaaSMasterService",
+              error: (err as any)?.message || String(err)
+            });
+          } else {
+            console.warn("[WARN][server:reaSaaSMasterService]", err);
+          }
         }
-      } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "reaSaaSMasterService",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:reaSaaSMasterService]", err);
       }
-    }
     }
 
     // 2. If not cached, inspect target with rea CLI or synthesize from Master Blueprints

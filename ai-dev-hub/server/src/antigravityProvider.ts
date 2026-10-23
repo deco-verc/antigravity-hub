@@ -16,6 +16,16 @@ import { ModelRegistry } from './modelRegistry.js';
 import { AgentTurnState, captureFileInventory, changedFiles, observeTranscript, isRawToolOrCommandOutput } from './agentTurnState.js';
 import { TurnCancellationManager, activeTurnCancellations } from './turnCancellationManager.js';
 
+export const isToolDump = (txt: string): boolean => {
+  if (!txt || typeof txt !== 'string') return false;
+  return (
+    /^Created At:\s*\d{4}-\d{2}-\d{2}/m.test(txt) ||
+    /Showing lines \d+-\d+ of \d+/i.test(txt) ||
+    /^Made \d+ replacements? in /m.test(txt) ||
+    /^The command exited with code /m.test(txt)
+  );
+};
+
 export function getLanguageServerExe(): string {
   if (AgentApiGateway.isOfflineMode()) {
     throw new Error('[FAIL_CLOSED_GUARD] Acesso ao executável do Language Server bloqueado em modo offline/teste.');
@@ -820,7 +830,12 @@ export class AntigravityProvider implements AgentProvider {
                 const fullLines = fs.readFileSync(fullPath, 'utf-8').trim().split('\n').filter(Boolean);
                 for (let j = fullLines.length - 1; j >= 0; j--) {
                   const fe = JSON.parse(fullLines[j]);
-                  if (fe.step_index === entry.step_index && fe.content) {
+                  if (
+                    fe.step_index === entry.step_index &&
+                    (!fe.type || fe.type === 'PLANNER_RESPONSE') &&
+                    fe.content &&
+                    !isToolDump(String(fe.content))
+                  ) {
                     if (String(fe.content).length >= String(entry.content).length) {
                       fullContent = fe.content;
                     }
@@ -839,7 +854,7 @@ export class AntigravityProvider implements AgentProvider {
                 }
               }
             }
-            if (!isRawToolOrCommandOutput(String(fullContent))) {
+            if (!isRawToolOrCommandOutput(String(fullContent)) && !isToolDump(String(fullContent))) {
               finalResponse = fullContent;
               const trimmed = String(fullContent).trim();
               if (trimmed && !plannerNarrativeBlocks.includes(trimmed)) {
@@ -860,18 +875,11 @@ export class AntigravityProvider implements AgentProvider {
     }
       }
 
-      if (plannerNarrativeBlocks.length > 1) {
-        const lastBlock = plannerNarrativeBlocks[plannerNarrativeBlocks.length - 1];
-        if (lastBlock.length < 350) {
-          finalResponse = plannerNarrativeBlocks.join('\n\n---\n\n');
-        } else {
-          const substantialPrior = plannerNarrativeBlocks
-            .slice(0, -1)
-            .filter(b => b.length >= 180 && !lastBlock.includes(b));
-          finalResponse = [...substantialPrior, lastBlock].join('\n\n---\n\n');
-        }
-      } else if (plannerNarrativeBlocks.length === 1) {
-        finalResponse = plannerNarrativeBlocks[0];
+      const cleanBlocks = plannerNarrativeBlocks.filter(b => !isToolDump(b) && !isRawToolOrCommandOutput(b));
+      if (cleanBlocks.length > 0) {
+        finalResponse = cleanBlocks[cleanBlocks.length - 1];
+      } else if (plannerNarrativeBlocks.length > 0) {
+        finalResponse = plannerNarrativeBlocks[plannerNarrativeBlocks.length - 1];
       }
     } catch (err: any) {
       Logger.error(`[AntigravityProvider] Erro ao parsear transcript: ${err.message}`);

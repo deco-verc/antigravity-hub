@@ -53,6 +53,8 @@ token.json
 # Browser runtime, testing and benchmark caches
 .playwright-cli/
 **/.playwright-cli/
+rea-engine-repo/
+**/rea-engine-repo/
 test_profile_dir/
 **/test_profile_dir/
 .ai-dev-benchmarks/

@@ -2169,6 +2169,41 @@ export class IndependentEvaluator {
     let userJourneyResult: UserJourneyResult | undefined = undefined;
     let securityPentestResult: SecurityPentestResult | undefined = undefined;
 
+    // Recuperação contextual da tarefa e da Grande Tarefa para inspeção precisa de fase
+    let taskRow: any = null;
+    let majorTaskRow: any = null;
+    try {
+      taskRow = db.prepare('SELECT * FROM autonomous_tasks WHERE id = ?').get(contract.taskId);
+      if (taskRow?.major_task_id) {
+        majorTaskRow = db.prepare('SELECT * FROM autonomous_major_tasks WHERE id = ?').get(taskRow.major_task_id);
+      }
+    } catch {}
+
+    const taskTitle = (taskRow?.title || '').trim();
+    const taskMilestone = String(taskRow?.milestone || '').trim();
+    const majorTaskCode = String(majorTaskRow?.code || taskMilestone || '').trim();
+    const stageCode = String(taskRow?.stage_code || '').trim();
+    const combinedTaskContext = `${taskTitle} ${contract.objective || ''} ${majorTaskCode} ${stageCode}`.toLowerCase();
+
+    // Verificação de arquivos alterados diretamente em public/ (*.html, *.css, public/*.js)
+    const hasChangedPublicFiles = Boolean(
+      builderReport.filesChanged &&
+      builderReport.filesChanged.some(f => {
+        const norm = f.replace(/\\/g, '/').toLowerCase();
+        return (norm.startsWith('public/') || norm.startsWith('src/public/')) && /\.(html|css|js|jsx|tsx|vue|svelte)$/i.test(norm);
+      })
+    );
+
+    // Identificação inequívoca de fases de Scaffolding, Configuração, Banco SQLite, Seed, Domínio ou API Backend (GT-1 a GT-6 ou ET-1 a ET-6)
+    const isEarlyBackendOrScaffoldingPhase = Boolean(
+      /\b(gt-[1-6]|et-[1-6])\b/i.test(majorTaskCode) ||
+      /\b(gt-[1-6]|et-[1-6])\b/i.test(stageCode) ||
+      /\b(gt-[1-6]|et-[1-6])\b/i.test(taskTitle) ||
+      /\b(gt-[1-6]|et-[1-6])\b/i.test(contract.objective || '') ||
+      /^(?:1|2|3|4|5|6)\./.test(taskTitle) ||
+      /(scaffold|scaffolding|configura[çc][ãa]o|setup|tsconfig|package\.json|banco|sqlite|seed|seeding|migra[çc][ãa]o|migration|modelagem|reposit[óo]rio|repository|dom[íi]nio|domain|api\b|backend|endpoints?|auth\b|turnstile|pushinpay|pix\b|motor de busca|esteira|workflow|pipeline|breakdown)/i.test(combinedTaskContext)
+    );
+
     // Detecção discriminada e de alta precisão de tarefa de Frontend/UI:
     // Tarefas cujo objetivo seja explicitamente de backend, testes unitários, testes de integração REST,
     // migrations de banco, regras de domínio ou scripts não devem disparar Playwright Visual Inspector
@@ -2200,13 +2235,21 @@ export class IndependentEvaluator {
       )
     );
 
-    const isFrontendTask = options?.effortLevel === 'MINIMAL' && !options?.forceLiveBrowser
+    let isFrontendTask = options?.effortLevel === 'MINIMAL' && !options?.forceLiveBrowser
       ? false
       : options?.forceLiveBrowser
         ? true
-        : isExplicitBackendOrTestTask && !hasChangedFrontendFiles
+        : isEarlyBackendOrScaffoldingPhase && !hasChangedPublicFiles
           ? false
-          : (isObjectiveFrontend || hasChangedFrontendFiles || (hasExpectedFrontendFiles && Boolean(PlaywrightVisualInspector.findCandidateHtmlFile(projectPath))));
+          : isExplicitBackendOrTestTask && !hasChangedFrontendFiles
+            ? false
+            : (isObjectiveFrontend || hasChangedFrontendFiles || (hasExpectedFrontendFiles && Boolean(PlaywrightVisualInspector.findCandidateHtmlFile(projectPath))));
+
+    // Proíbe terminantemente Playwright Visual Inspector em tarefas de Scaffolding/Banco/Backend (GT-1 a GT-6)
+    // a menos que arquivos em public/ tenham sido modificados na tarefa
+    if (isEarlyBackendOrScaffoldingPhase && !hasChangedPublicFiles) {
+      isFrontendTask = false;
+    }
 
     const shouldRunSecurityPentest = Boolean(
       isFrontendTask ||
@@ -2343,64 +2386,88 @@ export class IndependentEvaluator {
       }
 
       // 1.8.3. User Experience Simulator (Navegador Real: Click, Type, Network & F5 Persistence)
-      try {
-        userJourneyResult = await UserExperienceSimulator.simulateRealUserJourney({
-          projectPath,
-          taskId: contract.taskId,
-          runId: contract.runId,
-          forceLiveBrowser: options?.forceLiveBrowser
-        });
+      // Executa apenas quando a tarefa for de integração Frontend completa / E2E (GT-7 em diante)
+      // E tanto o servidor quanto public/index.html e public/app.js já existirem fisicamente no disco.
+      const hasServerEntry = fs.existsSync(path.join(projectPath, 'src', 'server.ts')) || fs.existsSync(path.join(projectPath, 'src', 'index.ts'));
+      const hasPublicIndexHtml = fs.existsSync(path.join(projectPath, 'public', 'index.html'));
+      const hasPublicAppJs = fs.existsSync(path.join(projectPath, 'public', 'app.js'));
+      const isExplicitE2EOrFullstackTask = Boolean(
+        (/\b(gt-(?:[7-9]|1[0-2])|et-(?:[7-9]|1[0-2]))\b/i.test(majorTaskCode) ||
+         /\b(gt-(?:[7-9]|1[0-2])|et-(?:[7-9]|1[0-2]))\b/i.test(stageCode) ||
+         /\b(gt-(?:[7-9]|1[0-2])|et-(?:[7-9]|1[0-2]))\b/i.test(taskTitle) ||
+         /^(?:[7-9]|1[0-2])\./.test(taskTitle) ||
+         /(integra[çc][ãa]o ponta a ponta|e2e|fullstack|homologa[çc][ãa]o visual|jornada do usu[áa]rio|f5|reload|attio|tally|n8n)/i.test(combinedTaskContext)) &&
+        !isEarlyBackendOrScaffoldingPhase
+      );
 
-        if (!userJourneyResult.passed) {
-          const hasApiErrors = userJourneyResult.apiErrorsDetected.length > 0;
-          const hasDeadButtons = userJourneyResult.deadInteractiveElements.length > 0;
-          const failedF5 = !userJourneyResult.journeys.f5Persistence.passed;
+      const canRunUserExperienceSimulator = Boolean(
+        isFrontendTask &&
+        isExplicitE2EOrFullstackTask &&
+        hasServerEntry &&
+        hasPublicIndexHtml &&
+        hasPublicAppJs
+      );
 
-          Logger.error(
-            `[UX_SIMULATOR] [IndependentEvaluator] FALHA EM SIMULAÇÃO DE EXPERIÊNCIA DO USUÁRIO: ${userJourneyResult.details}`
-          );
-          const evalResult: EvaluationResult = {
-            id: crypto.randomUUID(),
-            contractId: contract.id,
+      if (canRunUserExperienceSimulator) {
+        try {
+          userJourneyResult = await UserExperienceSimulator.simulateRealUserJourney({
+            projectPath,
             taskId: contract.taskId,
             runId: contract.runId,
-            verdict: 'FAIL',
-            builderStatus: builderReport.status === 'success' ? 'COMPLETED' : 'FAILED',
-            evaluatorVerdict: 'FAIL',
-            taskIsDone: false,
-            passedCriteria: [],
-            failedCriteria: [
-              failedF5
-                ? 'Persistência de dados confirmada após F5/Reload completo (DATA_LOST_AFTER_RELOAD)'
-                : hasApiErrors
-                  ? 'Operações de formulário sem erros HTTP 4xx/5xx de API (API_ERROR_DURING_USER_ACTION)'
-                  : hasDeadButtons
-                    ? 'Zero botões mortos ou elementos interativos sem fiação funcional (DEAD_INTERACTIVE_ELEMENTS)'
-                    : 'Jornada interativa de usuário no navegador concluída com sucesso (UserExperienceSimulator)'
-            ],
-            evidence: {
-              antiSlop: antiSlopCheck,
-              designQuality: designQualityCheck,
-              visualInspection: visualInspectionResult,
-              userJourney: userJourneyResult,
-              output: userJourneyResult.details
-            },
-            expected:
-              'Aplicação funcional de ponta a ponta: formulários salvam no backend, dados persistem no F5 e zero erros de API',
-            actual: userJourneyResult.details,
-            evaluatorNotes: `REJEITADO (UserExperienceSimulator): ${userJourneyResult.details}`,
-            evaluatorName: this.evaluatorName,
-            executedCommands: [],
-            exitCode: hasApiErrors ? 500 : 422,
-            durationMs: Date.now() - startTime,
-            createdAt: nowIso
-          };
+            forceLiveBrowser: options?.forceLiveBrowser
+          });
 
-          this.persistEvaluationResult(evalResult, contract);
-          return evalResult;
+          if (!userJourneyResult.passed) {
+            const hasApiErrors = userJourneyResult.apiErrorsDetected.length > 0;
+            const hasDeadButtons = userJourneyResult.deadInteractiveElements.length > 0;
+            const failedF5 = !userJourneyResult.journeys.f5Persistence.passed;
+
+            Logger.error(
+              `[UX_SIMULATOR] [IndependentEvaluator] FALHA EM SIMULAÇÃO DE EXPERIÊNCIA DO USUÁRIO: ${userJourneyResult.details}`
+            );
+            const evalResult: EvaluationResult = {
+              id: crypto.randomUUID(),
+              contractId: contract.id,
+              taskId: contract.taskId,
+              runId: contract.runId,
+              verdict: 'FAIL',
+              builderStatus: builderReport.status === 'success' ? 'COMPLETED' : 'FAILED',
+              evaluatorVerdict: 'FAIL',
+              taskIsDone: false,
+              passedCriteria: [],
+              failedCriteria: [
+                failedF5
+                  ? 'Persistência de dados confirmada após F5/Reload completo (DATA_LOST_AFTER_RELOAD)'
+                  : hasApiErrors
+                    ? 'Operações de formulário sem erros HTTP 4xx/5xx de API (API_ERROR_DURING_USER_ACTION)'
+                    : hasDeadButtons
+                      ? 'Zero botões mortos ou elementos interativos sem fiação funcional (DEAD_INTERACTIVE_ELEMENTS)'
+                      : 'Jornada interativa de usuário no navegador concluída com sucesso (UserExperienceSimulator)'
+              ],
+              evidence: {
+                antiSlop: antiSlopCheck,
+                designQuality: designQualityCheck,
+                visualInspection: visualInspectionResult,
+                userJourney: userJourneyResult,
+                output: userJourneyResult.details
+              },
+              expected:
+                'Aplicação funcional de ponta a ponta: formulários salvam no backend, dados persistem no F5 e zero erros de API',
+              actual: userJourneyResult.details,
+              evaluatorNotes: `REJEITADO (UserExperienceSimulator): ${userJourneyResult.details}`,
+              evaluatorName: this.evaluatorName,
+              executedCommands: [],
+              exitCode: hasApiErrors ? 500 : 422,
+              durationMs: Date.now() - startTime,
+              createdAt: nowIso
+            };
+
+            this.persistEvaluationResult(evalResult, contract);
+            return evalResult;
+          }
+        } catch (err: any) {
+          Logger.warn(`[IndependentEvaluator] Erro não bloqueante ao executar simulação de usuário: ${err.message}`);
         }
-      } catch (err: any) {
-        Logger.warn(`[IndependentEvaluator] Erro não bloqueante ao executar simulação de usuário: ${err.message}`);
       }
     }
 

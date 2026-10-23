@@ -215,89 +215,124 @@ export class SkillRouter {
 
     const candidates: string[] = [];
 
+    const karpathySkillFile = path.join(skillsDir, 'andrej-karpathy-skills-main', 'andrej-karpathy-skills-main', 'skills', 'karpathy-guidelines', 'SKILL.md');
+    const backendWorkflowFile = path.join(reaBlueprints, 'saas-master-backend-and-workflows.md');
+    const plugAndPlayFile = path.join(docSimp, 'saas_plug_and_play_standard.md');
+    const supabaseKnowledgeFile = path.join(docSimp, 'supabase_knowledge_ready.md');
+    const cloudflareKnowledgeFile = path.join(docSimp, 'cloudflare_knowledge_ready.md');
+    const pushinpayKnowledgeFile = path.join(docSimp, 'pushinpay_docs_knowledge_ready.md');
+    const upstashKnowledgeFile = path.join(docSimp, 'upstash_knowledge_ready.md');
+
+    const tallyBlueprintFile = path.join(reaBlueprints, 'tally-form-block-ux_rea_blueprint.md');
+    const n8nBlueprintFile = path.join(reaBlueprints, 'n8n-workflow-automation_rea_blueprint.md');
+    const attioBlueprintFile = path.join(reaBlueprints, 'attio-crm-data-engine_rea_blueprint.md');
+
+    const uiUxProMaxFile = path.join(designSkills, 'ui-ux-pro-max.md');
+    const brandkitSkillFile = path.join(designSkills, 'taste-skill', 'skills', 'brandkit', 'SKILL.md');
+    const vercelWebDesignFile = path.join(designSkills, 'vercel-web-design-guidelines.md');
+    const tasteSkillFile = path.join(designSkills, 'taste-skill.md');
+    const frontendDesignFile = path.join(designSkills, 'frontend-design.md');
+    const modernFrontendFile = path.join(designSkills, 'modern-frontend-design.md');
+    const shellAndStateFile = path.join(reaBlueprints, 'saas-master-shell-and-state.md');
+    const webAnimationFile = path.join(designSkills, 'web-animation-design.md');
+    const vercelBestPracticesFile = path.join(designSkills, 'vercel-react-best-practices.md');
+    const playwrightAgentCliFile = path.join(designSkills, 'playwright-agent-cli.md');
+
+    const backendSuite = [
+      karpathySkillFile,
+      backendWorkflowFile,
+      plugAndPlayFile,
+      supabaseKnowledgeFile,
+      cloudflareKnowledgeFile,
+      pushinpayKnowledgeFile,
+      upstashKnowledgeFile
+    ];
+
+    const frontendSuite = [
+      uiUxProMaxFile,
+      brandkitSkillFile,
+      vercelWebDesignFile,
+      tasteSkillFile,
+      frontendDesignFile,
+      modernFrontendFile,
+      shellAndStateFile,
+      webAnimationFile,
+      vercelBestPracticesFile,
+      playwrightAgentCliFile
+    ];
+
+    // Detecção semântica contextual para injeção prioritária cirúrgica
+    const isFormOrModalOrTally = /\b(tally|forms?|formul[aá]rios?|modais|modal|inputs?|zero-fric[cç][aã]o|slash|slash-commands?|checkout)\b/i.test(text);
+    const isWorkflowOrN8n = /\b(n8n|workflow|workflows|pipeline|esteira|extra[cç][aã]o|transcri[cç][aã]o|transcript|headline|thumbnails?|automac|node-graph)\b/i.test(text);
+    const isDataGridOrAttio = /\b(attio|grid|data-grid|tabelas?|cards?|videos?|virais?|ordena[cç][aã]o|filtros?|kanban|spreadsheet|data-engine)\b/i.test(text);
+    const isAuthOrSupabase = /\b(auth|autentica[cç][aã]o|login|register|logout|sess[aã]o|session|supabase|jwt)\b/i.test(text);
+    const isTurnstileOrCloudflare = /\b(turnstile|cloudflare|captcha|anti-bot|bot)\b/i.test(text);
+    const isPixOrBilling = /\b(pix|pushinpay|pagamentos?|billing|checkout-pix|assinatura|planos?|cotas?)\b/i.test(text);
+    const isUpstashOrCache = /\b(upstash|redis|cache|rate-limit|ratelimit)\b/i.test(text);
+    const isPlaywright = /\b(playwright|e2e|screenshot|screenshots|captura\s*visual|auditoria\s*visual|homologa[cç][aã]o)\b/i.test(text);
+
+    // Injeção prioritária cirúrgica baseada nos tópicos semânticos
+    if (isFormOrModalOrTally) {
+      candidates.push(tallyBlueprintFile, vercelWebDesignFile);
+    }
+    if (isWorkflowOrN8n) {
+      candidates.push(n8nBlueprintFile, tasteSkillFile);
+    }
+    if (isDataGridOrAttio) {
+      candidates.push(attioBlueprintFile, modernFrontendFile);
+    }
+    if (isAuthOrSupabase) {
+      candidates.push(supabaseKnowledgeFile);
+    }
+    if (isTurnstileOrCloudflare) {
+      candidates.push(cloudflareKnowledgeFile);
+    }
+    if (isPixOrBilling) {
+      candidates.push(pushinpayKnowledgeFile);
+    }
+    if (isUpstashOrCache) {
+      candidates.push(upstashKnowledgeFile);
+    }
+    if (isPlaywright) {
+      candidates.push(playwrightAgentCliFile);
+    }
+
+    const isExplicitUi = /(interface|frontend|front-end|\bui\b|\bux\b|dashboard|layout|css|html|drawer|tela|componente|visual|svg|lucide|command palette|cor|paleta|estilo|responsiv|playwright)/i.test(text);
+
     switch (skill) {
       case 'FRONTEND_SPECIALIST':
-        if (/drawer|modal|slide-over/i.test(text)) {
-          candidates.push(
-            path.join(reaBlueprints, 'drawers-modals.md'),
-            path.join(reaBlueprints, 'saas-master-shell-and-state.md')
-          );
-        } else if (/grid|tabela|table|data-?grid|csv/i.test(text)) {
-          candidates.push(
-            path.join(reaBlueprints, 'data-grid.md'),
-            path.join(reaBlueprints, 'saas-master-data-tables-and-bi.md')
-          );
-        } else if (/chart|gr[aá]fico|bi|kpi|metric/i.test(text)) {
-          candidates.push(
-            path.join(reaBlueprints, 'bi-charts.md'),
-            path.join(reaBlueprints, 'saas-master-data-tables-and-bi.md')
-          );
-        } else if (/brand|tema|theme|color|token|visual/i.test(text)) {
-          candidates.push(
-            path.join(designSkills, 'taste-skill', 'skills', 'brandkit', 'SKILL.md'),
-            path.join(designSkills, 'taste-skill.md')
-          );
-        } else if (/stitch|form|component|input|button/i.test(text)) {
-          candidates.push(
-            path.join(designSkills, 'taste-skill', 'skills', 'stitch-skill', 'SKILL.md'),
-            path.join(designSkills, 'frontend-design.md')
-          );
-        } else {
-          candidates.push(
-            path.join(reaBlueprints, 'saas-master-shell-and-state.md'),
-            path.join(designSkills, 'taste-skill', 'skills', 'taste-skill', 'SKILL.md'),
-            path.join(designSkills, 'sources', 'vercel-skills', 'vercel-web-design-guidelines.md'),
-            path.join(designSkills, 'taste-skill.md')
-          );
-        }
-        candidates.push(
-          path.join(reaBlueprints, 'saas-master-shell-and-state.md'),
-          path.join(reaBlueprints, 'saas-master-data-tables-and-bi.md'),
-          path.join(designSkills, 'taste-skill.md')
-        );
-        break;
-
-      case 'DATABASE_ARCHITECT':
-        candidates.push(
-          path.join(reaBlueprints, 'saas-master-backend-and-workflows.md'),
-          path.join(docSimp, 'saas_plug_and_play_standard.md'),
-          path.join(reaBlueprints, 'seed-engine.md'),
-          path.join(reaBlueprints, 'audit-trail.md')
-        );
+        candidates.push(...frontendSuite);
         break;
 
       case 'BACKEND_API':
-      case 'FULL_STACK':
-        candidates.push(
-          path.join(docSimp, 'saas_plug_and_play_standard.md'),
-          path.join(reaBlueprints, 'saas-master-backend-and-workflows.md'),
-          path.join(skillsDir, 'andrej-karpathy-skills-main', 'andrej-karpathy-skills-main', 'skills', 'karpathy-guidelines', 'SKILL.md'),
-          path.join(skillsDir, 'andrej-karpathy-skills-main', 'andrej-karpathy-skills-main', 'CLAUDE.md')
-        );
+      case 'DATABASE_ARCHITECT':
+      case 'SECURITY_REVIEWER':
+        candidates.push(...backendSuite);
         break;
 
-      case 'SECURITY_REVIEWER':
-        candidates.push(
-          path.join(docSimp, 'saas_plug_and_play_standard.md'),
-          path.join(skillsDir, 'andrej-karpathy-skills-main', 'andrej-karpathy-skills-main', 'skills', 'karpathy-guidelines', 'SKILL.md')
-        );
+      case 'FULL_STACK':
+        if (isExplicitUi) {
+          candidates.push(karpathySkillFile, ...frontendSuite);
+        } else {
+          candidates.push(...backendSuite);
+        }
         break;
 
       case 'TEST_ENGINEER':
       case 'DEVOPS_CLI':
       case 'KARPATHY_MINIMALIST':
       default:
-        candidates.push(
-          path.join(skillsDir, 'andrej-karpathy-skills-main', 'andrej-karpathy-skills-main', 'skills', 'karpathy-guidelines', 'SKILL.md'),
-          path.join(skillsDir, 'andrej-karpathy-skills-main', 'andrej-karpathy-skills-main', 'CLAUDE.md'),
-          path.join(docSimp, 'saas_plug_and_play_standard.md')
-        );
+        if (isExplicitUi) {
+          candidates.push(playwrightAgentCliFile, karpathySkillFile, plugAndPlayFile, ...frontendSuite);
+        } else {
+          candidates.push(karpathySkillFile, backendWorkflowFile, plugAndPlayFile, playwrightAgentCliFile, ...backendSuite);
+        }
         break;
     }
 
-    // Filter existing files and deduplicate
+    // Filter existing files, deduplicate and ensure strictly up to 6 combined files
     const existingFiles = Array.from(new Set(candidates.filter(f => fs.existsSync(f))));
-    const selectedFiles = existingFiles.slice(0, 3);
+    const selectedFiles = existingFiles.slice(0, 6);
 
     // Provision on demand to <projectPath>/.ai-dev-hub/skills/
     const copiedFiles: string[] = [];

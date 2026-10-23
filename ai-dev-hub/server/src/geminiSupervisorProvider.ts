@@ -295,11 +295,14 @@ export class GeminiSupervisorProvider {
       majorTask.expectedOutcome || ''
     ].join(' ').toLowerCase();
 
-    // Check if task is explicit UI / Frontend / SaaS Master / Visual
-    const isUiTask =
-      /(gt[-_]?(5|6)|interface|frontend|front-end|\bui\b|\bux\b|dashboard|layout|css|html|drawer|tela|componente visual|svg|lucide|command palette|tabular-nums)/i.test(text);
+    // Check if task is explicit UI / Frontend / SaaS Master / Visual (GT-7 to GT-12+ or explicit UI terms)
+    const hasExplicitUiTerms =
+      /(interface|frontend|front-end|\bui\b|\bux\b|dashboard|layout|css|html|drawer|tela|componente visual|svg|lucide|command palette|tabular-nums|playwright)/i.test(text);
+    const isPureBackendTask =
+      /gt[-_]?[1-6]\b/i.test(majorTask.code || '') && !hasExplicitUiTerms;
+    const isUiTask = hasExplicitUiTerms || /(gt[-_]?(7|8|9|10|11|12))/i.test(majorTask.code || '');
 
-    // If pure infrastructure, database, domain or backend (GT-1 to GT-4 and no UI terms)
+    // If pure infrastructure, database, domain or backend (GT-1 to GT-6 and no UI terms)
     if (!isUiTask) {
       // Filter reaSaaSMasterContextBlock to retain only Backend / Seed / Audit pillars
       let backendReaBlock = '';

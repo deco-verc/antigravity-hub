@@ -1197,7 +1197,7 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
               ) : (
                 <>
                   <Play className="w-3 h-3 fill-current" />
-                  <span>Autopilot Auto-Evolução</span>
+                  <span>Autopilot ML</span>
                 </>
               )}
             </button>

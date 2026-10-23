@@ -317,11 +317,14 @@ export class ProjectOperationsService {
         const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
         const startScript: string = pkg.scripts?.start || pkg.scripts?.dev || '';
         if (startScript) {
-          const match = startScript.match(/(?:node|tsx)\s+([^\s"']+)/i);
+          const match = startScript.match(/(?:node|tsx)(?:\s+(?:--watch|watch))?\s+([^\s"']+)/i);
           if (match && match[1]) {
-            scriptRel = match[1];
-            if (scriptRel.endsWith('.ts') || startScript.includes('tsx')) {
-              isTypeScript = true;
+            const candidate = match[1];
+            if (fs.existsSync(path.join(resolvedPath, candidate))) {
+              scriptRel = candidate;
+              if (scriptRel.endsWith('.ts') || startScript.includes('tsx')) {
+                isTypeScript = true;
+              }
             }
           }
         }
@@ -340,15 +343,17 @@ export class ProjectOperationsService {
 
     if (!scriptRel) {
       const candidates = [
-        'src/server.js',
         'src/server.ts',
-        'src/index.js',
+        'src/server.js',
         'src/index.ts',
+        'src/index.js',
+        'src/app.ts',
         'src/app.js',
-        'server.js',
         'server.ts',
-        'index.js',
+        'server.js',
         'index.ts',
+        'index.js',
+        'app.ts',
         'app.js'
       ];
       for (const c of candidates) {
@@ -455,6 +460,7 @@ export class ProjectOperationsService {
         try {
           const res = await fetch(`http://127.0.0.1:${port}/`, {
             method: 'GET',
+            headers: { 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
             signal: AbortSignal.timeout(600)
           });
           if (res.status >= 200 && res.status < 500) {

@@ -717,9 +717,11 @@ export class AutonomousManager {
     }
 
     // Automatically subdivide any oversized microtasks before persisting so no monolithic task bypasses decomposition
+    // Mas se o plano já vier decomposto (>= 10 microtarefas atômicas), proíbe a subdivisão duplicada/mecânica
+    const shouldSubdivide = plannedTasks.length < 10;
     plannedTasks = HierarchicalOrchestrationService.validateAndSubdivideMicrotasks(
       plannedTasks as any,
-      { subdivideOversized: true }
+      { subdivideOversized: shouldSubdivide }
     ) as any;
 
     // Apply Deterministic DAG Auto-Healer to normalize multi-key dependencies and break any cycles
@@ -749,6 +751,12 @@ export class AutonomousManager {
         if (target && target !== ids[index] && !resolved.includes(target)) {
           resolved.push(target);
         }
+      }
+      // Encadeamento sequencial estrito por onda:
+      // Se não for a tarefa de fundação inicial (index > 0) e não tiver dependência resolvida,
+      // encadeia obrigatoriamente na tarefa imediatamente anterior para impedir tarefas órfãs em 'ready'
+      if (index > 0 && resolved.length === 0) {
+        resolved.push(ids[index - 1]);
       }
       return resolved;
     });
@@ -801,11 +809,12 @@ export class AutonomousManager {
           const protectedEvalFiles = Array.isArray((task as any).protectedEvaluationFiles)
             ? (task as any).protectedEvaluationFiles
             : (Array.isArray((task as any).protected_evaluation_files) ? (task as any).protected_evaluation_files : null);
+          const initialStatus = i === 0 && dependencies[i].length === 0 ? 'ready' : 'pending';
           try {
             db.prepare(`INSERT INTO autonomous_tasks (id,run_id,title,description,milestone,order_index,dependencies_json,status,assigned_to,criteria_json,created_at,updated_at,verification_command,done_when,skill_routed,skill_confidence,skill_guidelines_json,expected_files_json,protected_evaluation_files_json)
               VALUES (?,?,?,?,?,?,?,?, 'builder',?,?,?,?,?, ?, ?, ?, ?, ?)`).run(
                 ids[i],runId,task.title,task.description,task.milestone || 'MVP',i+1,
-                JSON.stringify(dependencies[i]),dependencies[i].length ? 'pending':'ready',
+                JSON.stringify(dependencies[i]),initialStatus,
                 JSON.stringify(task.criteria),nowIso,nowIso,
                 (task as any).verificationCommand || null,(task as any).doneWhen || null,
                 routed.skill, 1.0, JSON.stringify(routed.guidelines || routed.priorityInvariants),
@@ -817,7 +826,7 @@ export class AutonomousManager {
               db.prepare(`INSERT INTO autonomous_tasks (id,run_id,title,description,milestone,order_index,dependencies_json,status,assigned_to,criteria_json,created_at,updated_at,verification_command,done_when,skill_routed,skill_guidelines_json,expected_files_json,protected_evaluation_files_json)
                 VALUES (?,?,?,?,?,?,?,?, 'builder',?,?,?,?,?, ?, ?, ?, ?)`).run(
                   ids[i],runId,task.title,task.description,task.milestone || 'MVP',i+1,
-                  JSON.stringify(dependencies[i]),dependencies[i].length ? 'pending':'ready',
+                  JSON.stringify(dependencies[i]),initialStatus,
                   JSON.stringify(task.criteria),nowIso,nowIso,
                   (task as any).verificationCommand || null,(task as any).doneWhen || null,
                   routed.skill, JSON.stringify(routed.guidelines || routed.priorityInvariants),
@@ -829,7 +838,7 @@ export class AutonomousManager {
               db.prepare(`INSERT INTO autonomous_tasks (id,run_id,title,description,milestone,order_index,dependencies_json,status,assigned_to,criteria_json,created_at,updated_at,verification_command,done_when)
                 VALUES (?,?,?,?,?,?,?,?, 'builder',?,?,?,?,?)`).run(
                   ids[i],runId,task.title,task.description,task.milestone || 'MVP',i+1,
-                  JSON.stringify(dependencies[i]),dependencies[i].length ? 'pending':'ready',
+                  JSON.stringify(dependencies[i]),initialStatus,
                   JSON.stringify(task.criteria),nowIso,nowIso,
                   (task as any).verificationCommand || null,(task as any).doneWhen || null
               );
@@ -854,7 +863,7 @@ export class AutonomousManager {
             dependencies: dependencies[idx],
             orderIndex: idx + 1
           })),
-          subdivideOversized: true,
+          subdivideOversized: plannedTasks.length < 10,
           autoHealGraph: true
         });
       } catch (hierErr: any) {

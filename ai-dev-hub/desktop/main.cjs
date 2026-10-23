@@ -128,6 +128,27 @@ function createMainWindow(port) {
     mainWindow.maximize();
   }
 
+  // Strip X-Frame-Options and frame-ancestors for local preview iframes (127.0.0.1 and localhost)
+  mainWindow.webContents.session.webRequest.onHeadersReceived(
+    { urls: ['http://127.0.0.1:*/*', 'http://localhost:*/*'] },
+    (details, callback) => {
+      const responseHeaders = { ...details.responseHeaders };
+      delete responseHeaders['x-frame-options'];
+      delete responseHeaders['X-Frame-Options'];
+      for (const key of Object.keys(responseHeaders)) {
+        if (key.toLowerCase() === 'x-frame-options') {
+          delete responseHeaders[key];
+        }
+        if (key.toLowerCase() === 'content-security-policy') {
+          responseHeaders[key] = responseHeaders[key].map(csp =>
+            csp.replace(/frame-ancestors\s+[^;]+;?/gi, '')
+          );
+        }
+      }
+      callback({ responseHeaders });
+    }
+  );
+
   // Intercept external links (Requisito 32)
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     logger.info(`[ExternalLink] Abrindo link externo no browser padrão: ${url}`);
