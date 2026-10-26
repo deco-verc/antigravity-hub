@@ -1,0 +1,14 @@
+# Playwright Aria Snapshot (YAML Semantico de Acessibilidade - Offline)
+section: "Dashboard"
+timestamp: "2026-10-24T21:34:19.818Z"
+validation:
+  passed: false
+  has_heading: false
+  has_interactive_controls: false
+  has_rendered_data: true
+  corrupted_values_found: []
+tree:
+  headings:
+  buttons:
+  inputs_count: 0
+  tables_count: 0

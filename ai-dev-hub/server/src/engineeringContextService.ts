@@ -477,8 +477,10 @@ export class EngineeringContextService {
       lines.push("  * 'import * as fs from \"node:fs\";'");
       lines.push("  * 'import * as path from \"node:path\";'");
       lines.push("  * 'import * as http from \"node:http\";'");
-      lines.push("  * 'import assert from \"node:assert/strict\";' (ou 'import { strict as assert } from \"node:assert\";')");
-      lines.push('- NUNCA use default import de módulos da biblioteca padrão (ex: NÃO use "import fs from \"node:fs\"") para evitar [LSP_SYNTAX_ERROR] "has no default export".');
+      lines.push("  * 'import { strict as assert } from \"node:assert\";' ou 'import * as assert from \"node:assert\";'");
+      lines.push('- NUNCA use default import de módulos da biblioteca padrão (ex: NÃO use "import fs from \"node:fs\"", NÃO use "import http from \"node:http\"", NÃO use "import assert from \"node:assert/strict\"") para evitar [LSP_SYNTAX_ERROR] TS1192 / TS1259 ("has no default export" / "can only be default-imported using the \'esModuleInterop\' flag").');
+      lines.push("- Extensão de imports relativos: NUNCA inclua a extensão '.ts' ou '.tsx' em imports (ex: use 'import { foo } from \"./foo\";' ou 'import { foo } from \"./foo.js\";', JAMAIS 'import { foo } from \"./foo.ts\";') para evitar erro TS5097 ('An import path can only end with a .ts extension').");
+      lines.push("- Compatibilidade de ESM e import.meta: Ao utilizar 'import.meta.url' ou 'import.meta.dirname', certifique-se de que o tsconfig.json possui '\"module\": \"NodeNext\"' ou '\"ESNext\"' para evitar [LSP_SYNTAX_ERROR] TS1343.");
       if (outDir) {
         lines.push(`- Build TypeScript: Este projeto possui compilador com '${outDir}'. Se testes importarem de '${outDir}', certifique-se de executar 'npm run build' após alterar 'src/'.`);
       }
@@ -633,12 +635,26 @@ export class EngineeringContextService {
 
     const tsConventions = EngineeringContextService.detectTypeScriptModuleConventions(projectPath);
 
+    // Ponteiros canônicos de custo zero (sem inline splice) para o Antigravity 2.0
+    const canonicalPointers: string[] = [];
+    const specsDir = path.join(projectPath, '.ai-dev-hub', 'specs');
+    if (fs.existsSync(specsDir)) {
+      canonicalPointers.push(
+        `<canonical_spec_pointers>`,
+        `  - @.ai-dev-hub/specs/PRINCIPIOS.md`,
+        `  - @.ai-dev-hub/specs/CONTEUDO.md`,
+        `  - @.ai-dev-hub/specs/BACKEND.md`,
+        `  - @.ai-dev-hub/specs/DESIGN.md`,
+        `</canonical_spec_pointers>`
+      );
+    }
+
     // 11. Generate compact prompt block (safe for Native Gemini task prompt injection)
     const promptParts = [
       `[CONSTITUIÇÃO DO PROJETO & DIRETRIZES DE ENGENHARIA — KARPATHY LAYER (Hash: ${contextHash})]`,
       `PRINCÍPIOS INVIOLÁVEIS:`,
       `1. THINK BEFORE CODING: Identifique premissas; em runs autônomos, NUNCA invoque ask_question nem bloqueie o fluxo.`,
-      `2. SIMPLICITY FIRST: Menor código que resolve o problema, com os 7 Pilares SaaS Master e povoamento via seedIfEmpty().`,
+      `2. SIMPLICITY FIRST: Menor código que resolve o problema, com os 7 Pilares SaaS Master e povoamento via seedIfEmpty(). Proibido uso de dependências externas não auditadas.`,
       `3. SURGICAL CHANGES: Modifique apenas os arquivos necessários da tarefa. Preserve código, tabelas e testes existentes.`,
       `4. GOAL-DRIVEN: Toda tarefa tem objetivo declarado, critérios binários e comando de verificação único simples (${verificationCommand}).`,
       `5. OPERATIONAL AUTONOMY: Permissão expressa para executar comandos no workspace, encerrar processos efêmeros e testar sem travas.`,
@@ -647,6 +663,7 @@ export class EngineeringContextService {
       ``,
       autonomyBlock,
       ``,
+      canonicalPointers.length > 0 ? `${canonicalPointers.join('\n')}\n` : '',
       tsConventions ? `${tsConventions}\n` : '',
       compactProgram ? `CONSTITUIÇÃO ESPECÍFICA DO PROJETO:\n${compactProgram}\n` : '',
       decisionsSnippet ? `DECISÕES TÉCNICAS RELEVANTES (PRESERVAR):\n${decisionsSnippet}\n` : '',

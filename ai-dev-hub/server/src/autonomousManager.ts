@@ -863,7 +863,7 @@ export class AutonomousManager {
             dependencies: dependencies[idx],
             orderIndex: idx + 1
           })),
-          subdivideOversized: plannedTasks.length < 10,
+          subdivideOversized: false,
           autoHealGraph: true
         });
       } catch (hierErr: any) {
@@ -1232,11 +1232,17 @@ export class AutonomousManager {
       planHistory: safeJsonParse(run.plan_history_json, []),
       finalValidation: safeJsonParse(run.final_validation_json, null),
       approvals: parsedApprovals,
-      councilDeliberations: deliberations.map(d => ({
-        ...d,
-        reviews: safeJsonParse(d.reviews_json, []),
-        peerRankings: safeJsonParse(d.peer_rankings_json, [])
-      })),
+      councilDeliberations: deliberations.map(d => {
+        const rawPeer: any = safeJsonParse(d.peer_rankings_json, []);
+        const peerRankings = Array.isArray(rawPeer) ? rawPeer : (rawPeer?.peerRankings || []);
+        const actionItems = Array.isArray(rawPeer) ? [] : (rawPeer?.actionItems || []);
+        return {
+          ...d,
+          reviews: safeJsonParse(d.reviews_json, []),
+          peerRankings,
+          actionItems
+        };
+      }),
       events,
       reports,
       reviews,
@@ -2965,7 +2971,8 @@ export class AutonomousManager {
    * Pause an active run
    */
   static pauseRun(runId: string) {
-    RunControl.request(runId,'pause');RunControl.apply(runId);
+    RunControl.request(runId, 'pause');
+    RunControl.apply(runId, true);
     this.logEvent(runId, null, 'user', 'RUN_PAUSED', 'Build autônomo pausado pelo usuário.');
     return this.getRun(runId);
   }
@@ -2985,8 +2992,9 @@ export class AutonomousManager {
 
   private static async resumeRunInternal(runId: string) {
     const run = this.getRun(runId);
-    if (run.status === 'completed' || run.status === 'failed') return run;
-    if(RunControl.get(runId)?.action==='cancel')return run;
+    if (run.status === 'completed') return run;
+    // Limpa qualquer solicitação antiga de pausa/cancelamento ao retomar explicitamente
+    try { db.prepare('DELETE FROM run_control_requests WHERE run_id = ?').run(runId); } catch {}
     const { ExecutionCoordinator } = await import('./executionCoordinator.js');
     ExecutionCoordinator.reconcileDeadReservations();
 
@@ -3251,7 +3259,8 @@ export class AutonomousManager {
    * Stop an active run
    */
   static stopRun(runId: string) {
-    RunControl.request(runId,'cancel');RunControl.apply(runId);
+    RunControl.request(runId, 'cancel');
+    RunControl.apply(runId, true);
     this.logEvent(runId, null, 'user', 'RUN_CANCEL_REQUESTED', 'Cancelamento solicitado; a operação atual será preservada até uma fronteira segura.');
     return this.getRun(runId);
   }

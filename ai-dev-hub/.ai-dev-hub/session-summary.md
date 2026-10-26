@@ -1,5 +1,5 @@
-# Resumo da Sessão Atual — Sessão #96
-Data: 22/10/2026, 19:04:26
+# Resumo da Sessão Atual — Sessão #100
+Data: 23/10/2026, 19:20:10
 
 ----------------------------------
 ESTADO ATUAL DO PROJETO
@@ -17,23 +17,68 @@ IMPLEMENTADO:
 - ETAPA 4: Validação de tipos (server e client typecheck), suítes de teste focadas (5/5 no finalCheckpoints, 15/15 living-specs, 8/8 wave0, 5/5 skill-sync, 5/5 rea-saas), build de server/client e sincronização com app.asar.unpacked
 
 ALTERAÇÕES RECENTES:
-- ai-dev-hub/server/src/marketDiscoveryService.ts
-- ai-dev-hub/server/src/projectLivingSpecService.ts
-- ai-dev-hub/server/src/promptArchitectureService.ts
-- ai-dev-hub/server/src/skillRouter.ts
-- ai-dev-hub/server/test/finalCheckpoints.test.ts
-- ai-dev-hub/dist-desktop/win-unpacked/resources/app.asar.unpacked/server/dist/
-- ai-dev-hub/dist-desktop/win-unpacked/resources/app.asar.unpacked/client/dist/
+- ai-dev-hub/changes.md (modified)
+- .ai-dev-hub/decisions.md (modified)
+- .ai-dev-hub/session-summary.md (modified)
+- .ai-dev-hub/tasks.md (modified)
+- Iniciardecohub.bat (modified)
+- client/src/App.tsx (modified)
+- client/src/components/AutonomousBuildView.tsx (modified)
+- client/src/components/DecoHubChatView.tsx (modified)
 
 PROBLEMAS:
 - Nenhum bloqueio registrado
-
-PRÓXIMA TAREFA:
-Executar o projeto YouTubeViralSearch 2 ou nova automação com o motor completo do DecoHUB
-
-DECISÕES IMPORTANTES:
+- PRÓXIMA TAREFA:
+- Executar o projeto YouTubeViralSearch 2 ou nova automação com o motor completo do DecoHUB
+- DECISÕES IMPORTANTES:
 - Perfil youtube_viral_intelligence implementado com entidades canônicas (video_breakdowns separando Headline, Transcrição e Thumbnail, workflow_runs estilo n8n, canais, assinaturas e pagamentos PIX)
 - Anti-sequestro Fintech: termos de infraestrutura SaaS (gateway, pix, pagamento, billing, turnstile, supabase) não convertem o projeto em fintech a menos que o core seja contabilidade/banco digital
+- Zero MRR forçado em CONTEUDO.md, BACKEND.md e JORNADAS.md para projetos não contábeis
+- Planejamento estruturado em 2 Fases Macros: Macro Fase 1 (GT-1 a GT-7 Backend-First + Frontend simples funcional) e Macro Fase 2 (GT-8 a GT-12 Refinamento com Tally, n8n, Attio, 7 skills visuais e Playwright)
+- Fusão no SkillRouter priorizando blueprints REA (tally, n8n, attio), documentações SaaS e skills visuais com teto estrito de até 6 arquivos físicos
+- INSTRUÇÃO PARA O PRÓXIMO AGENTE:
+- Analise primeiro os arquivos de memória e o Git.
+- Não refaça tarefas concluídas.
+- Continue do estado atual.
+- ---------------------------------
+- PRÓXIMA TAREFA:
+- Monitoramento contínuo e execução de novos ciclos autônomos conforme backlog
+- DECISÕES IMPORTANTES:
+- Zero MRR forçado em CONTEUDO.md, BACKEND.md e JORNADAS.md para projetos não contábeis
+- Planejamento estruturado em 2 Fases Macros: Macro Fase 1 (GT-1 a GT-7 Backend-First + Frontend simples funcional) e Macro Fase 2 (GT-8 a GT-12 Refinamento com Tally, n8n, Attio, 7 skills visuais e Playwright)
+- Fusão no SkillRouter priorizando blueprints REA (tally, n8n, attio), documentações SaaS e skills visuais com teto estrito de até 6 arquivos físicos
+- INSTRUÇÃO PARA O PRÓXIMO AGENTE:
+- Analise primeiro os arquivos de memória e o Git.
+- Não refaça tarefas concluídas.
+- Continue do estado atual.
+- ---------------------------------
+- PRÓXIMA TAREFA:
+- Monitoramento contínuo e execução de novos ciclos autônomos conforme backlog
+- DECISÕES IMPORTANTES:
+- Zero MRR forçado em CONTEUDO.md, BACKEND.md e JORNADAS.md para projetos não contábeis
+- Planejamento estruturado em 2 Fases Macros: Macro Fase 1 (GT-1 a GT-7 Backend-First + Frontend simples funcional) e Macro Fase 2 (GT-8 a GT-12 Refinamento com Tally, n8n, Attio, 7 skills visuais e Playwright)
+- Fusão no SkillRouter priorizando blueprints REA (tally, n8n, attio), documentações SaaS e skills visuais com teto estrito de até 6 arquivos físicos
+- INSTRUÇÃO PARA O PRÓXIMO AGENTE:
+- Analise primeiro os arquivos de memória e o Git.
+- Não refaça tarefas concluídas.
+- Continue do estado atual.
+- ---------------------------------
+- PRÓXIMA TAREFA:
+- Monitoramento contínuo e execução de novos ciclos autônomos conforme backlog
+- DECISÕES IMPORTANTES:
+- Zero MRR forçado em CONTEUDO.md, BACKEND.md e JORNADAS.md para projetos não contábeis
+- Planejamento estruturado em 2 Fases Macros: Macro Fase 1 (GT-1 a GT-7 Backend-First + Frontend simples funcional) e Macro Fase 2 (GT-8 a GT-12 Refinamento com Tally, n8n, Attio, 7 skills visuais e Playwright)
+- Fusão no SkillRouter priorizando blueprints REA (tally, n8n, attio), documentações SaaS e skills visuais com teto estrito de até 6 arquivos físicos
+- INSTRUÇÃO PARA O PRÓXIMO AGENTE:
+- Analise primeiro os arquivos de memória e o Git.
+- Não refaça tarefas concluídas.
+- Continue do estado atual.
+- ---------------------------------
+
+PRÓXIMA TAREFA:
+Monitoramento contínuo e execução de novos ciclos autônomos conforme backlog
+
+DECISÕES IMPORTANTES:
 - Zero MRR forçado em CONTEUDO.md, BACKEND.md e JORNADAS.md para projetos não contábeis
 - Planejamento estruturado em 2 Fases Macros: Macro Fase 1 (GT-1 a GT-7 Backend-First + Frontend simples funcional) e Macro Fase 2 (GT-8 a GT-12 Refinamento com Tally, n8n, Attio, 7 skills visuais e Playwright)
 - Fusão no SkillRouter priorizando blueprints REA (tally, n8n, attio), documentações SaaS e skills visuais com teto estrito de até 6 arquivos físicos

@@ -157,9 +157,19 @@ export class PlaywrightVisualInspector {
     const candidates = [
       path.join(projectPath, 'public', 'index.html'),
       path.join(projectPath, 'index.html'),
+      path.join(projectPath, 'client', 'public', 'index.html'),
+      path.join(projectPath, 'client', 'index.html'),
+      path.join(projectPath, 'client', 'src', 'index.html'),
+      path.join(projectPath, 'frontend', 'public', 'index.html'),
+      path.join(projectPath, 'frontend', 'index.html'),
+      path.join(projectPath, 'src', 'public', 'index.html'),
+      path.join(projectPath, 'src', 'index.html'),
+      path.join(projectPath, 'static', 'index.html'),
       path.join(projectPath, 'dist', 'index.html'),
+      path.join(projectPath, 'dist', 'public', 'index.html'),
       path.join(projectPath, 'build', 'index.html'),
-      path.join(projectPath, 'views', 'index.html')
+      path.join(projectPath, 'views', 'index.html'),
+      path.join(projectPath, 'templates', 'index.html')
     ];
 
     for (const c of candidates) {
@@ -168,13 +178,25 @@ export class PlaywrightVisualInspector {
       }
     }
 
-    // Shallow search in root or public
+    // Shallow search in root or common frontend folders
     try {
       if (fs.existsSync(projectPath)) {
         const rootEntries = fs.readdirSync(projectPath);
         for (const entry of rootEntries) {
           if (entry.toLowerCase().endsWith('.html')) {
             return path.join(projectPath, entry);
+          }
+        }
+        const candidateSubdirs = ['public', 'client', 'frontend', 'static', 'views', 'src'];
+        for (const sub of candidateSubdirs) {
+          const subDir = path.join(projectPath, sub);
+          if (fs.existsSync(subDir) && fs.statSync(subDir).isDirectory()) {
+            const subEntries = fs.readdirSync(subDir);
+            for (const entry of subEntries) {
+              if (entry.toLowerCase().endsWith('.html')) {
+                return path.join(subDir, entry);
+              }
+            }
           }
         }
       }
@@ -218,15 +240,41 @@ export class PlaywrightVisualInspector {
         '};',
         'const server = http.createServer((req, res) => {',
         '  try {',
-        '    const parsedUrl = new URL(req.url || "/", "http://127.0.0.1");',
-        '    let reqPath = decodeURIComponent(parsedUrl.pathname);',
-        '    if (reqPath === "/" || !reqPath) reqPath = "/index.html";',
-        '    let filePath = path.join(baseDir, reqPath);',
-        '    if (!fs.existsSync(filePath) && reqPath === "/index.html") {',
-        '      const pub = path.join(baseDir, "public", "index.html");',
-        '      if (fs.existsSync(pub)) filePath = pub;',
+        '    const rawUrl = req.url || "/";',
+        '    if (rawUrl.includes("..") || rawUrl.includes("%2e%2e") || rawUrl.includes("%2E%2E") || /(?:^|[\\\\/])\\.[^.]/i.test(rawUrl)) {',
+        '      res.writeHead(403, { "Content-Type": "text/plain" });',
+        '      res.end("Forbidden: Path traversal or dotfile access blocked");',
+        '      return;',
         '    }',
-        '    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {',
+        '    const parsedUrl = new URL(rawUrl, "http://127.0.0.1");',
+        '    let reqPath = decodeURIComponent(parsedUrl.pathname);',
+        '    if (reqPath.startsWith("/api/")) {',
+        '      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });',
+        '      res.end(JSON.stringify({ ok: true, status: "mocked", path: reqPath }));',
+        '      return;',
+        '    }',
+        '    if (reqPath === "/" || !reqPath) reqPath = "/index.html";',
+        '    const candidateDirs = ["", "public", "static", "client", path.join("client", "public"), "frontend", path.join("frontend", "public"), "dist", path.join("dist", "public")];',
+        '    let filePath = null;',
+        '    const normBase = path.resolve(baseDir);',
+        '    for (const d of candidateDirs) {',
+        '      const cleanSub = reqPath.startsWith("/") ? reqPath.slice(1) : reqPath;',
+        '      const candidate = path.resolve(normBase, d, cleanSub);',
+        '      if (candidate.startsWith(normBase) && fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {',
+        '        filePath = candidate;',
+        '        break;',
+        '      }',
+        '    }',
+        '    if (!filePath && (reqPath === "/index.html" || reqPath === "/")) {',
+        '      for (const d of candidateDirs) {',
+        '        const candidate = path.resolve(normBase, d, "index.html");',
+        '        if (candidate.startsWith(normBase) && fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {',
+        '          filePath = candidate;',
+        '          break;',
+        '        }',
+        '      }',
+        '    }',
+        '    if (filePath && fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {',
         '      const ext = path.extname(filePath).toLowerCase();',
         '      res.writeHead(200, { "Content-Type": mimeTypes[ext] || "application/octet-stream" });',
         '      res.end(fs.readFileSync(filePath));',
@@ -342,6 +390,67 @@ export class PlaywrightVisualInspector {
         }
       });
     });
+  }
+
+  /**
+   * Extrai e filtra mensagens de console capturadas pelo playwright-cli,
+   * descartando falsos positivos benignos (CSP em fontes externas, 404 de favicons, ResizeObserver, aborts).
+   */
+  public static parseAndFilterConsoleOutput(rawOutput: string): { consoleErrors: string[]; pageErrors: string[] } {
+    const consoleErrors: string[] = [];
+    const pageErrors: string[] = [];
+    if (!rawOutput) return { consoleErrors, pageErrors };
+
+    let textToParse = rawOutput;
+    try {
+      const parsed = JSON.parse(rawOutput);
+      if (typeof parsed === 'string') {
+        textToParse = parsed;
+      } else if (parsed && typeof parsed === 'object') {
+        if (typeof parsed.result === 'string') {
+          textToParse = parsed.result;
+        } else if (Array.isArray(parsed.messages)) {
+          textToParse = parsed.messages.map((m: any) => typeof m === 'string' ? m : (m.text || m.message || JSON.stringify(m))).join('\n');
+        } else if (Array.isArray(parsed)) {
+          textToParse = parsed.map((p: any) => typeof p === 'string' ? p : JSON.stringify(p)).join('\n');
+        }
+      }
+    } catch {
+      // Mantém string bruta como fallback
+    }
+
+    const lines = textToParse.split(/\r?\n/);
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line) continue;
+
+      // Ignora contadores informativos e warnings de biblioteca
+      if (/^Total messages:\s*\d+/i.test(line) || /^\[WARNING\]/i.test(line)) {
+        continue;
+      }
+
+      // Filtro 1: Erros benignos de recursos estáticos secundários ausentes (404/ERR)
+      const isBenignResourceError = /(?:favicon\.ico|manifest\.json|manifest\.webmanifest|robots\.txt|\.map|\.png|\.jpg|\.jpeg|\.gif|\.svg|\.ico|\.woff|\.woff2|\.ttf|\.eot)\b/i.test(line) &&
+        /(?:404|status of 404|Failed to load resource|net::ERR_)/i.test(line);
+
+      // Filtro 2: Bloqueios benignos de CSP em fontes externas, CDNs ou estilos na máquina local
+      const isBenignCspOrNetwork = /(?:Content\s*Security\s*Policy|violates\s+the\s+following\s+Content\s+Security\s+Policy\s+directive|Refused\s+to\s+(?:load|connect|apply)|net::ERR_INTERNET_DISCONNECTED|net::ERR_NAME_NOT_RESOLVED|Failed\s+to\s+fetch)/i.test(line) &&
+        /(?:style-src|font-src|connect-src|img-src|fonts\.googleapis\.com|fonts\.gstatic\.com|cdnjs|unpkg|jsdelivr|tailwind|analytics)/i.test(line);
+
+      // Filtro 3: Notificações benignas de layout e aborts de ciclo de vida
+      const isBenignLayoutOrAbort = /(?:ResizeObserver\s+loop|The\s+user\s+aborted\s+a\s+request|signal\s+is\s+aborted\s+without\s+reason|AbortError)/i.test(line);
+
+      if (!isBenignResourceError && !isBenignCspOrNetwork && !isBenignLayoutOrAbort) {
+        const isPageErr = line.includes('[PAGEERROR]') || line.includes('pageerror') || line.includes('PageError');
+        if (isPageErr) {
+          pageErrors.push(line);
+        } else if (line.includes('[ERROR]') || line.includes('Uncaught') || line.includes('TypeError') || line.includes('ReferenceError') || line.includes('SyntaxError')) {
+          consoleErrors.push(line);
+        }
+      }
+    }
+
+    return { consoleErrors, pageErrors };
   }
 
   /**
@@ -630,15 +739,9 @@ export class PlaywrightVisualInspector {
       // 2. Fetch console messages and page errors
       const consoleRes = this.runCli(['-s=' + sessionId, 'console', '--json'], projectPath, 4000);
       if (consoleRes.stdout) {
-        const lines = consoleRes.stdout.split('\n');
-        for (const line of lines) {
-          if (line.includes('[ERROR]') || line.includes('Uncaught') || line.includes('TypeError') || line.includes('ReferenceError')) {
-            consoleErrors.push(line.trim());
-          }
-          if (line.includes('[PAGEERROR]') || line.includes('pageerror') || line.includes('PageError')) {
-            pageErrors.push(line.trim());
-          }
-        }
+        const filtered = PlaywrightVisualInspector.parseAndFilterConsoleOutput(consoleRes.stdout);
+        consoleErrors.push(...filtered.consoleErrors);
+        pageErrors.push(...filtered.pageErrors);
       }
 
       // 3. Evaluate desktop layout and interactive elements

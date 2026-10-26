@@ -230,7 +230,7 @@ export class LspService {
   /**
    * Obtém diagnósticos sintáticos e semânticos de um arquivo em tempo real.
    */
-  static async getDiagnostics(filePath: string): Promise<Array<{ line: number; message: string; severity: string }>> {
+  static async getDiagnostics(filePath: string): Promise<LspDiagnostic[]> {
     if (!filePath || typeof filePath !== 'string') return [];
     const normalized = path.resolve(filePath);
 
@@ -249,6 +249,8 @@ export class LspService {
         if (rawList.length > 0) {
           return rawList.map((d: any) => ({
             line: d.start?.line || d.startLocation?.line || 1,
+            column: d.start?.offset || d.startLocation?.offset || undefined,
+            code: typeof d.code === 'number' ? d.code : undefined,
             message: d.text || d.message || 'Erro de sintaxe/tipagem',
             severity: d.category === 'error' || d.category === 1 ? 'error' : 'warning'
           }));
@@ -312,7 +314,7 @@ export class LspService {
   // DIRECT TYPESCRIPT COMPILER API ENGINE (DETERMINISTIC FALLBACK)
   // ----------------------------------------------------------------
 
-  static getDiagnosticsDirect(filePath: string): Array<{ line: number; message: string; severity: string }> {
+  static getDiagnosticsDirect(filePath: string): LspDiagnostic[] {
     try {
       if (!fs.existsSync(filePath)) return [];
       const content = fs.readFileSync(filePath, 'utf-8');
@@ -325,14 +327,16 @@ export class LspService {
         filePath.endsWith('.tsx') ? ts.ScriptKind.TSX : filePath.endsWith('.jsx') ? ts.ScriptKind.JSX : ts.ScriptKind.TS
       );
 
-      const diagnostics: Array<{ line: number; message: string; severity: string }> = [];
+      const diagnostics: LspDiagnostic[] = [];
 
       // 1. Diagnósticos sintáticos de parsing
       if ((sourceFile as any).parseDiagnostics && Array.isArray((sourceFile as any).parseDiagnostics)) {
         for (const d of (sourceFile as any).parseDiagnostics) {
-          const { line } = sourceFile.getLineAndCharacterOfPosition(d.start || 0);
+          const { line, character } = sourceFile.getLineAndCharacterOfPosition(d.start || 0);
           diagnostics.push({
             line: line + 1,
+            column: character + 1,
+            code: d.code,
             message: ts.flattenDiagnosticMessageText(d.messageText, '\n'),
             severity: d.category === ts.DiagnosticCategory.Error ? 'error' : 'warning'
           });
@@ -342,13 +346,47 @@ export class LspService {
       // 2. Se for arquivo TypeScript com tipagem completa, executa programa mínimo em memória
       if (/\.(ts|tsx)$/i.test(filePath) && diagnostics.length === 0) {
         try {
-          const program = ts.createProgram([filePath], {
+          const isEsm = content.includes('import.meta') ||
+            /^\s*(?:import|export)\s/m.test(content) ||
+            filePath.endsWith('.mts') ||
+            filePath.endsWith('.mjs');
+
+          let compilerOptions: ts.CompilerOptions = {
             noEmit: true,
             target: ts.ScriptTarget.Latest,
-            module: ts.ModuleKind.CommonJS,
+            module: isEsm ? ts.ModuleKind.ESNext : ts.ModuleKind.CommonJS,
+            moduleResolution: isEsm ? ts.ModuleResolutionKind.Bundler : ts.ModuleResolutionKind.Node10,
+            esModuleInterop: true,
+            allowSyntheticDefaultImports: true,
+            allowImportingTsExtensions: true,
             allowJs: true,
             skipLibCheck: true
-          });
+          };
+
+          const searchDir = this.activeProjectPath || path.dirname(filePath);
+          const configPath = ts.findConfigFile(searchDir, ts.sys.fileExists, 'tsconfig.json');
+          if (configPath && fs.existsSync(configPath)) {
+            try {
+              const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
+              if (!configFile.error && configFile.config) {
+                const parsed = ts.parseJsonConfigFileContent(configFile.config, ts.sys, path.dirname(configPath));
+                compilerOptions = {
+                  ...parsed.options,
+                  noEmit: true,
+                  skipLibCheck: true,
+                  esModuleInterop: true,
+                  allowSyntheticDefaultImports: true,
+                  allowImportingTsExtensions: true
+                };
+                if (content.includes('import.meta') && (compilerOptions.module === ts.ModuleKind.CommonJS || !compilerOptions.module)) {
+                  compilerOptions.module = ts.ModuleKind.ESNext;
+                  compilerOptions.moduleResolution = ts.ModuleResolutionKind.Bundler;
+                }
+              }
+            } catch {}
+          }
+
+          const program = ts.createProgram([filePath], compilerOptions);
           const sf = program.getSourceFile(filePath);
           if (sf) {
             const diags = [
@@ -356,9 +394,11 @@ export class LspService {
               ...program.getSemanticDiagnostics(sf)
             ];
             for (const d of diags) {
-              const { line } = sf.getLineAndCharacterOfPosition(d.start || 0);
+              const { line, character } = sf.getLineAndCharacterOfPosition(d.start || 0);
               diagnostics.push({
                 line: line + 1,
+                column: character + 1,
+                code: d.code,
                 message: ts.flattenDiagnosticMessageText(d.messageText, '\n'),
                 severity: d.category === ts.DiagnosticCategory.Error ? 'error' : 'warning'
               });

@@ -492,4 +492,56 @@ describe('Auto-Failover Multi-Conta via Rapid Switch Suite (FASE 20)', () => {
       }
     }
   });
+
+  test('8. Detecção exata de Weekly Limit no transcript e parser de cota longa (110h56m54s)', async () => {
+    const { observeTranscript } = await import('../src/agentTurnState.js');
+    const { QuotaManager } = await import('../src/quotaManager.js');
+
+    const exactWeeklyLimitError =
+      'Error Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 110h56m54s. Your plan\'s baseline quota will refresh on 29/10/2026, 01:50:15.';
+
+    // 8.1 Classificador classifica como QUOTA
+    const cls = AccountProfileManager.classifyAccountOrQuotaError(exactWeeklyLimitError);
+    assert.strictEqual(cls.isAccountOrQuotaError, true);
+    assert.strictEqual(cls.kind, 'QUOTA');
+
+    // 8.2 Parser calcula durationMs > 100 horas
+    const parsedReset = QuotaManager.parseQuotaResetError(exactWeeklyLimitError);
+    assert.ok(parsedReset.durationMs > 100 * 3600 * 1000, `durationMs esperado > 100h, obtido: ${parsedReset.durationMs}`);
+    assert.ok(new Date(parsedReset.resetsAt).getTime() > Date.now());
+
+    // 8.3 observeTranscript detecta a string como state: 'ERROR'
+    const tempDir = path.join(os.tmpdir(), `test-transcript-weekly-limit-${Date.now()}`);
+    fs.mkdirSync(tempDir, { recursive: true });
+    const transcriptFile = path.join(tempDir, 'transcript.jsonl');
+
+    try {
+      fs.writeFileSync(
+        transcriptFile,
+        JSON.stringify({
+          step_index: 1,
+          type: 'ERROR_MESSAGE',
+          error: exactWeeklyLimitError,
+          status: 'ERROR'
+        }) + '\n'
+      );
+
+      const prog = observeTranscript(transcriptFile, 0);
+      assert.strictEqual(prog.state, 'ERROR');
+
+      // Também detecta quando vem no content ou message
+      fs.writeFileSync(
+        transcriptFile,
+        JSON.stringify({
+          step_index: 2,
+          type: 'SYSTEM_MESSAGE',
+          content: exactWeeklyLimitError
+        }) + '\n'
+      );
+      const progContent = observeTranscript(transcriptFile, 0);
+      assert.strictEqual(progContent.state, 'ERROR');
+    } finally {
+      try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+    }
+  });
 });

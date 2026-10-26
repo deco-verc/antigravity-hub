@@ -3,6 +3,14 @@ import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 
+export function isRunningInTestEnvironment(): boolean {
+  return (
+    Boolean(process.env.NODE_TEST_CONTEXT) ||
+    process.execArgv.some(arg => arg === '--test' || arg.startsWith('--test-')) ||
+    process.argv.some(arg => arg === '--test' || /\.test\.(ts|js|mjs|cjs)$/i.test(arg))
+  );
+}
+
 export function getHubDataDir(): string {
   if (process.env.AI_DEV_HUB_DATA_DIR) {
     return process.env.AI_DEV_HUB_DATA_DIR;
@@ -10,6 +18,21 @@ export function getHubDataDir(): string {
   if (process.env.DECOHUB_DATA_DIR) {
     return process.env.DECOHUB_DATA_DIR;
   }
+
+  const isTestProcess = isRunningInTestEnvironment();
+
+  if (isTestProcess && !process.env.AI_DEV_HUB_DATA_DIR && !process.env.DECOHUB_DATA_DIR) {
+    const autoTestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'decohub-auto-isolated-test-'));
+    process.env.AI_DEV_HUB_DATA_DIR = autoTestDir;
+    process.env.DECOHUB_OFFLINE_MODE = 'true';
+    process.on('exit', () => {
+      try {
+        fs.rmSync(autoTestDir, { recursive: true, force: true });
+      } catch {}
+    });
+    return autoTestDir;
+  }
+
   const home = os.homedir();
   const marker = `${path.sep}.ai-dev-hub${path.sep}profiles`;
   const idx = home.indexOf(marker);
@@ -129,6 +152,31 @@ try {
         console.warn("[WARN][server:db]", err);
       }
     }
+
+export function safeAddColumn(targetDb: any, table: string, col: string, colType: string): boolean {
+  try {
+    const tableInfo = targetDb.prepare(`PRAGMA table_info(${table})`).all() as any[];
+    if (tableInfo.length > 0 && !tableInfo.some((c: any) => c.name === col)) {
+      targetDb.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${colType};`);
+      return true;
+    }
+    return false;
+  } catch (err: any) {
+    const msg = String(err?.message || err);
+    if (!msg.includes('duplicate column name') && !msg.includes('no such table')) {
+      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+        (globalThis as any).logger.warn({
+          event: "server.handled_exception",
+          file: "db",
+          error: msg
+        });
+      } else {
+        console.warn("[WARN][server:db]", err);
+      }
+    }
+    return false;
+  }
+}
 
 export function initDatabase() {
   db.exec(`CREATE TABLE IF NOT EXISTS native_execution_policies (
@@ -1093,29 +1141,14 @@ export function initDatabase() {
       ON project_ast_symbols(symbol_name);
   `);
 
-  const reportColumns = db.prepare('PRAGMA table_info(builder_reports)').all() as any[];
-  if (!reportColumns.some(column => column.name === 'evaluation_json')) {
-    db.exec('ALTER TABLE builder_reports ADD COLUMN evaluation_json TEXT');
-  }
+  safeAddColumn(db, 'builder_reports', 'evaluation_json', 'TEXT');
 
   for (const [col, colType] of [
     ['expected_threshold', 'TEXT'],
     ['actual_result', 'TEXT'],
     ['evaluated_at', 'TEXT']
   ]) {
-    try {
-      db.exec(`ALTER TABLE evaluation_results ADD COLUMN ${col} ${colType};`);
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "db",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:db]", err);
-      }
-    }
+    safeAddColumn(db, 'evaluation_results', col, colType);
   }
 
   for (const [col, colType] of [
@@ -1123,21 +1156,18 @@ export function initDatabase() {
     ['success_criteria_json', "TEXT DEFAULT '[]'"],
     ['technical_context_json', "TEXT DEFAULT '{}'"],
     ['active_run_id', 'TEXT'],
-    ['active_plan_run_id', 'TEXT']
+    ['active_plan_run_id', 'TEXT'],
+    ['active_account_profile_id', 'TEXT'],
+    ['selected_model', "TEXT DEFAULT 'auto'"],
+    ['reasoning_level', "TEXT DEFAULT 'HIGH'"],
+    ['github_repo', 'TEXT'],
+    ['github_branch', 'TEXT DEFAULT "main"'],
+    ['github_sync_status', 'TEXT DEFAULT "idle"'],
+    ['github_last_synced_at', 'TEXT'],
+    ['is_trusted', 'INTEGER DEFAULT 1'],
+    ['full_dev_autonomy', 'INTEGER DEFAULT 1']
   ]) {
-    try {
-      db.exec(`ALTER TABLE projects ADD COLUMN ${col} ${colType};`);
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "db",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:db]", err);
-      }
-    }
+    safeAddColumn(db, 'projects', col, colType);
   }
 
   for (const [col, colType] of [
@@ -1147,21 +1177,24 @@ export function initDatabase() {
     ['plan_version', 'INTEGER DEFAULT 1'],
     ['plan_history_json', "TEXT DEFAULT '[]'"],
     ['final_validation_json', 'TEXT'],
-    ['complexity_analysis_json', "TEXT DEFAULT '{}'"]
+    ['complexity_analysis_json', "TEXT DEFAULT '{}'"],
+    ['current_milestone', 'TEXT'],
+    ['current_task', 'TEXT'],
+    ['current_worker', 'TEXT'],
+    ['iteration', 'INTEGER DEFAULT 0'],
+    ['consecutive_failures', 'INTEGER DEFAULT 0'],
+    ['last_success', 'TEXT'],
+    ['last_error', 'TEXT'],
+    ['next_action', 'TEXT'],
+    ['started_at', 'TEXT'],
+    ['builder_session_id', 'TEXT'],
+    ['supervisor_model', 'TEXT'],
+    ['github_epic_issue_number', 'INTEGER'],
+    ['github_epic_issue_url', 'TEXT'],
+    ['plan_deliberation_id', 'TEXT'],
+    ['research_summary_json', 'TEXT']
   ]) {
-    try {
-      db.exec(`ALTER TABLE autonomous_runs ADD COLUMN ${col} ${colType};`);
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "db",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:db]", err);
-      }
-    }
+    safeAddColumn(db, 'autonomous_runs', col, colType);
   }
 
   for (const [col, colType] of [
@@ -1170,19 +1203,7 @@ export function initDatabase() {
     ['complexity_tier', "TEXT DEFAULT 'MODERATE'"],
     ['blocking_reason', 'TEXT']
   ]) {
-    try {
-      db.exec(`ALTER TABLE autonomous_major_tasks ADD COLUMN ${col} ${colType};`);
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "db",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:db]", err);
-      }
-    }
+    safeAddColumn(db, 'autonomous_major_tasks', col, colType);
   }
 
   for (const [col, colType] of [
@@ -1212,169 +1233,7 @@ export function initDatabase() {
     ['waived_reason', 'TEXT'],
     ['discovery_source', 'TEXT'],
     ['blocking_reason', 'TEXT'],
-    ['subdivision_depth', 'INTEGER DEFAULT 0']
-  ]) {
-    try {
-      db.exec(`ALTER TABLE autonomous_tasks ADD COLUMN ${col} ${colType};`);
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "db",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:db]", err);
-      }
-    }
-  }
-
-  // Safe migration for conversations table prompt versioning
-  const conversationCols: Array<[string, string]> = [
-    ['prompt_id', 'TEXT'],
-    ['prompt_hash', 'TEXT']
-  ];
-  for (const [col, colType] of conversationCols) {
-    try {
-      db.exec(`ALTER TABLE conversations ADD COLUMN ${col} ${colType};`);
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "db",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:db]", err);
-      }
-    }
-  }
-
-  // Safe migration for workers table columns
-  const workerCols: Array<[string, string]> = [
-    ['environment', 'TEXT DEFAULT "local"'],
-    ['account_profile_id', 'TEXT']
-  ];
-  for (const [col, colType] of workerCols) {
-    try {
-      db.exec(`ALTER TABLE workers ADD COLUMN ${col} ${colType};`);
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "db",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:db]", err);
-      }
-    }
-  }
-
-  // Safe migration for projects table active account profile
-  try {
-    db.exec(`ALTER TABLE projects ADD COLUMN active_account_profile_id TEXT;`);
-  } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "db",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:db]", err);
-      }
-    }
-  try {
-    db.exec(`ALTER TABLE projects ADD COLUMN selected_model TEXT DEFAULT 'auto';`);
-  } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "db",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:db]", err);
-      }
-    }
-  try {
-    db.exec(`ALTER TABLE projects ADD COLUMN reasoning_level TEXT DEFAULT 'HIGH';`);
-  } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "db",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:db]", err);
-      }
-    }
-
-  // Safe migration for sessions table lifecycle columns
-  const sessionCols = ['agent_name', 'start_time', 'end_time', 'initial_git_head', 'final_git_head', 'status'];
-  for (const col of sessionCols) {
-    try {
-      db.exec(`ALTER TABLE sessions ADD COLUMN ${col} TEXT;`);
-    } catch {
-      // Column already exists
-    }
-  }
-
-  // Safe migration for autonomous_runs state tracking columns
-  const runCols: Array<[string, string]> = [
-    ['current_milestone', 'TEXT'],
-    ['current_task', 'TEXT'],
-    ['current_worker', 'TEXT'],
-    ['iteration', 'INTEGER DEFAULT 0'],
-    ['consecutive_failures', 'INTEGER DEFAULT 0'],
-    ['last_success', 'TEXT'],
-    ['last_error', 'TEXT'],
-    ['next_action', 'TEXT'],
-    ['started_at', 'TEXT'],
-    ['builder_session_id', 'TEXT'],
-    ['supervisor_model', 'TEXT'],
-    ['github_epic_issue_number', 'INTEGER'],
-    ['github_epic_issue_url', 'TEXT'],
-    ['plan_deliberation_id', 'TEXT'],
-    ['research_summary_json', 'TEXT']
-  ];
-  for (const [col, colType] of runCols) {
-    try {
-      db.exec(`ALTER TABLE autonomous_runs ADD COLUMN ${col} ${colType};`);
-    } catch {
-      // Column already exists
-    }
-  }
-
-  // GitHub integration columns for projects
-  const projectCols: Array<[string, string]> = [
-    ['github_repo', 'TEXT'],
-    ['github_branch', 'TEXT DEFAULT "main"'],
-    ['github_sync_status', 'TEXT DEFAULT "idle"'],
-    ['github_last_synced_at', 'TEXT'],
-    ['is_trusted', 'INTEGER DEFAULT 1'],
-    ['full_dev_autonomy', 'INTEGER DEFAULT 1']
-  ];
-  for (const [col, colType] of projectCols) {
-    try {
-      db.exec(`ALTER TABLE projects ADD COLUMN ${col} ${colType};`);
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "db",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:db]", err);
-      }
-    }
-  }
-
-  // GitHub & Karpathy Layer integration columns for autonomous_tasks
-  const taskCols: Array<[string, string]> = [
+    ['subdivision_depth', 'INTEGER DEFAULT 0'],
     ['github_issue_number', 'INTEGER'],
     ['github_issue_id', 'TEXT'],
     ['github_issue_url', 'TEXT'],
@@ -1403,39 +1262,31 @@ export function initDatabase() {
     ['expected_files_json', 'TEXT'],
     ['protected_evaluation_files_json', 'TEXT'],
     ['notes', 'TEXT']
-  ];
-  for (const [col, colType] of taskCols) {
-    try {
-      db.exec(`ALTER TABLE autonomous_tasks ADD COLUMN ${col} ${colType};`);
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "db",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:db]", err);
-      }
-    }
+  ]) {
+    safeAddColumn(db, 'autonomous_tasks', col, colType);
   }
 
-  // Safe migration for benchmark tables Level 2 (AGENT BENCHMARK)
-  try {
-    db.exec(`ALTER TABLE benchmark_runs ADD COLUMN benchmark_level TEXT DEFAULT 'FAST';`);
-  } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "db",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:db]", err);
-      }
-    }
+  for (const [col, colType] of [
+    ['prompt_id', 'TEXT'],
+    ['prompt_hash', 'TEXT']
+  ]) {
+    safeAddColumn(db, 'conversations', col, colType);
+  }
 
-  const benchResultCols: Array<[string, string]> = [
+  for (const [col, colType] of [
+    ['environment', 'TEXT DEFAULT "local"'],
+    ['account_profile_id', 'TEXT']
+  ]) {
+    safeAddColumn(db, 'workers', col, colType);
+  }
+
+  for (const col of ['agent_name', 'start_time', 'end_time', 'initial_git_head', 'final_git_head', 'status']) {
+    safeAddColumn(db, 'sessions', col, 'TEXT');
+  }
+
+  safeAddColumn(db, 'benchmark_runs', 'benchmark_level', "TEXT DEFAULT 'FAST'");
+
+  for (const [col, colType] of [
     ['supervisor_session_id', 'TEXT'],
     ['builder_conversation_id', 'TEXT'],
     ['worker_id', 'TEXT'],
@@ -1443,24 +1294,11 @@ export function initDatabase() {
     ['commands_executed_json', 'TEXT'],
     ['git_branch', 'TEXT'],
     ['result_commit', 'TEXT']
-  ];
-  for (const [col, colType] of benchResultCols) {
-    try {
-      db.exec(`ALTER TABLE benchmark_task_results ADD COLUMN ${col} ${colType};`);
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "db",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:db]", err);
-      }
-    }
+  ]) {
+    safeAddColumn(db, 'benchmark_task_results', col, colType);
   }
 
-  const expCols: Array<[string, string]> = [
+  for (const [col, colType] of [
     ['benchmark_level', "TEXT DEFAULT 'FAST'"],
     ['winning_commit_sha', 'TEXT'],
     ['promoted_version_label', 'TEXT'],
@@ -1476,58 +1314,145 @@ export function initDatabase() {
     ['reevaluated_verdict', 'TEXT'],
     ['council_recommendation', 'TEXT'],
     ['run_id', 'TEXT']
-  ];
-  for (const [col, colType] of expCols) {
-    try {
-      db.exec(`ALTER TABLE self_improvement_experiments ADD COLUMN ${col} ${colType};`);
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "db",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:db]", err);
-      }
-    }
-  }
-  // Safe migration for account_profiles table quota tracking
-  const profileCols: Array<[string, string]> = [
-    ['quota_resets_at', 'TEXT'],
-    ['quota_message', 'TEXT']
-  ];
-  for (const [col, colType] of profileCols) {
-    try {
-      db.exec(`ALTER TABLE account_profiles ADD COLUMN ${col} ${colType};`);
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "db",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:db]", err);
-      }
-    }
+  ]) {
+    safeAddColumn(db, 'self_improvement_experiments', col, colType);
   }
 
-  try { db.exec("ALTER TABLE model_preferences ADD COLUMN intelligence_level TEXT NOT NULL DEFAULT 'HIGH';"); } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "db",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:db]", err);
-      }
-    }
+  for (const [col, colType] of [
+    ['quota_resets_at', 'TEXT'],
+    ['quota_message', 'TEXT']
+  ]) {
+    safeAddColumn(db, 'account_profiles', col, colType);
+  }
+
+  safeAddColumn(db, 'model_preferences', 'intelligence_level', "TEXT NOT NULL DEFAULT 'HIGH'");
   ensureDefensiveMigrations(db);
+
+  if (!isRunningInTestEnvironment()) {
+    purgeGhostTestProjectsFromProductionDb(db);
+  }
 
   if (process.env.MCP_STDIO !== 'true') {
     console.log(`[DB] SQLite database initialized at ${DB_PATH}`);
+  }
+}
+
+/**
+ * Purges ghost/test projects and runs that were erroneously created in the production database
+ * by automated test suites or unisolated test runs.
+ */
+export function purgeGhostTestProjectsFromProductionDb(targetDb: any = db): { purgedProjects: number; purgedRuns: number } {
+  try {
+    const hasProjectsTable = Boolean(targetDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='projects'").get());
+    if (!hasProjectsTable) return { purgedProjects: 0, purgedRuns: 0 };
+
+    const projectRows = targetDb.prepare('SELECT id, path FROM projects').all() as Array<{ id: string; path: string }>;
+
+    const ghostPrefixes = [
+      'proj-rec-', 'proj-heal-', 'proj-test-', 'test-proj-',
+      'proj-sim-', 'proj-dag-', 'proj-audit-', 'proj-wave-',
+      'proj-ux-', 'proj-sec-', 'proj-living-', 'proj-council-', 'proj-karpathy-'
+    ];
+
+    const ghostPathSubstrings = [
+      'decohub-recovery-test-', 'decohub-selfhealing-test-', 'decohub-test-',
+      'decohub-isolated-', 'temp' + path.sep + 'decohub-', '/tmp/decohub-', '\\temp\\decohub-', '/temp/decohub-'
+    ];
+
+    const ghostProjectIds = new Set<string>();
+
+    for (const p of projectRows) {
+      const idLower = (p.id || '').toLowerCase();
+      const pathLower = (p.path || '').toLowerCase();
+
+      const hasGhostPrefix = ghostPrefixes.some(prefix => idLower.startsWith(prefix.toLowerCase()));
+      const hasGhostPath = ghostPathSubstrings.some(sub => pathLower.includes(sub.toLowerCase()));
+
+      if (hasGhostPrefix || hasGhostPath) {
+        ghostProjectIds.add(p.id);
+      }
+    }
+
+    const hasRunsTable = Boolean(targetDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='autonomous_runs'").get());
+    const runRows = hasRunsTable
+      ? (targetDb.prepare('SELECT id, project_id FROM autonomous_runs').all() as Array<{ id: string; project_id: string }>)
+      : [];
+
+    const ghostRunPrefixes = ['run-rec-', 'run-heal-', 'run-test-', 'test-run-'];
+    const ghostRunIds = new Set<string>();
+
+    for (const r of runRows) {
+      const runIdLower = (r.id || '').toLowerCase();
+      const projId = r.project_id;
+      if (ghostRunPrefixes.some(prefix => runIdLower.startsWith(prefix)) || (projId && ghostProjectIds.has(projId))) {
+        ghostRunIds.add(r.id);
+        if (projId) {
+          ghostProjectIds.add(projId);
+        }
+      }
+    }
+
+    if (ghostProjectIds.size === 0 && ghostRunIds.size === 0) {
+      return { purgedProjects: 0, purgedRuns: 0 };
+    }
+
+    const projIdList = Array.from(ghostProjectIds);
+    const runIdList = Array.from(ghostRunIds);
+
+    const deleteWhereIn = (table: string, column: string, items: string[]) => {
+      if (items.length === 0) return;
+      try {
+        const hasTable = Boolean(targetDb.prepare('SELECT name FROM sqlite_master WHERE type=\'table\' AND name=?').get(table));
+        if (!hasTable) return;
+        const placeholders = items.map(() => '?').join(',');
+        targetDb.prepare(`DELETE FROM ${table} WHERE ${column} IN (${placeholders})`).run(...items);
+      } catch {
+        // Safe catch if table or column does not exist
+      }
+    };
+
+    // Clean run-level records
+    if (runIdList.length > 0) {
+      deleteWhereIn('worker_leases', 'run_id', runIdList);
+      deleteWhereIn('agent_turn_observations', 'task_id', runIdList);
+      deleteWhereIn('builder_reports', 'run_id', runIdList);
+      deleteWhereIn('evaluation_results', 'run_id', runIdList);
+      deleteWhereIn('success_contracts', 'run_id', runIdList);
+      deleteWhereIn('autonomous_events', 'run_id', runIdList);
+      deleteWhereIn('autonomous_approvals', 'run_id', runIdList);
+      deleteWhereIn('autonomous_tasks', 'run_id', runIdList);
+      deleteWhereIn('autonomous_major_tasks', 'run_id', runIdList);
+      deleteWhereIn('task_state_transitions', 'run_id', runIdList);
+      deleteWhereIn('agent_communications', 'run_id', runIdList);
+      deleteWhereIn('command_executions', 'run_id', runIdList);
+      deleteWhereIn('run_control_requests', 'run_id', runIdList);
+      deleteWhereIn('autonomous_runs', 'id', runIdList);
+    }
+
+    // Clean project-level records
+    if (projIdList.length > 0) {
+      deleteWhereIn('agent_sessions', 'project_id', projIdList);
+      deleteWhereIn('agent_turn_observations', 'project_path', projIdList);
+      deleteWhereIn('sessions', 'project_id', projIdList);
+      deleteWhereIn('messages', 'project_id', projIdList);
+      deleteWhereIn('project_ast_symbols', 'project_id', projIdList);
+      deleteWhereIn('autonomous_runs', 'project_id', projIdList);
+      deleteWhereIn('projects', 'id', projIdList);
+    }
+
+    if (process.env.MCP_STDIO !== 'true') {
+      console.log(`[DB] Expurgo de projetos de teste concluído: ${projIdList.length} projeto(s), ${runIdList.length} run(s) removidos.`);
+    }
+
+    return { purgedProjects: projIdList.length, purgedRuns: runIdList.length };
+  } catch (err: any) {
+    if (typeof (globalThis as any).logger !== 'undefined' && (globalThis as any).logger?.warn) {
+      (globalThis as any).logger.warn({
+        event: 'server.purge_ghost_projects_failed',
+        error: err?.message || String(err)
+      });
+    }
+    return { purgedProjects: 0, purgedRuns: 0 };
   }
 }
 
@@ -1674,22 +1599,7 @@ export function ensureDefensiveMigrations(targetDb: any = db): void {
   ];
 
   for (const [table, col, colType] of defensiveMigrations) {
-    try {
-      const tableInfo = targetDb.prepare(`PRAGMA table_info(${table})`).all() as any[];
-      if (tableInfo.length > 0 && !tableInfo.some((c: any) => c.name === col)) {
-        targetDb.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${colType};`);
-      }
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "db",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:db]", err);
-      }
-    }
+    safeAddColumn(targetDb, table, col, colType);
   }
 
   try {
@@ -1709,8 +1619,6 @@ export function ensureDefensiveMigrations(targetDb: any = db): void {
       );
       CREATE INDEX IF NOT EXISTS idx_meta_chat_threads_updated
         ON meta_chat_threads(updated_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_meta_chat_thread_id
-        ON meta_chat_messages(thread_id, created_at ASC);
       CREATE TABLE IF NOT EXISTS project_ast_symbols (
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL,
@@ -1726,6 +1634,14 @@ export function ensureDefensiveMigrations(targetDb: any = db): void {
       CREATE INDEX IF NOT EXISTS idx_ast_symbols_name
         ON project_ast_symbols(symbol_name);
     `);
+
+    const hasMetaMessages = Boolean(targetDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='meta_chat_messages'").get());
+    if (hasMetaMessages) {
+      targetDb.exec(`
+        CREATE INDEX IF NOT EXISTS idx_meta_chat_thread_id
+          ON meta_chat_messages(thread_id, created_at ASC);
+      `);
+    }
   } catch (err) {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({
@@ -1805,14 +1721,17 @@ export function ensureDefensiveMigrations(targetDb: any = db): void {
 
   // Auto-migrate legacy meta_chat_messages without thread_id into thread-default
   try {
-    const orphanMsgs = targetDb.prepare("SELECT COUNT(*) as c FROM meta_chat_messages WHERE thread_id IS NULL OR thread_id = ''").get() as any;
-    if (orphanMsgs && orphanMsgs.c > 0) {
-      const now = new Date().toISOString();
-      targetDb.prepare(`
-        INSERT OR IGNORE INTO meta_chat_threads (id, title, model, effort, status, files_modified_count, created_at, updated_at)
-        VALUES ('thread-default', 'Conversa Inicial de Auto-Evolução', 'gemini-3.8-flash', 'HIGH', 'idle', 0, ?, ?)
-      `).run(now, now);
-      targetDb.prepare("UPDATE meta_chat_messages SET thread_id = 'thread-default' WHERE thread_id IS NULL OR thread_id = ''").run();
+    const hasMetaMessages = Boolean(targetDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='meta_chat_messages'").get());
+    if (hasMetaMessages) {
+      const orphanMsgs = targetDb.prepare("SELECT COUNT(*) as c FROM meta_chat_messages WHERE thread_id IS NULL OR thread_id = ''").get() as any;
+      if (orphanMsgs && orphanMsgs.c > 0) {
+        const now = new Date().toISOString();
+        targetDb.prepare(`
+          INSERT OR IGNORE INTO meta_chat_threads (id, title, model, effort, status, files_modified_count, created_at, updated_at)
+          VALUES ('thread-default', 'Conversa Inicial de Auto-Evolução', 'gemini-3.8-flash', 'HIGH', 'idle', 0, ?, ?)
+        `).run(now, now);
+        targetDb.prepare("UPDATE meta_chat_messages SET thread_id = 'thread-default' WHERE thread_id IS NULL OR thread_id = ''").run();
+      }
     }
   } catch (err) {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {

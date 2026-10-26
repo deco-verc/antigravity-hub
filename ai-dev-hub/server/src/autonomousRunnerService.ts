@@ -2,8 +2,9 @@ import { BuilderToSupervisorContract } from './agentProvider.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { execSync } from 'node:child_process';
-import { db } from './db.js';
+import { db, isRunningInTestEnvironment } from './db.js';
 import { AutonomousManager, BuilderReportInput, SupervisorReviewInput } from './autonomousManager.js';
 import { PolicyEngine, RiskLevel } from './policyEngine.js';
 import { MemoryManager } from './memoryManager.js';
@@ -21,7 +22,7 @@ import { AgentSessionManager } from './agentSessionManager.js';
 import { PromptArchitectureService } from './promptArchitectureService.js';
 import { ExecutionCoordinator } from './executionCoordinator.js';
 import { DevAutonomyService } from './devAutonomyService.js';
-import { AgentTurnState, observeTranscript } from './agentTurnState.js';
+import { AgentTurnState, observeTranscript, FATAL_QUOTA_OR_AUTH_REGEX } from './agentTurnState.js';
 import { RunControl } from './runControl.js';
 import { ObservabilityService } from './observability/observabilityService.js';
 import { TraceContextManager } from './observability/context.js';
@@ -87,6 +88,7 @@ export class AutonomousRunnerService {
   private static watchdogTimer: NodeJS.Timeout | null = null;
   private static activeRunId: string | null = null;
   private static currentTask: string | null = null;
+  private static currentTaskId: string | null = null;
   private static currentWorker: string | null = null;
   private static iteration = 0;
   private static consecutiveFailures = 0;
@@ -123,6 +125,42 @@ export class AutonomousRunnerService {
   }
 
   /**
+   * Identifies whether a run belongs to an automated test run, mock simulation,
+   * or temporary test directory that should never be dispatched to Antigravity.
+   */
+  static isGhostTestRun(run: any): boolean {
+    if (!run) return true;
+    const runId = String(run.id || '').toLowerCase();
+    const projId = String(run.project_id || '').toLowerCase();
+
+    if (/^(run-rec-|run-heal-|run-test-|test-run-)/i.test(runId)) {
+      return true;
+    }
+    if (/^(proj-rec-|proj-heal-|proj-test-|test-proj-|proj-sim-|proj-dag-|proj-audit-|proj-wave-|proj-ux-|proj-sec-|proj-living-|proj-council-|proj-karpathy-)/i.test(projId)) {
+      return true;
+    }
+
+    if (run.project_id) {
+      try {
+        const project: any = db.prepare('SELECT path FROM projects WHERE id = ?').get(run.project_id);
+        if (project && project.path) {
+          const normPath = String(project.path).toLowerCase();
+          const tmpDir = os.tmpdir().toLowerCase();
+          if (normPath.includes(tmpDir) || (normPath.includes('decohub-') && normPath.includes('test'))) {
+            return true;
+          }
+          if (!fs.existsSync(project.path)) {
+            return true;
+          }
+        }
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Watchdog auto-recovery for runs in waiting_resource
    * Restores run to 'running' when Antigravity runtime and account are available again.
    */
@@ -132,6 +170,13 @@ export class AutonomousRunnerService {
       : runOrRunId;
 
     if (!run || run.status !== 'waiting_resource') return false;
+
+    if (!isRunningInTestEnvironment() && this.isGhostTestRun(run)) {
+      try {
+        db.prepare("UPDATE autonomous_runs SET status = 'cancelled', last_error = 'GHOST_TEST_RUN_DISCARDED', next_action = 'Run de teste descartado' WHERE id = ?").run(run.id);
+      } catch {}
+      return false;
+    }
 
     const { AgentApiGateway } = await import('./agentApiGateway.js');
     const isOffline = AgentApiGateway.isOfflineMode();
@@ -352,6 +397,7 @@ export class AutonomousRunnerService {
         );
       }
       const nowIso = new Date().toISOString();
+      db.prepare("UPDATE agent_turn_observations SET phase = 'CONSUMED' WHERE task_id = ? AND phase IN ('IN_FLIGHT','UNCERTAIN')").run(task.id);
       if (session?.provider_conversation_id) {
         AgentTurnState.setPhase(session.provider_conversation_id, 'CONSUMED');
       }
@@ -802,6 +848,14 @@ export class AutonomousRunnerService {
     }
 
       for (const run of pendingRuns) {
+        if (!isRunningInTestEnvironment() && this.isGhostTestRun(run)) {
+          Logger.warn(`[Autonomous Runner Recovery] Ignorando e cancelando run fantasma de teste: ${run.id}`);
+          try {
+            db.prepare("UPDATE autonomous_runs SET status='cancelled',last_error='GHOST_TEST_RUN_DISCARDED',next_action='Run de teste descartado',updated_at=? WHERE id=?")
+              .run(new Date().toISOString(), run.id);
+          } catch {}
+          continue;
+        }
         const project: any = db.prepare('SELECT path FROM projects WHERE id=?').get(run.project_id);
         const auth = DevAutonomyService.isProjectAuthorizedForLiveExecution(run.project_id);
         if (!auth.authorized || !project || !fs.existsSync(project.path)) {
@@ -987,30 +1041,40 @@ export class AutonomousRunnerService {
     if (!this.isRunning) return;
 
     try {
-      const threeMinutesAgo = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+      const eightMinutesAgo = new Date(Date.now() - 8 * 60 * 1000).toISOString();
       const stalledTasks: any[] = db.prepare(`
         SELECT t.*, r.project_id, r.name as run_name
         FROM autonomous_tasks t
         JOIN autonomous_runs r ON t.run_id = r.id
         WHERE t.status = 'in_progress' AND t.updated_at < ?
-      `).all(threeMinutesAgo);
+      `).all(eightMinutesAgo);
 
       for (const task of stalledTasks) {
+        // Active in-memory runner check: if this task is actively executing (Worker, Evaluator, Supervisor), preserve it
+        if (this.currentTaskId === task.id && this.currentPhase !== 'IDLE') {
+          continue;
+        }
+
         const liveLease: any = db.prepare("SELECT id FROM worker_leases WHERE task_id = ? AND status = 'active' AND lease_until > ?")
           .get(task.id, new Date().toISOString());
         if (liveLease) continue;
-        if (AgentSessionManager.getActiveSession(task.project_id, 'WORKER')) {
-          const reconciled = await this.reconcileCompletedTurn(task.run_id);
-          if (reconciled) continue;
-          const pendingObs: any = db.prepare("SELECT dispatched_at FROM agent_turn_observations WHERE task_id = ? AND phase IN ('IN_FLIGHT','UNCERTAIN')").get(task.id);
-          if (pendingObs && pendingObs.dispatched_at && (Date.now() - new Date(pendingObs.dispatched_at).getTime() < 10 * 60 * 1000)) {
-            // Turno nativo recente em voo no Antigravity: aguardar sem travar ou pausar o run
-            continue;
-          }
-          // Turno órfão/sem lease: auto-heal silencioso sem pausar!
-          db.prepare("UPDATE agent_turn_observations SET phase = 'CONSUMED' WHERE task_id = ? AND phase IN ('IN_FLIGHT','UNCERTAIN')").run(task.id);
-          db.prepare("UPDATE worker_leases SET status = 'expired', released_at = ? WHERE task_id = ? AND status = 'active'").run(new Date().toISOString(), task.id);
+
+        // TOP-LEVEL check for active in-flight native turns (independent of in-memory session manager)
+        const pendingObs: any = db.prepare(
+          "SELECT dispatched_at, conversation_id FROM agent_turn_observations WHERE task_id = ? AND phase IN ('IN_FLIGHT','UNCERTAIN')"
+        ).get(task.id);
+        if (pendingObs && pendingObs.dispatched_at && (Date.now() - new Date(pendingObs.dispatched_at).getTime() < 12 * 60 * 1000)) {
+          // Turno nativo recente em voo no Antigravity: aguardar sem travar ou preempção prematura
+          continue;
         }
+
+        const reconciled = await this.reconcileCompletedTurn(task.run_id);
+        if (reconciled) continue;
+
+        // Turno orfao/sem lease genuinamente abandonado (> 12 min): auto-heal silencioso sem pausar!
+        db.prepare("UPDATE agent_turn_observations SET phase = 'CONSUMED' WHERE task_id = ? AND phase IN ('IN_FLIGHT','UNCERTAIN')").run(task.id);
+        db.prepare("UPDATE worker_leases SET status = 'expired', released_at = ? WHERE task_id = ? AND status = 'active'").run(new Date().toISOString(), task.id);
+
         const retries = (task.retry_count || 0) + 1;
         const nowIso = new Date().toISOString();
 
@@ -1278,6 +1342,15 @@ export class AutonomousRunnerService {
       this.activeRunId = null;
       this.currentTask = null;
       this.currentWorker = null;
+      return;
+    }
+
+    if (!isRunningInTestEnvironment() && this.isGhostTestRun(activeRun)) {
+      Logger.warn(`[Autonomous Runner Scheduler] Run fantasma de teste detectado e descartado: ${activeRun.id}`);
+      try {
+        db.prepare("UPDATE autonomous_runs SET status = 'cancelled', last_error = 'GHOST_TEST_RUN_DISCARDED', next_action = 'Run de teste descartado' WHERE id = ?").run(activeRun.id);
+      } catch {}
+      this.activeRunId = null;
       return;
     }
 
@@ -1686,6 +1759,7 @@ export class AutonomousRunnerService {
     try {
       return await this.executeReservedStep(runId);
     } finally {
+      this.currentTaskId = null;
       this.activeExecutionToken = null;
       const state: any = db.prepare('SELECT last_error FROM autonomous_runs WHERE id=?').get(runId);
       if (!/TURN_RECONCILIATION_REQUIRED/.test(state?.last_error || '')) {
@@ -1803,6 +1877,7 @@ export class AutonomousRunnerService {
 
         this.currentWorker = 'Supervisor';
         this.currentTask = inReviewTask.title;
+        this.currentTaskId = inReviewTask.id;
         db.prepare(`
           UPDATE autonomous_runs
           SET status = 'reviewing', next_action = 'Supervisor revisando PR e testes no GitHub', updated_at = ?
@@ -1815,6 +1890,7 @@ export class AutonomousRunnerService {
         if (reviewResult.verdict === 'APPROVED') {
           this.consecutiveFailures = 0;
           this.currentTask = null;
+          this.currentTaskId = null;
           this.currentWorker = null;
           AutonomousManager.syncRunProgress(runId);
           db.prepare(`
@@ -2291,6 +2367,7 @@ export class AutonomousRunnerService {
     }
 
     this.currentTask = nextTask.title;
+    this.currentTaskId = nextTask.id;
     this.currentWorker = selectedWorker.name;
     this.iteration++;
 
@@ -2358,21 +2435,15 @@ export class AutonomousRunnerService {
         Logger.info(`[Autonomous Runner] ${errMsg}. Tarefa re-enfileirada com segurança; scheduler prosseguirá no próximo ciclo.`);
         return;
       }
-      if (/AGENT_TURN_UNCERTAIN|LEASE_OWNERSHIP_LOST|AGENT_NATIVE_TOOL_PENDING|AGENT_NATIVE_TOOL_RECOVERED/.test(errMsg)) {
-        const isNativeToolPending = /AGENT_NATIVE_TOOL_PENDING|AGENT_NATIVE_TOOL_RECOVERED/.test(errMsg);
-        const nextActionText = isNativeToolPending
-          ? 'Aguardando conclusão de ação nativa pendente do Worker no Antigravity'
-          : 'Reconciliando estado do turno externo automaticamente antes de prosseguir';
-        const targetStatus = isNativeToolPending ? 'waiting_resource' : 'paused';
-        db.prepare("UPDATE autonomous_runs SET status=?,last_error=?,next_action=?,updated_at=? WHERE id=?")
-          .run(targetStatus, `TURN_RECONCILIATION_REQUIRED: ${errMsg}`, nextActionText, nowIso, runId);
-        AutonomousManager.logEvent(runId, nextTask.id, 'system', 'TURN_RECONCILIATION_REQUIRED', errMsg);
-        return;
-      }
       const classification = AccountProfileManager.classifyAccountOrQuotaError(taskErr);
       if (classification.isAccountOrQuotaError) {
         Logger.warn(`[Autonomous Runner] Falha de conta/cota detectada (${classification.kind}) durante execução da tarefa "${nextTask.title}": ${errMsg}`);
         const profileId = selectedWorker.account_profile_id || selectedProfile.id;
+
+        // Se houver sessão de execução ativa do worker, marca como CONSUMED para evitar bloqueio futuro de turnos
+        if (selectedWorker.conversation_id) {
+          AgentTurnState.setPhase(selectedWorker.conversation_id, 'CONSUMED');
+        }
 
         WorkerRegistry.releaseAllLeases(selectedWorker.id);
         WorkerRegistry.updateWorkerStatus(selectedWorker.id, classification.kind === 'QUOTA' ? 'COOLDOWN' : 'WAITING', {
@@ -2430,19 +2501,30 @@ export class AutonomousRunnerService {
           const pauseReason = classification.reason;
           db.prepare(`
             UPDATE autonomous_runs
-            SET status = 'paused', last_error = ?, next_action = ?, updated_at = ?
+            SET status = 'waiting_resource', last_error = ?, next_action = ?, updated_at = ?
             WHERE id = ?
-          `).run(pauseReason, 'Execução pausada aguardando restabelecimento de cota ou troca de conta', nowIso, runId);
+          `).run(pauseReason, 'Execução em espera por recursos (waiting_resource) aguardando restabelecimento de cota ou nova conta pronta', nowIso, runId);
 
           AutonomousManager.logEvent(
             runId,
             nextTask.id,
             'system',
             'ALL_ACCOUNTS_EXHAUSTED_PAUSE',
-            `Contas do DecoHUB esgotadas ou indisponíveis para ${selectedWorker.name}. Nenhuma outra conta pronta disponível. Execução pausada de forma segura. ${pauseReason}`,
+            `Contas do DecoHUB esgotadas ou indisponíveis para ${selectedWorker.name}. Nenhuma outra conta pronta disponível. Execução em waiting_resource de forma segura. ${pauseReason}`,
             { workerId: selectedWorker.id, error: errMsg, kind: classification.kind }
           );
         }
+        return;
+      }
+      if (/AGENT_TURN_UNCERTAIN|LEASE_OWNERSHIP_LOST|AGENT_NATIVE_TOOL_PENDING|AGENT_NATIVE_TOOL_RECOVERED/.test(errMsg)) {
+        const isNativeToolPending = /AGENT_NATIVE_TOOL_PENDING|AGENT_NATIVE_TOOL_RECOVERED/.test(errMsg);
+        const nextActionText = isNativeToolPending
+          ? 'Aguardando conclusão de ação nativa pendente do Worker no Antigravity'
+          : 'Reconciliando estado do turno externo automaticamente antes de prosseguir';
+        const targetStatus = isNativeToolPending ? 'waiting_resource' : 'paused';
+        db.prepare("UPDATE autonomous_runs SET status=?,last_error=?,next_action=?,updated_at=? WHERE id=?")
+          .run(targetStatus, `TURN_RECONCILIATION_REQUIRED: ${errMsg}`, nextActionText, nowIso, runId);
+        AutonomousManager.logEvent(runId, nextTask.id, 'system', 'TURN_RECONCILIATION_REQUIRED', errMsg);
         return;
       }
       if (/AGENTAPI_UNAVAILABLE|language_server.*não encontrado|Language Server.*bloqueado|FAIL_CLOSED_GUARD/i.test(errMsg)) {
@@ -2741,6 +2823,9 @@ export class AutonomousRunnerService {
     const renewalInterval = setInterval(() => {
       WorkerRegistry.renewLease(leaseId, worker.id);
       AutonomousRunnerService.touchActiveExecutionReservation();
+      try {
+        db.prepare("UPDATE autonomous_tasks SET updated_at = ? WHERE id = ?").run(new Date().toISOString(), task.id);
+      } catch {}
     }, 15000);
 
     const startTime = Date.now();
@@ -2752,6 +2837,7 @@ export class AutonomousRunnerService {
     let executedToolCalls: number | null = null;
     let engineeringPackage: any = null;
     let evaluationResult: EvaluationResult | null = null;
+    let promptMeta: any = null;
 
     try {
       // 1. Resolve builder model preferences
@@ -3069,6 +3155,9 @@ export class AutonomousRunnerService {
           current_issue_number: null,
         });
         AutonomousRunnerService.releaseExecutionLock();
+        try {
+          db.prepare("UPDATE autonomous_tasks SET updated_at = ? WHERE id = ?").run(new Date().toISOString(), task.id);
+        } catch {}
       } else {
 
       let workerExecutionContract: any = null;
@@ -3268,7 +3357,7 @@ export class AutonomousRunnerService {
         ].filter(Boolean).join('\n\n')
       };
 
-      const { prompt: fullTaskPrompt } = PromptArchitectureService.buildWorkerPrompt({
+      const builtWorkerPrompt = PromptArchitectureService.buildWorkerPrompt({
         mode: detectedMode,
         projectId: project.id || 'default-project',
         projectName: project.name,
@@ -3301,6 +3390,8 @@ export class AutonomousRunnerService {
         routedSkillId: taskInput.routedSkillId,
         routedSkillDigest: taskInput.routedSkillDigest
       });
+      const fullTaskPrompt = builtWorkerPrompt.prompt;
+      promptMeta = builtWorkerPrompt.meta;
 
       const { session: workerSession, isNew: isWorkerNew } = await AgentSessionManager.getOrCreateAgentSession(
         project.id,
@@ -3377,6 +3468,7 @@ export class AutonomousRunnerService {
                 `).run(leaseId, worker.id, run.id, task.id, nowIso, newLeaseUntil, nowIso, newLeaseUntil, nowIso);
               }
               WorkerRegistry.renewLease(leaseId, worker.id);
+              db.prepare("UPDATE autonomous_tasks SET updated_at = ? WHERE id = ?").run(new Date().toISOString(), task.id);
             } catch {
               // Non-blocking
             }
@@ -3481,6 +3573,28 @@ export class AutonomousRunnerService {
       }
 
       if (agentResult.problems.some(problem => problem.includes('AGENT_EXECUTION_TIMEOUT'))) {
+        // Se houver indício de erro de cota nos problems ou no transcript, não faz handoff na mesma conta: falha imediatamente para auto-failover
+        const quotaProblem = agentResult.problems.find(p => FATAL_QUOTA_OR_AUTH_REGEX.test(p));
+        if (quotaProblem) {
+          AgentTurnState.setPhase(effectiveSessionId, 'CONSUMED');
+          throw new Error(`QUOTA_EXHAUSTED: ${quotaProblem}`);
+        }
+        try {
+          const brainDir = antigravityProvider.getAppDataBrainDir();
+          const transcriptPath = path.join(brainDir, effectiveSessionId, '.system_generated', 'logs', 'transcript.jsonl');
+          const checkProg = observeTranscript(transcriptPath, 0);
+          if (checkProg.state === 'ERROR') {
+            const errEntry = checkProg.entries.find(e => FATAL_QUOTA_OR_AUTH_REGEX.test(String(e.error || e.content || e.message || '')));
+            const errTxt = String(errEntry?.error || errEntry?.content || errEntry?.message || 'Quota or authentication failure detected');
+            AgentTurnState.setPhase(effectiveSessionId, 'CONSUMED');
+            throw new Error(`QUOTA_EXHAUSTED: ${errTxt}`);
+          }
+        } catch (tpErr: any) {
+          if (String(tpErr?.message).startsWith('QUOTA_EXHAUSTED')) {
+            throw tpErr;
+          }
+        }
+
         if (this.isRunning) {
           Logger.info(`[AutoReconcile] Timeout de execução detectado para "${task.title}". Investigando workspace diretamente via IndependentEvaluator...`);
           let timeoutProbe: any = evaluationResult;
@@ -3533,6 +3647,9 @@ export class AutonomousRunnerService {
               current_issue_number: null,
             });
             AutonomousRunnerService.releaseExecutionLock();
+        try {
+          db.prepare("UPDATE autonomous_tasks SET updated_at = ? WHERE id = ?").run(new Date().toISOString(), task.id);
+        } catch {}
             AgentTurnState.setPhase(effectiveSessionId, 'CONSUMED');
 
             const hasDiskChanges = (agentResult.filesChanged && agentResult.filesChanged.length > 0);
@@ -3604,6 +3721,9 @@ export class AutonomousRunnerService {
         current_issue_number: null,
       });
       AutonomousRunnerService.releaseExecutionLock();
+      try {
+        db.prepare("UPDATE autonomous_tasks SET updated_at = ? WHERE id = ?").run(new Date().toISOString(), task.id);
+      } catch {}
       }
 
       if (!agentResult) {
@@ -3634,7 +3754,21 @@ export class AutonomousRunnerService {
               const absFile = path.isAbsolute(relFile) ? relFile : path.join(projectPath, relFile);
               if (fs.existsSync(absFile)) {
                 const diags = await LspService.getDiagnostics(absFile);
-                const errors = diags.filter(d => d.severity === 'error');
+                const errors = diags.filter(d => {
+                  if (d.severity !== 'error') return false;
+                  // Ignora falsos positivos benignos de configuração de compilador/módulos (TS1259, TS1343, TS5097)
+                  // Esses avisos de tsconfig não quebram o runtime real (tsx/Node ESM) e os testes objetivos decidirão
+                  const isTestFile = /(?:^|[\\/])(?:test|tests|__tests__)[\\/]|(?:test|spec)\.[cm]?[jt]sx?$/i.test(relFile);
+                  const isInteropDiag = (d.code === 1259 || d.code === 1192 || /esModuleInterop|has no default export/i.test(d.message)) && (isTestFile || /(?:node:)?(?:fs|http|path|crypto|os|child_process|assert)/i.test(d.message));
+                  const isMetaDiag = d.code === 1343 || /import\.meta/i.test(d.message);
+                  const isExtensionDiag = d.code === 5097 || /allowImportingTsExtensions/i.test(d.message);
+
+                  if (isInteropDiag || isMetaDiag || isExtensionDiag) {
+                    Logger.info(`[AutonomousRunnerService] Ignorando falso positivo benigno do LSP (TS${d.code || 'OPT'}) em ${relFile}: ${d.message}`);
+                    return false;
+                  }
+                  return true;
+                });
                 for (const e of errors) {
                   lspDiagnosticsList.push({ file: relFile, line: e.line, message: e.message, severity: e.severity });
                 }
@@ -3707,6 +3841,9 @@ export class AutonomousRunnerService {
     }
       } finally {
         AutonomousRunnerService.releaseExecutionLock();
+        try {
+          db.prepare("UPDATE autonomous_tasks SET updated_at = ? WHERE id = ?").run(new Date().toISOString(), task.id);
+        } catch {}
       }
 
       // 4.5 AI DEV COUNCIL: Post-Evaluation Critical Review Gate (Desativado para microtarefas para prevenir falsos bloqueios e unverified claims)
@@ -3848,6 +3985,32 @@ export class AutonomousRunnerService {
       // DecoMind ML Engine: Aprendizado de Máquina Online & Atualização de Q-Values
       try {
         const { DecoMindMlService } = await import('./decoMindMlService.js');
+        let priorErrorPattern: string | undefined;
+        let priorReworkCause: string | undefined;
+        if (task.retry_count > 0) {
+          try {
+            const history = typeof task.attempt_history_json === 'string'
+              ? JSON.parse(task.attempt_history_json)
+              : (Array.isArray(task.attempt_history_json) ? task.attempt_history_json : []);
+            if (history.length > 0) {
+              const lastFailed = history.slice().reverse().find((h: any) => h.workerStatus === 'failure' || (h.knownProblems && h.knownProblems.length > 0) || h.testResults?.includes('FAIL'));
+              if (lastFailed) {
+                priorErrorPattern = Array.isArray(lastFailed.knownProblems) && lastFailed.knownProblems.length > 0
+                  ? lastFailed.knownProblems.join('; ')
+                  : lastFailed.testResults || 'REWORK_REQUIRED';
+                priorReworkCause = lastFailed.testResults || 'Falha na avaliação prévia';
+              }
+            }
+          } catch {}
+          if (!priorErrorPattern && agentResult.problems?.length) {
+            priorErrorPattern = agentResult.problems.join('; ');
+          }
+          if (!priorErrorPattern) {
+            priorErrorPattern = `Retry ${task.retry_count}: Falha superada na execução autônoma`;
+            priorReworkCause = 'Correção aplicada com sucesso na repetição';
+          }
+        }
+
         DecoMindMlService.recordTaskOutcome({
           taskId: task.id,
           projectId: project.id,
@@ -3856,8 +4019,13 @@ export class AutonomousRunnerService {
           verdict: evaluationResult.taskIsDone ? 'PASS' : 'REWORK_REQUIRED',
           armKey: `${task.skill_routed || 'GENERAL'}::${(run.config?.model || 'flash')}::${engineeringPackage?.adaptiveEffort?.effortLevel || 'HIGH'}`,
           durationMs: Math.max(1000, Date.now() - new Date(task.created_at || Date.now()).getTime()),
-          reworkCause: evaluationResult.taskIsDone ? undefined : (evaluationResult.actual || evaluationResult.verdict),
-          errorPattern: evaluationResult.taskIsDone ? undefined : (agentResult.problems?.join('; ') || evaluationResult.verdict),
+          retrievedMemoryIds: promptMeta?.retrievedMemoryIds,
+          reworkCause: evaluationResult.taskIsDone
+            ? (task.retry_count > 0 ? priorReworkCause : undefined)
+            : (evaluationResult.actual || evaluationResult.verdict),
+          errorPattern: evaluationResult.taskIsDone
+            ? (task.retry_count > 0 ? priorErrorPattern : undefined)
+            : (agentResult.problems?.join('; ') || evaluationResult.verdict),
           solutionVaccine: evaluationResult.taskIsDone && task.retry_count > 0 ? (agentResult.implemented?.join('; ') || 'Correção aplicada com sucesso') : undefined
         });
       } catch (mlErr: any) {
@@ -3976,6 +4144,11 @@ export class AutonomousRunnerService {
   ): Promise<{ verdict: 'APPROVED' | 'CHANGES_REQUESTED'; feedback: string; run: any }> {
     const project = run.project || { name: 'Projeto', path: '.', objective: '' };
     AutonomousRunnerService.setExecutionPhase('SUPERVISOR_REVIEWING');
+    try {
+      if (task?.id) {
+        db.prepare("UPDATE autonomous_tasks SET updated_at = ? WHERE id = ?").run(new Date().toISOString(), task.id);
+      }
+    } catch {}
 
     let verdict: 'APPROVED' | 'CHANGES_REQUESTED' = 'APPROVED';
     let feedback = '';

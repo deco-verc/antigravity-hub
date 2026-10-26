@@ -30,27 +30,85 @@ export interface NormalizedVerificationCommandResult {
   reason?: string;
 }
 
+/**
+ * Checks whether a given file name corresponds to a test file convention.
+ * When isInsideTestDir is true, any code file (except test helpers/fixtures/setups) is considered a test.
+ */
+export function isTestFileName(fileName: string, isInsideTestDir = false): boolean {
+  if (isInsideTestDir) {
+    if (/^(?:setup|fixture|fixtures|testSetup|helper|helpers)\.[cm]?[jt]sx?$/i.test(fileName)) {
+      return false;
+    }
+    if (/\.[cm]?[jt]sx?$/i.test(fileName)) {
+      return true;
+    }
+  }
+  return (
+    /\.(test|spec)\.[cm]?[jt]sx?$/i.test(fileName) ||
+    /[-_](?:test|spec)\.[cm]?[jt]sx?$/i.test(fileName) ||
+    /^(?:test|tests|spec|specs)\.[cm]?[jt]sx?$/i.test(fileName) ||
+    /\btest_[a-zA-Z0-9_-]+\.py$/i.test(fileName) ||
+    /[a-zA-Z0-9_-]+_test\.py$/i.test(fileName)
+  );
+}
+
 /** Node 24 treats `node --test test/` as a module path. Enumerate real test files explicitly. */
 export function resolveVerificationCommand(command: string, projectPath: string): string {
-  const match = command.trim().match(/^node\s+--test\s+["']?(test|tests)[\\/]?["']?$/);
-  if (!match) return command;
-  const folder = path.join(projectPath, match[1]);
-  const files: string[] = [];
-  if (fs.existsSync(folder)) {
-    if (fs.lstatSync(folder).isSymbolicLink()) throw new Error('TEST_COMMAND_SYMLINK_DENIED');
-    const walk = (dir: string) => {
-      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-        if (e.isSymbolicLink()) throw new Error('TEST_COMMAND_SYMLINK_DENIED');
-        const file = path.join(dir, e.name);
-        if (e.isDirectory()) walk(file);
-        else if (/\.(test|spec)\.[cm]?js$/i.test(e.name)) files.push(path.relative(projectPath, file).replace(/\\/g, '/'));
+  const trimmed = command.trim();
+  // 1. Match node [--import ...] --test [test|tests|__tests__] or bare node --test
+  const match = trimmed.match(/^node\s+(?:--import\s+[^\s]+\s+)?--test(?:\s+["']?(test|tests|__tests__)[\\/]?(?:["']|$))?$/);
+  if (match) {
+    const candidateDir = match[1] || (
+      fs.existsSync(path.join(projectPath, 'test')) ? 'test' :
+      fs.existsSync(path.join(projectPath, 'tests')) ? 'tests' :
+      fs.existsSync(path.join(projectPath, '__tests__')) ? '__tests__' : ''
+    );
+    const files: string[] = [];
+    if (candidateDir) {
+      const folder = path.join(projectPath, candidateDir);
+      if (fs.existsSync(folder)) {
+        if (fs.lstatSync(folder).isSymbolicLink()) throw new Error('TEST_COMMAND_SYMLINK_DENIED');
+        const walk = (dir: string) => {
+          for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+            if (e.isSymbolicLink()) throw new Error('TEST_COMMAND_SYMLINK_DENIED');
+            const file = path.join(dir, e.name);
+            if (e.isDirectory()) walk(file);
+            else if (isTestFileName(e.name, true)) files.push(path.relative(projectPath, file).replace(/\\/g, '/'));
+          }
+        };
+        walk(folder);
       }
-    };
-    walk(folder);
+    }
+
+    // Bare node --test fallback: verify root-level test files (test.js, test.ts, etc.)
+    if (!files.length && !match[1] && fs.existsSync(projectPath)) {
+      try {
+        for (const e of fs.readdirSync(projectPath, { withFileTypes: true })) {
+          if (!e.isDirectory() && !e.isSymbolicLink() && isTestFileName(e.name, false)) {
+            files.push(e.name);
+          }
+        }
+      } catch {}
+    }
+
+    if (files.length) {
+      if (files.some(f => !/^[a-zA-Z0-9_ ./-]+$/.test(f))) throw new Error('TEST_FILE_SHELL_CHARACTERS_DENIED');
+      const hasTs = files.some(f => /\.[cm]?tsx?$/i.test(f));
+      const baseCmd = hasTs ? 'node --import tsx --test ' : 'node --test ';
+      return baseCmd + files.sort().map(f => '"' + f + '"').join(' ');
+    } else if (match[1]) {
+      throw new Error('TEST_DIRECTORY_HAS_NO_TEST_FILES');
+    }
   }
-  if (!files.length) throw new Error('TEST_DIRECTORY_HAS_NO_TEST_FILES');
-  if (files.some(f => !/^[a-zA-Z0-9_ ./-]+$/.test(f))) throw new Error('TEST_FILE_SHELL_CHARACTERS_DENIED');
-  return 'node --test ' + files.sort().map(f => '"' + f + '"').join(' ');
+
+  // 2. node --test with explicit test files: if any file is .ts/.tsx and --import tsx is missing, inject --import tsx
+  if (/^node\s+--test\s+/.test(trimmed) && !trimmed.includes('--import')) {
+    if (/\.[cm]?tsx?\b/i.test(trimmed)) {
+      return trimmed.replace(/^node\s+--test/, 'node --import tsx --test');
+    }
+  }
+
+  return command;
 }
 
 function parseCommandTokens(command: string): { ok: boolean; tokens: string[]; reason?: string } {
@@ -163,6 +221,17 @@ export function validateVerificationCommand(
             return { valid: false, code: 'COMMAND_REVIEW_REQUIRED', reason: `COMMAND_REVIEW_REQUIRED: ${err?.message}` };
           }
         }
+        // Suporte a scripts compostos com && (ex: "npm run build && node --test" ou "tsc && node --test")
+        if (scriptCmd.includes('&&') && !/[;<|>|`$\r\n]/.test(scriptCmd.replace(/&&/g, ''))) {
+          const subParts = scriptCmd.split('&&').map(s => s.trim()).filter(Boolean);
+          const allPartsValid = subParts.every(sub => {
+            const subRes = validateVerificationCommand(sub, root, { allowUncreatedFiles });
+            return subRes.valid;
+          });
+          if (allPartsValid && subParts.length > 0) {
+            return { valid: true };
+          }
+        }
         const scriptParsed = parseCommandTokens(scriptCmd);
         if (!scriptParsed.ok) {
           return { valid: false, code: 'COMMAND_REVIEW_REQUIRED', reason: scriptParsed.reason };
@@ -180,20 +249,44 @@ export function validateVerificationCommand(
 
   if (words[0] === 'node') {
     const args = words.slice(1);
-    if (args[0] === '--test') {
-      if (args.slice(1).some(a => a.startsWith('-'))) {
-        return { valid: false, code: 'COMMAND_REVIEW_REQUIRED', reason: 'COMMAND_REVIEW_REQUIRED: flags de testes fora da allowlist' };
-      }
-      for (const file of args.slice(1)) {
-        const insideRes = checkInsideProject(root, file);
+    if (args.includes('--test')) {
+      const allowedFlags = ['--test', '--test-isolation=none', '--test-concurrency=1'];
+      let safe = true;
+      for (let i = 0; i < args.length; i++) {
+        const arg = args[i];
+        if (allowedFlags.includes(arg)) continue;
+        if (arg === '--import' || arg === '--loader' || arg === '-r' || arg === '--require') {
+          const next = args[++i];
+          if (!next || !/^(?:tsx(?:\/esm)?|ts-node(?:\/register)?|[a-zA-Z0-9_./\\-]+)$/.test(next)) {
+            safe = false;
+            break;
+          }
+          if (next.startsWith('.') || next.includes('/') || next.includes('\\')) {
+            const insideRes = checkInsideProject(root, next);
+            if (!insideRes.ok) {
+              safe = false;
+              break;
+            }
+          }
+          continue;
+        }
+        if (arg.startsWith('-')) {
+          safe = false;
+          break;
+        }
+        const insideRes = checkInsideProject(root, arg);
         if (!insideRes.ok) {
-          return { valid: false, code: 'COMMAND_REVIEW_REQUIRED', reason: insideRes.reason };
+          safe = false;
+          break;
         }
         if (!allowUncreatedFiles && !fs.existsSync(insideRes.target!)) {
-          return { valid: false, code: 'COMMAND_REVIEW_REQUIRED', reason: `COMMAND_REVIEW_REQUIRED: arquivo de teste ausente no disco (${file})` };
+          return { valid: false, code: 'COMMAND_REVIEW_REQUIRED', reason: `COMMAND_REVIEW_REQUIRED: arquivo de teste ausente no disco (${arg})` };
         }
       }
-      return { valid: true };
+      if (safe) {
+        return { valid: true };
+      }
+      return { valid: false, code: 'COMMAND_REVIEW_REQUIRED', reason: 'COMMAND_REVIEW_REQUIRED: flags de testes fora da allowlist' };
     } else if (args[0] === '--check' || args[0] === '-c') {
       const file = args[1];
       if (!file || file.startsWith('-') || !/\.[cm]?js$/i.test(file)) {
@@ -226,12 +319,34 @@ export function validateVerificationCommand(
       }
       return { valid: true };
     }
-  } else if (words[0] === 'tsc' && words.slice(1).every(a => a === '--noEmit')) {
+  } else if (words[0] === 'tsc') {
+    const allowedTscArgs = ['--noEmit', '-p', '--project', '-b', '--build'];
+    const extraArgs = words.slice(1);
+    const isValidTsc = extraArgs.length === 0 || extraArgs.every(a => allowedTscArgs.includes(a) || /^[a-zA-Z0-9_./\\-]+\.json$/i.test(a));
+    if (!isValidTsc) {
+      return { valid: false, code: 'COMMAND_REVIEW_REQUIRED', reason: 'COMMAND_REVIEW_REQUIRED: argumentos do tsc fora da allowlist' };
+    }
     const insideRes = checkInsideProject(root, 'node_modules/typescript/bin/tsc');
     if (!insideRes.ok) {
       return { valid: false, code: 'COMMAND_REVIEW_REQUIRED', reason: insideRes.reason };
     }
     return { valid: true };
+  } else if (words[0] === 'npx') {
+    const subTool = words[1];
+    if (subTool === 'tsc') {
+      const allowedTscArgs = ['--noEmit', '-p', '--project', '-b', '--build'];
+      const extraArgs = words.slice(2);
+      const isValidTsc = extraArgs.length === 0 || extraArgs.every(a => allowedTscArgs.includes(a) || /^[a-zA-Z0-9_./\\-]+\.json$/i.test(a));
+      if (!isValidTsc) {
+        return { valid: false, code: 'COMMAND_REVIEW_REQUIRED', reason: 'COMMAND_REVIEW_REQUIRED: argumentos do npx tsc fora da allowlist' };
+      }
+      return { valid: true };
+    } else if (subTool === 'tsx') {
+      const extraArgs = words.slice(2);
+      if (extraArgs.includes('--test')) {
+        return { valid: true };
+      }
+    }
   }
 
   return {
@@ -243,16 +358,17 @@ export function validateVerificationCommand(
 
 export function hasAnyTestFilesOnDisk(projectPath: string): boolean {
   if (!fs.existsSync(projectPath)) return false;
-  const scan = (dir: string, depth: number): boolean => {
+  const scan = (dir: string, depth: number, insideTestDir = false): boolean => {
     if (depth > 6) return false;
     try {
       for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
         if (entry.isSymbolicLink()) continue;
         if (entry.isDirectory()) {
           if (!['.git', 'node_modules', 'dist', 'build', '.ai-dev-hub', '.decohub-data'].includes(entry.name)) {
-            if (scan(path.join(dir, entry.name), depth + 1)) return true;
+            const isTestFolder = insideTestDir || ['test', 'tests', '__tests__'].includes(entry.name.toLowerCase());
+            if (scan(path.join(dir, entry.name), depth + 1, isTestFolder)) return true;
           }
-        } else if (entry.isFile() && /\.(test|spec)\.[cm]?js$/i.test(entry.name)) {
+        } else if (entry.isFile() && isTestFileName(entry.name, insideTestDir)) {
           return true;
         }
       }
@@ -269,7 +385,7 @@ export function hasAnyTestFilesOnDisk(projectPath: string): boolean {
     }
     return false;
   };
-  return scan(projectPath, 0);
+  return scan(projectPath, 0, false);
 }
 
 export function findCandidateJsFile(projectPath: string, scopeFiles?: string[]): string | null {
@@ -278,7 +394,7 @@ export function findCandidateJsFile(projectPath: string, scopeFiles?: string[]):
   // 1. Verifica arquivos de escopo explícitos fornecidos
   if (Array.isArray(scopeFiles)) {
     for (const file of scopeFiles) {
-      if (typeof file === 'string' && /\.[cm]?js$/i.test(file)) {
+      if (typeof file === 'string' && /\.[cm]?[jt]sx?$/i.test(file)) {
         const full = path.resolve(projectPath, file);
         if (fs.existsSync(full) && fs.statSync(full).isFile()) {
           return path.relative(projectPath, full).replace(/\\/g, '/');
@@ -289,13 +405,21 @@ export function findCandidateJsFile(projectPath: string, scopeFiles?: string[]):
 
   // 2. Pontos de entrada padrões comuns
   const candidates = [
+    'src/index.ts',
     'src/index.js',
+    'src/main.ts',
     'src/main.js',
+    'src/app.ts',
     'src/app.js',
+    'src/server.ts',
     'src/server.js',
+    'index.ts',
     'index.js',
+    'main.ts',
     'main.js',
+    'app.ts',
     'app.js',
+    'server.ts',
     'server.js'
   ];
   for (const c of candidates) {
@@ -316,7 +440,7 @@ export function findCandidateJsFile(projectPath: string, scopeFiles?: string[]):
             const found = scan(path.join(dir, entry.name), depth + 1);
             if (found) return found;
           }
-        } else if (entry.isFile() && /\.[cm]?js$/i.test(entry.name)) {
+        } else if (entry.isFile() && /\.[cm]?[jt]sx?$/i.test(entry.name)) {
           return path.relative(projectPath, path.join(dir, entry.name)).replace(/\\/g, '/');
         }
       }
@@ -383,12 +507,36 @@ export function normalizeOrRecoverVerificationCommand(
         recovered: true,
         reason: 'package.json ou script test ausente no projeto; recuperado para validação segura de arquivos criados'
       };
+    } else {
+      return {
+        validInitially: true,
+        command: 'npm test',
+        originalCommand: raw,
+        recovered: false
+      };
     }
   }
 
   // 1.5 Auto-promoção de comandos triviais quando há testes válidos no projeto
   const isTrivialCommand = !raw || /^(?:node\s+-e\s+["']\s*process\.exit\(0\);?["']|exit\s+0|true\b|echo\b)/i.test(raw);
   if (isTrivialCommand) {
+    if (fs.existsSync(projectPath)) {
+      const pkgPath = path.join(projectPath, 'package.json');
+      if (fs.existsSync(pkgPath)) {
+        try {
+          const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+          if (typeof pkg.scripts?.test === 'string') {
+            return {
+              validInitially: false,
+              command: 'npm test',
+              originalCommand: raw,
+              recovered: true,
+              reason: 'Comando trivial ou vazio auto-promovido para o executor de testes canônico do projeto (npm test)'
+            };
+          }
+        } catch {}
+      }
+    }
     const npmTestValid = validateVerificationCommand('npm test', projectPath, { allowUncreatedFiles: false }).valid;
     if (npmTestValid) {
       return {
@@ -453,6 +601,23 @@ export function normalizeOrRecoverVerificationCommand(
   }
 
   // Check if canonical 'npm test' is valid on disk
+  if (fs.existsSync(projectPath)) {
+    const pkgPath = path.join(projectPath, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+        if (typeof pkg.scripts?.test === 'string') {
+          return {
+            validInitially: false,
+            command: 'npm test',
+            originalCommand: raw,
+            recovered: true,
+            reason: initialValidation.reason || 'Recuperado para npm test definido no package.json do projeto'
+          };
+        }
+      } catch {}
+    }
+  }
   const npmTestValid = validateVerificationCommand('npm test', projectPath, { allowUncreatedFiles: false }).valid;
   if (npmTestValid) {
     return {

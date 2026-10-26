@@ -1520,7 +1520,7 @@ export const api = {
     return res.json();
   },
 
-  async getMetaChatThreadMessages(threadId: string, limit = 100): Promise<MetaChatMessageItem[]> {
+  async getMetaChatThreadMessages(threadId: string, limit = 500): Promise<MetaChatMessageItem[]> {
     const res = await fetch(`${API_BASE}/metachat/threads/${encodeURIComponent(threadId)}/messages?limit=${limit}`);
     if (!res.ok) throw new Error('Falha ao carregar mensagens da thread');
     return res.json();
@@ -1544,7 +1544,7 @@ export const api = {
     return res.json();
   },
 
-  async getMetaChatMessages(threadIdOrLimit?: string | number, maybeLimit = 100): Promise<MetaChatMessageItem[]> {
+  async getMetaChatMessages(threadIdOrLimit?: string | number, maybeLimit = 500): Promise<MetaChatMessageItem[]> {
     let url = `${API_BASE}/metachat/messages`;
     if (typeof threadIdOrLimit === 'number') {
       url += `?limit=${threadIdOrLimit}`;

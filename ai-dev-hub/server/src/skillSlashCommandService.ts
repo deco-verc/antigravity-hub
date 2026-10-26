@@ -19,6 +19,8 @@ import { MemoryManager } from './memoryManager.js';
 import { BenchmarkService } from './benchmarkService.js';
 import { MarketDiscoveryService } from './marketDiscoveryService.js';
 import { db } from './db.js';
+import { calibrateKarpathySkillContent, ensureSkillFrontmatter } from './skillRouter.js';
+import { CouncilManager } from './councilManager.js';
 
 export type SlashCommandExecutionType = 'IMMEDIATE_TOOL' | 'AUTONOMOUS_DELTA';
 
@@ -213,6 +215,13 @@ export class SkillSlashCommandService {
           'karpathy-guidelines',
           'SKILL.md'
         ),
+        path.join(
+          hubRoot,
+          'Skills',
+          'andrej-karpathy-skills-main',
+          'andrej-karpathy-skills-main',
+          'EXAMPLES.md'
+        ),
         path.join(hubRoot, 'Skills', 'karpathy-guidelines', 'SKILL.md')
       ],
       'rea-saas-master': [
@@ -227,6 +236,11 @@ export class SkillSlashCommandService {
       ],
       'frontend-design': [
         path.join(designSkills, 'frontend-design.md')
+      ],
+      'llm-council': [
+        path.join(hubRoot, 'Skills', 'llm-council-master', 'llm-council-master', 'CLAUDE.md'),
+        path.join(hubRoot, 'Skills', 'llm-council-master', 'llm-council-master', 'README.md'),
+        path.join(hubRoot, 'Skills', 'llm-council-master', 'llm-council-master', 'backend', 'council.py')
       ]
     };
   }
@@ -309,6 +323,17 @@ export class SkillSlashCommandService {
       skillsUsed: ['rea-saas-master', 'design-system', 'ui-styling'],
       executionType: 'AUTONOMOUS_DELTA',
       argHint: '[foco de auditoria ou pilar específico]'
+    },
+    {
+      command: '/council',
+      aliases: ['/deliberate', '/consensus'],
+      title: 'AI DEV Council Deliberation',
+      description:
+        'Convoca o Conselho Multi-Perspectiva em 3 estágios (Corretude, Simplicidade Karpathy e Regressão) com ranking anônimo por pares e síntese do Chairman.',
+      category: 'Architecture',
+      skillsUsed: ['llm-council', 'karpathy-guidelines'],
+      executionType: 'IMMEDIATE_TOOL',
+      argHint: '<proposta técnica, decisão arquitetural ou dúvida de produto>'
     },
     {
       command: '/karpathy',
@@ -488,6 +513,7 @@ export class SkillSlashCommandService {
 
     const fileMap = this.getSkillFileMap();
     const copiedSkills: string[] = [];
+    const hubRoot = this.getHubRootDir();
 
     for (const key of skillKeys) {
       const candidates = fileMap[key] || [];
@@ -501,15 +527,57 @@ export class SkillSlashCommandService {
 
       const targetFilename = `${key}.md`;
       const targetPath = path.join(skillsDir, targetFilename);
+      const isKarpathy = key === 'karpathy-guidelines' || (foundPath ? foundPath.includes('karpathy-guidelines') : false);
 
       if (foundPath) {
         try {
-          const srcContent = fs.readFileSync(foundPath, 'utf-8');
+          let srcContent = fs.readFileSync(foundPath, 'utf-8');
+          if (isKarpathy) {
+            srcContent = calibrateKarpathySkillContent(srcContent);
+          }
           const isSame = fs.existsSync(targetPath) && fs.readFileSync(targetPath, 'utf-8') === srcContent;
           if (!isSame) {
             fs.writeFileSync(targetPath, srcContent, 'utf-8');
           }
           copiedSkills.push(targetFilename);
+
+          // Native Antigravity 2.0 provisioning: <projectPath>/.agents/skills/<key>/SKILL.md
+          try {
+            const nativeSkillDir = path.join(projectPath, '.agents', 'skills', key);
+            if (!fs.existsSync(nativeSkillDir)) {
+              fs.mkdirSync(nativeSkillDir, { recursive: true });
+            }
+            const nativeSkillFile = path.join(nativeSkillDir, 'SKILL.md');
+            const nativeContent = ensureSkillFrontmatter(srcContent, key);
+            if (!fs.existsSync(nativeSkillFile) || fs.readFileSync(nativeSkillFile, 'utf-8') !== nativeContent) {
+              fs.writeFileSync(nativeSkillFile, nativeContent, 'utf-8');
+            }
+
+            // For karpathy-guidelines, also provision examples/EXAMPLES.md
+            if (isKarpathy) {
+              const examplesCandidates = [
+                path.join(hubRoot, 'Skills', 'andrej-karpathy-skills-main', 'andrej-karpathy-skills-main', 'EXAMPLES.md'),
+                path.join(hubRoot, 'Skills', 'karpathy-guidelines', 'examples', 'EXAMPLES.md'),
+                path.join(hubRoot, 'Skills', 'karpathy-guidelines', 'EXAMPLES.md')
+              ];
+              for (const exSrc of examplesCandidates) {
+                if (fs.existsSync(exSrc) && fs.statSync(exSrc).isFile()) {
+                  const examplesDir = path.join(nativeSkillDir, 'examples');
+                  if (!fs.existsSync(examplesDir)) {
+                    fs.mkdirSync(examplesDir, { recursive: true });
+                  }
+                  const examplesDest = path.join(examplesDir, 'EXAMPLES.md');
+                  const exContent = fs.readFileSync(exSrc, 'utf-8');
+                  if (!fs.existsSync(examplesDest) || fs.readFileSync(examplesDest, 'utf-8') !== exContent) {
+                    fs.writeFileSync(examplesDest, exContent, 'utf-8');
+                  }
+                  break;
+                }
+              }
+            }
+          } catch (nativeErr: any) {
+            Logger.warn(`[SkillSlashCommandService] Falha ao provisionar native skill ${key}: ${nativeErr.message}`);
+          }
         } catch (err: any) {
           Logger.warn(`[SkillSlashCommandService] Falha ao copiar skill ${key}:${err.message}`);
         }
@@ -522,10 +590,34 @@ export class SkillSlashCommandService {
           );
         }
         copiedSkills.push(targetFilename);
+
+        try {
+          const nativeSkillDir = path.join(projectPath, '.agents', 'skills', key);
+          if (!fs.existsSync(nativeSkillDir)) {
+            fs.mkdirSync(nativeSkillDir, { recursive: true });
+          }
+          const nativeSkillFile = path.join(nativeSkillDir, 'SKILL.md');
+          const nativeContent = ensureSkillFrontmatter(
+            `# Skill: ${key}\n\nEspecialidade técnica ativada sob demanda via Slash Command DecoHUB.\nSiga estritamente os contratos de código limpo, tokens semânticos (:root), ícones SVG Lucide e validação automatizada.\n`,
+            key
+          );
+          if (!fs.existsSync(nativeSkillFile)) {
+            fs.writeFileSync(nativeSkillFile, nativeContent, 'utf-8');
+          }
+        } catch (nativeErr: any) {
+          Logger.warn(`[SkillSlashCommandService] Falha ao provisionar fallback native skill ${key}: ${nativeErr.message}`);
+        }
       }
     }
 
     return { skillsDir, copiedSkills };
+  }
+
+  /**
+   * Workspace alias for provisionSkillsForProject.
+   */
+  static provisionSkillsToWorkspace(projectPath: string, skillKeys: string[]): ProvisionSkillsResult {
+    return this.provisionSkillsForProject(projectPath, skillKeys);
   }
 
   /**
@@ -556,6 +648,17 @@ export class SkillSlashCommandService {
         `2. SIMPLICITY FIRST: Simplifique código complexo ou espaguete para a menor implementação direta e legível, sem remover funcionalidades de produto.`,
         `3. SURGICAL CHANGES: Toque apenas nos arquivos necessários. Remova código morto, funções duplicadas e abstrações especulativas de uso único.`,
         `4. PRESERVAÇÃO RIGOROSA & TESTES: NUNCA enfraqueça ou apague testes existentes. Execute a suíte automatizada garantindo código de saída 0.`,
+        `=== FIM DO PLAYBOOK ===`
+      ].join('\n');
+    }
+
+    if (def.command === '/council') {
+      return [
+        ...baseHeader,
+        `1. THREE-STAGE DELIBERATION: Conduza deliberação em 3 estágios (Estágio 1: Opiniões Independentes, Estágio 2: Ranking por Pares Anonimizado, Estágio 3: Síntese do Chairman).`,
+        `2. ANONYMIZED PEER REVIEW: No Estágio 2, critique os pareceres como Response A, Response B, Response C sem viés de autoria e finalize com "FINAL RANKING:".`,
+        `3. OCCAM'S RAZOR & KARPATHY SIMPLICITY: Penalize overengineering, classes/fábricas redundantes e código prolixo.`,
+        `4. REGRESSION & SAFETY SHIELD: Bloqueie alterações críticas (auth/db/secrets) que não apresentem suíte de testes automatizados de regressão.`,
         `=== FIM DO PLAYBOOK ===`
       ].join('\n');
     }
@@ -705,6 +808,8 @@ export class SkillSlashCommandService {
         return this.handleShipCommand(context, args);
       case '/research':
         return this.handleResearchCommand(context, args);
+      case '/council':
+        return this.handleCouncilCommand(context, args);
       case '/frontend':
       case '/redesign':
       case '/img2code':
@@ -1571,6 +1676,61 @@ export class SkillSlashCommandService {
         type: 'market_discovery_wave_zero',
         domain: discovery.domainName || 'SaaS Moderno',
         dossierPath: discovery.fullReportPath
+      }
+    };
+  }
+
+  /**
+   * Handler for `/council` (3-stage deliberation with peer ranking & synthesis).
+   */
+  private static async handleCouncilCommand(
+    context: SlashCommandContext,
+    args: string
+  ): Promise<SlashCommandResult> {
+    this.provisionSkillsForProject(context.projectPath, ['llm-council', 'karpathy-guidelines']);
+
+    const query = args.trim() || 'Avaliação arquitetural do projeto e análise de integridade';
+    const result = await CouncilManager.deliberateQuery(query, {
+      projectId: context.projectId,
+      context: context.fullMessage
+    });
+
+    const replyLines = [
+      `### AI DEV Council: Deliberação em 3 Estágios (Multi-Perspectiva)`,
+      `**Consulta / Proposta:** ${query}`,
+      `**Consenso:** ${result.consensusLevel} | **Veredicto Final do Chairman:** ${result.chairmanVerdict}`,
+      ``,
+      `#### Estágio 1 — Pareceres Independentes:`,
+      ...result.stage1Reviews.map(r =>
+        `* **${r.roleName} (${r.anonymousLabel})**: Nota ${r.score}/10 | ${r.verdict}\n  - ${r.findings.join(' ')}${r.blockingIssues.length > 0 ? `\n  - Bloqueios: ${r.blockingIssues.join('; ')}` : ''}`
+      ),
+      ``,
+      `#### Estágio 2 — Ranking por Pares Anonimizado:`,
+      ...result.stage2PeerRankings.map(p =>
+        `* **${p.reviewerLabel}**: ${p.rankedReviews.join(' > ')} — _${p.justification}_`
+      ),
+      ...(result.aggregateRankings && result.aggregateRankings.length > 0
+        ? [
+            `* **Ranking Agregado (Média Ponderada)**: ${result.aggregateRankings.map(a => `${a.label || a.role} (Rank ${a.averageRank})`).join(' > ')}`
+          ]
+        : []),
+      ``,
+      `#### Estágio 3 — Síntese do Chairman:`,
+      `${result.chairmanSynthesis}`,
+      ``,
+      `#### Ações Recomendadas (Action Items):`,
+      ...result.actionItems.map(item => `* ${item}`)
+    ];
+
+    return {
+      replyContent: replyLines.join('\n'),
+      execution: result,
+      metadata: {
+        command: '/council',
+        verdict: result.chairmanVerdict,
+        consensus: result.consensusLevel,
+        aggregateRankings: result.aggregateRankings,
+        actionItems: result.actionItems
       }
     };
   }

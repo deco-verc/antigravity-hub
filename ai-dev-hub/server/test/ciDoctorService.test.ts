@@ -266,4 +266,149 @@ FAIL test/math.test.cjs
 
     assert.equal(customCalled, true, 'Custom healer hook deve ter sido executado');
   });
+
+  it('7. attemptQuickHeal: Auto-repara import default de node:assert/strict para named import compatível', async () => {
+    const defectFile = path.join(srcDir, 'interopDefect.ts');
+    fs.writeFileSync(
+      defectFile,
+      `import assert from "node:assert/strict";\nexport function check(x: number) { assert.ok(x > 0); }\n`
+    );
+
+    const diag: FailureDiagnosis = {
+      failedFile: defectFile,
+      relativeFilePath: 'src/interopDefect.ts',
+      line: 1,
+      assertionMessage: `Module '"node:assert/strict"' can only be default-imported using the 'esModuleInterop' flag`,
+      rawOutput: `error TS1259: Module '"node:assert/strict"' can only be default-imported using the 'esModuleInterop' flag`,
+      isTestFile: false
+    };
+
+    const res = await CiDoctorService.attemptQuickHeal({
+      projectPath: tempDir,
+      task: { id: 'task-interop' },
+      failureDiagnosis: diag,
+      verificationCommand: 'node -e "process.exit(0)"'
+    });
+
+    assert.equal(res.healed, true, 'Deve ter auto-reparado com sucesso');
+    const content = fs.readFileSync(defectFile, 'utf-8');
+    assert.ok(content.includes('import { strict as assert } from "node:assert";'), 'Deve ter convertido para named import');
+  });
+
+  it('8. attemptQuickHeal: Auto-repara extensão .ts em imports relativos para compatibilidade TS estrita (TS5097)', async () => {
+    const defectFile = path.join(srcDir, 'extensionDefect.ts');
+    fs.writeFileSync(
+      defectFile,
+      `import { foo } from "./foo.ts";\nimport { bar } from "../utils/bar.tsx";\nexport function run() { return foo() + bar(); }\n`
+    );
+
+    const diag: FailureDiagnosis = {
+      failedFile: defectFile,
+      relativeFilePath: 'src/extensionDefect.ts',
+      line: 1,
+      assertionMessage: `An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.`,
+      rawOutput: `error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.`,
+      isTestFile: false
+    };
+
+    const res = await CiDoctorService.attemptQuickHeal({
+      projectPath: tempDir,
+      task: { id: 'task-extension' },
+      failureDiagnosis: diag,
+      verificationCommand: 'node -e "process.exit(0)"'
+    });
+
+    assert.equal(res.healed, true, 'Deve ter auto-reparado com sucesso');
+    const content = fs.readFileSync(defectFile, 'utf-8');
+    assert.ok(content.includes('import { foo } from "./foo";'), 'Deve ter removido extensão .ts');
+    assert.ok(content.includes('import { bar } from "../utils/bar";'), 'Deve ter removido extensão .tsx');
+  });
+
+  it('9. attemptQuickHeal: Auto-repara default imports de módulos nativos do Node (node:fs, node:http, node:path) para namespace imports (TS1192/TS1259)', async () => {
+    const defectFile = path.join(srcDir, 'builtinsDefect.ts');
+    fs.writeFileSync(
+      defectFile,
+      `import fs from "node:fs";\nimport http from "node:http";\nimport path from "node:path";\nexport function run() { return fs.existsSync("test") && http.STATUS_CODES && path.join("a", "b"); }\n`
+    );
+
+    const diag: FailureDiagnosis = {
+      failedFile: defectFile,
+      relativeFilePath: 'src/builtinsDefect.ts',
+      line: 1,
+      assertionMessage: `Module '"node:fs"' has no default export.`,
+      rawOutput: `error TS1192: Module '"node:fs"' has no default export.`,
+      isTestFile: false
+    };
+
+    const res = await CiDoctorService.attemptQuickHeal({
+      projectPath: tempDir,
+      task: { id: 'task-builtins' },
+      failureDiagnosis: diag,
+      verificationCommand: 'node -e "process.exit(0)"'
+    });
+
+    assert.equal(res.healed, true, 'Deve ter auto-reparado com sucesso');
+    const content = fs.readFileSync(defectFile, 'utf-8');
+    assert.ok(content.includes('import * as fs from "node:fs";'), 'Deve ter convertido fs para namespace import');
+    assert.ok(content.includes('import * as http from "node:http";'), 'Deve ter convertido http para namespace import');
+    assert.ok(content.includes('import * as path from "node:path";'), 'Deve ter convertido path para namespace import');
+  });
+
+  it('10. attemptQuickHeal: Recusa substituição direta de valor quando expected/received contém sintaxe complexa ou palavras-chave (evita corrupção)', async () => {
+    const sensitiveFile = path.join(srcDir, 'sensitive.cjs');
+    const originalCode = `const logger = typeof globalThis !== "undefined" ? globalThis.logger : null;\nmodule.exports = { logger };\n`;
+    fs.writeFileSync(sensitiveFile, originalCode);
+
+    // Diag with code keywords and unbalanced tokens
+    const diag: FailureDiagnosis = {
+      failedFile: sensitiveFile,
+      relativeFilePath: 'src/sensitive.cjs',
+      line: 1,
+      assertionMessage: 'Values do not match',
+      rawOutput: 'AssertionError: expected "undefined" to equal if (typeof (globalThis as any).logger)',
+      expected: 'if (typeof (globalThis as any).logger !== "undefined")',
+      received: 'undefined"',
+      isTestFile: false
+    };
+
+    const res = await CiDoctorService.attemptQuickHeal({
+      projectPath: tempDir,
+      task: { id: 'task-safety' },
+      failureDiagnosis: diag,
+      verificationCommand: 'node -e "process.exit(1)"'
+    });
+
+    assert.equal(res.healed, false, 'Não deve aplicar patch inseguro');
+    const content = fs.readFileSync(sensitiveFile, 'utf-8');
+    assert.equal(content, originalCode, 'Conteúdo do arquivo deve permanecer intacto sem corrupção');
+  });
+
+  it('11. attemptQuickHeal: Substituição segura de valor escalar literal na linha alvo sem efeito colateral', async () => {
+    const scalarFile = path.join(srcDir, 'config.cjs');
+    const initialCode = `const PORT = 3000;\nconst TIMEOUT = 5000;\nmodule.exports = { PORT, TIMEOUT };\n`;
+    fs.writeFileSync(scalarFile, initialCode);
+
+    const diag: FailureDiagnosis = {
+      failedFile: scalarFile,
+      relativeFilePath: 'src/config.cjs',
+      line: 2,
+      assertionMessage: 'Expected 10000 but received 5000',
+      rawOutput: 'AssertionError: 5000 !== 10000',
+      expected: '10000',
+      received: '5000',
+      isTestFile: false
+    };
+
+    const res = await CiDoctorService.attemptQuickHeal({
+      projectPath: tempDir,
+      task: { id: 'task-scalar' },
+      failureDiagnosis: diag,
+      verificationCommand: 'node -e "process.exit(0)"'
+    });
+
+    assert.equal(res.healed, true, 'Deve auto-reparar o valor na linha indicada');
+    const content = fs.readFileSync(scalarFile, 'utf-8');
+    assert.ok(content.includes('const TIMEOUT = 10000;'), 'TIMEOUT deve ter sido atualizado para 10000');
+    assert.ok(content.includes('const PORT = 3000;'), 'PORT deve permanecer inalterado');
+  });
 });

@@ -45,3 +45,6 @@ hub.db-shm
 server/.ai-dev-hub/
 .ai-dev-hub/metachat-uploads/
 
+# Karpathy Autoresearch Ledger
+results.tsv
+

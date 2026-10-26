@@ -66,37 +66,49 @@ test('Cenário 1: Comando de verificação incompatível rejeitado antes da exec
 
   // 1b. Supervisor plans tasks with incompatible commands; system detects, normalizes, and logs event before persisting
   const fixture = installPipelineFixture(projectId, dir, 2, false);
+  const plannedTasksPayload = JSON.stringify([
+    {
+      title: 'Implementar incremento 1',
+      description: 'Módulo 1',
+      milestone: 'M1',
+      orderIndex: 1,
+      dependencies: [],
+      criteria: ['Testes passam'],
+      verificationCommand: 'node --check step-1.cjs && npm test',
+      doneWhen: 'Testes verdes'
+    },
+    {
+      title: 'Implementar incremento 2',
+      description: 'Módulo 2',
+      milestone: 'M1',
+      orderIndex: 2,
+      dependencies: ['Implementar incremento 1'],
+      criteria: ['Testes passam'],
+      verificationCommand: 'node -e "require(\'./step-2.cjs\')"',
+      doneWhen: 'Testes verdes'
+    }
+  ]);
+  const mockProv = AgentApiGateway.getMockProvider() as any;
+  const origRespProvider = mockProv?.responseProvider;
+  if (mockProv) {
+    mockProv.responseProvider = (cid: string, mode?: string) => {
+      if (mode === 'PLAN') return plannedTasksPayload;
+      return origRespProvider ? origRespProvider(cid, mode) : JSON.stringify({ verdict: 'APPROVED' });
+    };
+  }
   const origWait = GeminiSupervisorProvider.prototype.waitForResponse;
   GeminiSupervisorProvider.prototype.waitForResponse = async function (_cid, _to, _min, mode) {
     if (mode === 'PLAN') {
-      return JSON.stringify([
-        {
-          title: 'Implementar incremento 1',
-          description: 'Módulo 1',
-          milestone: 'M1',
-          orderIndex: 1,
-          dependencies: [],
-          criteria: ['Testes passam'],
-          verificationCommand: 'node --check step-1.cjs && npm test',
-          doneWhen: 'Testes verdes'
-        },
-        {
-          title: 'Implementar incremento 2',
-          description: 'Módulo 2',
-          milestone: 'M1',
-          orderIndex: 2,
-          dependencies: ['Implementar incremento 1'],
-          criteria: ['Testes passam'],
-          verificationCommand: 'node -e "require(\'./step-2.cjs\')"',
-          doneWhen: 'Testes verdes'
-        }
-      ]);
+      return plannedTasksPayload;
     }
     return JSON.stringify({ verdict: 'APPROVED', feedback: 'OK', qualityScore: 10, simplicityScore: 9, isSurgical: true });
   };
 
   t.after(() => {
     GeminiSupervisorProvider.prototype.waitForResponse = origWait;
+    if (mockProv && origRespProvider) {
+      mockProv.responseProvider = origRespProvider;
+    }
     WorkerRegistry.setProbeOverrideForTest(null);
     AgentApiGateway.installDefaultMock();
     fs.rmSync(dir, { recursive: true, force: true });

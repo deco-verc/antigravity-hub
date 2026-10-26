@@ -35,17 +35,35 @@ export function planVerification(command:string,projectPath:string):Verification
   let args:string[];
   if(words[0]==='node'){
     args=words.slice(1);
-    if(args[0]==='--test'){
-      if(args.slice(1).some(a=>a.startsWith('-')))return blocked('flags de testes fora da allowlist');
-      for(const file of args.slice(1))inside(root,file);
-      args=['--test','--test-isolation=none',...args.slice(1)];
+    const testIdx=args.indexOf('--test');
+    if(testIdx!==-1){
+      const importIdx=args.indexOf('--import');
+      if(importIdx!==-1){
+        const importTarget=args[importIdx+1];
+        if(!importTarget||!/^(?:tsx(?:\/esm)?|ts-node(?:\/register)?|[a-zA-Z0-9_./\\-]+)$/.test(importTarget))return blocked('módulo de import fora da allowlist');
+      }
+      const files=args.filter((a,i)=>{
+        if(a==='--test'||a==='--test-isolation=none'||a==='--test-concurrency=1')return false;
+        if(a==='--import'||(i>0&&args[i-1]==='--import'))return false;
+        return true;
+      });
+      if(files.some(a=>a.startsWith('-')))return blocked('flags de testes fora da allowlist');
+      for(const file of files)inside(root,file);
+      const cleanArgs=['--test','--test-isolation=none'];
+      if(importIdx!==-1){
+        cleanArgs.unshift('--import',args[importIdx+1]);
+      }
+      args=[...cleanArgs,...files];
     }else{
       const file=args[0];if(!file||file.startsWith('-')||!/\.[cm]?js$/.test(file))return blocked('somente arquivos Node locais são permitidos');
       inside(root,file);
       if(args.slice(1).some(a=>!/^[-a-zA-Z0-9_.]+$/.test(a)||a.startsWith('--')))return blocked('argumento de script fora da allowlist');
     }
-  }else if(words[0]==='tsc'&&words.slice(1).every(a=>a==='--noEmit')){
-    kind=words.includes('--noEmit')?'typecheck':'build';args=[inside(root,'node_modules/typescript/bin/tsc'),...words.slice(1)];
+  }else if((words[0]==='tsc'||(words[0]==='npx'&&words[1]==='tsc'))&&words.slice(words[0]==='npx'?2:1).every(a=>['--noEmit','-p','--project','-b','--build'].includes(a)||/^[a-zA-Z0-9_./\\-]+\.json$/i.test(a))){
+    kind='typecheck';
+    const tscArgs=words.slice(words[0]==='npx'?2:1);
+    const tscBin=fs.existsSync(path.join(root,'node_modules/typescript/bin/tsc'))?inside(root,'node_modules/typescript/bin/tsc'):'tsc';
+    args=[tscBin,...tscArgs];
   }else return blocked('ferramenta ou script não reconhecido como operação delimitada');
   return {executable:process.execPath,args:['--permission','--allow-fs-read='+root,...(kind==='build'?['--allow-fs-write='+root]:[]),...args],cwd:root,requestedCommand:command,kind};
 }

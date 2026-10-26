@@ -2064,6 +2064,28 @@ export class GeminiSupervisorProvider {
 
     return null;
   }
+
+  /**
+   * Evaluates a council prompt or perspective using the live supervisor agent or agy CLI.
+   */
+  async evaluateCouncilPrompt(
+    prompt: string,
+    options?: { timeoutMs?: number; projectId?: string; modelOverride?: 'flash' | 'pro' | 'flash_lite' }
+  ): Promise<string | null> {
+    if (AgentApiGateway.isOfflineMode()) {
+      return null;
+    }
+    try {
+      const targetModel = options?.modelOverride || this.model;
+      const res = await AgentApiGateway.runViaAgyCli(prompt, options?.projectId || this.projectId, targetModel);
+      if (res?.response) {
+        return res.response;
+      }
+    } catch (err: any) {
+      Logger.warn(`[GeminiSupervisor] Falha na consulta do conselho via supervisor: ${err?.message}`);
+    }
+    return null;
+  }
 }
 
 (GeminiSupervisorProvider as any)._defaultWaitForResponse = GeminiSupervisorProvider.prototype.waitForResponse;

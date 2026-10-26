@@ -185,7 +185,9 @@ export const META_CHAT_TEST_CONSTANT = 42;
 \`\`\`
     `.trim();
 
-    const res = await MetaChatService.handleUserMessage(promptWithDirective);
+    const res = await MetaChatService.handleUserMessage(promptWithDirective, {
+      codeActions: MetaChatService.parseCodeDirectives(promptWithDirective)
+    });
 
     assert.equal(res.selfHealed, false);
     assert.equal(res.typecheck.passed, true);
@@ -583,6 +585,24 @@ export const FORMAT_2 = 2;
     assert.ok(parsed.length >= 2);
     assert.ok(parsed.some((p: any) => p.filePath.includes('__metaChatMultiFormat1.ts')));
     assert.ok(parsed.some((p: any) => p.filePath.includes('__metaChatMultiFormat2.ts')));
+
+    // 18.2 Blindagem contra caminhos fictícios e placeholders de documentação
+    const fakeMarkdown = `
+Exemplo no prompt:
+\`\`\`ts [FILE: caminho/do/arquivo.ts] ... \`\`\`
+\`\`\`ts [FILE: path/to/exemplo.ts]
+const x = 1;
+\`\`\`
+\`\`\`ts [FILE: server/src/valid.ts]
+...
+\`\`\`
+\`\`\`ts [FILE: outside/root.ts]
+export const SHOULD_FAIL_NOT_ALLOWED = true;
+\`\`\`
+    `.trim();
+
+    const fakeParsed = (MetaChatService as any).parseCodeDirectives(fakeMarkdown);
+    assert.equal(fakeParsed.length, 0, 'Caminhos fictícios e placeholders como caminho/do/arquivo.ts devem ser descartados');
   });
 
   it('19. Typecheck Guard Scoped: Valida com sucesso arquivos de escopo usando flags --noEmit e --skipLibCheck', async () => {
@@ -703,5 +723,181 @@ export const FORMAT_2 = 2;
     assert.equal(finalStatus.enabled, false);
     assert.equal(finalStatus.completedCycles, 2);
     assert.ok(finalStatus.lastCycleSummary && finalStatus.lastCycleSummary.length > 0);
+  });
+
+  it('24. Karpathy Autoresearch Ledger (results.tsv): Criação, registro e leitura de histórico recente', () => {
+    const root = MetaChatService.getDecoHubRoot();
+    const tsvPath = path.join(root, 'results.tsv');
+    const backupContent = fs.existsSync(tsvPath) ? fs.readFileSync(tsvPath, 'utf-8') : null;
+
+    try {
+      if (fs.existsSync(tsvPath)) fs.unlinkSync(tsvPath);
+
+      // 24.1 appendAutoresearchLedger cria o cabeçalho oficial de 5 colunas
+      MetaChatService.appendAutoresearchLedger({
+        commit: 'd4a0c98',
+        scoreMetric: 'tc:0_tests:100%_pass',
+        durationSec: 1.5,
+        status: 'keep',
+        description: 'Primeiro experimento Karpathy baseline'
+      });
+
+      assert.ok(fs.existsSync(tsvPath), 'results.tsv deve existir no disco');
+      const lines = fs.readFileSync(tsvPath, 'utf-8').trim().split('\n');
+      assert.equal(lines.length, 2, 'Deve conter cabeçalho + 1 linha');
+      assert.equal(lines[0], 'commit\tscore_metric\tduration_s\tstatus\tdescription');
+      assert.ok(lines[1].startsWith('d4a0c98\ttc:0_tests:100%_pass\t1.5\tkeep\t'));
+
+      // 24.2 Inserção de experimentos subsequentes com keep, discard e crash
+      MetaChatService.appendAutoresearchLedger({
+        commit: 'a1b2c3d',
+        scoreMetric: 'tc:failed',
+        durationSec: 2.1,
+        status: 'discard',
+        description: 'Refatoração descartada por erro de tipagem'
+      });
+
+      MetaChatService.appendAutoresearchLedger({
+        commit: 'e5f6g7h',
+        scoreMetric: 'crash',
+        durationSec: 0.8,
+        status: 'crash',
+        description: 'Tentativa que gerou exceção'
+      });
+
+      const history = MetaChatService.getRecentAutoresearchHistory(10);
+      assert.ok(history.includes('commit\tscore_metric\tduration_s\tstatus\tdescription'));
+      assert.ok(history.includes('d4a0c98'));
+      assert.ok(history.includes('a1b2c3d'));
+      assert.ok(history.includes('e5f6g7h'));
+
+      // 24.3 .gitignore contém results.tsv
+      const gitignore = fs.readFileSync(path.join(root, '.gitignore'), 'utf-8');
+      assert.ok(gitignore.includes('results.tsv'), '.gitignore deve listar results.tsv');
+    } finally {
+      if (backupContent !== null) {
+        fs.writeFileSync(tsvPath, backupContent, 'utf-8');
+      }
+    }
+  });
+
+  it('25. Injeção de Disciplina do program.md no Prompt do Autopilot (4 Regras Operacionais)', () => {
+    const thread = MetaChatService.createThread({ title: 'Thread Karpathy Prompt Injection' });
+    const dossier = MetaChatService.collectSystemTelemetryDossier(thread.id);
+
+    // Valida injeção da tabela results.tsv no prompt
+    assert.ok(dossier.prompt.includes('=== HISTÓRICO RECENTE DE EXPERIMENTOS (RESULTS.TSV) ==='));
+
+    // Valida injeção das 4 regras canônicas do program.md
+    assert.ok(dossier.prompt.includes('PROTOCOLO KARPATHY AUTORESEARCH'));
+    assert.ok(dossier.prompt.includes('Escopo Cirúrgico (Single Logical Target)'));
+    assert.ok(dossier.prompt.includes('Critério de Simplicidade (Simplicity Criterion)'));
+    assert.ok(dossier.prompt.includes('Higiene de Contexto em Comandos de Terminal (Log Redirection)'));
+    assert.ok(dossier.prompt.includes('Memória Experimental (results.tsv)'));
+  });
+
+  it('26. Oráculo Duplo de Avaliação Imutável e Critério de Simplicidade (Occam Razor)', async () => {
+    // 26.1 Resolução de teste focado para arquivos do servidor
+    const testResolved = MetaChatService.resolveMatchingServerTest(['server/src/metaChatService.ts']);
+    assert.ok(testResolved.includes('metaChatSelfEvolution.test.ts') || testResolved.includes('metaChat'));
+
+    // 26.2 Cálculo de delta de linhas (calculateLineDiff)
+    const baseMap = new Map<string, { size: number; mtime: number; content: string }>();
+    baseMap.set('server/src/sample.ts', { size: 10, mtime: Date.now(), content: 'line 1\nline 2\nline 3\n' });
+
+    // 26.3 Validação da Navalha de Occam (bloqueio de complexidade desnecessária)
+    const simplicityFail = MetaChatService.checkSimplicityCriterion(
+      root,
+      ['server/src/sample.ts'],
+      baseMap,
+      { testsPassed: false }
+    );
+    assert.equal(typeof simplicityFail.passed, 'boolean');
+    assert.equal(typeof simplicityFail.delta, 'number');
+
+    // 26.4 Client Visual Gate
+    const clientGate = await MetaChatService.runClientVisualGate(['client/src/App.tsx']);
+    assert.equal(typeof clientGate.passed, 'boolean');
+    assert.equal(typeof clientGate.buildPassed, 'boolean');
+    assert.equal(typeof clientGate.visualPassed, 'boolean');
+  });
+
+  it('27. Blindagem Anti-Poluição de hub.db e Expurgo de Projetos Fantasmas (Problem 1)', async () => {
+    const { purgeGhostTestProjectsFromProductionDb, isRunningInTestEnvironment } = await import('../src/db.js');
+    const { AutonomousRunnerService } = await import('../src/autonomousRunnerService.js');
+    const os = await import('node:os');
+
+    // 27.1 isRunningInTestEnvironment detecta ambiente de teste
+    assert.equal(isRunningInTestEnvironment(), true);
+
+    // 27.2 isGhostTestRun detecta IDs e caminhos de teste
+    assert.equal(AutonomousRunnerService.isGhostTestRun({ id: 'run-rec-1234', project_id: 'proj-1' }), true);
+    assert.equal(AutonomousRunnerService.isGhostTestRun({ id: 'run-1', project_id: 'proj-heal-abcd' }), true);
+    assert.equal(AutonomousRunnerService.isGhostTestRun({ id: 'run-1', project_id: 'proj-test-temp' }), true);
+
+    db.prepare(`
+      INSERT OR REPLACE INTO projects (id, name, path, created_at, updated_at)
+      VALUES ('proj-prod', 'Production Project', ?, datetime('now'), datetime('now'))
+    `).run(root);
+    assert.equal(AutonomousRunnerService.isGhostTestRun({ id: 'run-prod', project_id: 'proj-prod' }), false);
+
+    db.prepare(`
+      INSERT OR REPLACE INTO projects (id, name, path, created_at, updated_at)
+      VALUES ('proj-temp', 'Temp Project', ?, datetime('now'), datetime('now'))
+    `).run(path.join(os.tmpdir(), 'decohub-test-folder'));
+    assert.equal(AutonomousRunnerService.isGhostTestRun({ id: 'run-temp', project_id: 'proj-temp' }), true);
+
+    // 27.3 Expurgo de projetos de teste em banco de dados
+    const purgeResult = purgeGhostTestProjectsFromProductionDb(db);
+    assert.equal(typeof purgeResult.purgedProjects, 'number');
+    assert.equal(typeof purgeResult.purgedRuns, 'number');
+  });
+
+  it('28. Limpeza de Dumps de Arquivo (stripRawLineNumberDumps) e Detecção Híbrida de Arquivos (Problem 2)', async () => {
+    const { stripRawLineNumberDumps } = await import('../src/antigravityProvider.js');
+
+    // 28.1 stripRawLineNumberDumps remove sequência de 5+ linhas numéricas e preserva texto explicativo
+    const rawWithDump = [
+      '### Diagnóstico do Problema',
+      'Analisei o arquivo e identifiquei a causa:',
+      '412: export function problematicFunction() {',
+      '413:   const temp = false;',
+      '414:   if (!temp) {',
+      '415:     return null;',
+      '416:   }',
+      '417: }',
+      'Conclusão: O retorno nulo precisa ser tratado.',
+      '1. Primeiro passo de correção',
+      '2. Segundo passo de correção'
+    ].join('\n');
+
+    const stripped = stripRawLineNumberDumps(rawWithDump);
+    assert.ok(stripped.includes('### Diagnóstico do Problema'));
+    assert.ok(stripped.includes('Analisei o arquivo e identifiquei a causa:'));
+    assert.ok(!stripped.includes('412: export function problematicFunction()'));
+    assert.ok(!stripped.includes('417: }'));
+    assert.ok(stripped.includes('Conclusão: O retorno nulo precisa ser tratado.'));
+    assert.ok(stripped.includes('1. Primeiro passo de correção'));
+    assert.ok(stripped.includes('2. Segundo passo de correção'));
+
+    // 28.2 Detecção de arquivos relativos e baseline de arquivos
+    const status = MetaChatService.getGitStatusPorcelain(root);
+    assert.ok(Array.isArray(status));
+    for (const line of status) {
+      assert.ok(!line.slice(3).startsWith('ai-dev-hub/'), 'Caminho não deve conter prefixo duplicado ai-dev-hub/');
+    }
+
+    // 28.3 diffFileBaseline com mapa de baseline
+    const baseline = MetaChatService.captureFileBaseline(root);
+    assert.ok(baseline instanceof Map);
+    const diff = MetaChatService.diffFileBaseline(root, baseline, []);
+    assert.ok(Array.isArray(diff));
+  });
+
+  it('29. Consulta de Mensagens do Meta-Chat Suporta Limite de 500 Mensagens', () => {
+    const thread = MetaChatService.createThread({ title: 'Thread 500 Limit Check' });
+    const messages = MetaChatService.getMessages(thread.id);
+    assert.ok(Array.isArray(messages));
+    assert.ok(messages.length <= 500);
   });
 });

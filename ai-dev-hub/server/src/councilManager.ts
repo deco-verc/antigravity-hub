@@ -6,11 +6,12 @@ import { Logger } from './logger.js';
 import { GeminiSupervisorProvider } from './geminiSupervisorProvider.js';
 import { SuccessContract, EvaluationResult } from './independentEvaluator.js';
 import { ReaSaaSMasterService } from './reaSaaSMasterService.js';
+import { AgentApiGateway } from './agentApiGateway.js';
 
 export interface ReviewerOutput {
   reviewerId: string;
   roleName: 'Correctness' | 'Simplicity' | 'Regression';
-  anonymousLabel: string; // "Review A", "Review B", "Review C"
+  anonymousLabel: string; // "Review A", "Review B", "Review C" or "Response A", "Response B", "Response C"
   verdict: 'APPROVED' | 'CHANGES_REQUESTED' | 'BLOCKED';
   score: number; // 1 to 10
   findings: string[];
@@ -21,8 +22,16 @@ export interface ReviewerOutput {
 
 export interface PeerRankingResult {
   reviewerLabel: string;
-  rankedReviews: string[]; // e.g. ["Review B", "Review A", "Review C"]
+  rankedReviews: string[]; // e.g. ["Review B", "Review A", "Review C"] or ["Response B", "Response A", "Response C"]
   justification: string;
+  rawRankingText?: string;
+}
+
+export interface AggregateRankingResult {
+  role: string;
+  label?: string;
+  averageRank: number;
+  rankingsCount: number;
 }
 
 export interface CouncilDeliberation {
@@ -34,6 +43,7 @@ export interface CouncilDeliberation {
   policyTrigger: string;
   reviews: ReviewerOutput[];
   peerRankings: PeerRankingResult[];
+  aggregateRankings?: AggregateRankingResult[];
   consensusLevel: 'UNANIMOUS' | 'MAJORITY' | 'SPLIT' | 'CHAIRMAN_OVERRIDE';
   scores: {
     correctness: number;
@@ -77,30 +87,199 @@ export class CouncilManager {
   }
 
   /**
-   * Stage 1: Generate Independent Reviews from 3 specialized perspectives
+   * Parse the FINAL RANKING section from the model's response.
+   * Matches canonical logic from llm-council/backend/council.py.
+   * Supports both 'Response [A-Z]' and 'Review [A-Z]' formats.
    */
-  private static async stage1_independentReviews(context: {
-    task: any;
-    contract?: SuccessContract | null;
-    diff: string;
-    filesChanged: string[];
-    evaluation?: EvaluationResult | null;
-  }): Promise<ReviewerOutput[]> {
+  static parseRankingFromText(rankingText: string): string[] {
+    if (!rankingText || typeof rankingText !== 'string') return [];
+
+    const normalizeLabel = (label: string) => label.trim();
+
+    if (rankingText.includes('FINAL RANKING:')) {
+      const parts = rankingText.split('FINAL RANKING:');
+      if (parts.length >= 2) {
+        const rankingSection = parts.slice(1).join('FINAL RANKING:');
+        const numberedMatches = rankingSection.match(/\d+\.\s*(?:Response|Review) [A-Z]/g);
+        if (numberedMatches && numberedMatches.length > 0) {
+          return numberedMatches
+            .map(m => {
+              const matched = m.match(/(?:Response|Review) [A-Z]/);
+              return matched ? normalizeLabel(matched[0]) : '';
+            })
+            .filter((val): val is string => Boolean(val));
+        }
+
+        const matches = rankingSection.match(/(?:Response|Review) [A-Z]/g);
+        if (matches && matches.length > 0) {
+          return Array.from(new Set(matches.map(normalizeLabel)));
+        }
+      }
+    }
+
+    const fallbackMatches = rankingText.match(/(?:Response|Review) [A-Z]/g);
+    return fallbackMatches ? Array.from(new Set(fallbackMatches.map(normalizeLabel))) : [];
+  }
+
+  /**
+   * Calculate aggregate rankings across all reviewers.
+   * Matches canonical logic from llm-council/backend/council.py.
+   */
+  static calculateAggregateRankings(
+    stage2Results: Array<{ reviewer?: string; ranking?: string; parsedRanking?: string[]; rankedReviews?: string[] }>,
+    labelToRoleMap: Record<string, string>
+  ): AggregateRankingResult[] {
+    const rolePositions: Record<string, number[]> = {};
+
+    for (const role of Object.values(labelToRoleMap)) {
+      if (!rolePositions[role]) {
+        rolePositions[role] = [];
+      }
+    }
+
+    for (const item of stage2Results) {
+      let parsedRanking: string[] = [];
+      if (item.parsedRanking && Array.isArray(item.parsedRanking) && item.parsedRanking.length > 0) {
+        parsedRanking = item.parsedRanking;
+      } else if (item.rankedReviews && Array.isArray(item.rankedReviews) && item.rankedReviews.length > 0) {
+        parsedRanking = item.rankedReviews;
+      } else if (item.ranking) {
+        parsedRanking = this.parseRankingFromText(item.ranking);
+      }
+
+      parsedRanking.forEach((label, index) => {
+        const role = labelToRoleMap[label] || labelToRoleMap[label.replace('Review ', 'Response ')] || labelToRoleMap[label.replace('Response ', 'Review ')];
+        if (role) {
+          if (!rolePositions[role]) rolePositions[role] = [];
+          rolePositions[role].push(index + 1);
+        }
+      });
+    }
+
+    const roleToLabel: Record<string, string> = {};
+    for (const [lbl, role] of Object.entries(labelToRoleMap)) {
+      if (!roleToLabel[role]) roleToLabel[role] = lbl;
+    }
+
+    const aggregate: AggregateRankingResult[] = [];
+    for (const [role, positions] of Object.entries(rolePositions)) {
+      if (positions.length > 0) {
+        const sum = positions.reduce((acc, p) => acc + p, 0);
+        const avg = sum / positions.length;
+        aggregate.push({
+          role,
+          label: roleToLabel[role] || role,
+          averageRank: Math.round(avg * 100) / 100,
+          rankingsCount: positions.length
+        });
+      }
+    }
+
+    aggregate.sort((a, b) => a.averageRank - b.averageRank);
+    return aggregate;
+  }
+
+  /**
+   * Stage 1: Generate Independent Reviews from 3 specialized perspectives.
+   * In Live mode (!isOfflineMode), queries models in parallel with graceful fallback to heuristics.
+   */
+  private static async stage1_independentReviews(
+    context: {
+      task: any;
+      contract?: SuccessContract | null;
+      diff: string;
+      filesChanged: string[];
+      evaluation?: EvaluationResult | null;
+    },
+    options?: { forceHeuristic?: boolean; projectId?: string }
+  ): Promise<ReviewerOutput[]> {
     Logger.info(`[AI DEV Council] STAGE 1: Coletando pareceres independentes de 3 revisores especializados...`);
 
-    const diffExcerpt = context.diff ? context.diff.slice(0, 3000) : 'Diff não disponível.';
+    const diffExcerpt = context.diff ? context.diff.slice(0, 3000) : 'Diff nao disponivel.';
     const evalEvidence = context.evaluation
       ? `Veredicto Evaluator: ${context.evaluation.verdict} | Exit Code: ${context.evaluation.exitCode} | Output: ${context.evaluation.evidence?.output?.slice(0, 300) || 'N/A'}`
-      : 'Nenhuma avaliação independente fornecida.';
+      : 'Nenhuma avaliacao independente fornecida.';
 
-    // Reviewer A: Correctness
-    const reviewA = await this.evaluateCorrectness(context.task, context.contract, diffExcerpt, evalEvidence, context.filesChanged);
+    const isOffline = AgentApiGateway.isOfflineMode() || Boolean(options?.forceHeuristic);
 
-    // Reviewer B: Simplicity & Maintainability (Karpathy Principle)
-    const reviewB = await this.evaluateSimplicity(context.task, context.contract, diffExcerpt, evalEvidence, context.filesChanged);
+    if (isOffline) {
+      const reviewA = await this.evaluateCorrectness(context.task, context.contract, diffExcerpt, evalEvidence, context.filesChanged);
+      const reviewB = await this.evaluateSimplicity(context.task, context.contract, diffExcerpt, evalEvidence, context.filesChanged);
+      const reviewC = await this.evaluateRegression(context.task, context.contract, diffExcerpt, evalEvidence, context.filesChanged);
 
-    // Reviewer C: Regression, Security & Edge Cases
-    const reviewC = await this.evaluateRegression(context.task, context.contract, diffExcerpt, evalEvidence, context.filesChanged);
+      return [
+        { ...reviewA, anonymousLabel: 'Review A' },
+        { ...reviewB, anonymousLabel: 'Review B' },
+        { ...reviewC, anonymousLabel: 'Review C' }
+      ];
+    }
+
+    // Live multi-perspective queries
+    const promptCorrectness = `Você é o Revisor A do AI DEV Council, especialista em Corretude Funcional, Testes e Completude de Requisitos.
+Tarefa: ${context.task?.title || 'Tarefa'}
+Evidência de Avaliação: ${evalEvidence}
+Diff:
+${diffExcerpt}
+Arquivos Alterados: ${context.filesChanged.join(', ')}
+
+Avalie a corretude técnica e responda no formato:
+VEREDICTO: APPROVED ou CHANGES_REQUESTED
+NOTA: (1-10)
+CONSTATACOES:
+- ...
+BLOQUEIOS:
+- ...
+SUGESTOES:
+- ...`;
+
+    const promptSimplicity = `Você é o Revisor B do AI DEV Council, Guardião da Navalha de Occam e do princípio Karpathy Simplicity First.
+Tarefa: ${context.task?.title || 'Tarefa'}
+Diff:
+${diffExcerpt}
+
+Avalie se há overengineering, abstrações prematuras ou complexidade desnecessária e responda no formato:
+VEREDICTO: APPROVED ou CHANGES_REQUESTED
+NOTA: (1-10)
+CONSTATACOES:
+- ...
+BLOQUEIOS:
+- ...
+SUGESTOES:
+- ...`;
+
+    const promptRegression = `Você é o Revisor C do AI DEV Council, especialista em Regressão, Segurança, Superfície de Ataque e Compatibilidade.
+Tarefa: ${context.task?.title || 'Tarefa'}
+Arquivos Alterados: ${context.filesChanged.join(', ')}
+Diff:
+${diffExcerpt}
+
+Avalie riscos de regressão e segurança e responda no formato:
+VEREDICTO: APPROVED ou CHANGES_REQUESTED
+NOTA: (1-10)
+CONSTATACOES:
+- ...
+BLOQUEIOS:
+- ...
+SUGESTOES:
+- ...`;
+
+    const results = await Promise.allSettled([
+      this.supervisor.evaluateCouncilPrompt(promptCorrectness, { projectId: options?.projectId }),
+      this.supervisor.evaluateCouncilPrompt(promptSimplicity, { projectId: options?.projectId }),
+      this.supervisor.evaluateCouncilPrompt(promptRegression, { projectId: options?.projectId, modelOverride: 'pro' })
+    ]);
+
+    const reviewA = results[0].status === 'fulfilled' && results[0].value
+      ? this.parseLiveReviewResponse(results[0].value, 'Correctness', 'Review A')
+      : await this.evaluateCorrectness(context.task, context.contract, diffExcerpt, evalEvidence, context.filesChanged);
+
+    const reviewB = results[1].status === 'fulfilled' && results[1].value
+      ? this.parseLiveReviewResponse(results[1].value, 'Simplicity', 'Review B')
+      : await this.evaluateSimplicity(context.task, context.contract, diffExcerpt, evalEvidence, context.filesChanged);
+
+    const reviewC = results[2].status === 'fulfilled' && results[2].value
+      ? this.parseLiveReviewResponse(results[2].value, 'Regression', 'Review C')
+      : await this.evaluateRegression(context.task, context.contract, diffExcerpt, evalEvidence, context.filesChanged);
 
     return [
       { ...reviewA, anonymousLabel: 'Review A' },
@@ -110,50 +289,158 @@ export class CouncilManager {
   }
 
   /**
-   * Stage 2: Anonymized Peer Review and Ranking
+   * Helper to parse a live model review text into structured ReviewerOutput.
+   */
+  private static parseLiveReviewResponse(
+    text: string,
+    roleName: 'Correctness' | 'Simplicity' | 'Regression',
+    label: string
+  ): Omit<ReviewerOutput, 'anonymousLabel'> {
+    const verdictMatch = text.match(/VEREDICTO:\s*(APPROVED|CHANGES_REQUESTED|BLOCKED)/i);
+    const scoreMatch = text.match(/NOTA:\s*(\d+)/i);
+
+    const verdict = (verdictMatch ? verdictMatch[1].toUpperCase() : 'APPROVED') as 'APPROVED' | 'CHANGES_REQUESTED' | 'BLOCKED';
+    const score = scoreMatch ? Math.min(10, Math.max(1, parseInt(scoreMatch[1], 10))) : 8;
+
+    const extractSection = (heading: string): string[] => {
+      const idx = text.indexOf(heading);
+      if (idx === -1) return [];
+      const sub = text.slice(idx + heading.length);
+      const nextHeadingIdx = sub.search(/[A-Z]+:/);
+      const sectionText = nextHeadingIdx !== -1 ? sub.slice(0, nextHeadingIdx) : sub;
+      return sectionText
+        .split('\n')
+        .map(l => l.replace(/^[-*•]\s*/, '').trim())
+        .filter(l => l.length > 0 && !l.toLowerCase().includes('nenhum'));
+    };
+
+    const findings = extractSection('CONSTATACOES:');
+    const blockingIssues = extractSection('BLOQUEIOS:');
+    const suggestions = extractSection('SUGESTOES:');
+
+    return {
+      reviewerId: label,
+      roleName,
+      verdict: blockingIssues.length > 0 ? 'CHANGES_REQUESTED' : verdict,
+      score,
+      findings: findings.length > 0 ? findings : [`Parecer do revisor de ${roleName} concluído.`],
+      blockingIssues,
+      suggestions: suggestions.length > 0 ? suggestions : ['Manter acompanhamento contínuo.'],
+      rawAnalysis: text
+    };
+  }
+
+  /**
+   * Stage 2: Anonymized Peer Review and Ranking.
+   * Matches 3-stage LLM Council architecture from council.py.
    */
   private static async stage2_anonymizedPeerRanking(
     reviews: ReviewerOutput[],
-    task: any
-  ): Promise<PeerRankingResult[]> {
+    task: any,
+    options?: { forceHeuristic?: boolean; projectId?: string }
+  ): Promise<{ peerRankings: PeerRankingResult[]; aggregateRankings: AggregateRankingResult[] }> {
     Logger.info(`[AI DEV Council] STAGE 2: Revisão por pares anônima (Peer Ranking)...`);
 
-    // Prepare anonymized summaries
-    const anonymizedTexts = reviews.map(r => `
-=== ${r.anonymousLabel} ===
-Veredicto Proposto: ${r.verdict} (Nota: ${r.score}/10)
-Principais Constatações:
-${r.findings.map(f => `- ${f}`).join('\n')}
-Bloqueios Apontados:
-${r.blockingIssues.map(b => `- ${b}`).join('\n') || '- Nenhum'}
-Sugestões:
-${r.suggestions.map(s => `- ${s}`).join('\n') || '- Nenhuma'}
-`).join('\n');
+    const labelToRoleMap: Record<string, string> = {
+      'Response A': 'Correctness',
+      'Response B': 'Simplicity',
+      'Response C': 'Regression',
+      'Review A': 'Correctness',
+      'Review B': 'Simplicity',
+      'Review C': 'Regression'
+    };
 
     const peerRankings: PeerRankingResult[] = [];
+    const isOffline = AgentApiGateway.isOfflineMode() || Boolean(options?.forceHeuristic);
 
-    // Each reviewer ranks the other reviews
+    // Build anonymized representations
     for (const currentRev of reviews) {
       const otherReviews = reviews.filter(r => r.anonymousLabel !== currentRev.anonymousLabel);
-      
-      // Ranking logic based on rigor and analytical depth
-      const sortedOthers = [...otherReviews].sort((a, b) => {
-        // Prioritize reviews that found real issues or had deeper findings
-        const aDepth = a.blockingIssues.length * 2 + a.findings.length;
-        const bDepth = b.blockingIssues.length * 2 + b.findings.length;
-        return bDepth - aDepth;
-      });
 
-      const rankedLabels = sortedOthers.map(r => r.anonymousLabel);
-      
-      peerRankings.push({
-        reviewerLabel: currentRev.anonymousLabel,
-        rankedReviews: rankedLabels,
-        justification: `${currentRev.anonymousLabel} avaliou que ${rankedLabels[0]} apresentou análise técnica mais contundente e fundamentada em evidências.`
-      });
+      if (isOffline) {
+        // Deterministic ranking by rigor and technical depth
+        const sortedOthers = [...otherReviews].sort((a, b) => {
+          const aDepth = a.score - a.blockingIssues.length * 2 + a.findings.length;
+          const bDepth = b.score - b.blockingIssues.length * 2 + b.findings.length;
+          return bDepth - aDepth;
+        });
+
+        const rankedLabels = sortedOthers.map(r => r.anonymousLabel);
+        const rankingText = [
+          `${currentRev.anonymousLabel} avaliou as propostas pares quanto a impacto técnico e fundamentação objetiva.`,
+          `FINAL RANKING:`,
+          ...rankedLabels.map((lbl, idx) => `${idx + 1}. ${lbl}`)
+        ].join('\n');
+
+        const parsed = this.parseRankingFromText(rankingText);
+        peerRankings.push({
+          reviewerLabel: currentRev.anonymousLabel,
+          rankedReviews: parsed.length > 0 ? parsed : rankedLabels,
+          justification: `${currentRev.anonymousLabel} avaliou que ${rankedLabels[0]} apresentou análise técnica mais contundente e fundamentada em evidências.`,
+          rawRankingText: rankingText
+        });
+      } else {
+        // Live ranking prompt matching council.py
+        const prompt = `You are evaluating different reviews for task: "${task?.title || 'Technical Task'}".
+Here are the reviews from other reviewers (anonymized):
+
+${otherReviews.map(r => `${r.anonymousLabel}:
+Score: ${r.score}/10
+Verdict: ${r.verdict}
+Findings: ${r.findings.join('; ')}
+Blockers: ${r.blockingIssues.join('; ') || 'None'}`).join('\n\n')}
+
+Your task:
+1. First, evaluate each review individually.
+2. At the end, provide a final ranking.
+
+IMPORTANT: Your final ranking MUST be formatted EXACTLY as follows:
+FINAL RANKING:
+1. Review X
+2. Review Y
+
+Now provide your evaluation and ranking:`;
+
+        try {
+          const responseText = await this.supervisor.evaluateCouncilPrompt(prompt, { projectId: options?.projectId });
+          if (responseText && responseText.includes('FINAL RANKING:')) {
+            const parsed = this.parseRankingFromText(responseText);
+            if (parsed.length > 0) {
+              peerRankings.push({
+                reviewerLabel: currentRev.anonymousLabel,
+                rankedReviews: parsed,
+                justification: `${currentRev.anonymousLabel} conduziu avaliação comparativa por pares.`,
+                rawRankingText: responseText
+              });
+              continue;
+            }
+          }
+        } catch (err: any) {
+          Logger.warn(`[CouncilManager] Falha no peer ranking ao vivo para ${currentRev.anonymousLabel}: ${err?.message}`);
+        }
+
+        // Fallback for this reviewer
+        const sortedOthers = [...otherReviews].sort((a, b) => b.score - a.score);
+        const rankedLabels = sortedOthers.map(r => r.anonymousLabel);
+        peerRankings.push({
+          reviewerLabel: currentRev.anonymousLabel,
+          rankedReviews: rankedLabels,
+          justification: `${currentRev.anonymousLabel} priorizou o parecer com maior pontuação técnica.`,
+          rawRankingText: `FINAL RANKING:\n${rankedLabels.map((lbl, idx) => `${idx + 1}. ${lbl}`).join('\n')}`
+        });
+      }
     }
 
-    return peerRankings;
+    const aggregateRankings = this.calculateAggregateRankings(
+      peerRankings.map(p => ({
+        reviewer: p.reviewerLabel,
+        rankedReviews: p.rankedReviews,
+        ranking: p.rawRankingText
+      })),
+      labelToRoleMap
+    );
+
+    return { peerRankings, aggregateRankings };
   }
 
   /**
@@ -166,6 +453,7 @@ ${r.suggestions.map(s => `- ${s}`).join('\n') || '- Nenhuma'}
     evaluation?: EvaluationResult | null;
     reviews: ReviewerOutput[];
     peerRankings: PeerRankingResult[];
+    aggregateRankings?: AggregateRankingResult[];
   }): Promise<{
     chairmanVerdict: 'APPROVED' | 'CHANGES_REQUESTED' | 'BLOCKED';
     chairmanSynthesis: string;
@@ -180,7 +468,6 @@ ${r.suggestions.map(s => `- ${s}`).join('\n') || '- Nenhuma'}
     const changesCount = verdicts.filter(v => v === 'CHANGES_REQUESTED').length;
     const blockedCount = verdicts.filter(v => v === 'BLOCKED').length;
 
-    // Consensus determination
     let consensusLevel: 'UNANIMOUS' | 'MAJORITY' | 'SPLIT' | 'CHAIRMAN_OVERRIDE' = 'SPLIT';
     if (approvedCount === 3 || changesCount === 3 || blockedCount === 3) {
       consensusLevel = 'UNANIMOUS';
@@ -194,7 +481,6 @@ ${r.suggestions.map(s => `- ${s}`).join('\n') || '- Nenhuma'}
       params.reviews.reduce((acc, r) => acc + r.score, 0) / params.reviews.length
     );
 
-    // Identify specific viewpoints
     const correctnessRev = params.reviews.find(r => r.roleName === 'Correctness');
     const simplicityRev = params.reviews.find(r => r.roleName === 'Simplicity');
     const regressionRev = params.reviews.find(r => r.roleName === 'Regression');
@@ -242,7 +528,7 @@ ${r.suggestions.map(s => `- ${s}`).join('\n') || '- Nenhuma'}
       chairmanSynthesis: synthesisText,
       consensusLevel,
       finalScore: avgScore,
-      actionItems: actionItems.length > 0 ? actionItems : ['Manter monitoramento de regressão']
+      actionItems: actionItems.length > 0 ? Array.from(new Set(actionItems)) : ['Manter monitoramento de regressão']
     };
   }
 
@@ -260,6 +546,7 @@ ${r.suggestions.map(s => `- ${s}`).join('\n') || '- Nenhuma'}
     evaluation?: EvaluationResult | null;
     riskLevel?: 'low' | 'medium' | 'high' | 'critical';
     policyTrigger?: string;
+    options?: { forceHeuristic?: boolean };
   }): Promise<CouncilDeliberation> {
     const id = crypto.randomUUID();
     const nowIso = new Date().toISOString();
@@ -269,21 +556,28 @@ ${r.suggestions.map(s => `- ${s}`).join('\n') || '- Nenhuma'}
     const filesChanged = params.filesChanged || [];
 
     Logger.info(`[AI DEV Council] ====================================================`);
-    Logger.info(`[AI DEV Council] 🏛️ CONVOCANDO CONSELHO MULTI-AGENTE (AI DEV COUNCIL)`);
+    Logger.info(`[AI DEV Council] CONVOCANDO CONSELHO MULTI-AGENTE (AI DEV COUNCIL)`);
     Logger.info(`[AI DEV Council] Tarefa: "${params.task.title || 'Revisão Arquitetural'}" | Nível de Risco: ${riskLevel.toUpperCase()}`);
     Logger.info(`[AI DEV Council] ====================================================`);
 
     // 1. STAGE 1: Independent Opinions
-    const reviews = await this.stage1_independentReviews({
-      task: params.task,
-      contract: params.contract,
-      diff,
-      filesChanged,
-      evaluation: params.evaluation
-    });
+    const reviews = await this.stage1_independentReviews(
+      {
+        task: params.task,
+        contract: params.contract,
+        diff,
+        filesChanged,
+        evaluation: params.evaluation
+      },
+      { forceHeuristic: params.options?.forceHeuristic, projectId: params.projectId }
+    );
 
     // 2. STAGE 2: Anonymized Peer Review & Ranking
-    const peerRankings = await this.stage2_anonymizedPeerRanking(reviews, params.task);
+    const { peerRankings, aggregateRankings } = await this.stage2_anonymizedPeerRanking(
+      reviews,
+      params.task,
+      { forceHeuristic: params.options?.forceHeuristic, projectId: params.projectId }
+    );
 
     // 3. STAGE 3: Chairman Synthesis & Final Verdict
     const chairman = await this.stage3_chairmanSynthesis({
@@ -292,7 +586,8 @@ ${r.suggestions.map(s => `- ${s}`).join('\n') || '- Nenhuma'}
       diff,
       evaluation: params.evaluation,
       reviews,
-      peerRankings
+      peerRankings,
+      aggregateRankings
     });
 
     const correctnessScore = reviews.find(r => r.roleName === 'Correctness')?.score || 8;
@@ -308,6 +603,7 @@ ${r.suggestions.map(s => `- ${s}`).join('\n') || '- Nenhuma'}
       policyTrigger,
       reviews,
       peerRankings,
+      aggregateRankings,
       consensusLevel: chairman.consensusLevel,
       scores: {
         correctness: correctnessScore,
@@ -326,6 +622,55 @@ ${r.suggestions.map(s => `- ${s}`).join('\n') || '- Nenhuma'}
 
     Logger.info(`[AI DEV Council] Deliberação concluída. Veredicto Final do Chairman: ${deliberation.chairmanVerdict} (Consenso: ${deliberation.consensusLevel})`);
     return deliberation;
+  }
+
+  /**
+   * Freeform Council Deliberation for technical queries, architecture choices, or /council slash command.
+   * Mirrors run_full_council from llm-council/backend/council.py.
+   */
+  static async deliberateQuery(
+    query: string,
+    options?: {
+      context?: string;
+      projectId?: string;
+      forceHeuristic?: boolean;
+    }
+  ): Promise<{
+    query: string;
+    stage1Reviews: ReviewerOutput[];
+    stage2PeerRankings: PeerRankingResult[];
+    aggregateRankings: AggregateRankingResult[];
+    chairmanVerdict: 'APPROVED' | 'CHANGES_REQUESTED' | 'BLOCKED';
+    chairmanSynthesis: string;
+    consensusLevel: 'UNANIMOUS' | 'MAJORITY' | 'SPLIT' | 'CHAIRMAN_OVERRIDE';
+    actionItems: string[];
+  }> {
+    const virtualTask = {
+      title: query.length > 80 ? `${query.slice(0, 77)}...` : query,
+      description: options?.context || query
+    };
+
+    const deliberation = await this.deliberate({
+      taskId: `query-${crypto.randomUUID().slice(0, 8)}`,
+      projectId: options?.projectId || 'default-project',
+      task: virtualTask,
+      diff: options?.context || '',
+      filesChanged: [],
+      riskLevel: 'high',
+      policyTrigger: 'MANUAL_USER_REQUEST',
+      options: { forceHeuristic: options?.forceHeuristic }
+    });
+
+    return {
+      query,
+      stage1Reviews: deliberation.reviews,
+      stage2PeerRankings: deliberation.peerRankings,
+      aggregateRankings: deliberation.aggregateRankings || [],
+      chairmanVerdict: deliberation.chairmanVerdict,
+      chairmanSynthesis: deliberation.chairmanSynthesis,
+      consensusLevel: deliberation.consensusLevel,
+      actionItems: deliberation.actionItems
+    };
   }
 
   // -------------------------------------------------------------
@@ -365,7 +710,7 @@ ${r.suggestions.map(s => `- ${s}`).join('\n') || '- Nenhuma'}
         hasPassingTests
           ? 'Todos os critérios de aceitação e testes automatizados executaram com código de saída 0.'
           : 'Falha detectada nos testes funcionais automatizados.',
-        `Arquivos alterados no escopo: ${filesChanged.join(', ')}.`
+        `Arquivos alterados no escopo: ${filesChanged.join(', ') || 'Nenhum'}.`
       ],
       blockingIssues: hasPassingTests ? [] : ['Testes automatizados não passaram na execução objetiva.'],
       suggestions: ['Adicionar asserção adicional para edge cases de entrada nula.'],
@@ -397,10 +742,10 @@ ${r.suggestions.map(s => `- ${s}`).join('\n') || '- Nenhuma'}
       };
     }
     // Reviewer B focuses on: Overengineering, lines of code, premature abstractions, Karpathy Simplicity
-    const hasOverengineering = diff.includes('class ') && diff.includes('Factory') ||
+    const hasOverengineering = (diff.includes('class ') && diff.includes('Factory')) ||
                                diff.includes('JSON.parse(JSON.stringify') ||
                                diff.includes('Proxy') ||
-                               diff.length > 1500 && filesChanged.length <= 1;
+                               (diff.length > 1500 && filesChanged.length <= 1);
 
     const score = hasOverengineering ? 4 : 9;
     const verdict = hasOverengineering ? 'CHANGES_REQUESTED' : 'APPROVED';
@@ -467,9 +812,16 @@ ${r.suggestions.map(s => `- ${s}`).join('\n') || '- Nenhuma'}
   }
 
   /**
-   * Persists Council Deliberation in SQLite
+   * Persists Council Deliberation in SQLite.
+   * Stores peerRankings, actionItems, and aggregateRankings safely inside peer_rankings_json.
    */
   private static saveDeliberation(deliberation: CouncilDeliberation) {
+    const peerRankingsEnvelope = JSON.stringify({
+      peerRankings: deliberation.peerRankings,
+      actionItems: deliberation.actionItems || [],
+      aggregateRankings: deliberation.aggregateRankings || []
+    });
+
     db.prepare(`
       INSERT INTO council_deliberations (
         id, task_id, project_id, run_id, risk_level, policy_trigger,
@@ -485,7 +837,7 @@ ${r.suggestions.map(s => `- ${s}`).join('\n') || '- Nenhuma'}
       deliberation.riskLevel,
       deliberation.policyTrigger,
       JSON.stringify(deliberation.reviews),
-      JSON.stringify(deliberation.peerRankings),
+      peerRankingsEnvelope,
       deliberation.chairmanVerdict,
       deliberation.chairmanSynthesis,
       deliberation.scores.correctness,
@@ -498,11 +850,31 @@ ${r.suggestions.map(s => `- ${s}`).join('\n') || '- Nenhuma'}
   }
 
   /**
-   * Retrieves deliberation by ID
+   * Retrieves deliberation by ID.
+   * Backward and forward compatible with raw arrays and envelope objects.
    */
   static getDeliberation(deliberationId: string): CouncilDeliberation | null {
     const row: any = db.prepare('SELECT * FROM council_deliberations WHERE id = ?').get(deliberationId);
     if (!row) return null;
+
+    let peerRankings: PeerRankingResult[] = [];
+    let actionItems: string[] = [];
+    let aggregateRankings: AggregateRankingResult[] | undefined = undefined;
+
+    try {
+      const parsedPeer = JSON.parse(row.peer_rankings_json || '[]');
+      if (Array.isArray(parsedPeer)) {
+        peerRankings = parsedPeer;
+        actionItems = [];
+      } else if (parsedPeer && typeof parsedPeer === 'object') {
+        peerRankings = parsedPeer.peerRankings || [];
+        actionItems = parsedPeer.actionItems || [];
+        aggregateRankings = parsedPeer.aggregateRankings;
+      }
+    } catch {
+      peerRankings = [];
+      actionItems = [];
+    }
 
     return {
       id: row.id,
@@ -511,8 +883,9 @@ ${r.suggestions.map(s => `- ${s}`).join('\n') || '- Nenhuma'}
       runId: row.run_id,
       riskLevel: row.risk_level,
       policyTrigger: row.policy_trigger,
-      reviews: JSON.parse(row.reviews_json),
-      peerRankings: JSON.parse(row.peer_rankings_json),
+      reviews: JSON.parse(row.reviews_json || '[]'),
+      peerRankings,
+      aggregateRankings,
       consensusLevel: row.consensus_level,
       scores: {
         correctness: row.correctness_score,
@@ -522,7 +895,7 @@ ${r.suggestions.map(s => `- ${s}`).join('\n') || '- Nenhuma'}
       },
       chairmanVerdict: row.chairman_verdict,
       chairmanSynthesis: row.chairman_synthesis,
-      actionItems: [],
+      actionItems,
       createdAt: row.created_at
     };
   }
@@ -541,7 +914,7 @@ ${r.suggestions.map(s => `- ${s}`).join('\n') || '- Nenhuma'}
    */
   static listDeliberationsByProject(projectId: string): CouncilDeliberation[] {
     const rows: any[] = db.prepare('SELECT * FROM council_deliberations WHERE project_id = ? ORDER BY created_at DESC').all(projectId);
-    return rows.map(r => this.getDeliberation(r.id)!);
+    return rows.map(r => this.getDeliberation(r.id)!).filter(Boolean);
   }
 
   /**
@@ -549,6 +922,6 @@ ${r.suggestions.map(s => `- ${s}`).join('\n') || '- Nenhuma'}
    */
   static listDeliberationsByRun(runId: string): CouncilDeliberation[] {
     const rows: any[] = db.prepare('SELECT * FROM council_deliberations WHERE run_id = ? ORDER BY created_at DESC').all(runId);
-    return rows.map(r => this.getDeliberation(r.id)!);
+    return rows.map(r => this.getDeliberation(r.id)!).filter(Boolean);
   }
 }

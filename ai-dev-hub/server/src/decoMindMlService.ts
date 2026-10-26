@@ -118,6 +118,7 @@ const STOPWORDS = new Set([
 
 export class DecoMindMlService {
   private static _weightsCache: { weights: number[]; learningRate: number; l2Lambda: number; samplesSeen: number } | null = null;
+  private static _isBootstrapping = false;
 
   static ensureTables(targetDb: any = db): void {
     targetDb.exec(`
@@ -171,6 +172,84 @@ export class DecoMindMlService {
         created_at TEXT NOT NULL
       );
     `);
+
+    if (!this._isBootstrapping) {
+      this.autoBootstrapHistoricalMemories(targetDb);
+    }
+  }
+
+  /**
+   * Auto-bootstraps episodic memories from historical tasks in autonomous_tasks that succeeded after rework.
+   * Ensures the system immediately leverages past empirical lessons rather than starting from zero vaccines.
+   */
+  static autoBootstrapHistoricalMemories(targetDb: any = db): void {
+    if (this._isBootstrapping) return;
+    this._isBootstrapping = true;
+    try {
+      const hasMemories = targetDb.prepare('SELECT count(*) as c FROM ml_episodic_memories').get() as any;
+      if (hasMemories && Number(hasMemories.c || 0) > 0) return;
+
+      const hasTasksTable = targetDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='autonomous_tasks'").get();
+      if (!hasTasksTable) return;
+
+      const completedReworkTasks = targetDb.prepare(`
+        SELECT id, title, description, skill_routed, attempt_history_json, review_result_json
+        FROM autonomous_tasks
+        WHERE retry_count > 0 AND status = 'completed'
+        ORDER BY updated_at DESC
+        LIMIT 25
+      `).all() as any[];
+
+      for (const t of completedReworkTasks) {
+        let errPattern = 'REWORK_REQUIRED';
+        let vaccine = 'Correção e validação cirúrgica com código de saída 0';
+        try {
+          const hist = typeof t.attempt_history_json === 'string'
+            ? JSON.parse(t.attempt_history_json)
+            : (Array.isArray(t.attempt_history_json) ? t.attempt_history_json : []);
+          if (hist.length > 0) {
+            const firstFailed = hist.find((h: any) => (h.knownProblems && h.knownProblems.length > 0) || h.workerStatus === 'failure' || h.testResults?.includes('FAIL'));
+            if (firstFailed) {
+              if (Array.isArray(firstFailed.knownProblems) && firstFailed.knownProblems.length > 0) {
+                errPattern = firstFailed.knownProblems[0];
+              } else if (firstFailed.testResults) {
+                errPattern = firstFailed.testResults;
+              }
+            }
+            const lastSuccess = hist.slice().reverse().find((h: any) => h.workerStatus === 'success' || (h.implemented && h.implemented.length > 0));
+            if (lastSuccess && Array.isArray(lastSuccess.implemented) && lastSuccess.implemented.length > 0) {
+              vaccine = lastSuccess.implemented[0];
+            }
+          }
+        } catch {}
+
+        this.recordEpisodicLesson({
+          taskCategory: t.skill_routed || 'GENERAL',
+          taskText: `${t.title || ''} ${t.description || ''}`,
+          errorPattern: errPattern,
+          rootCause: 'Falha em tentativa anterior superada com sucesso no retry',
+          surgicalVaccine: vaccine,
+          qValue: 0.70
+        }, targetDb);
+      }
+    } catch (err: any) {
+      Logger.warn(`[DecoMindMlService] Bootstrap histórico de memórias episódicas ignorado: ${err.message}`);
+    } finally {
+      this._isBootstrapping = false;
+    }
+  }
+
+  /**
+   * Infere a categoria funcional da tarefa a partir do título, descrição e arquivos de escopo
+   */
+  static inferTaskCategory(taskTitle: string, taskDescription?: string, expectedFiles?: string[]): string {
+    const text = `${taskTitle || ''} ${taskDescription || ''} ${(expectedFiles || []).join(' ')}`.toLowerCase();
+    if (/(security|owasp|pentest|auth|jwt|csrf|xss|blindagem|sanitiz|vulnerabilidade)/i.test(text)) return 'SECURITY';
+    if (/(api|endpoint|route|express|fastify|controller|rest|backend|handler|decomposi|breakdown)/i.test(text)) return 'BACKEND';
+    if (/(ui|frontend|css|html|react|view|component|layout|modal|lightbox|dashboard|filtro)/i.test(text)) return 'FRONTEND';
+    if (/(database|sqlite|sql|schema|migrat|prisma|orm|repository|banco|persist)/i.test(text)) return 'DATABASE';
+    if (/(test|spec|assert|evaluat|cobertura|e2e|playwright)/i.test(text)) return 'TEST';
+    return 'GENERAL';
   }
 
   // =========================================================================
@@ -208,7 +287,9 @@ export class DecoMindMlService {
     const x6 = Math.min(1.0, attempts / 3.0);
 
     // x[7]: Taxa histórica de falhas/reworks da categoria
-    const category = task.category || 'GENERAL';
+    const category = task.category && task.category !== 'GENERAL'
+      ? task.category
+      : this.inferTaskCategory(task.taskTitle, task.taskDescription, task.expectedFiles);
     const x7 = this.getCategoryHistoricalFailRate(category);
 
     const arr = [x0, x1, x2, x3, x4, x5, x6, x7] as number[] & TaskFeatures;
@@ -659,8 +740,8 @@ export class DecoMindMlService {
     resolutionVaccine?: string;
     qValue?: number;
     targetFiles?: string[];
-  }): EpisodicMemory {
-    this.ensureTables();
+  }, targetDb: any = db): EpisodicMemory {
+    this.ensureTables(targetDb);
     const id = `mem-${randomUUID().slice(0, 8)}`;
     const taskCategory = params.taskCategory || 'GENERAL';
     const taskText = params.taskText || params.taskDescription || '';
@@ -692,7 +773,7 @@ export class DecoMindMlService {
     };
 
     try {
-      db.prepare(`
+      targetDb.prepare(`
         INSERT INTO ml_episodic_memories (
           id, task_category, signature_tokens_json, error_pattern, root_cause,
           surgical_vaccine, q_value, retrievals, successes_after_retrieval, created_at, updated_at
@@ -861,13 +942,20 @@ export class DecoMindMlService {
       }
 
       // 4. Se a tarefa foi aprovada após rework prévio, grava a vacina encontrada
-      if (isPass && params.solutionVaccine && (params.reworkCause || params.errorPattern)) {
+      const hasReworkHistory = actualRework === 1 || (params.attempts && params.attempts > 0) || (params.task?.retry_count && params.task.retry_count > 0);
+      if (isPass && (params.solutionVaccine || hasReworkHistory)) {
+        const vaccine = params.solutionVaccine ||
+          (Array.isArray(params.task?.implemented) ? params.task.implemented.join('; ') : undefined) ||
+          'Correção cirúrgica com verificação objetiva aprovada (código 0)';
+        const errPattern = params.errorPattern || (hasReworkHistory ? `Rework superado na tentativa ${params.attempts || params.task?.retry_count || 1}` : 'REWORK_REQUIRED');
+        const rootCause = params.reworkCause || 'Falha na tentativa inicial superada com sucesso';
         this.recordEpisodicLesson({
           taskCategory: category,
           taskText: `${params.taskTitle || params.task?.title || ''} ${params.taskDescription || params.task?.description || ''}`,
-          errorPattern: params.errorPattern || 'REWORK_REQUIRED',
-          rootCause: params.reworkCause || 'Falha na avaliação inicial',
-          surgicalVaccine: params.solutionVaccine
+          errorPattern: errPattern,
+          rootCause,
+          surgicalVaccine: vaccine,
+          qValue: 0.85
         });
       }
 
@@ -942,8 +1030,8 @@ export class DecoMindMlService {
       const topEpisodicMemories = db.prepare(`
         SELECT id, task_category, error_pattern, surgical_vaccine, q_value
         FROM ml_episodic_memories
-        ORDER BY q_value DESC, retrievals DESC
-        LIMIT 5
+        ORDER BY q_value DESC, updated_at DESC
+        LIMIT 20
       `).all() as any[];
 
       const countRow = db.prepare('SELECT count(*) as c FROM ml_episodic_memories').get() as any;

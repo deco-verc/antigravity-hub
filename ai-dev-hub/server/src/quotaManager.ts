@@ -67,12 +67,35 @@ export class QuotaManager {
     const raw = errorMsg || '';
     let durationMs = 60 * 60 * 1000; // 1 hour default fallback
 
-    const resetsInMatch = raw.match(/Resets in (?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?/i);
-    if (resetsInMatch) {
-      const h = parseInt(resetsInMatch[1] || '0', 10);
-      const m = parseInt(resetsInMatch[2] || '0', 10);
-      const s = parseInt(resetsInMatch[3] || '0', 10);
-      const calculated = (h * 3600 + m * 60 + s) * 1000;
+    // Suporte a dias, horas, minutos e segundos (ex: "Resets in 110h56m54s", "Resets in 4d 14h")
+    const resetsInMatch = raw.match(/Resets in\s*(?:(\d+)d\s*)?(?:(\d+)h\s*)?(?:(\d+)m\s*)?(?:(\d+)s)?/i);
+    const refreshOnMatch = raw.match(/refresh on\s*(\d{2})\/(\d{2})\/(\d{4}),?\s*(\d{2}):(\d{2}):(\d{2})/i);
+
+    if (refreshOnMatch) {
+      const [, day, month, year, hours, minutes, seconds] = refreshOnMatch;
+      const parsedDate = new Date(
+        parseInt(year, 10),
+        parseInt(month, 10) - 1,
+        parseInt(day, 10),
+        parseInt(hours, 10),
+        parseInt(minutes, 10),
+        parseInt(seconds, 10)
+      );
+      if (parsedDate.getTime() > now.getTime()) {
+        durationMs = parsedDate.getTime() - now.getTime();
+        return {
+          durationMs,
+          resetsAt: parsedDate.toISOString()
+        };
+      }
+    }
+
+    if (resetsInMatch && (resetsInMatch[1] || resetsInMatch[2] || resetsInMatch[3] || resetsInMatch[4])) {
+      const d = parseInt(resetsInMatch[1] || '0', 10);
+      const h = parseInt(resetsInMatch[2] || '0', 10);
+      const m = parseInt(resetsInMatch[3] || '0', 10);
+      const s = parseInt(resetsInMatch[4] || '0', 10);
+      const calculated = (d * 86400 + h * 3600 + m * 60 + s) * 1000;
       if (calculated > 0) durationMs = calculated;
     } else {
       const retryAfterMatch = raw.match(/retry[-_\s]?after[:\s]+(\d+)\s*s?/i);

@@ -383,3 +383,116 @@ test('Fase 3: Preservação de Segurança — TAMPERING_DETECTED e exaustão de 
   assert.equal(taskExhaustFinal.retry_count, 4, 'retry_count deve ser 4');
 });
 
+test('Watchdog Resiliência: Não preempte nem incremente retries prematuramente em tarefas com turnos nativos em voo', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decohub-watchdog-resilience-'));
+  const projectId = `proj-watchdog-${crypto.randomUUID().slice(0, 8)}`;
+  createTestProject(projectId, dir);
+
+  const runId = `run-watchdog-${crypto.randomUUID().slice(0, 8)}`;
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO autonomous_runs (id, project_id, name, objective, status, start_time, consecutive_failures, created_at, updated_at)
+    VALUES (?, ?, ?, ?, 'running', ?, 0, ?, ?)
+  `).run(runId, projectId, 'Run Watchdog Resilience', 'Objetivo', now, now, now);
+
+  const taskId = `task-watchdog-${crypto.randomUUID().slice(0, 8)}`;
+  const nineMinutesAgo = new Date(Date.now() - 9 * 60 * 1000).toISOString();
+  db.prepare(`
+    INSERT INTO autonomous_tasks (id, run_id, title, description, milestone, status, lifecycle_state, retry_count, max_retries, created_at, updated_at)
+    VALUES (?, ?, ?, ?, 'M1', 'in_progress', 'IN_PROGRESS', 0, 3, ?, ?)
+  `).run(taskId, runId, 'Tarefa Longa com Turno Nativo', 'Desc', nineMinutesAgo, nineMinutesAgo);
+
+  // Turno nativo recente em voo (despachado há 4 minutos)
+  const fourMinutesAgo = new Date(Date.now() - 4 * 60 * 1000).toISOString();
+  const convId = `conv-${crypto.randomUUID().slice(0, 8)}`;
+  db.prepare(`
+    INSERT INTO agent_turn_observations (conversation_id, task_id, project_path, brain_dir, baseline_lines, baseline_files_json, phase, dispatched_at, updated_at)
+    VALUES (?, ?, ?, ?, 0, '{}', 'IN_FLIGHT', ?, ?)
+  `).run(convId, taskId, dir, dir, fourMinutesAgo, fourMinutesAgo);
+
+  const prevIsRunning = (AutonomousRunnerService as any).isRunning;
+  (AutonomousRunnerService as any).isRunning = true;
+
+  try {
+    // Executa watchdog tick
+    await (AutonomousRunnerService as any).watchdogTick();
+
+    // Tarefa com turno nativo em voo NÃO deve ter sido resetada ou tido retry incrementado
+    const taskDuringFlight: any = db.prepare('SELECT status, retry_count FROM autonomous_tasks WHERE id = ?').get(taskId);
+    assert.equal(taskDuringFlight.status, 'in_progress', 'Tarefa com turno em voo deve permanecer in_progress');
+    assert.equal(taskDuringFlight.retry_count, 0, 'retry_count não deve ser incrementado prematuramente');
+
+    // Agora simula abandono genuíno (> 12 minutos)
+    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    db.prepare("UPDATE agent_turn_observations SET dispatched_at = ? WHERE task_id = ?").run(fifteenMinutesAgo, taskId);
+
+    await (AutonomousRunnerService as any).watchdogTick();
+
+    const taskAfterAbandon: any = db.prepare('SELECT status, retry_count FROM autonomous_tasks WHERE id = ?').get(taskId);
+    assert.ok(
+      taskAfterAbandon.status === 'in_review' || taskAfterAbandon.status === 'ready',
+      'Após abandono/conclusão de turno (>12min), tarefa deve ser auto-reconciliada para in_review ou resetada para ready'
+    );
+
+    const obsAfter: any = db.prepare('SELECT phase FROM agent_turn_observations WHERE task_id = ?').get(taskId);
+    assert.equal(obsAfter.phase, 'CONSUMED', 'Observação abandonada deve ser marcada como CONSUMED');
+  } finally {
+    (AutonomousRunnerService as any).isRunning = prevIsRunning;
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+  }
+});
+
+test('Watchdog Resiliência: Não preempte nem incremente retries quando tarefa estiver ativa no runner durante fase de avaliação ou revisão', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decohub-watchdog-eval-'));
+  const projectId = `proj-watchdog-eval-${crypto.randomUUID().slice(0, 8)}`;
+  createTestProject(projectId, dir);
+
+  const runId = `run-watchdog-eval-${crypto.randomUUID().slice(0, 8)}`;
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO autonomous_runs (id, project_id, name, objective, status, start_time, consecutive_failures, created_at, updated_at)
+    VALUES (?, ?, ?, ?, 'running', ?, 0, ?, ?)
+  `).run(runId, projectId, 'Run Watchdog Active Phase', 'Objetivo', now, now, now);
+
+  const taskId = `task-watchdog-eval-${crypto.randomUUID().slice(0, 8)}`;
+  const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  db.prepare(`
+    INSERT INTO autonomous_tasks (id, run_id, title, description, milestone, status, lifecycle_state, retry_count, max_retries, created_at, updated_at)
+    VALUES (?, ?, ?, ?, 'M1', 'in_progress', 'IN_PROGRESS', 0, 3, ?, ?)
+  `).run(taskId, runId, 'Tarefa Ativa em Avaliacao', 'Desc', tenMinutesAgo, tenMinutesAgo);
+
+  const prevIsRunning = (AutonomousRunnerService as any).isRunning;
+  const prevTaskId = (AutonomousRunnerService as any).currentTaskId;
+  const prevPhase = (AutonomousRunnerService as any).currentPhase;
+
+  (AutonomousRunnerService as any).isRunning = true;
+  (AutonomousRunnerService as any).currentTaskId = taskId;
+  (AutonomousRunnerService as any).currentPhase = 'EVALUATOR_VERIFYING';
+
+  try {
+    // Executa watchdog tick enquanto a tarefa está ativamente sendo avaliada
+    await (AutonomousRunnerService as any).watchdogTick();
+
+    const taskDuringEval: any = db.prepare('SELECT status, retry_count FROM autonomous_tasks WHERE id = ?').get(taskId);
+    assert.equal(taskDuringEval.status, 'in_progress', 'Tarefa em fase de avaliação ativa não deve ser interrompida');
+    assert.equal(taskDuringEval.retry_count, 0, 'retry_count não deve ser incrementado para tarefas ativas no runner');
+
+    // Agora simula tarefa finalizada e IDLE sem lease (órfã de verdade)
+    (AutonomousRunnerService as any).currentTaskId = null;
+    (AutonomousRunnerService as any).currentPhase = 'IDLE';
+
+    await (AutonomousRunnerService as any).watchdogTick();
+
+    const taskAfterOrphan: any = db.prepare('SELECT status, retry_count FROM autonomous_tasks WHERE id = ?').get(taskId);
+    assert.ok(
+      taskAfterOrphan.status === 'in_review' || taskAfterOrphan.status === 'ready',
+      'Tarefa órfã sem runner ativo deve ser reconciliada para in_review ou resetada para ready'
+    );
+  } finally {
+    (AutonomousRunnerService as any).isRunning = prevIsRunning;
+    (AutonomousRunnerService as any).currentTaskId = prevTaskId;
+    (AutonomousRunnerService as any).currentPhase = prevPhase;
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+  }
+});
+

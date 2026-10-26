@@ -1999,7 +1999,7 @@ export class AccountProfileManager {
         ? String((errorOrMessage as any).message)
         : String(errorOrMessage || '');
 
-    const quotaPattern = /RESOURCE_EXHAUSTED|QUOTA_EXHAUSTED|QUOTA_BLOCKED|\b429\b|Individual quota reached|AI credits balance is too low|Out of credits|rate limit|\bcota\b/i;
+    const quotaPattern = /RESOURCE_EXHAUSTED|QUOTA_EXHAUSTED|QUOTA_BLOCKED|\b429\b|Individual quota reached|baseline quota will refresh|Weekly Limit|upgrade your subscription to increase your limits|Resets in \d+|AI credits balance is too low|Out of credits|rate limit|\bcota\b/i;
     const authPattern = /AUTH_ERROR|UNAUTHENTICATED|LOGIN_REQUIRED|Verify your account to continue|secret keyring is locked|OAuth|invalid_grant|missing license|not authenticated|ACCOUNT_UNAVAILABLE/i;
     const runtimePattern = /AGENTAPI_UNAVAILABLE.*perfil|NATIVE_WORKSPACE_PROFILE_HOME_MISMATCH/i;
 
@@ -2549,12 +2549,29 @@ export class AccountProfileManager {
     const rawMsg = errorMsg || 'Limite de cota individual atingido (RESOURCE_EXHAUSTED 429).';
     let durationMs = 60 * 60 * 1000; // default 1h
 
-    const match = rawMsg.match(/Resets in (?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?/i);
-    if (match) {
-      const h = parseInt(match[1] || '0', 10);
-      const m = parseInt(match[2] || '0', 10);
-      const s = parseInt(match[3] || '0', 10);
-      const calculated = (h * 3600 + m * 60 + s) * 1000;
+    // Suporte a dias, horas, minutos e segundos (ex: "Resets in 110h56m54s", "Resets in 4d 14h")
+    const match = rawMsg.match(/Resets in\s*(?:(\d+)d\s*)?(?:(\d+)h\s*)?(?:(\d+)m\s*)?(?:(\d+)s)?/i);
+    const refreshOnMatch = rawMsg.match(/refresh on\s*(\d{2})\/(\d{2})\/(\d{4}),?\s*(\d{2}):(\d{2}):(\d{2})/i);
+
+    if (refreshOnMatch) {
+      const [, day, month, year, hours, minutes, seconds] = refreshOnMatch;
+      const parsedDate = new Date(
+        parseInt(year, 10),
+        parseInt(month, 10) - 1,
+        parseInt(day, 10),
+        parseInt(hours, 10),
+        parseInt(minutes, 10),
+        parseInt(seconds, 10)
+      );
+      if (parsedDate.getTime() > now.getTime()) {
+        durationMs = parsedDate.getTime() - now.getTime();
+      }
+    } else if (match && (match[1] || match[2] || match[3] || match[4])) {
+      const d = parseInt(match[1] || '0', 10);
+      const h = parseInt(match[2] || '0', 10);
+      const m = parseInt(match[3] || '0', 10);
+      const s = parseInt(match[4] || '0', 10);
+      const calculated = (d * 86400 + h * 3600 + m * 60 + s) * 1000;
       if (calculated > 0) durationMs = calculated;
     }
 

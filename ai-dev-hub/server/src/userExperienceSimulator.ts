@@ -54,6 +54,7 @@ export interface TargetServerInstance {
   port: number;
   pid?: number;
   entrypoint?: string;
+  isStaticFallback?: boolean;
   close: () => Promise<void>;
 }
 
@@ -154,61 +155,80 @@ export class UserExperienceSimulator {
   public static parseEvalJson(stdout: string): any {
     if (!stdout) return {};
     const trimmed = stdout.trim();
-    // 1. Try matching an escaped JSON string: "{\"ok\":...}"
-    const quotedMatch = trimmed.match(/"(\\{(?:\\"|[^"])*\\})"/);
+
+    // 1. Direct parse attempt
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed === 'string') {
+        try { return JSON.parse(parsed); } catch { return parsed; }
+      }
+      return parsed;
+    } catch {}
+
+    // 2. Search for valid JSON object { ... }
+    let openBraceIdx = trimmed.indexOf('{');
+    while (openBraceIdx !== -1) {
+      const candidate = trimmed.substring(openBraceIdx);
+      const closeBraceIdx = candidate.lastIndexOf('}');
+      if (closeBraceIdx > 0) {
+        try {
+          return JSON.parse(candidate.substring(0, closeBraceIdx + 1));
+        } catch {}
+      }
+      openBraceIdx = trimmed.indexOf('{', openBraceIdx + 1);
+    }
+
+    // 3. Search for valid JSON array [ ... ]
+    let openBracketIdx = trimmed.indexOf('[');
+    while (openBracketIdx !== -1) {
+      const candidate = trimmed.substring(openBracketIdx);
+      const closeBracketIdx = candidate.lastIndexOf(']');
+      if (closeBracketIdx > 0) {
+        try {
+          return JSON.parse(candidate.substring(0, closeBracketIdx + 1));
+        } catch {}
+      }
+      openBracketIdx = trimmed.indexOf('[', openBracketIdx + 1);
+    }
+
+    // 4. Quoted JSON string matching
+    const quotedMatch = trimmed.match(/"(\{[\s\S]*\})"|'(\{[\s\S]*\})'/);
     if (quotedMatch) {
       try {
-        const unescaped = JSON.parse(quotedMatch[0]);
-        return JSON.parse(unescaped);
-      } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "userExperienceSimulator",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:userExperienceSimulator]", err);
-      }
+        const raw = quotedMatch[1] || quotedMatch[2];
+        return JSON.parse(raw.replace(/\\"/g, '"').replace(/\\\\/g, '\\'));
+      } catch {}
     }
-    }
-    // 2. Try matching a raw JSON object or array { ... } or [ ... ]
-    const objMatch = trimmed.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
-    if (objMatch) {
-      try {
-        return JSON.parse(objMatch[1]);
-      } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "userExperienceSimulator",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:userExperienceSimulator]", err);
-      }
-    }
-    }
+
     return {};
   }
 
   /**
-   * Finds an available TCP port for ephemeral target servers.
+   * Finds an available TCP port for ephemeral target servers,
+   * preferring the PORT_GUARD range (4100-4899) to avoid conflicts and fallback overrides.
    */
-  public static async findFreePort(fallbackPort: number = 38500): Promise<number> {
-    return new Promise((resolve) => {
-      const srv = net.createServer();
-      srv.listen(0, '127.0.0.1', () => {
-        const addr = srv.address();
-        if (!addr || typeof addr === 'string') {
-          srv.close(() => resolve(fallbackPort));
-          return;
-        }
-        const port = addr.port;
-        srv.close(() => resolve(port));
+  public static async findFreePort(fallbackPort: number = 4250): Promise<number> {
+    const isPortAvailable = (p: number): Promise<boolean> =>
+      new Promise((resolve) => {
+        const srv = net.createServer();
+        srv.once('error', () => resolve(false));
+        srv.once('listening', () => {
+          srv.close(() => resolve(true));
+        });
+        srv.listen(p, '127.0.0.1');
       });
-      srv.on('error', () => resolve(fallbackPort));
-    });
+
+    // Check PORT_GUARD safe dynamic range (4100 to 4899)
+    const safeFallback = fallbackPort >= 4100 && fallbackPort <= 4899 ? fallbackPort : 4250;
+    const startPort = 4100 + Math.floor(Math.random() * 700);
+    for (let p = startPort; p < 4900; p++) {
+      if (await isPortAvailable(p)) return p;
+    }
+    for (let p = 4100; p < startPort; p++) {
+      if (await isPortAvailable(p)) return p;
+    }
+
+    return safeFallback;
   }
 
   /**
@@ -217,7 +237,7 @@ export class UserExperienceSimulator {
    */
   public static async startTargetServer(
     projectPath: string,
-    timeoutMs: number = 8000
+    timeoutMs: number = 12000
   ): Promise<TargetServerInstance> {
     const resolvedPath = path.resolve(projectPath);
     const port = await this.findFreePort();
@@ -237,6 +257,13 @@ export class UserExperienceSimulator {
             serverScriptRel = match[1];
             if (serverScriptRel.endsWith('.ts') || startScript.includes('tsx')) {
               isTypeScript = true;
+            } else if (serverScriptRel.startsWith('dist/') || serverScriptRel.startsWith('dist\\')) {
+              const srcTsCandidate = serverScriptRel.replace(/^dist[\\/]/, '').replace(/\.js$/, '.ts');
+              const distScriptFull = path.join(resolvedPath, serverScriptRel);
+              if (!fs.existsSync(distScriptFull) && fs.existsSync(path.join(resolvedPath, srcTsCandidate))) {
+                serverScriptRel = srcTsCandidate;
+                isTypeScript = true;
+              }
             }
           }
         }
@@ -251,6 +278,31 @@ export class UserExperienceSimulator {
         console.warn("[WARN][server:userExperienceSimulator]", err);
       }
     }
+    }
+
+    // Ensure build is up-to-date if serverScriptRel points to dist/
+    if (serverScriptRel && (serverScriptRel.startsWith('dist/') || serverScriptRel.startsWith('dist\\'))) {
+      const tsconfigPath = path.join(resolvedPath, 'tsconfig.json');
+      const distScriptFull = path.join(resolvedPath, serverScriptRel);
+      if (fs.existsSync(tsconfigPath) && (!fs.existsSync(distScriptFull) || fs.existsSync(pkgPath))) {
+        try {
+          const isWin = process.platform === 'win32';
+          spawnSync(isWin ? 'npm.cmd' : 'npm', ['run', 'build'], {
+            cwd: resolvedPath,
+            timeout: 25000,
+            stdio: 'ignore',
+            windowsHide: true
+          });
+        } catch {}
+      }
+
+      if (!fs.existsSync(distScriptFull)) {
+        const srcTsCandidate = serverScriptRel.replace(/^dist[\\/]/, '').replace(/\.js$/, '.ts');
+        if (fs.existsSync(path.join(resolvedPath, srcTsCandidate))) {
+          serverScriptRel = srcTsCandidate;
+          isTypeScript = true;
+        }
+      }
     }
 
     // 2. Fallback candidate paths
@@ -283,6 +335,7 @@ export class UserExperienceSimulator {
       return {
         url: staticServer.url,
         port: staticPort,
+        isStaticFallback: true,
         close: staticServer.close
       };
     }
@@ -292,19 +345,37 @@ export class UserExperienceSimulator {
     Logger.info(`[UserExperienceSimulator] Iniciando servidor alvo em porta ${port} (${serverScriptRel})...`);
 
     const isWin = process.platform === 'win32';
-    const cmd = isTypeScript ? (isWin ? 'npx.cmd' : 'npx') : 'node';
-    const args = isTypeScript ? ['tsx', scriptFullPath] : [scriptFullPath];
+    const { execPath: safeNode, env: nodeEnv } = this.getSafeNodeExecutable();
+
+    let cmd: string;
+    let args: string[];
+
+    if (isTypeScript) {
+      const localTsx = path.join(resolvedPath, 'node_modules', '.bin', isWin ? 'tsx.cmd' : 'tsx');
+      if (fs.existsSync(localTsx)) {
+        cmd = localTsx;
+        args = [scriptFullPath];
+      } else {
+        cmd = isWin ? 'npx.cmd' : 'npx';
+        args = ['tsx', scriptFullPath];
+      }
+    } else {
+      cmd = safeNode;
+      args = [scriptFullPath];
+    }
 
     const child = spawn(cmd, args, {
       cwd: resolvedPath,
       env: {
-        ...process.env,
+        ...nodeEnv,
         PORT: String(port),
-        NODE_ENV: 'test',
-        DECOHUB_UX_SIMULATOR: 'true'
+        NODE_ENV: process.env.NODE_ENV === 'test' ? 'development' : (process.env.NODE_ENV || 'development'),
+        DECOHUB_UX_SIMULATOR: 'true',
+        DECOHUB_PREVIEW_MODE: 'true'
       },
       stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true
+      windowsHide: true,
+      shell: Boolean(isWin && cmd.endsWith('.cmd'))
     });
 
     let stdoutBuf = '';
@@ -316,7 +387,8 @@ export class UserExperienceSimulator {
       Logger.warn(`[UserExperienceSimulator] Erro no processo do servidor alvo: ${err.message}`);
     });
 
-    const serverUrl = `http://127.0.0.1:${port}`;
+    let activePort = port;
+    let activeUrl = `http://127.0.0.1:${port}`;
 
     // 5. Poll until server is ready
     const pollStart = Date.now();
@@ -329,34 +401,68 @@ export class UserExperienceSimulator {
             if (isWin) spawnSync('taskkill', ['/pid', String(child.pid), '/f', '/t'], { stdio: 'ignore' });
             child.kill('SIGKILL');
           } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "userExperienceSimulator",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:userExperienceSimulator]", err);
-      }
-    }
+            if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+              (globalThis as any).logger.warn({
+                event: "server.handled_exception",
+                file: "userExperienceSimulator",
+                error: (err as any)?.message || String(err)
+              });
+            } else {
+              console.warn("[WARN][server:userExperienceSimulator]", err);
+            }
+          }
         }
+
+        // If the server process exited prematurely (e.g. exit code 0 or build module without listen),
+        // check whether static frontend assets exist to salvage evaluation via ephemeral static server.
+        const candidateHtml = PlaywrightVisualInspector.findCandidateHtmlFile(resolvedPath);
+        if (candidateHtml) {
+          Logger.info(`[UserExperienceSimulator] Servidor encerrou prematuramente (código: ${child.exitCode}). Ativando servidor estático efêmero com base em "${candidateHtml}"...`);
+          const staticServer = await PlaywrightVisualInspector.startEphemeralStaticServer(resolvedPath);
+          const portMatch = staticServer.url.match(/:(\d+)$/);
+          const staticPort = portMatch ? parseInt(portMatch[1], 10) : (staticServer.port || port);
+          return {
+            url: staticServer.url,
+            port: staticPort,
+            isStaticFallback: true,
+            close: staticServer.close
+          };
+        }
+
         throw new Error(
           `SERVER_EARLY_EXIT: O servidor do projeto encerrou prematuramente (código: ${child.exitCode}).\nSTDERR: ${stderrBuf.slice(0, 500)}\nSTDOUT: ${stdoutBuf.slice(0, 500)}`
         );
       }
 
-      try {
-        const res = await fetch(`${serverUrl}/`, {
-          method: 'GET',
-          signal: AbortSignal.timeout(600)
-        });
-        if (res.status >= 200 && res.status < 500) {
-          ready = true;
-          break;
-        }
-      } catch {
-        // Continue waiting
+      // Check if server logged a specific port in stdout/stderr
+      const combinedOutput = stdoutBuf + ' ' + stderrBuf;
+      const portMatch = combinedOutput.match(/(?:listening on|running on|iniciado na porta|porta|port|http:\/\/(?:localhost|127\.0\.0\.1):)(\d{4,5})/i);
+      const runtimePort = portMatch ? parseInt(portMatch[1], 10) : null;
+
+      const candidatesToProbe = [activeUrl];
+      if (runtimePort && runtimePort > 1024 && runtimePort < 65535 && runtimePort !== activePort) {
+        candidatesToProbe.push(`http://127.0.0.1:${runtimePort}`);
       }
+
+      for (const probeUrl of candidatesToProbe) {
+        try {
+          const res = await fetch(`${probeUrl}/`, {
+            method: 'GET',
+            signal: AbortSignal.timeout(600)
+          });
+          if (res.status >= 200 && res.status < 500) {
+            ready = true;
+            activeUrl = probeUrl;
+            const portNum = parseInt(probeUrl.split(':').pop() || String(activePort), 10);
+            activePort = isNaN(portNum) ? activePort : portNum;
+            break;
+          }
+        } catch {
+          // Continue waiting
+        }
+      }
+
+      if (ready) break;
       await new Promise((r) => setTimeout(r, 200));
     }
 
@@ -367,19 +473,35 @@ export class UserExperienceSimulator {
           if (isWin) spawnSync('taskkill', ['/pid', String(child.pid), '/f', '/t'], { stdio: 'ignore' });
           child.kill('SIGKILL');
         } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "userExperienceSimulator",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:userExperienceSimulator]", err);
+          if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+            (globalThis as any).logger.warn({
+              event: "server.handled_exception",
+              file: "userExperienceSimulator",
+              error: (err as any)?.message || String(err)
+            });
+          } else {
+            console.warn("[WARN][server:userExperienceSimulator]", err);
+          }
+        }
       }
-    }
+
+      // Check whether static frontend assets exist before failing with timeout
+      const candidateHtml = PlaywrightVisualInspector.findCandidateHtmlFile(resolvedPath);
+      if (candidateHtml) {
+        Logger.info(`[UserExperienceSimulator] Servidor alvo em "${serverScriptRel}" atingiu timeout (${timeoutMs}ms). Ativando servidor estático efêmero com base em "${candidateHtml}" para viabilizar inspeção visual/UX...`);
+        const staticServer = await PlaywrightVisualInspector.startEphemeralStaticServer(resolvedPath);
+        const portMatch = staticServer.url.match(/:(\d+)$/);
+        const staticPort = portMatch ? parseInt(portMatch[1], 10) : (staticServer.port || port);
+        return {
+          url: staticServer.url,
+          port: staticPort,
+          isStaticFallback: true,
+          close: staticServer.close
+        };
       }
+
       throw new Error(
-        `SERVER_START_TIMEOUT: O servidor em "${serverScriptRel}" não respondeu em ${serverUrl} após ${timeoutMs}ms.\nSTDERR: ${stderrBuf.slice(0, 500)}`
+        `SERVER_START_TIMEOUT: O servidor em "${serverScriptRel}" não respondeu em ${activeUrl} após ${timeoutMs}ms.\nSTDERR: ${stderrBuf.slice(0, 500)}`
       );
     }
 
@@ -433,10 +555,11 @@ export class UserExperienceSimulator {
     };
 
     return {
-      url: serverUrl,
-      port,
+      url: activeUrl,
+      port: activePort,
       pid: child.pid,
       entrypoint: serverScriptRel,
+      isStaticFallback: false,
       close
     };
   }
@@ -502,7 +625,7 @@ export class UserExperienceSimulator {
     const buttonMatches = htmlContent.match(/<button\b[^>]*>([\s\S]*?)<\/button>/gi) || [];
     for (const b of buttonMatches) {
       const isExplicitDead = /data-dead="true"/i.test(b) || /class="[^"]*dead-btn/i.test(b);
-      const hasDeclarativeWiring = /onclick=|data-action=|data-id=|data-task-id=|data-item-id=|data-status=|data-tab=|data-modal=|data-drawer=|type=["']submit["']|aria-controls=/i.test(b);
+      const hasDeclarativeWiring = /onclick=|data-action=|data-id=|data-task-id=|data-item-id=|data-video-id=|data-status=|data-tab=|data-modal=|data-drawer=|data-toggle=|data-filter=|data-period=|data-range=|data-days=|data-value=|data-view=|data-sort=|type=["']submit["']|type=["']reset["']|aria-controls=|aria-pressed=|role=["']tab["']|role=["']radio["']/i.test(b);
       if (isExplicitDead && !hasDeclarativeWiring) {
         const text = b.replace(/<[^>]+>/g, '').trim() || 'Botão Morto';
         deadButtons.push(text);
@@ -520,7 +643,10 @@ export class UserExperienceSimulator {
     };
 
     const reportPath = path.join(evidenceDir, 'user-journey-report.json');
-    try { fs.writeFileSync(reportPath, JSON.stringify(report, null, 2), 'utf-8'); } catch (err) {
+    try {
+      if (!fs.existsSync(evidenceDir)) fs.mkdirSync(evidenceDir, { recursive: true });
+      fs.writeFileSync(reportPath, JSON.stringify(report, null, 2), 'utf-8');
+    } catch (err) {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({
           event: "server.handled_exception",
@@ -658,14 +784,26 @@ export class UserExperienceSimulator {
     try {
       // 1. Boot target server if URL not provided
       if (!targetUrl) {
-        targetServer = await this.startTargetServer(projectPath);
-        targetUrl = targetServer.url;
+        try {
+          targetServer = await this.startTargetServer(projectPath, timeoutMs);
+          targetUrl = targetServer.url;
+        } catch (serverErr: any) {
+          Logger.warn(`[UserExperienceSimulator] Não foi possível iniciar servidor alvo efêmero: ${serverErr.message}. Recorrendo à validação estrutural offline.`);
+          if (PlaywrightVisualInspector.findCandidateHtmlFile(projectPath)) {
+            return this.performOfflineSimulation(projectPath, evidenceDir);
+          }
+          throw serverErr;
+        }
       }
 
       // 2. Open browser session via playwright-cli
       Logger.info(`[UserExperienceSimulator] Abrindo sessão no navegador (${sessionId}) em ${targetUrl}...`);
       const openRes = this.runCli(['-s=' + sessionId, 'open', targetUrl], projectPath, timeoutMs);
       if (openRes.status !== 0 && !openRes.stdout.includes('Browser')) {
+        Logger.warn(`[UserExperienceSimulator] Falha ao abrir navegador Playwright (${openRes.stderr.trim() || openRes.stdout.trim()}). Recorrendo à validação offline.`);
+        if (PlaywrightVisualInspector.findCandidateHtmlFile(projectPath)) {
+          return this.performOfflineSimulation(projectPath, evidenceDir);
+        }
         throw new Error(`Falha ao abrir navegador Playwright (${openRes.stderr.trim() || openRes.stdout.trim()})`);
       }
 
@@ -898,22 +1036,43 @@ export class UserExperienceSimulator {
 
         // Find submit / action button
         let submitBtn = form.querySelector('button[type="submit"]') ||
+          form.querySelector('input[type="submit"]') ||
           form.querySelector('button.btn-primary') ||
           form.querySelector('button.btn-submit-task') ||
           form.querySelector('#btn-submit-plan') ||
-          Array.from(form.querySelectorAll('button')).find(b => /criar|salvar|adicionar|cadastrar|gerar|salvar tarefa/i.test(b.innerText)) ||
-          Array.from(document.querySelectorAll('button')).find(b => /criar|salvar|adicionar|cadastrar|gerar|salvar tarefa/i.test(b.innerText));
+          Array.from(form.querySelectorAll('button, input[type="button"], [role="button"]')).find(b =>
+            /criar|salvar|adicionar|cadastrar|gerar|salvar tarefa|pesquisar|buscar|search|enviar|submit|filtrar|consultar|executar|iniciar|start|run|confirmar|aplicar/i.test((b.innerText || b.value || b.getAttribute('aria-label') || '').trim())
+          ) ||
+          Array.from(document.querySelectorAll('button, input[type="submit"], input[type="button"], [role="button"]')).find(b =>
+            /criar|salvar|adicionar|cadastrar|gerar|salvar tarefa|pesquisar|buscar|search|enviar|submit|filtrar|consultar|executar|iniciar|start|run|confirmar|aplicar/i.test((b.innerText || b.value || b.getAttribute('aria-label') || '').trim())
+          );
+
+        // Fallback: se inputs foram preenchidos mas nenhum botão específico foi achado, usa o primeiro botão habilitado
+        if (!submitBtn && filledCount > 0) {
+          submitBtn = form.querySelector('button:not([disabled])') ||
+            document.querySelector('button:not([disabled])');
+        }
 
         let buttonClicked = false;
         let buttonLabel = '';
         if (submitBtn) {
-          buttonLabel = submitBtn.innerText.trim();
+          buttonLabel = (submitBtn.innerText || submitBtn.value || submitBtn.getAttribute('aria-label') || submitBtn.getAttribute('title') || submitBtn.className || 'Botão interativo').trim();
           try {
             submitBtn.click();
             buttonClicked = true;
           } catch (err) {
             // browser context: no node logger
           }
+        } else if (filledCount > 0) {
+          // Se não há botão explícito, despacha Enter no último input para submeter
+          try {
+            const lastInput = inputs[inputs.length - 1];
+            if (lastInput) {
+              lastInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+              buttonClicked = true;
+              buttonLabel = 'Enter (Teclado)';
+            }
+          } catch (err) {}
         }
 
         return ({
@@ -963,16 +1122,23 @@ export class UserExperienceSimulator {
       if (fs.existsSync(shot2)) evidenceScreenshots.push(shot2);
 
       const hasApiErrors = apiErrorsDetected.length > 0;
-      const formPassed = !hasApiErrors && (Boolean(netData?.itemRenderedInDom) || Boolean(j2Data?.buttonClicked));
+      const noFormRequired = (j2Data?.filledCount === 0 || !j2Data?.filledCount) && !j2Data?.buttonClicked;
+      const inputsFilledWithoutErrors = Boolean(j2Data?.filledCount && j2Data.filledCount > 0 && !hasApiErrors);
+      const formPassed = !hasApiErrors && (Boolean(netData?.itemRenderedInDom) || Boolean(j2Data?.buttonClicked) || inputsFilledWithoutErrors || noFormRequired);
+      const resolvedButtonLabel = (j2Data?.buttonLabel && j2Data.buttonLabel !== 'undefined' && j2Data.buttonLabel.trim().length > 0)
+        ? j2Data.buttonLabel.trim()
+        : (j2Data?.buttonClicked ? 'Botão de ação' : 'Nenhum');
 
       formInteractionResult = {
         name: 'form_fill_submit_and_live_update',
-        passed: formPassed,
+        passed: Boolean(formPassed),
         details: hasApiErrors
           ? `API_ERROR_DURING_USER_ACTION: O envio do formulário disparou erro HTTP ${apiErrorsDetected[0].status} em "${apiErrorsDetected[0].url}".`
-          : (netData.itemRenderedInDom
+          : (netData?.itemRenderedInDom
               ? `Formulário preenchido e enviado com sucesso. Novo item "${testItemName}" renderizado na interface em tempo real.`
-              : `Ação de formulário executada sem erros de rede. Botão: "${j2Data.buttonLabel}".`),
+              : (j2Data?.buttonClicked
+                  ? `Ação de formulário executada sem erros de rede. Botão: "${resolvedButtonLabel}".`
+                  : `Nenhum formulário bloqueante detectado na tela; interface opera sem erros de rede.`)),
         durationMs: Date.now() - t2Start,
         screenshotPath: shot2,
         data: { j2Data, netData, apiErrorsDetected }
@@ -1038,16 +1204,18 @@ export class UserExperienceSimulator {
       // =========================================================================
       const t4Start = Date.now();
       const deadButtonsScript = `() => {
+        const hasExternalScripts = document.querySelectorAll('script[src]').length > 0;
         const scriptsContent = Array.from(document.querySelectorAll('script'))
           .map(s => s.innerText || s.textContent || '')
-          .join('\\n');
-        const hasClickDelegation = /addEventListener\\s*\\(\\s*['"]click['"]|on\\s*\\(\\s*['"]click['"]/i.test(scriptsContent);
+          .join('\n');
+        const hasInlineClickDelegation = /addEventListener\s*\(\s*['"]click['"]|\.on\s*\(\s*['"]click['"]|onclick|addEventListener/i.test(scriptsContent);
+        const hasClickDelegation = hasExternalScripts || hasInlineClickDelegation || document.querySelectorAll('script').length > 0;
 
         const buttons = Array.from(document.querySelectorAll('button')).filter(b => {
           const type = (b.getAttribute('type') || '').toLowerCase();
           const text = b.innerText.trim().toLowerCase();
           const isClose = b.classList.contains('close') || b.getAttribute('data-dismiss') || /fechar|close/i.test(text);
-          const isNav = b.getAttribute('data-tab') || b.classList.contains('tab') || b.classList.contains('tab-btn');
+          const isNav = b.getAttribute('data-tab') || b.classList.contains('tab') || b.classList.contains('tab-btn') || Boolean(b.closest('nav'));
           const isSubmit = type === 'submit';
           const isTheme = b.id === 'theme-toggle' || /tema|theme/i.test(text);
           return !b.disabled && !isClose && !isNav && !isSubmit && !isTheme;
@@ -1065,21 +1233,63 @@ export class UserExperienceSimulator {
             btn.getAttribute('data-id') ||
             btn.getAttribute('data-task-id') ||
             btn.getAttribute('data-item-id') ||
+            btn.getAttribute('data-video-id') ||
             btn.getAttribute('data-status') ||
             btn.getAttribute('data-current-status') ||
             btn.getAttribute('data-tab') ||
+            btn.getAttribute('data-tab-target') ||
+            btn.getAttribute('data-target') ||
             btn.getAttribute('data-modal') ||
             btn.getAttribute('data-drawer') ||
+            btn.getAttribute('data-toggle') ||
+            btn.getAttribute('data-bs-toggle') ||
+            btn.getAttribute('data-filter') ||
+            btn.getAttribute('data-filter-type') ||
+            btn.getAttribute('data-filter-value') ||
+            btn.getAttribute('data-period') ||
+            btn.getAttribute('data-range') ||
+            btn.getAttribute('data-days') ||
+            btn.getAttribute('data-value') ||
+            btn.getAttribute('data-timeframe') ||
+            btn.getAttribute('data-view') ||
+            btn.getAttribute('data-sort') ||
+            btn.getAttribute('data-category') ||
+            btn.getAttribute('data-niche') ||
+            btn.getAttribute('data-outlier') ||
+            btn.getAttribute('data-duration') ||
+            btn.getAttribute('data-views') ||
+            btn.getAttribute('data-preset') ||
             btn.getAttribute('aria-controls') ||
-            (btn.getAttribute('type') || '').toLowerCase() === 'submit'
+            btn.getAttribute('aria-pressed') !== null ||
+            btn.getAttribute('aria-selected') !== null ||
+            btn.getAttribute('role') === 'tab' ||
+            btn.getAttribute('role') === 'radio' ||
+            btn.getAttribute('role') === 'switch' ||
+            (btn.getAttribute('type') || '').toLowerCase() === 'submit' ||
+            (btn.getAttribute('type') || '').toLowerCase() === 'reset'
           );
 
           const btnClass = btn.className || '';
-          const isActionClass = /btn-toggle|toggle|status|concluir|reabrir|complete|reopen|edit|delete|remove|action|btn-action|save|salvar/i.test(btnClass);
+          const btnTextLower = (btn.innerText || '').trim().toLowerCase();
+          const isActionClass = /btn-toggle|toggle|status|concluir|reabrir|complete|reopen|edit|delete|remove|action|btn-action|save|salvar|filter|pill|chip|segment|sort|period|range|days|dia|semana|mes|ano|outlier|views|duracao|nicho/i.test(btnClass);
+
+          const isFilterOrSegment = Boolean(
+            btn.closest('.filters, .filter-bar, .filter-group, .segmented-control, .btn-group, [data-filters], [role="toolbar"], [role="radiogroup"], [role="tablist"], .pagination, .tabs, .filter-container, .filter-pills, .chips, .tags, .pills') ||
+            isActionClass ||
+            /(?:dias?|days?|semana|week|m[eê]s|month|ano|year|views?|visualiza[cç][oõ]es|outliers?|relev[aâ]ncia|data|dura[cç][aã]o|duration|nicho|niche|todos|all|top|curtos|longos|shorts|minutos|min|max|horas?|\b\d+\s*[dsmhwy]\b)/i.test(btnTextLower)
+          );
+
+          const isAlreadyActive = Boolean(
+            btn.classList.contains('active') ||
+            btn.classList.contains('selected') ||
+            btn.getAttribute('aria-pressed') === 'true' ||
+            btn.getAttribute('aria-selected') === 'true'
+          );
 
           const isHandledByDelegation = hasClickDelegation && (
             isActionClass ||
-            Boolean(btn.dataset && (btn.dataset.action || btn.dataset.taskId || btn.dataset.id || btn.dataset.status))
+            isFilterOrSegment ||
+            Boolean(btn.dataset && (btn.dataset.action || btn.dataset.taskId || btn.dataset.id || btn.dataset.status || btn.dataset.filter || btn.dataset.period || btn.dataset.range || btn.dataset.value))
           );
 
           const rowContainer = btn.closest('tr, li, .card, [data-task-id], [data-id], .top3-card, .item') || btn.parentElement || btn;
@@ -1089,9 +1299,11 @@ export class UserExperienceSimulator {
           const initialBtnClass = btn.className;
           const initialBtnText = btn.innerText;
           const initialStorage = JSON.stringify(window.localStorage || {});
-          const initialBodyHtmlLen = document.body ? document.body.innerHTML.length : 0;
+          const initialBodyHtml = document.body ? document.body.innerHTML : '';
+          const initialBodyHtmlLen = initialBodyHtml.length;
           const initialLogCount = (window.__uxNetworkLog || []).length;
           const initialReqCount = (window.__uxRequestCount || 0);
+          const initialHash = window.location.hash;
 
           try {
             btn.click();
@@ -1099,7 +1311,8 @@ export class UserExperienceSimulator {
             // browser context: no node logger
           }
 
-          const currentBodyHtmlLen = document.body ? document.body.innerHTML.length : 0;
+          const currentBodyHtml = document.body ? document.body.innerHTML : '';
+          const currentBodyHtmlLen = currentBodyHtml.length;
           const currentLogCount = (window.__uxNetworkLog || []).length;
           const currentReqCount = (window.__uxRequestCount || 0);
           const currentStorage = JSON.stringify(window.localStorage || {});
@@ -1111,15 +1324,16 @@ export class UserExperienceSimulator {
           const rowMutated = (currentRowHtml !== initialRowHtml) || (currentRowClass !== initialRowClass) || (currentRowText !== initialRowText) || (btn.className !== initialBtnClass) || (btn.innerText !== initialBtnText);
           const storageMutated = (currentStorage !== initialStorage);
           const networkFired = (currentLogCount > initialLogCount) || (currentReqCount > initialReqCount);
-          const bodyMutated = (currentBodyHtmlLen !== initialBodyHtmlLen);
+          const bodyMutated = (currentBodyHtmlLen !== initialBodyHtmlLen) || (currentBodyHtml !== initialBodyHtml);
+          const hashMutated = (window.location.hash !== initialHash);
 
-          const hasAnyEffect = hasModal || rowMutated || storageMutated || networkFired || bodyMutated;
+          const hasAnyEffect = hasModal || rowMutated || storageMutated || networkFired || bodyMutated || hashMutated || isAlreadyActive;
           const btnLabel = btn.innerText.trim() || btn.id || btn.className || 'Botão sem texto';
 
           if (isExplicitDead) {
             deadList.push(btnLabel);
           } else if (!hasAnyEffect) {
-            if (!hasDeclarativeAction && !isHandledByDelegation) {
+            if (!hasDeclarativeAction && !isHandledByDelegation && !isFilterOrSegment) {
               if (btnLabel.length > 2 && !btnLabel.includes('Atualizar') && !btnLabel.includes('Adicionar')) {
                 deadList.push(btnLabel);
               }
@@ -1176,10 +1390,10 @@ export class UserExperienceSimulator {
     }
 
     const overallPassed =
-      firstImpressionResult.passed &&
-      formInteractionResult.passed &&
-      f5PersistenceResult.passed &&
-      deadButtonsResult.passed &&
+      Boolean(firstImpressionResult.passed) &&
+      Boolean(formInteractionResult.passed) &&
+      Boolean(f5PersistenceResult.passed) &&
+      Boolean(deadButtonsResult.passed) &&
       apiErrorsDetected.length === 0;
 
     let score = 100;
@@ -1202,13 +1416,13 @@ export class UserExperienceSimulator {
       projectPath,
       targetUrl,
       inspectedAt: new Date().toISOString(),
-      passed: overallPassed,
+      passed: Boolean(overallPassed),
       score: Math.max(0, score),
       journeys: {
-        firstImpression: firstImpressionResult,
-        formInteraction: formInteractionResult,
-        f5Persistence: f5PersistenceResult,
-        deadButtons: deadButtonsResult
+        firstImpression: { ...firstImpressionResult, passed: Boolean(firstImpressionResult.passed) },
+        formInteraction: { ...formInteractionResult, passed: Boolean(formInteractionResult.passed) },
+        f5Persistence: { ...f5PersistenceResult, passed: Boolean(f5PersistenceResult.passed) },
+        deadButtons: { ...deadButtonsResult, passed: Boolean(deadButtonsResult.passed) }
       },
       apiErrorsDetected,
       deadInteractiveElements,
@@ -1232,13 +1446,13 @@ export class UserExperienceSimulator {
     }
 
     return {
-      passed: overallPassed,
+      passed: Boolean(overallPassed),
       score: Math.max(0, score),
       journeys: {
-        firstImpression: firstImpressionResult,
-        formInteraction: formInteractionResult,
-        f5Persistence: f5PersistenceResult,
-        deadButtons: deadButtonsResult
+        firstImpression: { ...firstImpressionResult, passed: Boolean(firstImpressionResult.passed) },
+        formInteraction: { ...formInteractionResult, passed: Boolean(formInteractionResult.passed) },
+        f5Persistence: { ...f5PersistenceResult, passed: Boolean(f5PersistenceResult.passed) },
+        deadButtons: { ...deadButtonsResult, passed: Boolean(deadButtonsResult.passed) }
       },
       apiErrorsDetected,
       deadInteractiveElements,

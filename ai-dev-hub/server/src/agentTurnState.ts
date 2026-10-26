@@ -128,6 +128,9 @@ export function changedFiles(before: FileInventory,after: FileInventory): string
   return [...new Set([...Object.keys(before),...Object.keys(after)])].filter(file=>before[file]!==after[file]).sort();
 }
 
+export const FATAL_QUOTA_OR_AUTH_REGEX =
+  /RESOURCE_EXHAUSTED|QUOTA_EXHAUSTED|QUOTA_BLOCKED|\b429\b|Individual quota reached|baseline quota will refresh|Weekly Limit|upgrade your subscription to increase your limits|Resets in \d+|AI credits balance is too low|Out of credits|rate limit|UNAUTHENTICATED|AUTH_ERROR|LOGIN_REQUIRED|Verify your account|invalid_grant/i;
+
 /**
  * Predicado utilitário que detecta se um bloco de texto é na verdade uma saída crua de ferramenta/terminal
  * (run_command, grep, listing, etc.) e NÃO uma resposta narrativa ou conclusão real emitida pelo modelo.
@@ -219,7 +222,14 @@ export function observeTranscript(file: string,baselineLines=0) {
     ? last.tool_calls.map((tool: any) => tool?.name).filter(Boolean)
     : [];
 
-  const fatal = entries.find(entry => entry.type === 'ERROR_MESSAGE' && /RESOURCE_EXHAUSTED|429|UNAUTHENTICATED|AUTH_ERROR/i.test(String(entry.error || entry.content || '')));
+  const fatal = entries.find(entry => {
+    const text = String(entry.error || entry.content || entry.message || '');
+    if (FATAL_QUOTA_OR_AUTH_REGEX.test(text)) return true;
+    if ((entry.type === 'ERROR_MESSAGE' || entry.status === 'ERROR') && /quota|limit|cota|upgrade|credits|auth/i.test(text)) {
+      return true;
+    }
+    return false;
+  });
   const abortedOnStepError = Boolean(!fatal && last && last.type !== 'PLANNER_RESPONSE' && !isLastToolResult && (last.status === 'ERROR' || last.status === 'CANCELED') && !pendingTools.length);
 
   // Um turno do modelo só está COMPLETO se a ÚLTIMA entrada operacional:
@@ -293,7 +303,16 @@ export class AgentTurnState {
         } catch {}
       }
 
-      if ((priorTask && priorTask.status === 'completed') || isConversationalOrMetaChat) {
+      // Se o transcript anterior contém erro fatal de quota/auth, reconcilia como CONSUMED para não travar failover
+      let hasFatalQuotaOrAuth = false;
+      try {
+        const priorProg = this.progress(prior);
+        if (priorProg.state === 'ERROR') {
+          hasFatalQuotaOrAuth = true;
+        }
+      } catch {}
+
+      if ((priorTask && priorTask.status === 'completed') || isConversationalOrMetaChat || hasFatalQuotaOrAuth) {
         this.setPhase(conversationId, 'CONSUMED');
       } else {
         throw new Error('AGENT_TURN_UNCERTAIN: previous turn requires reconciliation before another message');

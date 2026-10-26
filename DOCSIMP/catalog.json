@@ -1,47 +1,97 @@
 {
   "version": "1.1.0",
-  "updated_at": "2026-10-16T22:15:00.000Z",
+  "updated_at": "2026-10-26T21:05:25.680Z",
   "documents": [
     {
       "id": "pushinpay",
       "name": "PushinPay PIX API",
-      "aliases": ["pushinpay", "pushin_pay", "pushin pay", "pix", "gateway pix", "webhook pix", "api pix"],
+      "aliases": [
+        "pushinpay",
+        "pushin_pay",
+        "pushin pay",
+        "pix",
+        "gateway pix",
+        "webhook pix",
+        "api pix"
+      ],
       "summary": "Guia de integração da API Pix PushinPay com Webhooks, headers de autorização e fallback seguro para simulação de QR Code Pix.",
       "file_path": "pushinpay_docs_knowledge_ready.md",
-      "required_env_vars": ["PUSHINPAY_API_KEY", "PUSHINPAY_WEBHOOK_SECRET"],
+      "required_env_vars": [
+        "PUSHINPAY_API_KEY",
+        "PUSHINPAY_WEBHOOK_SECRET"
+      ],
       "fallback_strategy": "Mock QR Code e endpoints de webhook simulados para testes sem credenciais de produção."
     },
     {
       "id": "supabase",
       "name": "Supabase Auth & Database",
-      "aliases": ["supabase", "auth", "postgresql", "postgres", "rls", "supabase-js"],
+      "aliases": [
+        "supabase",
+        "auth",
+        "postgresql",
+        "postgres",
+        "rls",
+        "supabase-js"
+      ],
       "summary": "Guia de integração Supabase com Auth, RLS e client @supabase/supabase-js, com fallback automático para SQLite/memória.",
       "file_path": "supabase_knowledge_ready.md",
-      "required_env_vars": ["SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY"],
+      "required_env_vars": [
+        "SUPABASE_URL",
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY"
+      ],
       "fallback_strategy": "Adapter local SQLite ou repositório em memória quando chaves não estiverem configuradas."
     },
     {
       "id": "cloudflare",
       "name": "Cloudflare Turnstile & R2 Storage",
-      "aliases": ["cloudflare", "turnstile", "r2", "waf", "captcha", "cloudflare r2"],
+      "aliases": [
+        "cloudflare",
+        "turnstile",
+        "r2",
+        "waf",
+        "captcha",
+        "cloudflare r2"
+      ],
       "summary": "Guia Cloudflare para validação de tokens Turnstile e R2 storage com bypass de teste e fallback para filesystem local.",
       "file_path": "cloudflare_knowledge_ready.md",
-      "required_env_vars": ["CLOUDFLARE_TURNSTILE_SECRET_KEY", "CLOUDFLARE_R2_BUCKET"],
+      "required_env_vars": [
+        "CLOUDFLARE_TURNSTILE_SECRET_KEY",
+        "CLOUDFLARE_R2_BUCKET"
+      ],
       "fallback_strategy": "Bypass de token Turnstile de teste e fallback para filesystem local ./storage/uploads."
     },
     {
       "id": "upstash",
       "name": "Upstash Redis Serverless",
-      "aliases": ["upstash", "redis", "ratelimit", "rate limit", "cache", "upstash redis"],
+      "aliases": [
+        "upstash",
+        "redis",
+        "ratelimit",
+        "rate limit",
+        "cache",
+        "upstash redis"
+      ],
       "summary": "Guia de integração Upstash Redis REST API com suporte a caching e rate limiting, com fallback para Map TTL em memória.",
       "file_path": "upstash_knowledge_ready.md",
-      "required_env_vars": ["UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"],
+      "required_env_vars": [
+        "UPSTASH_REDIS_REST_URL",
+        "UPSTASH_REDIS_REST_TOKEN"
+      ],
       "fallback_strategy": "Fallback automático para Map em memória com TTL caso credenciais estejam ausentes."
     },
     {
       "id": "saas_standard",
       "name": "SaaS Plug-and-Play Architecture Standard",
-      "aliases": ["saas", "plug_and_play", "mock", "fallback", "resilience", "integrations", "standard"],
+      "aliases": [
+        "saas",
+        "plug_and_play",
+        "mock",
+        "fallback",
+        "resilience",
+        "integrations",
+        "standard"
+      ],
       "summary": "Padrão arquitetural mandatório para todas as aplicações geradas pelo DecoHUB: nunca falhar boot por chaves ausentes e expor /api/system/integrations.",
       "file_path": "saas_plug_and_play_standard.md",
       "required_env_vars": [],
@@ -50,7 +100,18 @@
     {
       "id": "taste_skill",
       "name": "Leonxlnx Taste-Skill & Anti-Slop Visual Engineering",
-      "aliases": ["taste", "taste_skill", "taste-skill", "design-taste-frontend", "anti-slop", "dials", "design_variance", "motion_intensity", "visual_density", "redesign-skill"],
+      "aliases": [
+        "taste",
+        "taste_skill",
+        "taste-skill",
+        "design-taste-frontend",
+        "anti-slop",
+        "dials",
+        "design_variance",
+        "motion_intensity",
+        "visual_density",
+        "redesign-skill"
+      ],
       "summary": "Diretrizes de direção de arte, calibração dos 3 dials visuais (VARIANCE, MOTION, DENSITY) e erradicação de AI-slop.",
       "file_path": "design-skills/taste-skill.md",
       "required_env_vars": [],
@@ -59,7 +120,15 @@
     {
       "id": "vercel_guidelines",
       "name": "Vercel Web Interface & Design Guidelines",
-      "aliases": ["vercel-guidelines", "vercel_guidelines", "web-interface-guidelines", "accessibility", "tabular-nums", "reduced-motion", "focus-visible"],
+      "aliases": [
+        "vercel-guidelines",
+        "vercel_guidelines",
+        "web-interface-guidelines",
+        "accessibility",
+        "tabular-nums",
+        "reduced-motion",
+        "focus-visible"
+      ],
       "summary": "Guia de excelência em interface da Vercel: acessibilidade (aria-label), foco visível, font-variant-numeric: tabular-nums e animações GPU-only.",
       "file_path": "design-skills/vercel-web-design-guidelines.md",
       "required_env_vars": [],
@@ -68,7 +137,18 @@
     {
       "id": "awesome_design_md",
       "name": "VoltAgent Awesome DESIGN.md Systems",
-      "aliases": ["awesome-design-md", "awesome_design_md", "design.md", "design-system", "linear", "stripe", "notion", "clean-saas", "fintech", "dark-telemetry"],
+      "aliases": [
+        "awesome-design-md",
+        "awesome_design_md",
+        "design.md",
+        "design-system",
+        "linear",
+        "stripe",
+        "notion",
+        "clean-saas",
+        "fintech",
+        "dark-telemetry"
+      ],
       "summary": "Coleção de especificações DESIGN.md de sistemas visuais líderes (Linear, Stripe, Vercel, Notion, Fintech, Dark Telemetry).",
       "file_path": "design-skills/design-systems/linear.md",
       "required_env_vars": [],
@@ -77,7 +157,14 @@
     {
       "id": "playwright_cli",
       "name": "Playwright Agent CLI (@playwright/cli)",
-      "aliases": ["playwright", "playwright-cli", "playwright_cli", "@playwright/cli", "browser-snapshot", "visual-verification"],
+      "aliases": [
+        "playwright",
+        "playwright-cli",
+        "playwright_cli",
+        "@playwright/cli",
+        "browser-snapshot",
+        "visual-verification"
+      ],
       "summary": "Automação de navegador headless para agentes de IA: inspeção de console, snapshots de acessibilidade e evidência visual.",
       "file_path": "design-skills/playwright-agent-cli.md",
       "required_env_vars": [],
@@ -86,7 +173,12 @@
     {
       "id": "find_skills",
       "name": "Skills.sh Discoverer (find-skills)",
-      "aliases": ["find-skills", "find_skills", "skills.sh", "skills-search"],
+      "aliases": [
+        "find-skills",
+        "find_skills",
+        "skills.sh",
+        "skills-search"
+      ],
       "summary": "Descoberta autodidata e busca de pacotes de habilidades e diretrizes na registry skills.sh.",
       "file_path": "design-skills/find-skills.md",
       "required_env_vars": [],
@@ -95,7 +187,12 @@
     {
       "id": "frontend_design",
       "name": "Anthropic Frontend Design Quality Standard",
-      "aliases": ["frontend-design", "frontend_design", "anthropic-frontend", "anti-slop-ui"],
+      "aliases": [
+        "frontend-design",
+        "frontend_design",
+        "anthropic-frontend",
+        "anti-slop-ui"
+      ],
       "summary": "Padrão de excelência de interface: tipografia distinta, cores intencionais, zero emojis como ícones e design states completos.",
       "file_path": "design-skills/frontend-design.md",
       "required_env_vars": [],
@@ -104,7 +201,12 @@
     {
       "id": "modern_frontend_design",
       "name": "Modern Frontend Design Skill",
-      "aliases": ["modern-frontend-design", "modern_frontend_design", "modern-ui", "micro-interactions"],
+      "aliases": [
+        "modern-frontend-design",
+        "modern_frontend_design",
+        "modern-ui",
+        "micro-interactions"
+      ],
       "summary": "Diretrizes de componentes modernos, micro-interações, layout responsivo e transições fluidas de estado.",
       "file_path": "design-skills/modern-frontend-design.md",
       "required_env_vars": [],
@@ -113,7 +215,13 @@
     {
       "id": "ui_ux_pro_max",
       "name": "UI UX Pro Max Design Toolkit",
-      "aliases": ["ui-ux-pro-max", "ui_ux_pro_max", "design-intelligence", "ux-guidelines", "color-palettes"],
+      "aliases": [
+        "ui-ux-pro-max",
+        "ui_ux_pro_max",
+        "design-intelligence",
+        "ux-guidelines",
+        "color-palettes"
+      ],
       "summary": "Base de conhecimento de estilos de UI, paletas de cores contextuais, pares tipográficos e heurísticas de UX anti-padrão.",
       "file_path": "design-skills/ui-ux-pro-max.md",
       "required_env_vars": [],
@@ -122,7 +230,13 @@
     {
       "id": "vercel_react_best_practices",
       "name": "Vercel React & Next.js Best Practices",
-      "aliases": ["react-best-practices", "vercel-react-best-practices", "react_best_practices", "server-components", "bundle-optimization"],
+      "aliases": [
+        "react-best-practices",
+        "vercel-react-best-practices",
+        "react_best_practices",
+        "server-components",
+        "bundle-optimization"
+      ],
       "summary": "Padrões de alto desempenho React e Next.js: otimização de re-renders, client/server boundaries e lazy loading.",
       "file_path": "design-skills/vercel-react-best-practices.md",
       "required_env_vars": [],
@@ -131,7 +245,12 @@
     {
       "id": "vercel_composition_patterns",
       "name": "Vercel UI Composition Patterns",
-      "aliases": ["composition-patterns", "vercel-composition-patterns", "compound-components", "slot-pattern"],
+      "aliases": [
+        "composition-patterns",
+        "vercel-composition-patterns",
+        "compound-components",
+        "slot-pattern"
+      ],
       "summary": "Padrões composicionais limpos para componentes UI: Compound Components, Slots e render props resilientes.",
       "file_path": "design-skills/vercel-composition-patterns.md",
       "required_env_vars": [],
@@ -140,7 +259,13 @@
     {
       "id": "web_animation_design",
       "name": "Web Animation & Motion Design Standards",
-      "aliases": ["web-animation-design", "web_animation_design", "motion-design", "css-animations", "gsap"],
+      "aliases": [
+        "web-animation-design",
+        "web_animation_design",
+        "motion-design",
+        "css-animations",
+        "gsap"
+      ],
       "summary": "Coreografia de movimento, curvas de easing naturais (cubic-bezier), micro-interações e respeito a prefers-reduced-motion.",
       "file_path": "design-skills/web-animation-design.md",
       "required_env_vars": [],
@@ -149,7 +274,18 @@
     {
       "id": "rea_saas_master",
       "name": "REA SaaS Master Reverse-Engineered Architecture Blueprints",
-      "aliases": ["rea", "rea-agents", "rea-blueprints", "saas-master", "reverse-engineering", "enterprise-spa", "command-palette", "slide-over-drawer", "audit-logs", "bi-analytics"],
+      "aliases": [
+        "rea",
+        "rea-agents",
+        "rea-blueprints",
+        "saas-master",
+        "reverse-engineering",
+        "enterprise-spa",
+        "command-palette",
+        "slide-over-drawer",
+        "audit-logs",
+        "bi-analytics"
+      ],
       "summary": "Dossiês de engenharia reversa de arquitetura SaaS Master (Linear, Stripe, Notion, Cal.com) com os 7 pilares obrigatórios para SPAs corporativas.",
       "file_path": "rea-blueprints/saas-master-shell-and-state.md",
       "required_env_vars": [],
@@ -158,7 +294,15 @@
     {
       "id": "rea_data_tables_bi",
       "name": "REA SaaS Master Enterprise Data Tables & BI Analytics",
-      "aliases": ["rea-data-tables", "rea_data_tables", "enterprise-tables", "data-grids", "bi-analytics", "svg-charts", "csv-export"],
+      "aliases": [
+        "rea-data-tables",
+        "rea_data_tables",
+        "enterprise-tables",
+        "data-grids",
+        "bi-analytics",
+        "svg-charts",
+        "csv-export"
+      ],
       "summary": "Engenharia de tabelas enterprise com filtros compostos, ordenação, paginação, ações inline, seleção em lote, KPIs com Δ% e gráficos interativos SVG.",
       "file_path": "rea-blueprints/saas-master-data-tables-and-bi.md",
       "required_env_vars": [],
@@ -167,11 +311,60 @@
     {
       "id": "rea_backend_workflows",
       "name": "REA SaaS Master Backend Workflows & Audit Trail",
-      "aliases": ["rea-backend", "rea_backend", "audit-trail", "audit-logs", "state-machines", "business-workflows"],
+      "aliases": [
+        "rea-backend",
+        "rea_backend",
+        "audit-trail",
+        "audit-logs",
+        "state-machines",
+        "business-workflows"
+      ],
       "summary": "Arquitetura de backend SaaS real com máquinas de estado, trilha de auditoria automática /api/audit-logs, webhooks e agregações analíticas.",
       "file_path": "rea-blueprints/saas-master-backend-and-workflows.md",
       "required_env_vars": [],
       "fallback_strategy": "Tabela SQLite audit_logs e middlewares padrão locais."
+    },
+    {
+      "id": "facebook_com",
+      "name": "FACEBOOK COM Docs",
+      "aliases": [
+        "facebook_com",
+        "facebook com",
+        "https://www.facebook.com/ads/library/",
+        "www.facebook.com"
+      ],
+      "summary": "Documentação oficial extraída sob demanda de https://www.facebook.com/ads/library/ (1 páginas catalogadas).",
+      "file_path": "facebook_com_knowledge_ready.md",
+      "required_env_vars": [],
+      "fallback_strategy": "Mock local seguro e respostas simuladas caso credenciais externas não estejam configuradas."
+    },
+    {
+      "id": "apify_com",
+      "name": "APIFY COM Docs",
+      "aliases": [
+        "apify_com",
+        "apify com",
+        "https://apify.com/s-r/meta-ads-library/api",
+        "apify.com"
+      ],
+      "summary": "Documentação oficial extraída sob demanda de https://apify.com/s-r/meta-ads-library/api (15 páginas catalogadas).",
+      "file_path": "apify_com_knowledge_ready.md",
+      "required_env_vars": [],
+      "fallback_strategy": "Mock local seguro e respostas simuladas caso credenciais externas não estejam configuradas."
+    },
+    {
+      "id": "nextjs_org",
+      "name": "NEXTJS ORG Docs",
+      "aliases": [
+        "nextjs_org",
+        "nextjs org",
+        "https://nextjs.org/docs/app/getting-started",
+        "nextjs.org"
+      ],
+      "summary": "Documentação oficial extraída sob demanda de https://nextjs.org/docs/app/getting-started (1 páginas catalogadas).",
+      "file_path": "nextjs_org_knowledge_ready.md",
+      "required_env_vars": [],
+      "fallback_strategy": "Mock local seguro e respostas simuladas caso credenciais externas não estejam configuradas."
     }
   ]
 }

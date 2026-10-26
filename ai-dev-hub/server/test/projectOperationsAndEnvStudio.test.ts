@@ -133,6 +133,108 @@ server.listen(port, '127.0.0.1', () => {
       const stopped = await ProjectOperationsService.stopPreview(projectId);
       assert.strictEqual(stopped, true);
     });
+
+    it('should auto-promote to src/index.ts when start script specifies dist/src/index.js but dist is unbuilt', async () => {
+      const projectId = `test-ts-autopromote-${Date.now()}`;
+      const appDir = path.join(tempTestDir, 'ts-autopromote-app');
+      fs.mkdirSync(path.join(appDir, 'src'), { recursive: true });
+
+      fs.writeFileSync(
+        path.join(appDir, 'package.json'),
+        JSON.stringify({
+          name: 'ts-autopromote-app',
+          type: 'module',
+          scripts: { start: 'node dist/src/index.js' }
+        })
+      );
+
+      fs.writeFileSync(
+        path.join(appDir, 'src', 'index.ts'),
+        `import http from 'node:http';
+const port = process.env.PORT || 4288;
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end('<h1>TS Preview Live OK</h1>');
+});
+server.listen(port, '127.0.0.1', () => console.log('Listening on port ' + port));
+`
+      );
+
+      const status = await ProjectOperationsService.startPreview(projectId, appDir, { timeoutMs: 12000 });
+      assert.strictEqual(status.running, true);
+      assert.ok(status.url);
+
+      const res = await fetch(status.url);
+      assert.strictEqual(res.status, 200);
+      const text = await res.text();
+      assert.ok(text.includes('TS Preview Live OK'));
+
+      await ProjectOperationsService.stopPreview(projectId);
+    });
+
+    it('should fallback to static SPA server when backend process exits prematurely', async () => {
+      const projectId = `test-exit-fallback-${Date.now()}`;
+      const appDir = path.join(tempTestDir, 'exit-fallback-app');
+      fs.mkdirSync(path.join(appDir, 'src'), { recursive: true });
+      fs.mkdirSync(path.join(appDir, 'public'), { recursive: true });
+
+      fs.writeFileSync(
+        path.join(appDir, 'package.json'),
+        JSON.stringify({
+          name: 'exit-fallback-app',
+          type: 'module',
+          scripts: { start: 'node src/exit.js' }
+        })
+      );
+
+      // Script que encerra imediatamente
+      fs.writeFileSync(path.join(appDir, 'src', 'exit.js'), 'process.exit(0);');
+      fs.writeFileSync(path.join(appDir, 'public', 'index.html'), '<!DOCTYPE html><html><body><h1>Exit Fallback OK</h1></body></html>');
+
+      const status = await ProjectOperationsService.startPreview(projectId, appDir, { timeoutMs: 5000 });
+      assert.strictEqual(status.running, true);
+      assert.ok(status.url);
+      assert.ok(status.entrypoint?.includes('Static SPA Preview'));
+
+      const res = await fetch(status.url);
+      assert.strictEqual(res.status, 200);
+      const text = await res.text();
+      assert.ok(text.includes('Exit Fallback OK'));
+
+      await ProjectOperationsService.stopPreview(projectId);
+    });
+
+    it('should fallback to static SPA server when backend process times out', async () => {
+      const projectId = `test-timeout-fallback-${Date.now()}`;
+      const appDir = path.join(tempTestDir, 'timeout-fallback-app');
+      fs.mkdirSync(path.join(appDir, 'src'), { recursive: true });
+      fs.mkdirSync(path.join(appDir, 'public'), { recursive: true });
+
+      fs.writeFileSync(
+        path.join(appDir, 'package.json'),
+        JSON.stringify({
+          name: 'timeout-fallback-app',
+          type: 'module',
+          scripts: { start: 'node src/hang.js' }
+        })
+      );
+
+      // Script que não escuta em porta
+      fs.writeFileSync(path.join(appDir, 'src', 'hang.js'), 'setInterval(() => {}, 60000);');
+      fs.writeFileSync(path.join(appDir, 'public', 'index.html'), '<!DOCTYPE html><html><body><h1>Timeout Fallback OK</h1></body></html>');
+
+      const status = await ProjectOperationsService.startPreview(projectId, appDir, { timeoutMs: 1200 });
+      assert.strictEqual(status.running, true);
+      assert.ok(status.url);
+      assert.ok(status.entrypoint?.includes('Static SPA Preview'));
+
+      const res = await fetch(status.url);
+      assert.strictEqual(res.status, 200);
+      const text = await res.text();
+      assert.ok(text.includes('Timeout Fallback OK'));
+
+      await ProjectOperationsService.stopPreview(projectId);
+    });
   });
 
   describe('2. DOCSIMP .env Studio (Categorization & Mock vs Live Classification)', () => {

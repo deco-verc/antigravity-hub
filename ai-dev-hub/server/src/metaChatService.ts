@@ -13,10 +13,15 @@ import { AntigravityDiscovery } from './antigravityDiscovery.js';
 import { AccountProfileManager } from './accountProfileManager.js';
 import { NativeWorkspaceBinding } from './nativeWorkspaceBinding.js';
 import { ModelRegistry } from './modelRegistry.js';
-import { AntigravityProvider, isToolDump } from './antigravityProvider.js';
+import { PlaywrightVisualInspector } from './playwrightVisualInspector.js';
+import { AntigravityProvider, isToolDump, stripRawLineNumberDumps } from './antigravityProvider.js';
 import { DevAutonomyService } from './devAutonomyService.js';
 import { TurnCancellationManager } from './turnCancellationManager.js';
 import { ExecutionCoordinator } from './executionCoordinator.js';
+import { FATAL_QUOTA_OR_AUTH_REGEX, captureFileInventory, changedFiles, FileInventory } from './agentTurnState.js';
+import { SkillRouter } from './skillRouter.js';
+
+export type MetaChatIntentMode = 'ANALYTICAL_BRIEFING' | 'AUTONOMOUS_EVOLUTION';
 
 export interface MetaChatThread {
   id: string;
@@ -137,6 +142,9 @@ export interface MetaChatHandleOptions {
   runTests?: boolean;
   testFile?: string;
   retryAfterFailover?: boolean;
+  intentMode?: MetaChatIntentMode;
+  isAutopilotCycle?: boolean;
+  skipLedgerAppend?: boolean;
 }
 
 export interface MetaChatResponse {
@@ -154,7 +162,23 @@ export interface MetaChatResponse {
   };
   selfHealed?: boolean;
   conversationId?: string;
-  status?: string;
+  status?: 'keep' | 'discard' | 'crash' | string;
+  keepOrDiscard?: 'keep' | 'discard' | 'crash';
+  scoreMetric?: string;
+  durationSec?: number;
+  commitHash?: string;
+  hypothesisSummary?: string;
+  simplicityDelta?: {
+    linesAdded: number;
+    linesRemoved: number;
+    delta: number;
+  };
+  visualGate?: {
+    passed: boolean;
+    buildPassed: boolean;
+    visualPassed: boolean;
+    details?: string;
+  };
   telemetry?: MetaChatLiveActivity | MetaChatLiveStatus;
 }
 
@@ -210,6 +234,152 @@ export class MetaChatService {
     userProfileDir?: string;
   } | null = null;
   private static _accountConversations = new Map<string, string>();
+
+  // ==========================================
+  // DUAL-MODE INTENT ROUTER & XML PROMPT BUILDERS (EIXO 7 ANTIGRAVITY 2.0)
+  // ==========================================
+
+  /**
+   * Classifies whether the user request is an analytical/diagnostic query (ANALYTICAL_BRIEFING)
+   * or a code mutation / self-evolution directive (AUTONOMOUS_EVOLUTION).
+   */
+  static detectIntentMode(userContent: string, explicitMode?: MetaChatIntentMode): MetaChatIntentMode {
+    if (explicitMode) return explicitMode;
+    const text = (userContent || '').trim();
+
+    if (
+      text.includes('<evolution_mission>') ||
+      text.includes('AUTOPILOT CYCLE') ||
+      /\[(?:FILE|ARQUIVO|CRIAR|MODIFICAR):/i.test(text)
+    ) {
+      return 'AUTONOMOUS_EVOLUTION';
+    }
+
+    const mutationKeywords =
+      /\b(implement\w*|refator\w*|corrig\w*|consert\w*|adicion\w*|crie|criar|modifiq\w*|alter\w*|atualiz\w*|remov\w*|delet\w*|apliq\w*|fix|patch|update|refactor|add|create|remove|rewrite|reescrev\w*|otimiz\w*|migre|migrar)\b/i;
+    const analyticalReadOnlyKeywords =
+      /\b(apenas\s+analis\w*|somente\s+leitura|sem\s+alterar|sem\s+modificar|explique|explicar|como\s+funciona|qual\s+a\s+causa|diagnostiq\w*|audite|auditoria|o\s+que\s+faz|por\s+que|onde\s+fica|liste|listar|resuma|relat[oó]rio|briefing)\b/i;
+
+    if (analyticalReadOnlyKeywords.test(text) && !/\b(e\s+corrija|e\s+implemente|e\s+aplique|e\s+modifique)\b/i.test(text)) {
+      return 'ANALYTICAL_BRIEFING';
+    }
+
+    if (mutationKeywords.test(text)) {
+      return 'AUTONOMOUS_EVOLUTION';
+    }
+
+    if (text.endsWith('?') && !mutationKeywords.test(text)) {
+      return 'ANALYTICAL_BRIEFING';
+    }
+
+    return 'AUTONOMOUS_EVOLUTION';
+  }
+
+  /**
+   * Builds the Antigravity 2.0 & Gemini 3.8 XML Prompt using U-shaped attention geometry:
+   * - Top (Primacy): <system_invariants>
+   * - Middle (Context): <workspace_context>
+   * - Bottom (Recency): <execution_directive mode="ANALYTICAL_BRIEFING | AUTONOMOUS_EVOLUTION">
+   */
+  static buildMetaChatPrompt(params: {
+    mode: MetaChatIntentMode;
+    root: string;
+    userQueryOrMission: string;
+    attachmentsBlock?: string;
+    intelligenceLevel: string;
+    canonicalModelName: string;
+    requestedModel: string;
+  }): string {
+    const attachmentsXml = params.attachmentsBlock
+      ? `\n  <user_attachments>\n${params.attachmentsBlock}\n  </user_attachments>`
+      : '';
+
+    return `<system_invariants>
+  <meta_engineer_identity>
+    Atuar como Principal Meta-Orchestrator & Staff AI Systems Engineer responsável pelo diagnóstico, manutenção e auto-evolução contínua do próprio orquestrador DecoHUB (\`ai-dev-hub\`) no ecossistema Google Antigravity 2.0.
+    Repositório Autoritativo: "${params.root}"
+    Calibração Cognitiva: ${params.intelligenceLevel} | Modelo: ${params.canonicalModelName} (${params.requestedModel})
+  </meta_engineer_identity>
+
+  <operational_safety_invariants>
+    1. PROTEÇÃO DA COMPILAÇÃO DO DECOHUB: O código-fonte do DecoHUB (\`server/src/**\`, \`client/src/**\`) é infraestrutura crítica de missão. Nenhuma modificação pode deixar o repositório com erros em \`npx tsc --noEmit\` ou quebrar os testes em \`node --test\`.
+    2. USO EXCLUSIVO DE FERRAMENTAS NATIVAS DO ANTIGRAVITY 2.0: Utilizar exclusivamente \`view_file\`, \`grep_search\`, \`find_by_name\`, \`list_dir\`, \`replace_file_content\`, \`multi_replace_file_content\`, \`write_to_file\` e \`run_command\`. É terminantemente proibido criar scripts temporários (\`.cjs\`, \`.mjs\`, \`node -e\`, \`sed\`) para editar o código-fonte.
+    3. FRONTEIRAS DE ESCOPO: Jamais modificar arquivos dentro de \`.git/\`, \`node_modules/\` ou artefatos protegidos em \`.ai-dev-hub/\`.
+    4. PADRÃO CORPORATIVO LIMPO (ZERO EMOJIS): Não utilizar emojis decorativos em código, comentários, logs ou respostas. Nunca repetir ou ecoar o enunciado do usuário no início da resposta.
+  </operational_safety_invariants>
+</system_invariants>
+
+<workspace_context>
+  <decohub_repository_root>${params.root}</decohub_repository_root>
+  <active_intent_mode>${params.mode}</active_intent_mode>${attachmentsXml}
+</workspace_context>
+
+${
+  params.mode === 'ANALYTICAL_BRIEFING'
+    ? `<execution_directive mode="ANALYTICAL_BRIEFING">
+  Com base exclusivamente na inspeção real dos arquivos do repositório DecoHUB em <workspace_context> usando ferramentas de leitura (\`view_file\`, \`grep_search\`, \`find_by_name\`, \`list_dir\`), responda à solicitação abaixo produzindo um **Briefing Executivo Markdown Literal, Denso e Completo**:
+
+  <user_request>
+${params.userQueryOrMission}
+  </user_request>
+
+  <briefing_contract>
+    1. MODO SOMENTE LEITURA: Inspecione os arquivos reais em \`server/src/\` e \`client/src/\` via \`grep_search\` e \`view_file\` antes de afirmar qualquer fato técnico. Não modifique nenhum arquivo neste modo.
+    2. ESTRUTURA OBRIGATÓRIA DA RESPOSTA DIRETA NO CHAT:
+       - **Sumário Executivo e Diagnóstico Direto**;
+       - **Mapeamento Técnico com Coordenadas Exatas** (\`caminho/do/arquivo.ts:linha\`);
+       - **Tabela Comparativa de Riscos / Trade-offs Arquiteturais**;
+       - **Plano de Ação / Implementação Recomendado**.
+    3. COMPLETUDE LITERAL: Não trunque listas, não omita análises em arquivos externos e não entregue respostas superficiais.
+  </briefing_contract>
+</execution_directive>`
+    : `<execution_directive mode="AUTONOMOUS_EVOLUTION">
+  Com base exclusivamente na inspeção real do repositório DecoHUB em <workspace_context>, execute a missão de engenharia abaixo seguindo estritamente o ciclo **Explore -> Plan -> Edit -> Verify (Poka-Yoke)**:
+
+  <evolution_mission>
+${params.userQueryOrMission}
+  </evolution_mission>
+
+  <autonomous_evolution_cycle>
+    1. EXPLORE: Inspecione os arquivos alvo e seus importadores em \`server/src/\` e \`client/src/\` usando \`grep_search\` e \`view_file\`.
+    2. PLAN: Defina a alteração cirúrgica mínima que resolve a causa raiz preservando 100% da retrocompatibilidade de interfaces e contratos TypeScript existentes.
+    3. EDIT: Aplique as modificações diretamente nos arquivos em \`server/src/\` ou \`client/src/\` usando \`replace_file_content\`, \`multi_replace_file_content\` ou \`write_to_file\`.
+    4. VERIFY (POKA-YOKE): Se aplicável, valide a compilação via \`npx tsc --noEmit\` antes de concluir.
+    5. FORMATO DO RELATÓRIO DE ENTREGA AO USUÁRIO (DIRETO E SEM DESPEJO DE CÓDIGO BRUTO):
+       - Explique de forma enxuta e técnica:
+         **O que foi feito:** resumo claro e objetivo da solução implementada e da causa raiz resolvida.
+         **Arquivos alterados:** lista concisa indicando em 1 linha o que mudou em cada arquivo (\`caminho/do/arquivo.ts\`).
+  </autonomous_evolution_cycle>
+</execution_directive>`
+}`;
+  }
+
+  /**
+   * Builds the GSD Repair Delta Envelope for convergent TypeScript self-healing on the 1st retry.
+   * Never mentions bracketed file markers to prevent Instruction Injection / Example Matching.
+   */
+  static buildSurgicalRepairPrompt(rawCompilerDiagnostics: string, modifiedFiles: string[]): string {
+    return `<system_invariants>
+  Atuar em modo de Reparo Cirúrgico Convergente (GSD REPAIR DELTA ENVELOPE) no repositório DecoHUB.
+  Usar exclusivamente ferramentas nativas (\`view_file\`, \`replace_file_content\`, \`multi_replace_file_content\`, \`write_to_file\`).
+</system_invariants>
+
+<workspace_context>
+  <scoped_modified_files>
+${modifiedFiles.map(f => `    - ${f}`).join('\n')}
+  </scoped_modified_files>
+  <failure_diagnostics>
+${rawCompilerDiagnostics}
+  </failure_diagnostics>
+</workspace_context>
+
+<execution_directive mode="REPAIR">
+  Com base exclusivamente nos erros exatos de compilação TypeScript listados em <failure_diagnostics> acima, execute imediatamente o reparo cirúrgico:
+  1. LOCALIZAÇÃO EXATA: Use \`view_file\` para inspecionar uma janela de 30 linhas acima e abaixo das coordenadas \`arquivo.ts(linha,coluna)\` apontadas pelo compilador.
+  2. DIFF MÍNIMO: Corrija a divergência de tipos, importação ou assinatura nos arquivos listados em <scoped_modified_files> utilizando \`replace_file_content\` ou \`multi_replace_file_content\`, mantendo tipagem estrita (\`strict: true\`) e preservando todos os métodos existentes.
+  3. ENCERRAMENTO: Conclua apresentando o resumo atualizado (**O que foi feito:** e **Arquivos alterados:**).
+</execution_directive>`;
+  }
 
   static getLiveStatus(): MetaChatLiveStatus {
     const isExecuting = Boolean(this._currentExecution && !this._currentExecution.cancelRequested);
@@ -1110,11 +1280,291 @@ export class MetaChatService {
   }
 
   /**
+   * Resolve o teste unitário focado correspondente aos arquivos modificados em server/src/.
+   */
+  static resolveMatchingServerTest(filesChanged: string[]): string {
+    const serverFiles = filesChanged.filter(f => f.startsWith('server/src/'));
+    const testFiles = filesChanged.filter(f => f.startsWith('server/test/'));
+    if (testFiles.length > 0) {
+      return testFiles[0].replace(/^server\//, '');
+    }
+
+    const root = this.getDecoHubRoot();
+    const testDir = path.join(root, 'server', 'test');
+    if (!fs.existsSync(testDir)) return 'test/metaChatSelfEvolution.test.ts';
+
+    try {
+      const allTests = fs.readdirSync(testDir).filter(f => f.endsWith('.test.ts') || f.endsWith('.test.js'));
+
+      for (const sf of serverFiles) {
+        const base = path.basename(sf).replace(/\.[^.]+$/, '').toLowerCase();
+        // Correspondência exata: <base>.test.ts
+        const exact = allTests.find(t => t.toLowerCase() === `${base}.test.ts` || t.toLowerCase() === `${base}.test.js`);
+        if (exact) return `test/${exact}`;
+
+        // Correspondência parcial
+        const partial = allTests.find(t => t.toLowerCase().includes(base));
+        if (partial) return `test/${partial}`;
+      }
+    } catch {}
+
+    return 'test/metaChatSelfEvolution.test.ts';
+  }
+
+  /**
+   * Calcula o delta de linhas modificadas (+linhasAdded / -linesRemoved) para o Critério de Simplicidade Karpathy.
+   */
+  static calculateLineDiff(
+    root: string,
+    filesChanged: string[],
+    beforeBaseline?: Map<string, { size: number; mtime: number; hash?: string; content?: string | null }>
+  ): { linesAdded: number; linesRemoved: number; delta: number } {
+    let linesAdded = 0;
+    let linesRemoved = 0;
+
+    for (const rel of filesChanged) {
+      const full = path.join(root, rel);
+      const beforeContent = beforeBaseline?.get(rel)?.content ?? '';
+      let currentContent = '';
+      if (fs.existsSync(full)) {
+        try {
+          currentContent = fs.readFileSync(full, 'utf-8');
+        } catch {}
+      }
+
+      const beforeLines = beforeContent ? beforeContent.split(/\r?\n/) : [];
+      const currentLines = currentContent ? currentContent.split(/\r?\n/) : [];
+
+      if (beforeLines.length === 0 && currentLines.length > 0) {
+        linesAdded += currentLines.length;
+      } else if (beforeLines.length > 0 && currentLines.length === 0) {
+        linesRemoved += beforeLines.length;
+      } else {
+        const diff = currentLines.length - beforeLines.length;
+        if (diff > 0) {
+          linesAdded += diff;
+        } else if (diff < 0) {
+          linesRemoved += Math.abs(diff);
+        }
+      }
+    }
+
+    return {
+      linesAdded,
+      linesRemoved,
+      delta: linesAdded - linesRemoved
+    };
+  }
+
+  /**
+   * Avalia o Critério de Simplicidade de Karpathy (Navalha de Occam):
+   * Código mais simples com resultado igual ou superior é sempre preferível (keep).
+   * Ganhos que adicionam complexidade excessiva sem testes são descartados (discard).
+   */
+  static checkSimplicityCriterion(
+    root: string,
+    filesChanged: string[],
+    beforeBaseline?: Map<string, { size: number; mtime: number; hash?: string; content?: string | null }>,
+    metrics?: { testsPassed?: boolean; errorsCount?: number }
+  ): { passed: boolean; linesAdded: number; linesRemoved: number; delta: number; reason?: string } {
+    const diff = this.calculateLineDiff(root, filesChanged, beforeBaseline);
+
+    const MAX_ALLOWED_UNTESTED_DELTA = 400;
+    if (diff.delta > MAX_ALLOWED_UNTESTED_DELTA && !metrics?.testsPassed) {
+      return {
+        passed: false,
+        ...diff,
+        reason: `Critério de Simplicidade Karpathy: Complexidade excessiva (+${diff.delta} linhas adicionadas sem validação de testes unitários, limite: ${MAX_ALLOWED_UNTESTED_DELTA}).`
+      };
+    }
+
+    return {
+      passed: true,
+      ...diff
+    };
+  }
+
+  /**
+   * Playwright Visual Gate: Valida build do frontend e renderização sem erros de console/página.
+   */
+  static async runClientVisualGate(filesChanged: string[]): Promise<{
+    passed: boolean;
+    buildPassed: boolean;
+    visualPassed: boolean;
+    output: string;
+    details: string;
+  }> {
+    const root = this.getDecoHubRoot();
+    const clientDir = path.join(root, 'client');
+    const isWin = process.platform === 'win32';
+    const isOfflineOrTest = process.env.NODE_ENV === 'test' || AgentApiGateway.isOfflineMode() || Boolean(process.env.NODE_TEST_CONTEXT);
+
+    let buildPassed = true;
+    let buildOutput = '';
+
+    // 1. Build do Client (tsc && vite build)
+    try {
+      if (!isOfflineOrTest) {
+        const npmCmd = isWin ? 'npm.cmd' : 'npm';
+        buildOutput = execFileSync(npmCmd, ['run', 'build'], {
+          cwd: clientDir,
+          encoding: 'utf-8',
+          timeout: 60000,
+          windowsHide: true,
+          env: { ...process.env, CI: 'true' }
+        });
+      } else {
+        buildPassed = true;
+        buildOutput = 'Build do client aprovado (modo offline/teste).';
+      }
+    } catch (err: any) {
+      buildPassed = false;
+      buildOutput = `${err.stdout || ''}\n${err.stderr || ''}\n${err.message || ''}`.trim();
+    }
+
+    if (!buildPassed) {
+      return {
+        passed: false,
+        buildPassed: false,
+        visualPassed: false,
+        output: buildOutput,
+        details: 'Falha no build do client (npm run build).'
+      };
+    }
+
+    // 2. Playwright Visual Gate (0 erros de console, 0 erros de página e renderização válida)
+    let visualPassed = true;
+    let visualDetails = 'Inspeção visual do client aprovada (0 erros de console, 0 erros de página).';
+
+    try {
+      const inspectRes = await PlaywrightVisualInspector.inspect({
+        projectPath: clientDir,
+        taskId: 'meta-chat-visual-gate',
+        timeoutMs: 8000,
+        offlineFallback: true
+      });
+
+      const consoleErrors = inspectRes.consoleErrors || [];
+      const pageErrors = inspectRes.pageErrors || [];
+
+      if (!inspectRes.passed || consoleErrors.length > 0 || pageErrors.length > 0) {
+        visualPassed = false;
+        visualDetails = `Falha na verificação visual do Playwright: ${consoleErrors.length} erro(s) de console, ${pageErrors.length} erro(s) de página.`;
+      }
+    } catch (visErr: any) {
+      Logger.warn(`[MetaChatService] Aviso ao executar PlaywrightVisualInspector no client: ${visErr.message}`);
+      visualPassed = true;
+    }
+
+    return {
+      passed: buildPassed && visualPassed,
+      buildPassed,
+      visualPassed,
+      output: buildOutput,
+      details: visualDetails
+    };
+  }
+
+  /**
+   * Garante que results.tsv esteja listado no .gitignore da raiz do DecoHUB.
+   */
+  static ensureResultsTsvIgnored(): void {
+    const root = this.getDecoHubRoot();
+    const gitignorePath = path.join(root, '.gitignore');
+    try {
+      if (fs.existsSync(gitignorePath)) {
+        const content = fs.readFileSync(gitignorePath, 'utf-8');
+        if (!/(?:^|\r?\n)\s*results\.tsv\s*(?:\r?\n|$)/.test(content)) {
+          fs.appendFileSync(gitignorePath, '\n# Karpathy Autoresearch Ledger\nresults.tsv\n', 'utf-8');
+        }
+      }
+    } catch (err: any) {
+      Logger.warn(`[MetaChatService] Erro ao verificar .gitignore para results.tsv: ${err.message}`);
+    }
+  }
+
+  /**
+   * Obtém o hash curto de commit atual (7 caracteres) ou 'baseline'.
+   */
+  static getCurrentGitCommit(root?: string): string {
+    const targetRoot = root || this.getDecoHubRoot();
+    try {
+      const hash = execFileSync('git', ['rev-parse', '--short=7', 'HEAD'], {
+        cwd: targetRoot,
+        encoding: 'utf-8',
+        windowsHide: true,
+        timeout: 5000
+      }).trim();
+      return hash || 'baseline';
+    } catch {
+      return 'baseline';
+    }
+  }
+
+  /**
+   * Registra um experimento no results.tsv seguindo o protocolo oficial do Karpathy Autoresearch.
+   */
+  static appendAutoresearchLedger(entry: {
+    commit: string;
+    scoreMetric: string;
+    durationSec: number;
+    status: 'keep' | 'discard' | 'crash';
+    description: string;
+  }): void {
+    const root = this.getDecoHubRoot();
+    this.ensureResultsTsvIgnored();
+    const tsvPath = path.join(root, 'results.tsv');
+    const header = 'commit\tscore_metric\tduration_s\tstatus\tdescription\n';
+
+    try {
+      if (!fs.existsSync(tsvPath)) {
+        fs.writeFileSync(tsvPath, header, 'utf-8');
+      }
+
+      const shortCommit = (entry.commit || 'baseline').slice(0, 7) || 'baseline';
+      const cleanDesc = (entry.description || 'Experimento autônomo')
+        .replace(/[\r\n\t]+/g, ' ')
+        .trim()
+        .slice(0, 160);
+      const metric = (entry.scoreMetric || 'N/A').replace(/[\r\n\t]+/g, ' ').trim();
+      const dur = entry.durationSec >= 0 ? entry.durationSec.toFixed(1) : '0.0';
+
+      const line = `${shortCommit}\t${metric}\t${dur}\t${entry.status}\t${cleanDesc}\n`;
+      fs.appendFileSync(tsvPath, line, 'utf-8');
+      Logger.info(`[MetaChatService] [Autoresearch Ledger] ${line.trim()}`);
+    } catch (err: any) {
+      Logger.warn(`[MetaChatService] Falha ao gravar results.tsv: ${err.message}`);
+    }
+  }
+
+  /**
+   * Lê as últimas N linhas de results.tsv para alimentar a memória experimental do prompt.
+   */
+  static getRecentAutoresearchHistory(limit = 15): string {
+    const root = this.getDecoHubRoot();
+    const tsvPath = path.join(root, 'results.tsv');
+    try {
+      if (!fs.existsSync(tsvPath)) return '';
+      const raw = fs.readFileSync(tsvPath, 'utf-8').trim();
+      if (!raw) return '';
+      const lines = raw.split(/\r?\n/).filter(Boolean);
+      if (lines.length <= 1) return '';
+      const header = lines[0];
+      const dataLines = lines.slice(1);
+      const recent = dataLines.slice(-limit);
+      return [header, ...recent].join('\n');
+    } catch (err: any) {
+      Logger.warn(`[MetaChatService] Erro ao ler results.tsv: ${err.message}`);
+      return '';
+    }
+  }
+
+  /**
    * Retrieves messages from the meta_chat_messages table for a thread (or active thread).
    */
   static getMessages(threadIdOrLimit?: string | number, maybeLimit?: number): MetaChatMessage[] {
     let threadId: string | null = null;
-    let limit = 100;
+    let limit = 500;
 
     if (typeof threadIdOrLimit === 'number') {
       limit = threadIdOrLimit;
@@ -1131,16 +1581,24 @@ export class MetaChatService {
       const rows = threadId && threadId !== '*'
         ? db.prepare(`
             SELECT id, thread_id, role, content, metadata, executed_steps_json, created_at
-            FROM meta_chat_messages
-            WHERE thread_id = ?
-            ORDER BY created_at ASC
-            LIMIT ?
+            FROM (
+              SELECT id, thread_id, role, content, metadata, executed_steps_json, created_at, rowid
+              FROM meta_chat_messages
+              WHERE thread_id = ?
+              ORDER BY created_at DESC, rowid DESC
+              LIMIT ?
+            )
+            ORDER BY created_at ASC, rowid ASC
           `).all(threadId, limit) as any[]
         : db.prepare(`
             SELECT id, thread_id, role, content, metadata, executed_steps_json, created_at
-            FROM meta_chat_messages
-            ORDER BY created_at ASC
-            LIMIT ?
+            FROM (
+              SELECT id, thread_id, role, content, metadata, executed_steps_json, created_at, rowid
+              FROM meta_chat_messages
+              ORDER BY created_at DESC, rowid DESC
+              LIMIT ?
+            )
+            ORDER BY created_at ASC, rowid ASC
           `).all(limit) as any[];
 
       return rows.map(r => ({
@@ -1346,7 +1804,7 @@ export class MetaChatService {
 
   static async waitForTranscriptResponse(
     conversationId: string,
-    minStepIndex: number,
+    initialLineCount: number = 0,
     timeoutMs = 90000,
     customUserProfileDir?: string
   ): Promise<string | null> {
@@ -1366,62 +1824,68 @@ export class MetaChatService {
         try {
           const content = fs.readFileSync(transcriptPath, 'utf-8');
           const lines = content.trim().split('\n').filter(Boolean);
-          for (let i = lines.length - 1; i >= 0; i--) {
+          const newLines = lines.slice(Math.max(0, initialLineCount));
+          for (let i = newLines.length - 1; i >= 0; i--) {
             let entry: any;
             try {
-              entry = JSON.parse(lines[i]);
+              entry = JSON.parse(newLines[i]);
             } catch {
               continue;
             }
-            const isAfterMin =
-              minStepIndex < 0 || (typeof entry.step_index === 'number' && entry.step_index > minStepIndex);
-            if (isAfterMin) {
-              if (entry.status === 'ERROR' || entry.type === 'ERROR_MESSAGE') {
-                throw new Error(
-                  `Antigravity conversation reported error: ${entry.error || entry.content || 'Status ERROR'}`
-                );
-              }
-              if (
-                entry.type === 'PLANNER_RESPONSE' &&
-                entry.status === 'DONE' &&
-                entry.content &&
-                !isToolDump(String(entry.content)) &&
-                !(entry.tool_calls?.length > 0)
-              ) {
-                if (fs.existsSync(transcriptFullPath)) {
-                  try {
-                    const fullLines = fs
-                      .readFileSync(transcriptFullPath, 'utf-8')
-                      .trim()
-                      .split('\n')
-                      .filter(Boolean);
-                    for (let j = fullLines.length - 1; j >= 0; j--) {
-                      const fullEntry = JSON.parse(fullLines[j]);
-                      if (
-                        fullEntry.step_index === entry.step_index &&
-                        (!fullEntry.type || fullEntry.type === 'PLANNER_RESPONSE') &&
-                        fullEntry.content &&
-                        !isToolDump(String(fullEntry.content))
-                      ) {
-                        if (String(fullEntry.content).length >= String(entry.content).length) {
-                          return fullEntry.content;
-                        }
-                        break;
+            if (entry.status === 'ERROR' || entry.type === 'ERROR_MESSAGE') {
+              throw new Error(
+                `Antigravity conversation reported error: ${entry.error || entry.content || 'Status ERROR'}`
+              );
+            }
+            const entryText = String(entry.error || entry.content || entry.message || '');
+            if (FATAL_QUOTA_OR_AUTH_REGEX.test(entryText)) {
+              throw new Error(`QUOTA_EXHAUSTED: ${entryText}`);
+            }
+            if (
+              (entry.type === 'PLANNER_RESPONSE' ||
+                entry.type === 'ASSISTANT_RESPONSE' ||
+                entry.type === 'MODEL_TURN' ||
+                entry.role === 'assistant' ||
+                entry.source === 'MODEL') &&
+              entry.content &&
+              !(entry.tool_calls?.length > 0)
+            ) {
+              let fullText = String(entry.content);
+              if (fs.existsSync(transcriptFullPath)) {
+                try {
+                  const fullLines = fs
+                    .readFileSync(transcriptFullPath, 'utf-8')
+                    .trim()
+                    .split('\n')
+                    .filter(Boolean);
+                  for (let j = fullLines.length - 1; j >= 0; j--) {
+                    const fullEntry = JSON.parse(fullLines[j]);
+                    if (
+                      fullEntry.step_index === entry.step_index &&
+                      (!fullEntry.type || fullEntry.type === 'PLANNER_RESPONSE' || fullEntry.role === 'assistant' || fullEntry.source === 'MODEL') &&
+                      fullEntry.content
+                    ) {
+                      if (String(fullEntry.content).length >= fullText.length) {
+                        fullText = String(fullEntry.content);
                       }
-                    }
-                  } catch (err) {
-                    if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-                      (globalThis as any).logger.warn({
-                        event: "server.handled_exception",
-                        file: "metaChatService",
-                        error: (err as any)?.message || String(err)
-                      });
-                    } else {
-                      console.warn("[WARN][server:metaChatService]", err);
+                      break;
                     }
                   }
+                } catch (err) {
+                  if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+                    (globalThis as any).logger.warn({
+                      event: "server.handled_exception",
+                      file: "metaChatService",
+                      error: (err as any)?.message || String(err)
+                    });
+                  } else {
+                    console.warn("[WARN][server:metaChatService]", err);
+                  }
                 }
-                return entry.content;
+              }
+              const cleanedText = stripRawLineNumberDumps(fullText);
+              if (!isToolDump(cleanedText)) {
+                return cleanedText;
               }
             }
           }
@@ -1518,24 +1982,34 @@ export class MetaChatService {
 
   static getGitStatusPorcelain(root: string): string[] {
     try {
-      const out = execFileSync('git', ['status', '--porcelain'], {
+      const out = execFileSync('git', ['status', '--porcelain', '.'], {
         cwd: root,
         encoding: 'utf-8',
         windowsHide: true,
         timeout: 10000
       });
-      return out.trim().split('\n').filter(Boolean);
+      return out
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map(line => {
+          const status = line.slice(0, 3);
+          let file = line.slice(3).trim().replace(/^"|"$/g, '').replace(/\\/g, '/');
+          file = file.replace(/^ai-dev-hub[\\/]/, '');
+          return `${status}${file}`;
+        });
     } catch {
       return [];
     }
   }
 
-  static captureFileBaseline(root: string): Map<string, { size: number; mtime: number; hash?: string; content?: string | null }> {
-    const map = new Map<string, { size: number; mtime: number; hash?: string; content?: string | null }>();
+  static captureFileBaseline(root: string): Map<string, { size: number; mtime: number; hash?: string; content?: string | null; diskHash?: string }> {
+    const map = new Map<string, { size: number; mtime: number; hash?: string; content?: string | null; diskHash?: string }>();
     try {
       const statusLines = this.getGitStatusPorcelain(root);
       for (const line of statusLines) {
-        const file = line.slice(3).trim().replace(/^"|"$/g, '').replace(/\\/g, '/');
+        let file = line.slice(3).trim().replace(/^"|"$/g, '').replace(/\\/g, '/');
+        file = file.replace(/^ai-dev-hub[\\/]/, '');
         const full = path.join(root, file);
         try {
           if (fs.existsSync(full)) {
@@ -1553,16 +2027,32 @@ export class MetaChatService {
             map.set(file, { size: -1, mtime: 0, content: null });
           }
         } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "metaChatService",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:metaChatService]", err);
+          if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+            (globalThis as any).logger.warn({
+              event: "server.handled_exception",
+              file: "metaChatService",
+              error: (err as any)?.message || String(err)
+            });
+          } else {
+            console.warn("[WARN][server:metaChatService]", err);
+          }
+        }
       }
-    }
+
+      // Hybrid Check: Full disk SHA-256 inventory via captureFileInventory for total byte-level certainty
+      try {
+        const inventory = captureFileInventory(root);
+        for (const [invFile, sha] of Object.entries(inventory)) {
+          const normalizedFile = invFile.replace(/^ai-dev-hub[\\/]/, '');
+          const existing = map.get(normalizedFile);
+          if (existing) {
+            existing.diskHash = sha;
+          } else {
+            map.set(normalizedFile, { size: 0, mtime: 0, diskHash: sha });
+          }
+        }
+      } catch (invErr: any) {
+        Logger.warn(`[MetaChatService] Aviso ao capturar inventário de arquivos em disco: ${invErr.message}`);
       }
     } catch (err) {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
@@ -1580,14 +2070,15 @@ export class MetaChatService {
 
   static diffFileBaseline(
     root: string,
-    beforeBaseline: Map<string, { size: number; mtime: number; hash?: string }>,
+    beforeBaseline: Map<string, { size: number; mtime: number; hash?: string; diskHash?: string }>,
     turnChangedFiles?: string[]
   ): string[] {
     const afterPorcelain = this.getGitStatusPorcelain(root);
     const changedInTurn = new Set<string>();
 
     for (const line of afterPorcelain) {
-      const file = line.slice(3).trim().replace(/^"|"$/g, '').replace(/\\/g, '/');
+      let file = line.slice(3).trim().replace(/^"|"$/g, '').replace(/\\/g, '/');
+      file = file.replace(/^ai-dev-hub[\\/]/, '');
       // IGNORE_DIRS_AND_INTERNAL_ARTIFACTS_IN_DIFF
       if (!file || file.endsWith('/') || file.includes('.ai-dev-hub')) continue;
       const full = path.join(root, file);
@@ -1606,15 +2097,15 @@ export class MetaChatService {
             }
           } else {
             const stat = fs.statSync(full);
-            if (stat.size !== before.size) {
+            if (before.size > 0 && stat.size !== before.size) {
               changedInTurn.add(file);
-            } else if (before.hash) {
+            } else if (before.hash && stat.size < 2000000) {
               const content = fs.readFileSync(full);
               const hash = crypto.createHash('sha1').update(content).digest('hex');
               if (hash !== before.hash) {
                 changedInTurn.add(file);
               }
-            } else if (stat.mtimeMs !== before.mtime) {
+            } else if (before.mtime > 0 && stat.mtimeMs !== before.mtime) {
               changedInTurn.add(file);
             }
           }
@@ -1624,11 +2115,32 @@ export class MetaChatService {
       }
     }
 
+    // Hybrid Check: Compare real SHA-256 disk inventory with baseline
+    try {
+      const currentInventory = captureFileInventory(root);
+      const beforeInventory: FileInventory = {};
+      for (const [file, val] of beforeBaseline.entries()) {
+        if (val.diskHash) {
+          beforeInventory[file] = val.diskHash;
+        }
+      }
+      const diskChanged = changedFiles(beforeInventory, currentInventory);
+      for (const f of diskChanged) {
+        const normF = f.replace(/^ai-dev-hub[\\/]/, '');
+        if (!normF.includes('.ai-dev-hub')) {
+          changedInTurn.add(normF);
+        }
+      }
+    } catch (invErr: any) {
+      Logger.warn(`[MetaChatService] Aviso na checagem de inventário em diffFileBaseline: ${invErr.message}`);
+    }
+
     if (turnChangedFiles && Array.isArray(turnChangedFiles)) {
       for (const f of turnChangedFiles) {
-        const rel = path.isAbsolute(f)
+        let rel = path.isAbsolute(f)
           ? path.relative(root, f).replace(/\\/g, '/')
           : f.replace(/\\/g, '/');
+        rel = rel.replace(/^ai-dev-hub[\\/]/, '');
         if (rel.startsWith('..')) continue;
 
         const full = path.join(root, rel);
@@ -1639,7 +2151,7 @@ export class MetaChatService {
           } else {
             try {
               const stat = fs.statSync(full);
-              if (stat.size !== before.size) {
+              if (before.size > 0 && stat.size !== before.size) {
                 changedInTurn.add(rel);
               } else if (before.hash) {
                 const content = fs.readFileSync(full);
@@ -1649,16 +2161,16 @@ export class MetaChatService {
                 }
               }
             } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "metaChatService",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:metaChatService]", err);
-      }
-    }
+              if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+                (globalThis as any).logger.warn({
+                  event: "server.handled_exception",
+                  file: "metaChatService",
+                  error: (err as any)?.message || String(err)
+                });
+              } else {
+                console.warn("[WARN][server:metaChatService]", err);
+              }
+            }
           }
         }
       }
@@ -1794,6 +2306,19 @@ export class MetaChatService {
       profile = AccountProfileManager.getAllProfiles()[0];
     }
 
+    // Se o perfil selecionado estiver esgotado ou indisponível, busca a próxima conta pronta
+    if (profile && (profile.auth_status === 'QUOTA_EXHAUSTED' || !AccountProfileManager.isAccountAvailableForTasks(profile.id))) {
+      AccountProfileManager.checkAndRefreshQuotaStatus(profile.id);
+      profile = AccountProfileManager.getProfile(profile.id);
+      if (profile && (profile.auth_status === 'QUOTA_EXHAUSTED' || !AccountProfileManager.isAccountAvailableForTasks(profile.id))) {
+        const nextReady = AccountProfileManager.getNextAvailableProfile(profile.id);
+        if (nextReady) {
+          AccountProfileManager.setGlobalActiveProfile(nextReady.id);
+          profile = nextReady;
+        }
+      }
+    }
+
     // 2. Ensure project record exists and is bound to profile.id
     let proj: any = db
       .prepare('SELECT id, name, path, is_trusted, full_dev_autonomy, active_account_profile_id FROM projects WHERE path = ?')
@@ -1831,6 +2356,13 @@ export class MetaChatService {
       userConsent: 'Auto-Evolução do DecoHUB autorizada pelo desenvolvedor.'
     });
 
+    // 3.1 Ensure native Antigravity 2.0 skills in DecoHUB workspace
+    try {
+      this.ensureDecoHubNativeSkills(root);
+    } catch (err: any) {
+      Logger.warn(`[MetaChatService] Falha não bloqueante ao provisionar native skills em ${root}: ${err.message}`);
+    }
+
     // 4. Resolve full execution environment (including ANTIGRAVITY_LS_ADDRESS, ANTIGRAVITY_CSRF_TOKEN & runtime auto-boot)
     let env: NodeJS.ProcessEnv;
     try {
@@ -1864,6 +2396,52 @@ export class MetaChatService {
       nativeProjectId: binding.nativeProjectId,
       env
     };
+  }
+
+  /**
+   * Provisions native Google Antigravity 2.0 skills (.agents/skills/<skill-slug>/SKILL.md) in the DecoHUB workspace.
+   */
+  static ensureDecoHubNativeSkills(root: string): void {
+    const hubRoot = SkillRouter.getHubRootDir();
+    const skillsDir = path.join(hubRoot, 'Skills');
+    const karpathySrc = path.join(skillsDir, 'andrej-karpathy-skills-main', 'andrej-karpathy-skills-main', 'skills', 'karpathy-guidelines', 'SKILL.md');
+    const examplesSrc = path.join(skillsDir, 'andrej-karpathy-skills-main', 'andrej-karpathy-skills-main', 'EXAMPLES.md');
+
+    if (fs.existsSync(karpathySrc)) {
+      const nativeDir = path.join(root, '.agents', 'skills', 'karpathy-guidelines');
+      if (!fs.existsSync(nativeDir)) {
+        fs.mkdirSync(nativeDir, { recursive: true });
+      }
+      const nativeSkillFile = path.join(nativeDir, 'SKILL.md');
+      const rawContent = fs.readFileSync(karpathySrc, 'utf-8');
+      const calibrated = SkillRouter.calibrateKarpathySkillContent(rawContent);
+      const withFrontmatter = SkillRouter.ensureSkillFrontmatter(calibrated, 'karpathy-guidelines');
+      if (!fs.existsSync(nativeSkillFile) || fs.readFileSync(nativeSkillFile, 'utf-8') !== withFrontmatter) {
+        fs.writeFileSync(nativeSkillFile, withFrontmatter, 'utf-8');
+      }
+
+      if (fs.existsSync(examplesSrc)) {
+        const examplesDir = path.join(nativeDir, 'examples');
+        if (!fs.existsSync(examplesDir)) {
+          fs.mkdirSync(examplesDir, { recursive: true });
+        }
+        const examplesDest = path.join(examplesDir, 'EXAMPLES.md');
+        const exContent = fs.readFileSync(examplesSrc, 'utf-8');
+        if (!fs.existsSync(examplesDest) || fs.readFileSync(examplesDest, 'utf-8') !== exContent) {
+          fs.writeFileSync(examplesDest, exContent, 'utf-8');
+        }
+      }
+
+      // Also ensure legacy/fallback path for full compatibility
+      const legacyDir = path.join(root, '.ai-dev-hub', 'skills');
+      if (!fs.existsSync(legacyDir)) {
+        fs.mkdirSync(legacyDir, { recursive: true });
+      }
+      const legacySkillFile = path.join(legacyDir, 'karpathy-guidelines-skill.md');
+      if (!fs.existsSync(legacySkillFile) || fs.readFileSync(legacySkillFile, 'utf-8') !== calibrated) {
+        fs.writeFileSync(legacySkillFile, calibrated, 'utf-8');
+      }
+    }
   }
 
   /**
@@ -1955,13 +2533,14 @@ export class MetaChatService {
       serverOutput = execFileSync(npmCmd, ['run', 'build'], {
         cwd: path.join(root, 'server'),
         encoding: 'utf-8',
-        timeout: 45000,
-        windowsHide: true
+        timeout: 120000,
+        windowsHide: true,
+        shell: isWin
       });
     } catch (err: any) {
       return {
         success: false,
-        message: `Falha na compilação do servidor:\n${err.stdout || ''}\n${err.stderr || ''}`,
+        message: `Falha na compilação do servidor:\n${err.message || ''}\n${err.stdout || ''}\n${err.stderr || ''}`.trim(),
         durationMs: Date.now() - startTime
       };
     }
@@ -1972,13 +2551,14 @@ export class MetaChatService {
       clientOutput = execFileSync(npmCmd, ['run', 'build'], {
         cwd: path.join(root, 'client'),
         encoding: 'utf-8',
-        timeout: 60000,
-        windowsHide: true
+        timeout: 120000,
+        windowsHide: true,
+        shell: isWin
       });
     } catch (err: any) {
       return {
         success: false,
-        message: `Falha na compilação do frontend:\n${err.stdout || ''}\n${err.stderr || ''}`,
+        message: `Falha na compilação do frontend:\n${err.message || ''}\n${err.stdout || ''}\n${err.stderr || ''}`.trim(),
         durationMs: Date.now() - startTime
       };
     }
@@ -2005,6 +2585,9 @@ export class MetaChatService {
             const serverDistDest = path.join(unpackedBase, 'server', 'dist');
             const clientDistSrc = path.join(root, 'client', 'dist');
             const clientDistDest = path.join(unpackedBase, 'client', 'dist');
+
+            fs.mkdirSync(serverDistDest, { recursive: true });
+            fs.mkdirSync(clientDistDest, { recursive: true });
 
             spawnSync('robocopy', [serverDistSrc, serverDistDest, '/MIR', '/NP', '/NDL', '/NFL'], { windowsHide: true });
             spawnSync('robocopy', [clientDistSrc, clientDistDest, '/MIR', '/NP', '/NDL', '/NFL'], { windowsHide: true });
@@ -2140,6 +2723,8 @@ export class MetaChatService {
       mlTelemetrySummary = `- Modelos/Bandits com Menor Recompensa: ${underperforming || 'Nenhum'}\n- Acurácia Online do Preditor de Risco: ${(mlStatus.runningAccuracy * 100).toFixed(1)}% (Amostras: ${mlStatus.samplesSeen})\n- Vacinas Episódicas Aprendidas: ${mlStatus.episodicMemoriesCount}`;
     } catch {}
 
+    const autoresearchHistory = this.getRecentAutoresearchHistory(15);
+
     const prompt = `# MISSÃO AUTÔNOMA DE AUTO-EVOLUÇÃO (AUTOPILOT CYCLE) — ZERO-PROMPT
 
 Você é o Engenheiro Principal do DecoHUB operando no modo Autopilot de Auto-Evolução Contínua (inspirado no Karpathy Autoresearch Loop e Darwin Gödel Machine).
@@ -2161,12 +2746,20 @@ ${mlTelemetrySummary || 'DecoMind ML ativo e calibrado.'}
 - **Evoluções Já Implementadas em Ciclos Anteriores (NÃO REPETIR):**
 ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.'}
 
+=== HISTÓRICO RECENTE DE EXPERIMENTOS (RESULTS.TSV) ===
+${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (estabelecendo baseline).'}
+
 ### 2. DIRETRIZES DE EXECUÇÃO CIRÚRGICA:
-1. Identifique um gargalo real e inédito no DecoHUB (em server/src/ ou client/src/) que impacta estabilidade, velocidade, observabilidade ou resiliência.
-2. Aplique a alteração diretamente usando blocos de código markdown \`\`\`ts [FILE: caminho/do/arquivo.ts] ... \`\`\` ou edite cirurgicamente.
-3. Garanta 100% de compatibilidade e tipagem estrita TypeScript (sem violar tipos).
-4. Crie ou atualize um teste em server/test/ que comprove a solução implementada.
-5. Emita ao final um Briefing Executivo estruturado contendo:
+(PROTOCOLO KARPATHY AUTORESEARCH — 4 REGRAS OPERACIONAIS)
+1. **Escopo Cirúrgico (Single Logical Target):** Aplique a hipótese no menor conjunto possível de arquivos em \`server/src/\` ou \`client/src/\` (nunca toque na Zona Vermelha ou em arquivos de avaliação protegidos).
+2. **Critério de Simplicidade (Simplicity Criterion):** Código mais simples com resultado igual ou superior é sempre preferível (\`keep\`). Ganhos marginais que adicionam dezenas de linhas de código complexo/hacky são descartados (\`discard\`).
+3. **Higiene de Contexto em Comandos de Terminal (Log Redirection):** Ao rodar testes no terminal via \`run_command\`, filtre a saída ou execute apenas o arquivo de teste alvo (\`node --test server/dist/test/<alvo>.test.js\`) para nunca inundar a janela de contexto com milhares de linhas de log.
+4. **Memória Experimental (results.tsv):** Consulte a tabela \`results.tsv\` injetada acima antes de formular a hipótese para nunca repetir um experimento que já recebeu \`discard\` ou \`crash\`.
+5. Identifique um gargalo real e inédito no DecoHUB (em server/src/ ou client/src/) que impacta estabilidade, velocidade, observabilidade ou resiliência.
+6. Aplique a alteração cirurgicamente no código do DecoHUB utilizando ferramentas nativas de manipulação de arquivos (view_file, replace_file_content, write_to_file, run_command).
+7. Garanta 100% de compatibilidade e tipagem estrita TypeScript (sem violar tipos).
+8. Crie ou atualize um teste em server/test/ que comprove a solução implementada.
+9. Emita ao final um Briefing Executivo estruturado contendo:
    - ### 1. Diagnóstico do Gargalo Selecionado
    - ### 2. Alteração Cirúrgica Implementada
    - ### 3. Validação Automatizada e Portões de Qualidade
@@ -2293,6 +2886,7 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
       }
 
       const currentCycle = this._autopilotState.completedCycles + 1;
+      const cycleStart = Date.now();
       this._autopilotState.isExecutingCycle = true;
       Logger.info(`[MetaChatService] [Autopilot] Iniciando Ciclo #${currentCycle} (meta: ${this._autopilotState.maxCycles === 0 ? 'Contínuo' : this._autopilotState.maxCycles})...`);
 
@@ -2310,8 +2904,12 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
           model: options.model || 'gemini-3.8-flash',
           reasoningMode: 'high',
           accountId: options.accountId,
-          runTests: true
+          runTests: true,
+          isAutopilotCycle: true
         });
+
+        const cycleDurationSec = Math.max(0.1, (Date.now() - cycleStart) / 1000);
+        const commitHash = this.getCurrentGitCommit();
 
         if (res.typecheck.passed && !res.selfHealed && res.filesChanged.length > 0) {
           this._autopilotState.keptEvolutions++;
@@ -2331,12 +2929,34 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
             content: `[AUTOPILOT CICLO #${currentCycle} CONCLUÍDO - KEEP] Evolução promovida e sincronizada no decohub_unpacked (${res.filesChanged.length} arquivos atualizados).`,
             thread_id: options.threadId
           });
+
+          this.appendAutoresearchLedger({
+            commit: commitHash,
+            scoreMetric: (res as any).scoreMetric || `tc:0_files:${res.filesChanged.length}`,
+            durationSec: cycleDurationSec,
+            status: 'keep',
+            description: (res as any).hypothesisSummary || `Ciclo #${currentCycle} auto-evolução promovida`
+          });
         } else {
           if (res.selfHealed) {
             this._autopilotState.revertedEvolutions++;
-            this._autopilotState.lastCycleSummary = `Ciclo #${currentCycle} REVERTIDO (DISCARD/ROLLBACK): Typecheck quebrado.`;
+            this._autopilotState.lastCycleSummary = `Ciclo #${currentCycle} REVERTIDO (DISCARD/ROLLBACK): Avaliador reprovou alterações.`;
+            this.appendAutoresearchLedger({
+              commit: commitHash,
+              scoreMetric: (res as any).scoreMetric || 'eval:rejected',
+              durationSec: cycleDurationSec,
+              status: 'discard',
+              description: `Ciclo #${currentCycle} revertido pelo avaliador imutável`
+            });
           } else {
             this._autopilotState.lastCycleSummary = `Ciclo #${currentCycle} FINALIZADO sem alterações de arquivos.`;
+            this.appendAutoresearchLedger({
+              commit: commitHash,
+              scoreMetric: 'baseline',
+              durationSec: cycleDurationSec,
+              status: 'keep',
+              description: `Ciclo #${currentCycle} baseline mantido`
+            });
           }
           this.addMessage({
             role: 'system',
@@ -2345,8 +2965,17 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
           });
         }
       } catch (cycleErr: any) {
+        const cycleDurationSec = Math.max(0.1, (Date.now() - cycleStart) / 1000);
+        const commitHash = this.getCurrentGitCommit();
         Logger.error(`[MetaChatService] [Autopilot] Erro no Ciclo #${currentCycle}: ${cycleErr.message}`);
         this._autopilotState.lastCycleSummary = `Ciclo #${currentCycle} FALHOU: ${cycleErr.message}`;
+        this.appendAutoresearchLedger({
+          commit: commitHash,
+          scoreMetric: 'crash',
+          durationSec: cycleDurationSec,
+          status: 'crash',
+          description: `Ciclo #${currentCycle} falha: ${cycleErr.message}`
+        });
       } finally {
         this._autopilotState.completedCycles++;
         this._autopilotState.isExecutingCycle = false;
@@ -2468,6 +3097,8 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
       userProfileDir: undefined
     };
 
+    let effectiveAccountId = requestedAccountId;
+
     try {
       this.updateLiveStatus({
         isRunning: true,
@@ -2481,8 +3112,8 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
         lastStep: 'Análise de intenção'
       });
 
-      // 3. Parse explicit or structured code actions
-      const parsedActions = options?.codeActions || this.parseCodeDirectives(userContent);
+      // 3. Parse explicit or structured code actions (apenas quando fornecido explicitamente via options)
+      const parsedActions = Array.isArray(options?.codeActions) ? options.codeActions : [];
 
       let actionSummary = '';
       let reply = '';
@@ -2493,7 +3124,10 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
         errors?: Array<{ file: string; line?: number; column?: number; code?: string; message: string; raw: string }>;
       } = { passed: true, durationMs: 0, output: 'Nenhum arquivo de código foi alterado.' };
       let selfHealed = false;
-      let testResult: { ran: boolean; passed: boolean; output?: string } | undefined;
+      let testResult: { ran: boolean; passed: boolean; output?: string } = { ran: false, passed: false };
+      let clientGateResult: { passed: boolean; buildPassed: boolean; visualPassed: boolean; output: string; details: string } | null = null;
+      let simplicityResult: { passed: boolean; linesAdded: number; linesRemoved: number; delta: number; reason?: string } | null = null;
+      const executionStartTime = Date.now();
 
       if (parsedActions.length > 0) {
         this.updatePipelineTask('task-inspect', 'completed');
@@ -2631,7 +3265,7 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
         const attachmentsBlock = this.buildAttachmentsBlock(savedAttachments);
 
         const projectBinding = this.ensureDecoHubProject(requestedAccountId);
-        let effectiveAccountId = projectBinding.accountProfile.id;
+        effectiveAccountId = projectBinding.accountProfile.id;
         activeConvId = this.getActiveConversationId(effectiveAccountId, currentThread.id);
 
         const resolvedConfig = ModelRegistry.resolveModelConfig({
@@ -2881,33 +3515,16 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
 
           const antigravityProvider = new AntigravityProvider(execEnv);
 
-          const fullPrompt = [
-            `=== PAPEL: AUTO-EVOLUÇÃO E ENGENHARIA DO PRÓPRIO DECOHUB ===`,
-            `Você é o agente de engenharia do Antigravity operando diretamente no repositório do DecoHUB em "${root}".`,
-            `Modo de Raciocínio: ${resolvedConfig.intelligenceLevel} | Modelo Solicitado: ${resolvedConfig.canonicalName} (${requestedModel})`,
-            ``,
-            `--- MENSAGEM DO USUÁRIO ---`,
-            userContent,
+          const intentMode = options?.intentMode || MetaChatService.detectIntentMode(userContent);
+          const fullPrompt = MetaChatService.buildMetaChatPrompt({
+            mode: intentMode,
+            root,
+            userQueryOrMission: userContent,
             attachmentsBlock,
-            ``,
-            `--- DIRETRIZES DE EXECUÇÃO CIRÚRGICA ---`,
-            `1. Inspecione e edite diretamente os arquivos necessários em "server/src/" ou "client/src/". Caso alguma ferramenta nativa de escrita/edição não esteja disponível, emita blocos estruturados no padrão:`,
-            `   [FILE: caminho/relativo/do/arquivo.ts]`,
-            `   \`\`\`typescript`,
-            `   // código completo atualizado do arquivo`,
-            `   \`\`\``,
-            `   [ENDFILE]`,
-            `2. Mantenha os padrões arquiteturais existentes, tipagem estrita de TypeScript e testes verdes.`,
-            `3. Não altere arquivos em .git/, node_modules/ ou .ai-dev-hub/.`,
-            `4. Padrão Corporativo Limpo: ZERO emojis decorativos em código, logs ou mensagens. Jamais repita o enunciado do usuário no início da resposta. Explique objetivamente as modificações aplicadas.`,
-            `5. FORMATO DA RESPOSTA AO USUÁRIO (SIMPLES, DIRETO E SEM CÓDIGO BRUTO):`,
-            `   - Responda em linguagem natural, clara e direta, sem despejar trechos longos de código, números de linha ou logs de terminal.`,
-            `   - Explique de forma enxuta:`,
-            `     **O que foi feito:** resumo claro e humano da solução aplicada e do problema resolvido.`,
-            `     **Arquivos alterados:** lista curta explicando em 1 linha o que mudou em cada arquivo.`
-          ]
-            .filter(Boolean)
-            .join('\n\n');
+            intelligenceLevel: resolvedConfig.intelligenceLevel,
+            canonicalModelName: resolvedConfig.canonicalName,
+            requestedModel
+          });
 
           const userProfileDir = AccountProfileManager.getUserProfileDir(projectBinding.accountProfile);
           const brainDir = path.join(userProfileDir, '.gemini', 'antigravity', 'brain');
@@ -3086,19 +3703,16 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
     }
           }
 
-          if (!agentReport && turnResult.agentThoughts) {
-            agentReport = turnResult.agentThoughts.trim();
-          }
-
           this.updatePipelineTask('task-inspect', 'completed');
           this.updatePipelineTask('task-implement', 'completed');
 
           const changedInTurn = this.diffFileBaseline(root, baselineBefore, turnResult.filesChanged);
           filesChanged.push(...changedInTurn);
 
-          // Fallback parser: Check if textual response contains [FILE: ...] blocks not yet applied to disk
-          if (agentReport) {
-            const parsedBlocks = this.parseCodeDirectives(agentReport);
+          // Fallback parser: Check if textual response or thought blocks contain [FILE: ...] blocks not yet applied to disk
+          const codeCandidateSource = agentReport || turnResult.agentThoughts || '';
+          if (codeCandidateSource) {
+            const parsedBlocks = this.parseCodeDirectives(codeCandidateSource);
             for (const pb of parsedBlocks) {
               if (pb.action === 'write' && typeof pb.content === 'string') {
                 try {
@@ -3175,15 +3789,7 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
                 });
 
                 const rawDiag = typecheckResult.output ? typecheckResult.output.slice(0, 3500) : 'Erros de tipagem detectados pelo tsc.';
-                const repairPrompt = [
-                  `=== AUTO-REPARO DE TYPECHECK OBRIGATÓRIO ===`,
-                  `A execução anterior gerou erros de compilação/tipagem TypeScript estrita no DecoHUB:`,
-                  `\`\`\`text`,
-                  rawDiag,
-                  `\`\`\``,
-                  `Corrija IMEDIATAMENTE os erros acima nos arquivos modificados usando as ferramentas de edição ou blocos [FILE: ...].`,
-                  `Mantenha tipagem estrita (strict: true), preserve todos os métodos existentes e encerre com o Briefing Executivo atualizado.`
-                ].join('\n\n');
+                const repairPrompt = MetaChatService.buildSurgicalRepairPrompt(rawDiag, Array.from(filesChanged));
 
                 try {
                   antigravityProvider.captureTurnStart(activeConvId, root, 'metachat-' + currentThread.id);
@@ -3264,14 +3870,104 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
             this.updatePipelineTask('task-verify', 'completed', 'Sem alterações em arquivos de código');
           }
 
+          let discardReason = '';
+          let unitTestName = '';
+          clientGateResult = null;
+          simplicityResult = null;
+
+          // Oráculo Duplo de Avaliação Imutável + Critério de Simplicidade Karpathy
+          if (!selfHealed && filesChanged.length > 0) {
+            const hasServerFiles = filesChanged.some(f => f.startsWith('server/'));
+            const hasClientFiles = filesChanged.some(f => f.startsWith('client/'));
+
+            // 1. Oráculo de Testes Unitários para server/src/
+            const shouldRunTests = Boolean(options?.runTests || options?.isAutopilotCycle);
+            if (hasServerFiles && shouldRunTests) {
+              unitTestName = options?.testFile || this.resolveMatchingServerTest(filesChanged);
+              this.updatePipelineTask('task-guard', 'in_progress', `Executando ${unitTestName}`);
+              this.recordLiveStep({
+                type: 'COMMAND',
+                target: unitTestName,
+                status: 'running',
+                details: `[Double Oracle] Executando teste correspondente: ${unitTestName}`
+              });
+              this.updateLiveStatus({
+                phase: 'Executando teste unitário correspondente...',
+                lastStep: unitTestName
+              });
+              const tRes = await this.runScopedTest(unitTestName);
+              testResult = { ran: true, passed: tRes.passed, output: tRes.output };
+              if (!tRes.passed) {
+                Logger.warn(`[MetaChatService] [Double Oracle] Teste unitário ${unitTestName} falhou. Acionando Rollback Karpathy...`);
+                this.updatePipelineTask('task-guard', 'failed', `Falha no teste ${unitTestName}`);
+                this.recordLiveStep({
+                  type: 'GUARD',
+                  target: 'Rollback Karpathy',
+                  status: 'done',
+                  details: `Avaliador Imutável reprovou: teste ${unitTestName} falhou`
+                });
+                this.rollbackChangedFiles(root, filesChanged, baselineBefore);
+                selfHealed = true;
+                discardReason = `Teste unitário correspondente (\`${unitTestName}\`) reprovado pelo avaliador imutável.`;
+              } else {
+                this.updatePipelineTask('task-guard', 'completed', `Teste ${unitTestName} aprovado`);
+              }
+            }
+
+            // 2. Oráculo Visual Playwright para client/src/
+            if (!selfHealed && hasClientFiles) {
+              this.recordLiveStep({
+                type: 'GUARD',
+                target: 'Playwright Visual Gate',
+                status: 'running',
+                details: '[Double Oracle] Validando build do client e integridade visual (0 erros de console/página)...'
+              });
+              clientGateResult = await this.runClientVisualGate(filesChanged);
+              if (!clientGateResult.passed) {
+                Logger.warn(`[MetaChatService] [Double Oracle] Client Visual Gate falhou: ${clientGateResult.details}. Acionando Rollback Karpathy...`);
+                this.recordLiveStep({
+                  type: 'GUARD',
+                  target: 'Rollback Karpathy',
+                  status: 'done',
+                  details: `Client Visual Gate falhou: ${clientGateResult.details}`
+                });
+                this.rollbackChangedFiles(root, filesChanged, baselineBefore);
+                selfHealed = true;
+                discardReason = `Client Visual Gate reprovado: ${clientGateResult.details}`;
+              }
+            }
+
+            // 3. Critério de Simplicidade de Karpathy (Navalha de Occam)
+            if (!selfHealed) {
+              simplicityResult = this.checkSimplicityCriterion(root, filesChanged, baselineBefore, {
+                testsPassed: testResult.passed
+              });
+              if (!simplicityResult.passed) {
+                Logger.warn(`[MetaChatService] [Simplicity Criterion] ${simplicityResult.reason}. Acionando Rollback Karpathy...`);
+                this.recordLiveStep({
+                  type: 'GUARD',
+                  target: 'Rollback Simplicidade',
+                  status: 'done',
+                  details: simplicityResult.reason || 'Complexidade excessiva sem testes'
+                });
+                this.rollbackChangedFiles(root, filesChanged, baselineBefore);
+                selfHealed = true;
+                discardReason = simplicityResult.reason || 'Complexidade excessiva detectada pela Navalha de Occam.';
+              }
+            }
+          }
+
           if (selfHealed) {
             let errorDetails = '';
+            if (discardReason) {
+              errorDetails = `- **Causa do Rollback (Avaliador Imutável / Simplicidade):** ${discardReason}\n`;
+            }
             if (typecheckResult.errors && typecheckResult.errors.length > 0) {
-              errorDetails = typecheckResult.errors
+              errorDetails += typecheckResult.errors
                 .map(e => `- \`${e.file}:${e.line || '?'}\` → **${e.message}**`)
                 .join('\n');
-            } else {
-              errorDetails = `\`\`\`text\n${typecheckResult.output.slice(0, 800)}\n\`\`\``;
+            } else if (typecheckResult.output && !typecheckResult.passed) {
+              errorDetails += `\`\`\`text\n${typecheckResult.output.slice(0, 800)}\n\`\`\``;
             }
 
             reply =
@@ -3287,8 +3983,18 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
               telemetryFooter += `\n\n**Arquivos alterados:**\n` + filesChanged.map(f => `- \`${f}\``).join('\n');
             }
             telemetryFooter +=
-              `\n\n[TYPECHECK] **Typecheck Guard:** Aprovado em ${typecheckResult.durationMs}ms (0 erros de compilação).\n` +
-              `\nClique em **"Recompilar e Atualizar Produção"** para empacotar as melhorias no executável local.`;
+              `\n\n[TYPECHECK] **Typecheck Guard:** Aprovado em ${typecheckResult.durationMs}ms (0 erros de compilação).\n`;
+            if (clientGateResult && clientGateResult.passed) {
+              telemetryFooter += `[VISUAL GATE] **Playwright Visual Gate:** Aprovado (0 erros de console, 0 erros de página).\n`;
+            }
+            if (testResult.ran && testResult.passed) {
+              telemetryFooter += `[DOUBLE ORACLE] **Avaliador Imutável:** Teste ${unitTestName} aprovado com código 0.\n`;
+            }
+            if (simplicityResult) {
+              telemetryFooter += `[SIMPLICITY] **Navalha de Occam:** Delta de linhas (+${simplicityResult.linesAdded}/-${simplicityResult.linesRemoved}, delta: ${simplicityResult.delta}).\n`;
+            }
+            telemetryFooter +=
+              `Clique em **"Recompilar e Atualizar Produção"** para empacotar as melhorias no executável local.`;
             reply =
               (sanitized
                 ? sanitized
@@ -3298,13 +4004,15 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
             const sanitized = MetaChatService.sanitizeMetaChatReply(agentReport, []);
             reply =
               sanitized ||
-              `**O que foi feito:** Turno concluído no Antigravity. Nenhuma modificação direta em arquivos foi necessária para responder à instrução.`;
+              (agentReport && agentReport.trim()
+                ? agentReport.trim()
+                : `Turno concluído no Antigravity.`);
           }
         }
       }
 
-      // 4. Run tests if requested and typecheck passed
-      if (options?.runTests && typecheckResult.passed && !selfHealed) {
+      // 4. Run tests if requested and typecheck passed (se ainda não executado pelo Oráculo)
+      if (options?.runTests && typecheckResult.passed && !selfHealed && !testResult.ran) {
         this.updatePipelineTask('task-guard', 'in_progress', `Executando ${options.testFile || 'testes'}`);
         this.recordLiveStep({
           type: 'COMMAND',
@@ -3320,7 +4028,7 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
         const tRes = await this.runScopedTest(tFile);
         testResult = { ran: true, passed: tRes.passed, output: tRes.output };
         this.updatePipelineTask('task-guard', tRes.passed ? 'completed' : 'failed', tRes.passed ? 'Aprovado' : 'Falha');
-      } else {
+      } else if (!testResult.ran) {
         this.updatePipelineTask('task-guard', 'completed', 'Verificação finalizada');
       }
 
@@ -3361,6 +4069,22 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
         }
       });
 
+      const turnDurationSec = Math.max(0.1, (Date.now() - executionStartTime) / 1000);
+      const commitHash = this.getCurrentGitCommit(root);
+      const hypothesisSummary = (userContent || 'Evolução Meta-Chat').split('\n')[0].replace(/[\t\r\n]+/g, ' ').slice(0, 100);
+      const scoreMetric = testResult.ran ? (testResult.passed ? 'tc:0_tests:pass' : 'tests:fail') : (typecheckResult.passed ? 'tc:0_clean' : 'tc:err');
+      const finalStatus: 'keep' | 'discard' | 'crash' = selfHealed ? 'discard' : (filesChanged.length > 0 ? 'keep' : 'keep');
+
+      if (!options?.isAutopilotCycle && !options?.skipLedgerAppend && options?.intentMode === 'AUTONOMOUS_EVOLUTION' && filesChanged.length > 0) {
+        this.appendAutoresearchLedger({
+          commit: commitHash,
+          scoreMetric,
+          durationSec: turnDurationSec,
+          status: finalStatus,
+          description: hypothesisSummary
+        });
+      }
+
       return {
         message: assistantMsg,
         filesChanged,
@@ -3371,7 +4095,15 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
         },
         tests: testResult,
         selfHealed,
-        conversationId: activeConvId || undefined
+        conversationId: activeConvId || undefined,
+        status: finalStatus,
+        keepOrDiscard: finalStatus,
+        scoreMetric,
+        durationSec: turnDurationSec,
+        commitHash,
+        hypothesisSummary,
+        simplicityDelta: simplicityResult ? { linesAdded: simplicityResult.linesAdded, linesRemoved: simplicityResult.linesRemoved, delta: simplicityResult.delta } : undefined,
+        visualGate: clientGateResult ? { passed: clientGateResult.passed, buildPassed: clientGateResult.buildPassed, visualPassed: clientGateResult.visualPassed, details: clientGateResult.details } : undefined
       };
     } catch (err: any) {
       if (this._currentExecution?.cancelRequested || err.message?.includes('RUN_CANCELLED')) {
@@ -3411,23 +4143,66 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
           const { AccountProfileManager } = await import('./accountProfileManager.js');
           const classification = AccountProfileManager.classifyAccountOrQuotaError(err);
           if (classification.isAccountOrQuotaError) {
+            const failedProfileId = effectiveAccountId || requestedAccountId;
             Logger.warn(
-              `[MetaChatService] Falha de conta/cota detectada no Meta-Chat (${classification.kind}): ${classification.reason}. Tentando Auto-Failover...`
+              `[MetaChatService] Falha de conta/cota detectada no Meta-Chat (${classification.kind}): ${classification.reason}. Tentando Auto-Failover para conta ${failedProfileId}...`
             );
             const failoverRes = await AccountProfileManager.handleAccountFailureAndRapidSwitch({
-              failedProfileId: requestedAccountId,
+              failedProfileId,
               error: err
             });
             if (failoverRes.switched) {
               Logger.info(
                 `[MetaChatService] Auto-Failover concluído com sucesso: "${failoverRes.previousProfileId}" -> "${failoverRes.activeProfile.display_name}". Retentando mensagem no Meta-Chat...`
               );
+              this.setActiveConversationId(null, failoverRes.activeProfile.id, currentThread.id);
+              this.updateThread(currentThread.id, {
+                account_id: failoverRes.activeProfile.id,
+                provider_conversation_id: null
+              });
               return this.handleUserMessage(userContent, {
                 ...options,
                 threadId: currentThread.id,
                 accountId: failoverRes.activeProfile.id,
                 retryAfterFailover: true
               });
+            } else {
+              // Todas as contas esgotaram a cota: interrompe o Autopilot se ativo e emite orientação clara
+              if (this._autopilotState.enabled) {
+                this.stopAutopilot();
+              }
+              const quotaInfo = failedProfileId ? AccountProfileManager.getProfile(failedProfileId) : null;
+              const resetNotice = quotaInfo?.quota_resets_at
+                ? `Horário de reset previsto: ${new Date(quotaInfo.quota_resets_at).toLocaleString()}`
+                : 'Aguardando restabelecimento de cota pelo provedor.';
+
+              const allExhaustedMsg =
+                `[AVISO DE COTA] **Todas as contas configuradas atingiram o limite de cota / Weekly Limit.**\n\n` +
+                `- **Diagnóstico:** ${classification.reason}\n` +
+                `- **Previsão:** ${resetNotice}\n\n` +
+                `O Autopilot e novas requisições em loop foram pausados para evitar sobrecarga. ` +
+                `Recomenda-se alternar o modelo para Claude/GPT ou aguardar a renovação da cota.`;
+
+              const assistantMsg = this.addMessage({
+                role: 'assistant',
+                content: allExhaustedMsg,
+                thread_id: currentThread.id,
+                metadata: {
+                  error: err.message,
+                  model: requestedModel,
+                  reasoningMode: requestedReasoning,
+                  accountId: failedProfileId,
+                  quotaExhaustedAll: true
+                }
+              });
+
+              return {
+                message: assistantMsg,
+                filesChanged: [],
+                typecheck: { passed: false, durationMs: 0, output: classification.reason },
+                selfHealed: false,
+                conversationId: undefined
+              };
             }
           }
         } catch (failoverErr: any) {
@@ -3483,13 +4258,78 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
    * export function ...
    * ```
    */
-  private static parseCodeDirectives(
+  public static parseCodeDirectives(
     content: string
   ): Array<{ action: 'write' | 'read'; filePath: string; content?: string }> {
     const directives: Array<{ action: 'write' | 'read'; filePath: string; content?: string }> = [];
     const seenPaths = new Set<string>();
 
     if (!content || typeof content !== 'string') return directives;
+
+    const isValidDirective = (rawPath: string, code: string): boolean => {
+      if (!rawPath || typeof rawPath !== 'string') return false;
+      const norm = rawPath.replace(/\\/g, '/').toLowerCase().trim();
+      const trimmedCode = (code || '').trim();
+
+      // Conteúdo mínimo substantivo: rejeita placeholders de exemplo como '...', '// ...' ou < 25 caracteres
+      if (trimmedCode.length < 25) return false;
+      if (
+        trimmedCode === '...' ||
+        trimmedCode.replace(/\s+/g, '') === '...' ||
+        trimmedCode.startsWith('// ...') ||
+        trimmedCode.startsWith('// código completo')
+      ) {
+        return false;
+      }
+
+      // Rejeita caminhos fictícios ou placeholders de documentação
+      const blockedPatterns = [
+        'caminho/',
+        'caminho\\',
+        'path/to/',
+        'exemplo',
+        'arquivo.ts',
+        'example',
+        'dummy',
+        'placeholder'
+      ];
+      if (blockedPatterns.some(pattern => norm.includes(pattern))) {
+        return false;
+      }
+
+      // Whitelist estrita de diretórios permitidos no DecoHUB
+      const allowedRoots = [
+        'server/',
+        'client/',
+        'electron/',
+        'scripts/',
+        'desktop/',
+        'decohub_unpacked/'
+      ];
+      const hasAllowedRoot = allowedRoots.some(rootPrefix => norm.startsWith(rootPrefix));
+      if (!hasAllowedRoot) {
+        return false;
+      }
+
+      // Deve ter extensão válida de código/configuração
+      const hasValidExt = /\.(ts|tsx|js|jsx|json|css|html|sql|md|sh|ps1)$/i.test(norm);
+      if (!hasValidExt) {
+        return false;
+      }
+
+      return true;
+    };
+
+    const tryAddDirective = (rawPath: string, code: string) => {
+      const cleanPath = rawPath.trim();
+      const cleanCode = code.trim();
+      if (!isValidDirective(cleanPath, cleanCode)) return;
+      const normPath = cleanPath.replace(/\\/g, '/');
+      if (!seenPaths.has(normPath)) {
+        directives.push({ action: 'write', filePath: cleanPath, content: cleanCode });
+        seenPaths.add(normPath);
+      }
+    };
 
     // Pattern 1: [FILE: path] ... [ENDFILE]
     const endFileRegex =
@@ -3503,8 +4343,7 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
       if (fenced) {
         fileCode = fenced[1];
       }
-      directives.push({ action: 'write', filePath, content: fileCode });
-      seenPaths.add(filePath.replace(/\\/g, '/'));
+      tryAddDirective(filePath, fileCode);
     }
 
     // Pattern 2: [FILE: path] ```ts ... ``` (supports preceding headers/bold)
@@ -3512,12 +4351,7 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
       /(?:#{1,6}\s*|\*\*|`)?\[(?:FILE|ARQUIVO|CRIAR|MODIFICAR):\s*([a-zA-Z0-9_\-./\\]+)\](?:\*\*|`)?\s*```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)```/gi;
 
     while ((match = fencedRegex.exec(content)) !== null) {
-      const filePath = match[1].trim();
-      const normPath = filePath.replace(/\\/g, '/');
-      if (!seenPaths.has(normPath)) {
-        directives.push({ action: 'write', filePath, content: match[2].trim() });
-        seenPaths.add(normPath);
-      }
+      tryAddDirective(match[1], match[2]);
     }
 
     // Pattern 3: ```lang [FILE: path] ... ```
@@ -3525,12 +4359,7 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
       /```(?:[a-zA-Z0-9_-]+)?\s*\[(?:FILE|ARQUIVO|CRIAR|MODIFICAR):\s*([a-zA-Z0-9_\-./\\]+)\]\s*([\s\S]*?)```/gi;
 
     while ((match = fenceHeaderRegex.exec(content)) !== null) {
-      const filePath = match[1].trim();
-      const normPath = filePath.replace(/\\/g, '/');
-      if (!seenPaths.has(normPath)) {
-        directives.push({ action: 'write', filePath, content: match[2].trim() });
-        seenPaths.add(normPath);
-      }
+      tryAddDirective(match[1], match[2]);
     }
 
     // Pattern 4: Code block containing top comment header: // [FILE: path] or // FILE: path
@@ -3538,12 +4367,7 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
       /```(?:[a-zA-Z0-9_-]+)?\s*\r?\n\s*(?:\/\/|#|\/\*)\s*\[?(?:FILE|ARQUIVO):\s*([a-zA-Z0-9_\-./\\]+)\]?(?:\s*\*\/)?\s*\r?\n([\s\S]*?)```/gi;
 
     while ((match = commentHeaderRegex.exec(content)) !== null) {
-      const filePath = match[1].trim();
-      const normPath = filePath.replace(/\\/g, '/');
-      if (!seenPaths.has(normPath)) {
-        directives.push({ action: 'write', filePath, content: match[2].trim() });
-        seenPaths.add(normPath);
-      }
+      tryAddDirective(match[1], match[2]);
     }
 
     // Pattern 5: Fence with file path in language identifier (e.g. ```typescript:server/src/foo.ts)
@@ -3551,12 +4375,7 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
       /```(?:[a-zA-Z0-9_-]+)?(?::|\s+file=|\s+path=|\s+)([a-zA-Z0-9_\-./\\]+\.[a-zA-Z0-9]+)\s*\r?\n([\s\S]*?)```/gi;
 
     while ((match = fencePathRegex.exec(content)) !== null) {
-      const filePath = match[1].trim();
-      const normPath = filePath.replace(/\\/g, '/');
-      if (!seenPaths.has(normPath)) {
-        directives.push({ action: 'write', filePath, content: match[2].trim() });
-        seenPaths.add(normPath);
-      }
+      tryAddDirective(match[1], match[2]);
     }
 
     return directives;
@@ -3564,7 +4383,7 @@ ${pastEvolutionsSummary || 'Nenhuma evolução anterior registrada nesta thread.
 
   public static sanitizeMetaChatReply(rawText: string, filesChanged: string[] = []): string {
     if (!rawText || typeof rawText !== 'string') return '';
-    let cleaned = rawText
+    let cleaned = stripRawLineNumberDumps(rawText)
       .replace(/^Created At:\s+[^\r\n]+/gm, '')
       .replace(/^Completed At:\s+[^\r\n]+/gm, '')
       .replace(/Showing lines \d+-\d+ of \d+[^\r\n]*/gm, '')

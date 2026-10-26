@@ -48,6 +48,10 @@ export const AutonomousBuildView: React.FC<AutonomousBuildViewProps> = ({
 }) => {
   const [viewTab, setViewTab] = useState<'build' | 'workers'>('build');
   const [activeRun, setActiveRun] = useState<AutonomousRun | null>(null);
+  const isRunActive = Boolean(
+    activeRun &&
+    ['running', 'building', 'testing', 'reviewing', 'planning', 'waiting_for_worker'].includes(activeRun.status)
+  );
   const [loading, setLoading] = useState(true);
   const [stepping, setStepping] = useState(false);
   const [isLooping, setIsLooping] = useState(false);
@@ -166,7 +170,7 @@ export const AutonomousBuildView: React.FC<AutonomousBuildViewProps> = ({
 
   useEffect(() => {
     let timer: any;
-    if (activeRun && activeRun.status === 'running') {
+    if (activeRun && isRunActive) {
       const startTime = new Date(activeRun.start_time).getTime();
       setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startTime) / 1000)));
 
@@ -175,17 +179,17 @@ export const AutonomousBuildView: React.FC<AutonomousBuildViewProps> = ({
       }, 1000);
     }
     return () => clearInterval(timer);
-  }, [activeRun?.status, activeRun?.start_time]);
+  }, [activeRun?.status, activeRun?.start_time, isRunActive]);
 
   // Periodic polling for status & events
   useEffect(() => {
     const interval = setInterval(() => {
-      if (activeRun && activeRun.status === 'running') {
+      if (activeRun && isRunActive) {
         loadActiveRun(false);
       }
     }, 4000);
     return () => clearInterval(interval);
-  }, [activeRun?.id, activeRun?.status]);
+  }, [activeRun?.id, activeRun?.status, isRunActive]);
 
   const loadActiveRun = async (showLoading = true) => {
     if (showLoading) setLoading(true);
@@ -284,7 +288,7 @@ export const AutonomousBuildView: React.FC<AutonomousBuildViewProps> = ({
   const handlePauseResume = async () => {
     if (!activeRun) return;
     try {
-      if (activeRun.status === 'running') {
+      if (isRunActive) {
         const updated = await api.pauseAutonomousRun(activeRun.id);
         setActiveRun(updated);
         setIsLooping(false);
@@ -443,10 +447,10 @@ export const AutonomousBuildView: React.FC<AutonomousBuildViewProps> = ({
 
               <button
                 onClick={handlePauseResume}
-                className="p-2 rounded-lg bg-[#181b28] hover:bg-[#202538] border border-[#2e344e] text-slate-300 text-xs transition-colors"
-                title={activeRun.status === 'running' ? 'Pausar Build' : 'Retomar Build'}
+                className="p-2 rounded-lg bg-[#181b28] hover:bg-[#202538] border border-[#2e344e] text-slate-300 text-xs transition-colors cursor-pointer"
+                title={isRunActive ? 'Pausar Build' : 'Retomar Build'}
               >
-                {activeRun.status === 'running' ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                {isRunActive ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
               </button>
 
               <button

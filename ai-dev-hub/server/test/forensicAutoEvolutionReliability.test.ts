@@ -121,7 +121,7 @@ describe('Forensic Auto-Evolution & Reliability Hardening Suite', () => {
     assert.ok(conventions.includes("import * as fs from \"node:fs\";"));
     assert.ok(conventions.includes("import * as path from \"node:path\";"));
     assert.ok(conventions.includes("import * as http from \"node:http\";"));
-    assert.ok(conventions.includes("import assert from \"node:assert/strict\";"));
+    assert.ok(conventions.includes('import assert from "node:assert/strict"'));
     assert.ok(conventions.includes("npm run build"));
   });
 

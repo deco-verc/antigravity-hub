@@ -1186,7 +1186,7 @@ export class HierarchicalOrchestrationService {
           (task.majorTaskCode && /GT-\d+/i.test(task.majorTaskCode)) ||
           (task.code && /^(?:GT-)?\d+\.\d+/i.test(task.code))
         );
-        const hasSmallOrAtomicScope = scopeFiles.length <= 8;
+        const hasSmallOrAtomicScope = scopeFiles.length <= 8 && criteria.length < 6;
         const alreadyHasPartClones = /\((?:Parte|Part)\s*[\d.]+/i.test(normalizedTitle);
 
         if (isAlreadyDecomposedPlan || isFromMultiPassPlan || hasSmallOrAtomicScope || alreadyHasPartClones) {
@@ -1416,13 +1416,20 @@ export class HierarchicalOrchestrationService {
 
     // Convert flatTasks into Major Tasks if majorTasks wasn't explicitly passed
     let majorTaskInputs: HierarchicalMajorTaskInput[] = [];
-    // PREFER_FLAT_TASKS_WITH_IDS: Se flatTasks já foi persistido com IDs em autonomous_tasks, usa flatTasks para nunca duplicar linhas
-    const hasPrePersistedFlatIds = Array.isArray(input.flatTasks) && input.flatTasks.length > 0 && input.flatTasks.every((ft: any) => Boolean(ft && ft.id));
-    if (!hasPrePersistedFlatIds && Array.isArray(input.majorTasks) && input.majorTasks.length > 0) {
+    if (Array.isArray(input.majorTasks) && input.majorTasks.length > 0) {
       majorTaskInputs = input.majorTasks.map((mt, idx) => {
         // Flatten stage microtasks if stages were passed with embedded microtasks
         const stageFromList = Array.isArray(mt.stages) ? mt.stages : [];
-        let combinedMicrotasks = [...(mt.microtasks || [])];
+        const mtCodeNorm = (mt.code || `GT-${idx + 1}`).toUpperCase();
+        let combinedMicrotasks = [...(mt.microtasks || (mt as any).tasks || [])];
+        // HYDRATE_EMPTY_MAJOR_MICROTASKS_FROM_FLAT: Se a GT veio sem microtasks embutidas, vincula as tarefas correspondentes de flatTasks
+        if (combinedMicrotasks.length === 0 && Array.isArray(input.flatTasks) && input.flatTasks.length > 0) {
+          combinedMicrotasks = input.flatTasks.filter((ft: any) => {
+            const ftMajor = String(ft.majorTaskCode || ft.milestone || '').toUpperCase();
+            const ftCode = String(ft.code || '');
+            return ftMajor === mtCodeNorm || ftCode.startsWith(`${idx + 1}.`);
+          });
+        }
         if (combinedMicrotasks.length === 0 && stageFromList.length > 0) {
           for (const st of stageFromList) {
             for (const stm of st.microtasks || []) {
@@ -1448,6 +1455,15 @@ export class HierarchicalOrchestrationService {
     } else {
       const flat = this.validateAndSubdivideMicrotasks(input.flatTasks || [], {
         subdivideOversized: input.subdivideOversized,
+        maxSubdivisionDepth: input.maxSubdivisionDepth
+      });
+      majorTaskInputs = this.groupFlatTasksIntoMajorTasks(flat, input.originalDescription, requirements);
+    }
+    // FALLBACK_TO_FLAT_IF_ZERO_MICROTASKS: Nunca permitir GTs vazias (0/0) se flatTasks possui tarefas!
+    const totalMappedMicros = majorTaskInputs.reduce((acc, m) => acc + ((m.microtasks || []).length), 0);
+    if (totalMappedMicros === 0 && Array.isArray(input.flatTasks) && input.flatTasks.length > 0) {
+      const flat = this.validateAndSubdivideMicrotasks(input.flatTasks, {
+        subdivideOversized: false,
         maxSubdivisionDepth: input.maxSubdivisionDepth
       });
       majorTaskInputs = this.groupFlatTasksIntoMajorTasks(flat, input.originalDescription, requirements);
@@ -2367,8 +2383,26 @@ export class HierarchicalOrchestrationService {
       'SELECT * FROM autonomous_tasks WHERE run_id = ? ORDER BY order_index ASC'
     ).all(runId);
 
-    return majors.map(m => {
-      const subordinate = tasks.filter(t => t.major_task_id === m.id);
+    return majors.map((m, mIdx) => {
+      // AUTO_HEAL_ORPHAN_SUBORDINATE_TASKS: Vincula por UUID (m.id), por código (GT-X), por milestone ou por prefixo numérico
+      const subordinate = tasks.filter(t => {
+        if (t.major_task_id === m.id) return true;
+        if (t.major_task_id === m.code) return true;
+        if (!t.major_task_id || !majors.some(mj => mj.id === t.major_task_id)) {
+          if (t.milestone && String(t.milestone).toUpperCase() === String(m.code).toUpperCase()) return true;
+          const prefix = `${m.order_index || (mIdx + 1)}.`;
+          if (t.code && String(t.code).startsWith(prefix)) return true;
+        }
+        return false;
+      });
+      for (const st of subordinate) {
+        if (st.major_task_id !== m.id) {
+          try {
+            db.prepare('UPDATE autonomous_tasks SET major_task_id = ? WHERE id = ?').run(m.id, st.id);
+            st.major_task_id = m.id;
+          } catch {}
+        }
+      }
       const activeSubordinate = subordinate.filter(t => t.status !== 'waived');
       const completedCount = activeSubordinate.filter(t => t.status === 'completed').length;
       const validationEvidence = m.validation_evidence_json ? JSON.parse(m.validation_evidence_json) : {};
@@ -2448,6 +2482,9 @@ export class HierarchicalOrchestrationService {
         validationEvidence,
         history: m.history_json ? JSON.parse(m.history_json) : [],
         progressPct,
+        descendantsTotal: subordinate.length,
+        descendantsCompleted: completedCount,
+        descendantsPending: Math.max(0, subordinate.length - completedCount),
         stages,
         microtasks: subordinate.map(t => ({
           id: t.id,
@@ -2716,13 +2753,17 @@ export class HierarchicalOrchestrationService {
       if (normLower.startsWith('.agents/') || normLower.startsWith('agents/')) return true;
       if (normLower.startsWith('test/') || normLower.startsWith('tests/') || /(test|spec)\.[cm]?[jt]sx?$/i.test(norm)) return true;
       if (normLower.startsWith('src/types/') || normLower.endsWith('.d.ts')) return true;
+      if (normLower.startsWith('scripts/') || normLower.startsWith('tools/')) return true;
+      if (normLower.startsWith('e2e/') || normLower.startsWith('playwright/')) return true;
+      if (normLower.startsWith('docs/')) return true;
+      if (normLower.startsWith('.github/')) return true;
       return false;
     };
 
     // 1. Check for forbidden/secret/runtime files and scope compliance in reportFiles
     const shouldCheckScope = params.enforceScopeCheck !== false && allowedScope.length > 0;
     for (const rawFile of reportFiles) {
-      const normalized = String(rawFile || '').replace(/\\/g, '/').trim();
+      const normalized = String(rawFile || '').replace(/\\/g, '/').trim().replace(/^\.\//, '');
       if (!normalized) continue;
       if (
         (/(^|\/)\.env(\.local|\.production|\.development)?$/i.test(normalized) && !normalized.endsWith('.env.example')) ||
@@ -2752,10 +2793,11 @@ export class HierarchicalOrchestrationService {
             isWhitelistedStructuralOrAuxiliaryFile(normalized)
           ) return true;
 
-          // Extension Equivalence (.js <-> .cjs <-> .mjs)
+          // Extension Equivalence (.js <-> .cjs <-> .mjs <-> .ts <-> .tsx)
           const normExt = path.extname(normalized).toLowerCase();
           const allowExt = path.extname(cleanAllowed).toLowerCase();
-          if (['.js', '.cjs', '.mjs'].includes(normExt) && ['.js', '.cjs', '.mjs'].includes(allowExt)) {
+          const jsTsEquiv = ['.js', '.cjs', '.mjs', '.ts', '.tsx'];
+          if (jsTsEquiv.includes(normExt) && jsTsEquiv.includes(allowExt)) {
             const normBase = normalized.slice(0, -normExt.length);
             const allowBase = cleanAllowed.slice(0, -allowExt.length);
             if (normBase === allowBase) return true;
@@ -2890,7 +2932,17 @@ export class HierarchicalOrchestrationService {
       }
       if (evalRes?.verdict === 'PASS') {
         const norm = file.replace(/\\/g, '/').toLowerCase();
-        if (norm.startsWith('public/') || norm.startsWith('src/') || norm.startsWith('test/') || norm.startsWith('tests/')) {
+        if (
+          norm.startsWith('public/') ||
+          norm.startsWith('src/') ||
+          norm.startsWith('test/') ||
+          norm.startsWith('tests/') ||
+          norm.startsWith('scripts/') ||
+          norm.startsWith('tools/') ||
+          norm.startsWith('e2e/') ||
+          norm.startsWith('playwright/') ||
+          norm.startsWith('docs/')
+        ) {
           return false;
         }
       }
@@ -2909,9 +2961,7 @@ export class HierarchicalOrchestrationService {
       regressionsDetected.length > 0 ||
       placeholdersOrMocksDetected.length > 0 ||
       actionableOutOfScope.length > 0 ||
-      evalRes?.verdict === 'FAIL' ||
-      evalRes?.verdict === 'BLOCKED' ||
-      evalRes?.verdict === 'TAMPERING_DETECTED' ||
+      (evalRes && evalRes.verdict !== 'PASS') ||
       params.supervisorVerdict === 'CHANGES_REQUESTED' ||
       params.supervisorVerdict === 'REJECTED'
     ) {
@@ -3184,14 +3234,20 @@ export class HierarchicalOrchestrationService {
         const norm = GitManager.normalizeRepoPath(params.projectPath, f);
         if (!norm) return false;
         if (
-          /(^|\/)\.env(\.|$)/i.test(norm) ||
+          (/(^|\/)\.env(\.|$)/i.test(norm) && !/(^|\/)\.env\.(example|sample|template|test)$/i.test(norm)) ||
           /\.(pem|key)$/i.test(norm) ||
           /(^|\/)hub\.db(-wal|-shm)?$/i.test(norm) ||
           /(^|\/)\.decohub-data(\/|$)/i.test(norm)
         ) {
           return false;
         }
-        if (norm.startsWith('.ai-dev-hub/') || norm === '.gitignore') {
+        if (
+          norm.startsWith('.ai-dev-hub/') ||
+          norm === '.gitignore' ||
+          norm === '.env.example' ||
+          norm === '.env.sample' ||
+          norm === '.env.template'
+        ) {
           return true;
         }
         if (hasExplicitOrScopedRestriction) {
@@ -3209,6 +3265,15 @@ export class HierarchicalOrchestrationService {
               norm === 'package.json' ||
               norm === 'package-lock.json' ||
               norm === 'tsconfig.json' ||
+              norm === '.gitignore' ||
+              norm === '.env.example' ||
+              norm === '.env.sample' ||
+              norm === '.env.template' ||
+              norm === '.dockerignore' ||
+              norm === 'Dockerfile' ||
+              norm === 'README.md' ||
+              norm === 'DESIGN.md' ||
+              norm === 'AGENTS.md' ||
               norm.endsWith('.md')
             );
           });
@@ -5622,7 +5687,12 @@ export class HierarchicalOrchestrationService {
             subCode: '12.2',
             title: `Capturar Screenshots reais no Playwright Desktop e Mobile e publicar Resumo Visual de ${pName}`,
             desc: 'Capturar as Screenshots reais no Playwright (Desktop e Mobile) de todas as abas e publicar o Resumo Visual de Conclusão no Chat do Projeto.',
-            files: ['test/visual/captureScreenshots.test.ts'],
+            files: [
+              'test/visual/captureScreenshots.test.ts',
+              'scripts/capture_screenshots.py',
+              'scripts/captureScreenshots.ts',
+              'scripts/capture_screenshots.ts'
+            ],
             criteria: [
               'Screenshots reais de alta resolução capturadas via Playwright para Desktop e Mobile de todas as abas',
               'Publicação do Resumo Visual de Conclusão no feed de eventos do projeto'

@@ -225,18 +225,8 @@ function isAlwaysAllowedGovernanceArtifact(normMod: string): boolean {
     normMod.startsWith('ai-dev-hub/') ||
     normMod.startsWith('.agents/') ||
     normMod.startsWith('agents/') ||
-    normMod.startsWith('public/') ||
-    normMod.startsWith('src/') ||
-    normMod.startsWith('test/') ||
-    normMod.startsWith('tests/') ||
-    normMod.endsWith('.md') ||
-    normMod.startsWith('data/') ||
-    normMod.endsWith('.db') ||
-    normMod.endsWith('.sqlite') ||
-    normMod.endsWith('.sqlite3') ||
-    normMod === 'package.json' ||
+    normMod === 'design.md' ||
     normMod === 'package-lock.json' ||
-    normMod === 'tsconfig.json' ||
     normMod === '.env.example' ||
     normMod === 'dockerfile' ||
     normMod === '.dockerignore'
@@ -308,7 +298,7 @@ export function validateSurgicalDiff(
     isSurgical,
     unrelatedFiles: unrelated,
     explanation: isSurgical
-      ? `[APROVADO] Alteração cirúrgica: todos os ${modifiedFiles.length} arquivos alterados pertencem ao escopo esperado.`
-      : `[AVISO] Alerta de alteração não cirúrgica: ${unrelated.length} arquivo(s) fora do escopo esperado foram alterados: ${unrelated.join(', ')}`
+      ? `[APROVADO] Alteração cirúrgica: todos os ${modifiedFiles.length} arquivos alterados pertencem ao escopo esperado (${normalizedExpected.join(', ')}).`
+      : `[AVISO] Alerta de alteração não cirúrgica: ${unrelated.length} arquivo(s) fora do escopo esperado foram alterados: ${unrelated.join(', ')}. Escopo esperado: [${normalizedExpected.join(', ')}]. Arquivos modificados: [${modifiedFiles.join(', ')}].`
   };
 }

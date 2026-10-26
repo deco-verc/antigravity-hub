@@ -22,6 +22,8 @@ import {
   RefreshCw,
   Lock,
   Play,
+  Pause,
+  Square,
   RotateCw,
   Check,
   Clock,
@@ -85,6 +87,33 @@ export const DecoHubTasksView: React.FC<DecoHubTasksViewProps> = ({
       setCurrentRun(updated);
     } catch (err: any) {
       alert(`Erro ao retomar execução: ${err.message}`);
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
+  const handlePauseRun = async () => {
+    if (!currentRun || isActionLoading) return;
+    setIsActionLoading(true);
+    try {
+      const updated = await api.pauseAutonomousRun(currentRun.id);
+      setCurrentRun(updated);
+    } catch (err: any) {
+      alert(`Erro ao pausar execução: ${err.message}`);
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
+  const handleStopRun = async () => {
+    if (!currentRun || isActionLoading) return;
+    if (!confirm('Deseja realmente cancelar este build autônomo? O progresso e arquivos atuais serão preservados.')) return;
+    setIsActionLoading(true);
+    try {
+      const updated = await api.stopAutonomousRun(currentRun.id);
+      setCurrentRun(updated);
+    } catch (err: any) {
+      alert(`Erro ao cancelar execução: ${err.message}`);
     } finally {
       setIsActionLoading(false);
     }
@@ -393,6 +422,8 @@ export const DecoHubTasksView: React.FC<DecoHubTasksViewProps> = ({
       <DecoHubCurrentActivityWidget
         run={currentRun}
         onContinueOrResume={handleResumeRun}
+        onPause={handlePauseRun}
+        onStop={handleStopRun}
         isActionLoading={isActionLoading}
       />
 
@@ -444,8 +475,40 @@ export const DecoHubTasksView: React.FC<DecoHubTasksViewProps> = ({
                   {reqSummary.total > 0 && `${reqSummary.verified}/${reqSummary.total} requisitos verificados`}
                 </div>
               </div>
-              <div className="px-3 py-1.5 rounded-xl bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 font-bold text-sm tabular-nums">
-                {progressPct}%
+              <div className="flex items-center gap-2">
+                <div className="px-3 py-1.5 rounded-xl bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 font-bold text-sm tabular-nums">
+                  {progressPct}%
+                </div>
+                {isRunActive ? (
+                  <button
+                    type="button"
+                    onClick={handlePauseRun}
+                    disabled={isActionLoading}
+                    title="Pausar execução"
+                    className="p-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-xs transition-colors cursor-pointer"
+                  >
+                    <Pause className="w-3.5 h-3.5" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleResumeRun}
+                    disabled={isActionLoading}
+                    title="Retomar execução"
+                    className="p-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs transition-colors cursor-pointer"
+                  >
+                    <Play className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleStopRun}
+                  disabled={isActionLoading}
+                  title="Cancelar build"
+                  className="p-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-xs transition-colors cursor-pointer"
+                >
+                  <Square className="w-3.5 h-3.5" />
+                </button>
               </div>
             </div>
           </div>
@@ -517,9 +580,10 @@ export const DecoHubTasksView: React.FC<DecoHubTasksViewProps> = ({
             <div className="space-y-3 pt-2">
               {currentRun.majorTasks.map((major: MajorTask) => {
                 const isMajorExpanded = expandedMajors[major.id] ?? true;
-                const totalDesc = major.descendantsTotal ?? major.microtasks.length;
-                const completedDesc = major.descendantsCompleted ?? major.microtasks.filter(m => m.status === 'completed').length;
-                const visibleMicrotasks = major.microtasks.filter(mt => matchesFilter(mt, fullTaskMap.get(mt.id)));
+                const microList = Array.isArray(major.microtasks) ? major.microtasks : [];
+                const totalDesc = major.descendantsTotal ?? microList.length;
+                const completedDesc = major.descendantsCompleted ?? microList.filter(m => m.status === 'completed').length;
+                const visibleMicrotasks = microList.filter(mt => matchesFilter(mt, fullTaskMap.get(mt.id)));
 
                 if (filterMode !== 'all' && visibleMicrotasks.length === 0) return null;
 
@@ -562,7 +626,7 @@ export const DecoHubTasksView: React.FC<DecoHubTasksViewProps> = ({
                           major.stages.map(stage => {
                             const stageKey = `${major.id}:${stage.code}`;
                             const isStageExpanded = expandedStages[stageKey] ?? true;
-                            const stageMicrotasks = major.microtasks.filter(
+                            const stageMicrotasks = microList.filter(
                               mt => (mt.stageCode || fullTaskMap.get(mt.id)?.stage_code || `${major.code}-ET-1`) === stage.code
                             );
                             const visibleStageTasks = stageMicrotasks.filter(mt => matchesFilter(mt, fullTaskMap.get(mt.id)));

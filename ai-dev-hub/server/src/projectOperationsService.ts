@@ -317,12 +317,18 @@ export class ProjectOperationsService {
         const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
         const startScript: string = pkg.scripts?.start || pkg.scripts?.dev || '';
         if (startScript) {
-          const match = startScript.match(/(?:node|tsx)(?:\s+(?:--watch|watch))?\s+([^\s"']+)/i);
+          const match = startScript.match(/(?:node|tsx|npx\s+tsx)(?:\s+(?:--watch|watch))?(?:\s+(?:--import|--loader)\s+[^\s"']+)?\s+([^\s"']+)/i);
           if (match && match[1]) {
-            const candidate = match[1];
+            let candidate = match[1];
+            if (candidate.startsWith('dist/') || candidate.startsWith('dist\\')) {
+              const srcTsCandidate = candidate.replace(/^dist[\\/]/, '').replace(/\.js$/, '.ts');
+              if (!fs.existsSync(path.join(resolvedPath, candidate)) && fs.existsSync(path.join(resolvedPath, srcTsCandidate))) {
+                candidate = srcTsCandidate;
+              }
+            }
             if (fs.existsSync(path.join(resolvedPath, candidate))) {
               scriptRel = candidate;
-              if (scriptRel.endsWith('.ts') || startScript.includes('tsx')) {
+              if (scriptRel.endsWith('.ts') || startScript.includes('tsx') || startScript.includes('--import tsx')) {
                 isTypeScript = true;
               }
             }
@@ -413,7 +419,8 @@ export class ProjectOperationsService {
         DECOHUB_PREVIEW_MODE: 'true'
       },
       stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true
+      windowsHide: true,
+      shell: Boolean(isWin && cmd.endsWith('.cmd'))
     });
 
     childProcess = child;
@@ -444,16 +451,41 @@ export class ProjectOperationsService {
           try {
             child.kill('SIGKILL');
           } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "projectOperationsService",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:projectOperationsService]", err);
-      }
-    }
+            if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+              (globalThis as any).logger.warn({
+                event: "server.handled_exception",
+                file: "projectOperationsService",
+                error: (err as any)?.message || String(err)
+              });
+            } else {
+              console.warn("[WARN][server:projectOperationsService]", err);
+            }
+          }
+
+          // Fallback gracioso para servidor estático SPA se houver HTML candidato no projeto
+          const candidateHtml = PlaywrightVisualInspector.findCandidateHtmlFile(resolvedPath);
+          if (candidateHtml) {
+            appendLog(`[DecoHUB Launcher] Processo backend encerrou com código ${child.exitCode}. Ativando fallback para servidor estático SPA embutido com base em "${candidateHtml}"...`);
+            const staticServer = await this.startStaticSpaServer(resolvedPath, options.port || 0);
+            staticCloseFn = staticServer.close;
+            serverUrl = staticServer.url;
+            const resolvedPort = staticServer.port;
+
+            const activeInst: ActivePreviewInstance = {
+              projectId,
+              projectPath: resolvedPath,
+              port: resolvedPort,
+              url: serverUrl,
+              entrypoint: 'Static SPA Preview (fallback após exit)',
+              staticClose: staticCloseFn,
+              logs,
+              startedAt: new Date().toISOString()
+            };
+            this.activePreviews.set(projectId, activeInst);
+            appendLog(`[DecoHUB Launcher] Interface SPA pronta em ${serverUrl}`);
+            return this.getPreviewStatus(projectId);
+          }
+
           throw new Error(`O servidor encerrou prematuramente com código ${child.exitCode}.\nLogs:\n${logs.join('\n')}`);
         }
 
@@ -486,16 +518,41 @@ export class ProjectOperationsService {
         try {
           child.kill('SIGKILL');
         } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "projectOperationsService",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:projectOperationsService]", err);
-      }
-    }
+          if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+            (globalThis as any).logger.warn({
+              event: "server.handled_exception",
+              file: "projectOperationsService",
+              error: (err as any)?.message || String(err)
+            });
+          } else {
+            console.warn("[WARN][server:projectOperationsService]", err);
+          }
+        }
+
+        // Fallback gracioso para servidor estático SPA se houver HTML candidato no projeto
+        const candidateHtml = PlaywrightVisualInspector.findCandidateHtmlFile(resolvedPath);
+        if (candidateHtml) {
+          appendLog(`[DecoHUB Launcher] Servidor backend atingiu timeout de ${timeoutMs}ms. Ativando fallback para servidor estático SPA embutido com base em "${candidateHtml}"...`);
+          const staticServer = await this.startStaticSpaServer(resolvedPath, options.port || 0);
+          staticCloseFn = staticServer.close;
+          serverUrl = staticServer.url;
+          const resolvedPort = staticServer.port;
+
+          const activeInst: ActivePreviewInstance = {
+            projectId,
+            projectPath: resolvedPath,
+            port: resolvedPort,
+            url: serverUrl,
+            entrypoint: 'Static SPA Preview (fallback após timeout)',
+            staticClose: staticCloseFn,
+            logs,
+            startedAt: new Date().toISOString()
+          };
+          this.activePreviews.set(projectId, activeInst);
+          appendLog(`[DecoHUB Launcher] Interface SPA pronta em ${serverUrl}`);
+          return this.getPreviewStatus(projectId);
+        }
+
         throw new Error(`Timeout de ${timeoutMs}ms aguardando resposta em ${serverUrl}.\nLogs:\n${logs.join('\n')}`);
       }
     } catch (err) {

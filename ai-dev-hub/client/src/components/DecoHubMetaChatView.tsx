@@ -27,6 +27,7 @@ import {
   Trash2,
   Check,
   ChevronDown,
+  ChevronUp,
   ChevronRight,
   Paperclip,
   Image as ImageIcon,
@@ -263,6 +264,7 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
   // Real-Time Activity & Telemetry
   const [liveActivity, setLiveActivity] = useState<MetaChatLiveActivity | null>(null);
   const [expandedMessageSteps, setExpandedMessageSteps] = useState<Record<string, boolean>>({});
+  const [expandedLongMessages, setExpandedLongMessages] = useState<Record<string, boolean>>({});
 
   const toggleSidebar = () => {
     setIsSidebarOpen(prev => {
@@ -525,18 +527,59 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
 
   useEffect(() => {
     let timer: any = null;
+    let pollInterval: any = null;
+
     if (isLoading) {
       setElapsedSeconds(0);
       timer = setInterval(() => {
         setElapsedSeconds(prev => prev + 1);
       }, 1000);
+
+      pollInterval = setInterval(async () => {
+        try {
+          const [st, msgs] = await Promise.all([
+            api.getMetaChatStatus().catch(() => null),
+            api.getMetaChatMessages(activeThreadId).catch(() => null)
+          ]);
+
+          if (st) {
+            setLiveStatus(prev => ({
+              ...(prev || { phase: 'idle', currentPhase: 'idle' }),
+              ...st
+            }));
+            if (!st.isRunning && msgs && msgs.length > 0) {
+              const lastMsg = msgs[msgs.length - 1];
+              if (lastMsg && lastMsg.role === 'assistant') {
+                setMessages(msgs);
+                setIsLoading(false);
+              }
+            }
+          }
+
+          if (msgs && msgs.length > 0) {
+            setMessages(prev => {
+              const tempUser = prev.find(m => m.id?.startsWith('temp-') || (m.role === 'user' && !msgs.some(dbM => dbM.id === m.id)));
+              if (tempUser) {
+                const existsInMsgs = msgs.some(m => m.id === tempUser.id || (m.role === 'user' && m.content === tempUser.content));
+                if (!existsInMsgs || st?.isRunning) {
+                  const filtered = msgs.filter(m => m.id !== tempUser.id);
+                  return [...filtered, tempUser];
+                }
+              }
+              return msgs;
+            });
+          }
+        } catch {}
+      }, 1500);
     } else {
       setElapsedSeconds(0);
     }
+
     return () => {
       if (timer) clearInterval(timer);
+      if (pollInterval) clearInterval(pollInterval);
     };
-  }, [isLoading]);
+  }, [isLoading, activeThreadId]);
 
   useEffect(() => {
     const sseClient = createMetaChatSseClient();
@@ -1474,6 +1517,10 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
           messages.map((msg, index) => {
             const isUser = msg.role === 'user';
             const meta = msg.metadata;
+            const msgKey = msg.id || String(index);
+            const lineCount = msg.content ? msg.content.split('\n').length : 1;
+            const isLongUserMsg = isUser && (msg.content.length > 280 || lineCount > 4);
+            const isExpanded = Boolean(expandedLongMessages[msgKey]);
 
             return (
               <div
@@ -1538,7 +1585,40 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
                     </div>
                   )}
 
-                  {renderFormattedMetaChatContent(msg.content, isUser)}
+                  {isLongUserMsg ? (
+                    <div>
+                      <div className={!isExpanded ? 'max-h-20 overflow-hidden relative' : ''}>
+                        {renderFormattedMetaChatContent(msg.content, isUser)}
+                        {!isExpanded && (
+                          <div className="absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-indigo-600 to-transparent pointer-events-none" />
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setExpandedLongMessages(prev => ({
+                            ...prev,
+                            [msgKey]: !prev[msgKey]
+                          }));
+                        }}
+                        className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-indigo-100 hover:text-white bg-indigo-700/60 hover:bg-indigo-700/90 px-2.5 py-1 rounded-md transition-colors"
+                      >
+                        {isExpanded ? (
+                          <>
+                            <ChevronUp className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span>Recolher mensagem</span>
+                          </>
+                        ) : (
+                          <>
+                            <ChevronDown className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span>Ver mensagem completa ({lineCount} linhas)</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  ) : (
+                    renderFormattedMetaChatContent(msg.content, isUser)
+                  )}
 
                   {/* Badges e Relatório de Execução Técnica */}
                   {!isUser && meta && (

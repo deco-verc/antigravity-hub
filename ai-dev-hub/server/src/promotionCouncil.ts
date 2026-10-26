@@ -10,12 +10,19 @@ export interface CouncilReviewMemberOpinion {
   argument: string;
 }
 
+export interface CouncilTradeoffPeerRanking {
+  reviewer: string;
+  rankedReviewers: string[];
+  rationale: string;
+}
+
 export interface CouncilTradeoffSynthesis {
   recommendation: 'KEEP' | 'DISCARD' | 'HUMAN_REVIEW';
   chairmanVerdict: string;
   chairmanRationale: string;
   isAutonomousPromotable: boolean; // Strictly false if HUMAN_REVIEW or DISCARD
   memberOpinions: CouncilReviewMemberOpinion[];
+  peerRankings?: CouncilTradeoffPeerRanking[];
   evaluatedAt: string;
 }
 
@@ -53,6 +60,25 @@ export class PromotionCouncil {
       argument: `No uso diário do Simple IDE, um acréscimo global de +${globalRegress.toFixed(1)}% (+${(globalImpact.deltaTotalDurationMs / 1000).toFixed(1)}s) no tempo total de execução prejudica a experiência em tarefas simples mais do que beneficia cenários isolados.`
     };
 
+    // Stage 2: Peer ranking across tradeoff perspectives
+    const peerRankings: CouncilTradeoffPeerRanking[] = [
+      {
+        reviewer: 'Reviewer A',
+        rankedReviewers: ['Reviewer B', 'Reviewer C'],
+        rationale: 'Reviewer B ofereceu critério mais conservador para integridade sistêmica.'
+      },
+      {
+        reviewer: 'Reviewer B',
+        rankedReviewers: ['Reviewer C', 'Reviewer A'],
+        rationale: 'Reviewer C mensurou o impacto prático em latência do produto real.'
+      },
+      {
+        reviewer: 'Reviewer C',
+        rankedReviewers: ['Reviewer B', 'Reviewer A'],
+        rationale: 'Reviewer B diagnosticou corretamente o risco de overengineering nos prompts.'
+      }
+    ];
+
     // Chairman Synthesis
     let recommendation: 'KEEP' | 'DISCARD' | 'HUMAN_REVIEW' = 'DISCARD';
     let chairmanRationale = '';
@@ -74,6 +100,7 @@ export class PromotionCouncil {
       chairmanRationale,
       isAutonomousPromotable: recommendation === 'KEEP',
       memberOpinions: [opinionA, opinionB, opinionC],
+      peerRankings,
       evaluatedAt: new Date().toISOString()
     };
   }

@@ -329,5 +329,25 @@ describe('FASE 16: Motor Universal de Slash Commands e Arsenal de Skills', () =>
     assert.equal(karpathyResult.execution.command, '/karpathy');
     const skillsDir = path.join(testProjectDir, '.ai-dev-hub', 'skills');
     assert.ok(fs.existsSync(path.join(skillsDir, 'karpathy-guidelines.md')), 'karpathy-guidelines.md deve ter sido provisionado');
+
+    // Antigravity 2.0 Native Path Verification
+    const nativeSkillFile = path.join(testProjectDir, '.agents', 'skills', 'karpathy-guidelines', 'SKILL.md');
+    assert.ok(fs.existsSync(nativeSkillFile), 'karpathy-guidelines nativo .agents/skills/.../SKILL.md deve existir');
+    const nativeContent = fs.readFileSync(nativeSkillFile, 'utf-8');
+    assert.ok(nativeContent.startsWith('---\nname: karpathy-guidelines'), 'SKILL.md deve conter frontmatter YAML válido com name:');
+    assert.ok(nativeContent.includes('description:'), 'SKILL.md deve conter frontmatter YAML com description:');
+    assert.ok(
+      nativeContent.includes('### Contextual Calibration (Interactive vs. Autonomous Execution)'),
+      'SKILL.md deve conter o bloco de calibracao contextual dual-mode'
+    );
+    assert.ok(
+      nativeContent.includes('In Autonomous Worker Execution'),
+      'SKILL.md deve calibrar para execucao autonoma (run_id ativo)'
+    );
+
+    const nativeExamplesFile = path.join(testProjectDir, '.agents', 'skills', 'karpathy-guidelines', 'examples', 'EXAMPLES.md');
+    assert.ok(fs.existsSync(nativeExamplesFile), 'examples/EXAMPLES.md deve ter sido provisionado na anatomia nativa da skill');
+    const examplesContent = fs.readFileSync(nativeExamplesFile, 'utf-8');
+    assert.ok(examplesContent.length > 500, 'EXAMPLES.md deve conter conteudo completo de exemplos');
   });
 });

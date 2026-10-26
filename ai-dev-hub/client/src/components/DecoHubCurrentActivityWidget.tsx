@@ -19,7 +19,8 @@ import {
   Sparkles,
   Terminal,
   Cpu,
-  Search
+  Search,
+  Square
 } from 'lucide-react';
 
 interface DecoHubCurrentActivityWidgetProps {
@@ -27,6 +28,8 @@ interface DecoHubCurrentActivityWidgetProps {
   agentStatus?: 'ready' | 'working' | 'error';
   evidence?: HomologationEvidenceData | null;
   onContinueOrResume?: () => void;
+  onPause?: () => void;
+  onStop?: () => void;
   onResolveApproval?: (decision: 'approved' | 'rejected') => void;
   onOpenAdvanced?: () => void;
   onOpenLightbox?: (img: { url: string; label: string; index?: number }) => void;
@@ -40,6 +43,8 @@ export const DecoHubCurrentActivityWidget: React.FC<DecoHubCurrentActivityWidget
   agentStatus = 'ready',
   evidence,
   onContinueOrResume,
+  onPause,
+  onStop,
   onResolveApproval,
   onOpenAdvanced,
   onOpenLightbox,
@@ -403,6 +408,49 @@ export const DecoHubCurrentActivityWidget: React.FC<DecoHubCurrentActivityWidget
         <div className="flex items-center gap-2 flex-shrink-0">
           <span className="text-[11px] text-slate-400 font-medium">Estado:</span>
           {getStatusBadge()}
+          {run && !isTerminalRun && (
+            <div className="flex items-center gap-1.5 ml-1">
+              {isRunActive && onPause && (
+                <button
+                  type="button"
+                  onClick={onPause}
+                  disabled={isActionLoading}
+                  aria-label="Pausar execução"
+                  title="Pausar execução"
+                  className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 font-semibold text-xs flex items-center gap-1 transition-colors cursor-pointer"
+                >
+                  <Pause className="w-3.5 h-3.5" />
+                  <span>Pausar</span>
+                </button>
+              )}
+              {(isPaused || isBlocked || isError) && onContinueOrResume && (
+                <button
+                  type="button"
+                  onClick={onContinueOrResume}
+                  disabled={isActionLoading}
+                  aria-label="Retomar execução"
+                  title="Retomar execução"
+                  className="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 font-semibold text-xs flex items-center gap-1 transition-colors cursor-pointer"
+                >
+                  {isActionLoading ? <RotateCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                  <span>Retomar</span>
+                </button>
+              )}
+              {onStop && (
+                <button
+                  type="button"
+                  onClick={onStop}
+                  disabled={isActionLoading}
+                  aria-label="Cancelar build"
+                  title="Cancelar build"
+                  className="px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 font-semibold text-xs flex items-center gap-1 transition-colors cursor-pointer"
+                >
+                  <Square className="w-3.5 h-3.5" />
+                  <span>Cancelar</span>
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -823,6 +871,19 @@ export const DecoHubCurrentActivityWidget: React.FC<DecoHubCurrentActivityWidget
                 )}
               </button>
             ) : null}
+            {onStop && (
+              <button
+                type="button"
+                onClick={onStop}
+                disabled={isActionLoading}
+                aria-label="Cancelar execução"
+                title="Cancelar execução"
+                className="px-3.5 py-1.5 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 border border-rose-500/30 text-rose-300 font-semibold text-xs flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+              >
+                <Square className="w-3.5 h-3.5" />
+                <span>Cancelar</span>
+              </button>
+            )}
           </div>
         </div>
       )}

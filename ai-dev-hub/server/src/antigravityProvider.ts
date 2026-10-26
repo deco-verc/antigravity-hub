@@ -13,18 +13,60 @@ import { AntigravityDiscovery } from './antigravityDiscovery.js';
 import { PromptArchitectureService } from './promptArchitectureService.js';
 import { AgentApiGateway } from './agentApiGateway.js';
 import { ModelRegistry } from './modelRegistry.js';
-import { AgentTurnState, captureFileInventory, changedFiles, observeTranscript, isRawToolOrCommandOutput } from './agentTurnState.js';
+import { AgentTurnState, captureFileInventory, changedFiles, observeTranscript, isRawToolOrCommandOutput, FATAL_QUOTA_OR_AUTH_REGEX } from './agentTurnState.js';
 import { TurnCancellationManager, activeTurnCancellations } from './turnCancellationManager.js';
 
 export const isToolDump = (txt: string): boolean => {
-  if (!txt || typeof txt !== 'string') return false;
-  return (
-    /^Created At:\s*\d{4}-\d{2}-\d{2}/m.test(txt) ||
-    /Showing lines \d+-\d+ of \d+/i.test(txt) ||
-    /^Made \d+ replacements? in /m.test(txt) ||
-    /^The command exited with code /m.test(txt)
-  );
+  if (!txt || typeof txt !== 'string') return true;
+  const trimmed = txt.trim();
+  if (!trimmed) return true;
+  const stripped = trimmed
+    .replace(/^Created At:\s+[^\r\n]+/gm, '')
+    .replace(/^Completed At:\s+[^\r\n]+/gm, '')
+    .replace(/Showing lines \d+-\d+ of \d+[^\r\n]*/gm, '')
+    .replace(/^Made \d+ replacements? in [^\r\n]*/gm, '')
+    .replace(/^Command exited with code \d+[^\r\n]*/gm, '')
+    .replace(/^Command output:[^\r\n]*/gm, '')
+    .replace(/^Log output:[^\r\n]*/gm, '')
+    .replace(/The tool's output was truncated[^\r\n]*/gi, '')
+    .replace(/\[FILE:\s*[^\]]+\][\s\S]*?\[ENDFILE\]/g, '')
+    .trim();
+  return stripped.length === 0;
 };
+
+/**
+ * Strips sequential raw numbered file dump lines (e.g. 5+ consecutive lines starting with '^\s*\d+:\s')
+ * while preserving markdown blocks, explanations, headers, and code snippets.
+ */
+export function stripRawLineNumberDumps(text: string): string {
+  if (!text || typeof text !== 'string') return text;
+
+  const lines = text.split(/\r?\n/);
+  const result: string[] = [];
+  let streak: string[] = [];
+  const lineDumpRegex = /^\s*\d+:\s/;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (lineDumpRegex.test(line)) {
+      streak.push(line);
+    } else {
+      if (streak.length >= 5) {
+        streak = [];
+      } else if (streak.length > 0) {
+        result.push(...streak);
+        streak = [];
+      }
+      result.push(line);
+    }
+  }
+
+  if (streak.length > 0 && streak.length < 5) {
+    result.push(...streak);
+  }
+
+  return result.join('\n').trim();
+}
 
 export function getLanguageServerExe(): string {
   if (AgentApiGateway.isOfflineMode()) {
@@ -580,11 +622,17 @@ export class AntigravityProvider implements AgentProvider {
       }
 
       if (progress.state === 'ERROR') {
-        const detail = String(
-          progress.entries.find(e => e.type === 'ERROR_MESSAGE')?.error || 'Native authentication/quota error'
+        const fatalEntry = progress.entries.find(
+          e => FATAL_QUOTA_OR_AUTH_REGEX.test(String(e.error || e.content || e.message || '')) ||
+               e.type === 'ERROR_MESSAGE' ||
+               e.status === 'ERROR'
         );
+        const detail = String(fatalEntry?.error || fatalEntry?.content || fatalEntry?.message || 'Native authentication/quota error');
+        AgentTurnState.setPhase(sessionId, 'CONSUMED');
         throw new Error(
-          /RESOURCE_EXHAUSTED|429|quota/i.test(detail) ? `QUOTA_EXHAUSTED: ${detail}` : `AUTH_ERROR: ${detail}`
+          /RESOURCE_EXHAUSTED|QUOTA|429|limit|cota|upgrade|credits/i.test(detail)
+            ? `QUOTA_EXHAUSTED: ${detail}`
+            : `AUTH_ERROR: ${detail}`
         );
       }
       if (progress.state === 'COMPLETE' && entriesAfterUser.length > 0) {
@@ -763,6 +811,12 @@ export class AntigravityProvider implements AgentProvider {
         try {
           const entry = JSON.parse(lineStr);
 
+          const rawText = String(entry.error || entry.content || entry.message || '');
+          if (FATAL_QUOTA_OR_AUTH_REGEX.test(rawText)) {
+            AgentTurnState.setPhase(sessionId, 'CONSUMED');
+            throw new Error(`QUOTA_EXHAUSTED: ${rawText}`);
+          }
+
           if (entry.tool_calls && Array.isArray(entry.tool_calls)) {
             toolCallsCount += entry.tool_calls.length;
             for (const call of entry.tool_calls) {
@@ -806,6 +860,11 @@ export class AntigravityProvider implements AgentProvider {
             }
           }
 
+          if (FATAL_QUOTA_OR_AUTH_REGEX.test(rawText)) {
+            AgentTurnState.setPhase(sessionId, 'CONSUMED');
+            throw new Error(`QUOTA_EXHAUSTED: ${rawText}`);
+          }
+
           if (entry.status === 'ERROR') {
             hasErrors = true;
           }
@@ -832,7 +891,7 @@ export class AntigravityProvider implements AgentProvider {
                   const fe = JSON.parse(fullLines[j]);
                   if (
                     fe.step_index === entry.step_index &&
-                    (!fe.type || fe.type === 'PLANNER_RESPONSE') &&
+                    (!fe.type || fe.type === 'PLANNER_RESPONSE' || fe.type === 'ASSISTANT_RESPONSE') &&
                     fe.content &&
                     !isToolDump(String(fe.content))
                   ) {
@@ -854,9 +913,10 @@ export class AntigravityProvider implements AgentProvider {
                 }
               }
             }
-            if (!isRawToolOrCommandOutput(String(fullContent)) && !isToolDump(String(fullContent))) {
-              finalResponse = fullContent;
-              const trimmed = String(fullContent).trim();
+            const cleanedContent = stripRawLineNumberDumps(String(fullContent));
+            if (!isToolDump(cleanedContent)) {
+              finalResponse = cleanedContent;
+              const trimmed = cleanedContent.trim();
               if (trimmed && !plannerNarrativeBlocks.includes(trimmed)) {
                 plannerNarrativeBlocks.push(trimmed);
               }
@@ -875,13 +935,16 @@ export class AntigravityProvider implements AgentProvider {
     }
       }
 
-      const cleanBlocks = plannerNarrativeBlocks.filter(b => !isToolDump(b) && !isRawToolOrCommandOutput(b));
+      const cleanBlocks = plannerNarrativeBlocks.map(b => stripRawLineNumberDumps(b)).filter(b => !isToolDump(b));
       if (cleanBlocks.length > 0) {
         finalResponse = cleanBlocks[cleanBlocks.length - 1];
       } else if (plannerNarrativeBlocks.length > 0) {
-        finalResponse = plannerNarrativeBlocks[plannerNarrativeBlocks.length - 1];
+        finalResponse = stripRawLineNumberDumps(plannerNarrativeBlocks[plannerNarrativeBlocks.length - 1]);
       }
     } catch (err: any) {
+      if (String(err?.message).startsWith('QUOTA_EXHAUSTED')) {
+        throw err;
+      }
       Logger.error(`[AntigravityProvider] Erro ao parsear transcript: ${err.message}`);
     }
 

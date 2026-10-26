@@ -4644,7 +4644,7 @@ apiRouter.get('/metachat/threads/:threadId', (req, res) => {
 apiRouter.get('/metachat/threads/:threadId/messages', (req, res) => {
   try {
     const { threadId } = req.params;
-    const limit = parseInt(req.query.limit as string, 10) || 100;
+    const limit = parseInt(req.query.limit as string, 10) || 500;
     const messages = MetaChatService.getMessages(threadId, limit);
     res.json(messages);
   } catch (err: any) {
@@ -4701,7 +4701,7 @@ apiRouter.delete('/metachat/messages/:id', (req, res) => {
 apiRouter.get('/metachat/messages', (req, res) => {
   try {
     const threadId = (req.query.threadId as string) || undefined;
-    const limit = parseInt(req.query.limit as string, 10) || 100;
+    const limit = parseInt(req.query.limit as string, 10) || 500;
     const messages = MetaChatService.getMessages(threadId, limit);
     res.json(messages);
   } catch (err: any) {

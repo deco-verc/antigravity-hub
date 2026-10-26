@@ -299,5 +299,123 @@ describe('DecoMind ML — Motor de Online Machine Learning & Reinforcement Learn
       assert.ok(Array.isArray(telemetry.banditArms) && telemetry.banditArms.length > 0, 'Braços de bandit devem estar listados');
       assert.ok(typeof telemetry.weights.bias === 'number', 'Bias deve ser numérico');
     });
+
+    it('deve registrar vacina episódica automaticamente quando tarefa for aprovada após retry/rework', () => {
+      const reworkSample = {
+        taskId: 'test-task-rework-vaccine-002',
+        taskTitle: 'Configurar middleware de validação e tratar CORS',
+        taskDescription: 'Adicionar headers CORS e responder OPTIONS',
+        expectedFiles: ['server/src/server.ts'],
+        dependencies: ['init-server'],
+        category: 'BACKEND',
+        modelTier: 'flash' as const,
+        effortLevel: 'HIGH' as const,
+        outcome: 'APPROVED' as const,
+        attempts: 2,
+        actualRework: 1,
+        reworkCause: 'OPTIONS request returning 404 without headers',
+        errorPattern: 'CORS_POLICY_ERROR: No Access-Control-Allow-Origin header',
+        solutionVaccine: 'Middleware customizado com res.setHeader("Access-Control-Allow-Origin", "*") e retorno 204 em OPTIONS'
+      };
+
+      const result = DecoMindMlService.recordTaskOutcome(reworkSample);
+      assert.ok(result.recorded, 'Amostra com rework deve ser gravada');
+
+      const telemetry = DecoMindMlService.getMlTelemetryStatus();
+      assert.ok(telemetry.episodicMemoriesCount > 0, 'Deve contabilizar vacinas episódicas aprendidas');
+
+      const topMemories = telemetry.topEpisodicMemories;
+      assert.ok(topMemories.some(m => m.error_pattern.includes('CORS_POLICY_ERROR')), 'Deve encontrar vacina para o erro de CORS');
+    });
+
+    it('autoBootstrapHistoricalMemories deve carregar memórias a partir de autonomous_tasks concluídas com retry', () => {
+      const { DatabaseSync } = require('node:sqlite');
+      const testDb = new DatabaseSync(':memory:');
+      DecoMindMlService.ensureTables(testDb);
+
+      testDb.exec(`
+        CREATE TABLE autonomous_tasks (
+          id TEXT PRIMARY KEY,
+          title TEXT,
+          description TEXT,
+          skill_routed TEXT,
+          status TEXT,
+          retry_count INTEGER,
+          attempt_history_json TEXT,
+          review_result_json TEXT,
+          updated_at TEXT
+        );
+      `);
+
+      testDb.prepare(`
+        INSERT INTO autonomous_tasks (
+          id, title, description, skill_routed, status, retry_count, attempt_history_json, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        'hist-task-1',
+        'Modelar tabelas SaaS de Login e PIX',
+        'Criação de schemas SQLite e migrations',
+        'DATABASE',
+        'completed',
+        1,
+        JSON.stringify([
+          { attempt: 1, workerStatus: 'failure', knownProblems: ['[LSP_SYNTAX_ERROR] test/db.test.ts:7 - Module "node:assert/strict"'] },
+          { attempt: 2, workerStatus: 'success', implemented: ['Importação universal com named import assert'] }
+        ]),
+        new Date().toISOString()
+      );
+
+      DecoMindMlService.autoBootstrapHistoricalMemories(testDb);
+
+      const count = testDb.prepare('SELECT count(*) as c FROM ml_episodic_memories').get() as any;
+      assert.strictEqual(count.c, 1, 'Deve ter feito bootstrap de 1 memória episódica histórica');
+
+      const mem = testDb.prepare('SELECT * FROM ml_episodic_memories LIMIT 1').get() as any;
+      assert.ok(mem.error_pattern.includes('LSP_SYNTAX_ERROR'), 'Padrão de erro deve ser capturado do histórico');
+      assert.ok(mem.surgical_vaccine.includes('named import assert'), 'Solução deve ser extraída da tentativa vitoriosa');
+    });
+
+    it('deve fechar o ciclo de Q-Learning end-to-end: buildWorkerPrompt extrai retrievedMemoryIds e recordTaskOutcome reforça Q-value', () => {
+      const testLesson = DecoMindMlService.recordEpisodicLesson({
+        taskCategory: 'BACKEND',
+        taskText: 'Construir endpoint POST /api/payment/checkout com stripe',
+        errorPattern: 'STRIPE_API_CONNECTION_ERROR',
+        surgicalVaccine: 'Configurar retry com backoff exponencial no client Stripe',
+        qValue: 0.60
+      });
+
+      const { PromptArchitectureService } = require('../src/promptArchitectureService.js');
+      const { prompt, meta } = PromptArchitectureService.buildWorkerPrompt({
+        mode: 'IMPLEMENT',
+        projectId: 'test-proj-ml',
+        projectName: 'Test Proj',
+        projectPath: process.cwd(),
+        projectObjective: 'Test ML integration',
+        taskTitle: 'Construir endpoint POST /api/payment/checkout',
+        taskDescription: 'Adicionar integração com stripe',
+        expectedScopeFiles: ['server/src/routes/payment.ts'],
+        skillCategory: 'BACKEND'
+      });
+
+      assert.ok(meta.retrievedMemoryIds, 'meta deve conter retrievedMemoryIds');
+      assert.ok(Array.isArray(meta.retrievedMemoryIds), 'retrievedMemoryIds deve ser um array');
+      assert.ok(meta.retrievedMemoryIds.includes(testLesson.id), 'ID da vacina deve ser capturado no prompt worker');
+
+      const initialMem: any = db.prepare('SELECT q_value, successes_after_retrieval FROM ml_episodic_memories WHERE id = ?').get(testLesson.id);
+      assert.strictEqual(initialMem.q_value, 0.60);
+
+      DecoMindMlService.recordTaskOutcome({
+        taskId: 'task-test-payment-1',
+        projectId: 'test-proj-ml',
+        category: 'BACKEND',
+        outcome: 'APPROVED',
+        verdict: 'PASS',
+        retrievedMemoryIds: [testLesson.id]
+      });
+
+      const updatedMem: any = db.prepare('SELECT q_value, successes_after_retrieval FROM ml_episodic_memories WHERE id = ?').get(testLesson.id);
+      assert.ok(updatedMem.q_value > 0.60, `Q-value deve ter sido reforçado positivamente (atual: ${updatedMem.q_value})`);
+      assert.strictEqual(updatedMem.successes_after_retrieval, initialMem.successes_after_retrieval + 1, 'successes_after_retrieval deve ser incrementado');
+    });
   });
 });

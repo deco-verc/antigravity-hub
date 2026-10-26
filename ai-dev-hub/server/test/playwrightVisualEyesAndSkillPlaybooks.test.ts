@@ -289,6 +289,38 @@ describe('FASE 7: Playwright Visual Inspector & Skill Playbooks', () => {
       assert.ok(result.consoleErrors.length > 0);
       assert.ok(result.consoleErrors.some(e => e.includes('Cannot read properties of undefined')));
     });
+
+    it('should filter out benign CSP stylesheet/font violations and 404 favicon errors in parseAndFilterConsoleOutput', () => {
+      const empiricalRawTelemetry = JSON.stringify({
+        result: [
+          "Total messages: 4 (Errors: 2, Warnings: 2)",
+          "[ERROR] Loading the stylesheet 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap' violates the following Content Security Policy directive: \"style-src 'self' 'unsafe-inline'\". Note that 'style-src-elem' was not explicitly set, so 'style-src' is used as a fallback. The action has been blocked. @ http://127.0.0.1:10051/:14",
+          "[ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:10051/favicon.ico:0",
+          "[WARNING] ResizeObserver loop completed with undelivered notifications.",
+          "[WARNING] Erro ao obter webhooks: ReferenceError: appState is not defined @ http://127.0.0.1:10051/app.js:2189"
+        ].join('\n')
+      });
+
+      const { consoleErrors, pageErrors } = PlaywrightVisualInspector.parseAndFilterConsoleOutput(empiricalRawTelemetry);
+      assert.strictEqual(consoleErrors.length, 0, 'Erros benignos de CSP em fontes e 404 de favicon não devem poluir consoleErrors');
+      assert.strictEqual(pageErrors.length, 0);
+    });
+
+    it('should isolate real uncaught runtime errors while ignoring adjacent benign CSP warnings in JSON output', () => {
+      const mixedTelemetry = JSON.stringify({
+        result: [
+          "[ERROR] Loading the stylesheet 'https://fonts.googleapis.com/css' violates the following Content Security Policy directive: \"style-src 'self'\"",
+          "[ERROR] Uncaught ReferenceError: criticalAppState is not defined @ http://127.0.0.1:4000/app.js:42",
+          "[PAGEERROR] pageerror: Uncaught TypeError: Cannot read property of undefined"
+        ].join('\n')
+      });
+
+      const { consoleErrors, pageErrors } = PlaywrightVisualInspector.parseAndFilterConsoleOutput(mixedTelemetry);
+      assert.strictEqual(consoleErrors.length, 1);
+      assert.ok(consoleErrors[0].includes('criticalAppState is not defined'));
+      assert.strictEqual(pageErrors.length, 1);
+      assert.ok(pageErrors[0].includes('TypeError: Cannot read property of undefined'));
+    });
   });
 
   describe('6. IndependentEvaluator Visual Quality Integration', () => {
@@ -486,6 +518,54 @@ describe('FASE 7: Playwright Visual Inspector & Skill Playbooks', () => {
       assert.ok(!updatedServer.includes('3001'), 'Não deve conter 3001 no server.js');
       assert.ok(updatedEnv.includes('PORT=4000'), 'Deveria normalizar porta 3001 para 4000 no .env.example');
       assert.ok(!updatedEnv.includes('3001'), 'Não deve conter 3001 no .env.example');
+    });
+
+    it('should not reject pure backend REST integration test task with visual probe errors when no UI files are modified', async () => {
+      const restProjectDir = path.join(tempTestDir, 'rest-integration-project');
+      const testDir = path.join(restProjectDir, 'test', 'integration');
+      const publicDir = path.join(restProjectDir, 'public');
+      fs.mkdirSync(testDir, { recursive: true });
+      fs.mkdirSync(publicDir, { recursive: true });
+
+      // An existing public/index.html with a broken script exists in the repository
+      const brokenHtml = `<!DOCTYPE html><html><body><div id="root">Old Web App</div><script>console.error("Uncaught TypeError: legacy broken page");</script></body></html>`;
+      fs.writeFileSync(path.join(publicDir, 'index.html'), brokenHtml, 'utf-8');
+
+      // The task implementation creates integration test file with substantive assertions
+      const testCode = `
+        import { test } from 'node:test';
+        import assert from 'node:assert';
+        test('REST API integration contracts', () => {
+          const res = { status: 200, payload: { name: 'ViralYTSearch', active: true } };
+          assert.strictEqual(res.status, 200);
+          assert.strictEqual(res.payload.name, 'ViralYTSearch');
+          assert.strictEqual(res.payload.active, true);
+        });
+      `;
+      fs.writeFileSync(path.join(testDir, 'api.test.js'), testCode, 'utf-8');
+
+      const contract = IndependentEvaluator.createSuccessContract({
+        taskId: 'eval-task-rest-backend',
+        projectId: 'proj-fase7',
+        projectPath: restProjectDir,
+        objective: 'Implementar testes de integração dos contratos REST, rotas de ecossistema e audit logs de ViralYTSearch',
+        acceptanceCriteria: ['Testes de integração passando com exit code 0'],
+        verificationSteps: [{
+          name: 'Executar testes de integracao',
+          command: 'node --test test/integration/api.test.js'
+        }]
+      });
+
+      const report = {
+        status: 'success' as const,
+        filesChanged: ['test/integration/api.test.js'],
+        implemented: ['Testes de integracao REST implementados'],
+        testsRun: 'node --test test/integration/api.test.js'
+      };
+
+      const result = await IndependentEvaluator.evaluate(contract.id, restProjectDir, report);
+      assert.strictEqual(result.verdict, 'PASS', 'Tarefa de teste de integração REST sem alteração em arquivos de UI deve passar');
+      assert.strictEqual(result.taskIsDone, true);
     });
   });
 });

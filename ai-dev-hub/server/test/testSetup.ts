@@ -9,7 +9,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import childProcess from 'node:child_process';
-import { syncBuiltinESMExports } from 'node:module';
+import { syncBuiltinESMExports, createRequire } from 'node:module';
+const req = createRequire(__filename);
 // 1. Force offline mode and disable live agentapi
 process.env.NODE_ENV = 'test';
 process.env.DECOHUB_OFFLINE_MODE = 'true';
@@ -52,8 +53,8 @@ for (const name of ['execFileSync', 'execFile', 'spawn', 'spawnSync'] as const) 
 }
 syncBuiltinESMExports();
 
-// 3. Import AgentApiGateway synchronously after env is set
-const { AgentApiGateway } = require('../src/agentApiGateway.js');
+// 3. Import AgentApiGateway after env is set
+const { AgentApiGateway } = req('../src/agentApiGateway.js');
 const fixtureProvider = AgentApiGateway.installDefaultMock();
 const defaultTestResponseProvider = (_id: string, mode: string) => {
   if (mode === 'REVIEW') {

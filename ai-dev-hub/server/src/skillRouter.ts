@@ -46,7 +46,57 @@ export interface SkillRoutingOptions {
   projectPath?: string;
 }
 
+/**
+ * Calibrates the Karpathy guidelines SKILL.md by appending the Dual-Mode Contextual Calibration
+ * to "## 1. Think Before Coding", eliminating conflicts with Full Dev Autonomy during autonomous runs.
+ */
+export function calibrateKarpathySkillContent(content: string): string {
+  if (content.includes('Contextual Calibration (Interactive vs. Autonomous Execution)')) {
+    return content;
+  }
+  const calibrationBlock = [
+    '',
+    '### Contextual Calibration (Interactive vs. Autonomous Execution)',
+    '- **In Interactive / Planning Mode (`/plan`, `/grill-me`, or conversational chat without an active autonomous `run_id`)**: Surface assumptions, present multiple interpretations, push back on overcomplicated requests, and ask clarifying questions BEFORE writing code.',
+    '- **In Autonomous Worker Execution (`run_id` active / Overnight Autopilot)**: NEVER halt execution or call `ask_question`. Instead, state your assumptions explicitly in the technical log, resolve ambiguities using canonical workspace specs (`@.ai-dev-hub/specs/*.md`) and existing codebase conventions, and choose the simplest architectural path.',
+    ''
+  ].join('\n');
+
+  if (content.includes('## 2. Simplicity First')) {
+    return content.replace('## 2. Simplicity First', `${calibrationBlock}\n## 2. Simplicity First`);
+  }
+  return `${content.trimEnd()}\n\n${calibrationBlock}\n`;
+}
+
+/**
+ * Ensures a SKILL.md file has a valid YAML frontmatter containing `name:` and `description:`
+ * as required by the native Google Antigravity 2.0 skill discovery system.
+ */
+export function ensureSkillFrontmatter(content: string, slug: string, defaultDescription?: string): string {
+  const trimmed = content.trim();
+  const frontmatterMatch = trimmed.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
+
+  if (frontmatterMatch) {
+    let yamlBlock = frontmatterMatch[1];
+    const body = frontmatterMatch[2];
+    if (!/^name:\s*.+/m.test(yamlBlock)) {
+      yamlBlock = `name: ${slug}\n` + yamlBlock;
+    }
+    if (!/^description:\s*.+/m.test(yamlBlock)) {
+      const desc = defaultDescription || `Skill ${slug} para desenvolvimento autônomo e assistido no DecoHUB.`;
+      yamlBlock = yamlBlock.trim() + `\ndescription: "${desc.replace(/"/g, '\\"')}"`;
+    }
+    return `---\n${yamlBlock.trim()}\n---\n\n${body.trim()}\n`;
+  }
+
+  // No frontmatter present
+  const desc = defaultDescription || `Skill ${slug} para desenvolvimento autônomo e assistido no DecoHUB.`;
+  return `---\nname: ${slug}\ndescription: "${desc.replace(/"/g, '\\"')}"\n---\n\n${trimmed}\n`;
+}
+
 export class SkillRouter {
+  static calibrateKarpathySkillContent = calibrateKarpathySkillContent;
+  static ensureSkillFrontmatter = ensureSkillFrontmatter;
   /**
    * Registry for dynamic external skill knowledge extensions
    */
@@ -216,6 +266,7 @@ export class SkillRouter {
     const candidates: string[] = [];
 
     const karpathySkillFile = path.join(skillsDir, 'andrej-karpathy-skills-main', 'andrej-karpathy-skills-main', 'skills', 'karpathy-guidelines', 'SKILL.md');
+    const karpathyExamplesFile = path.join(skillsDir, 'andrej-karpathy-skills-main', 'andrej-karpathy-skills-main', 'EXAMPLES.md');
     const backendWorkflowFile = path.join(reaBlueprints, 'saas-master-backend-and-workflows.md');
     const plugAndPlayFile = path.join(docSimp, 'saas_plug_and_play_standard.md');
     const supabaseKnowledgeFile = path.join(docSimp, 'supabase_knowledge_ready.md');
@@ -240,6 +291,7 @@ export class SkillRouter {
 
     const backendSuite = [
       karpathySkillFile,
+      karpathyExamplesFile,
       backendWorkflowFile,
       plugAndPlayFile,
       supabaseKnowledgeFile,
@@ -312,7 +364,7 @@ export class SkillRouter {
 
       case 'FULL_STACK':
         if (isExplicitUi) {
-          candidates.push(karpathySkillFile, ...frontendSuite);
+          candidates.push(karpathySkillFile, karpathyExamplesFile, ...frontendSuite);
         } else {
           candidates.push(...backendSuite);
         }
@@ -323,9 +375,9 @@ export class SkillRouter {
       case 'KARPATHY_MINIMALIST':
       default:
         if (isExplicitUi) {
-          candidates.push(playwrightAgentCliFile, karpathySkillFile, plugAndPlayFile, ...frontendSuite);
+          candidates.push(playwrightAgentCliFile, karpathySkillFile, karpathyExamplesFile, plugAndPlayFile, ...frontendSuite);
         } else {
-          candidates.push(karpathySkillFile, backendWorkflowFile, plugAndPlayFile, playwrightAgentCliFile, ...backendSuite);
+          candidates.push(karpathySkillFile, karpathyExamplesFile, backendWorkflowFile, plugAndPlayFile, playwrightAgentCliFile, ...backendSuite);
         }
         break;
     }
@@ -334,7 +386,7 @@ export class SkillRouter {
     const existingFiles = Array.from(new Set(candidates.filter(f => fs.existsSync(f))));
     const selectedFiles = existingFiles.slice(0, 6);
 
-    // Provision on demand to <projectPath>/.ai-dev-hub/skills/
+    // Provision on demand to <projectPath>/.ai-dev-hub/skills/ and native Antigravity 2.0 path <projectPath>/.agents/skills/<slug>/SKILL.md
     const copiedFiles: string[] = [];
     if (projectPath && selectedFiles.length > 0) {
       try {
@@ -344,15 +396,59 @@ export class SkillRouter {
         }
         for (const src of selectedFiles) {
           const rawBase = path.basename(src);
-          const destName = rawBase.toLowerCase() === 'skill.md'
-            ? `${path.basename(path.dirname(src))}-skill.md`
+          const isSkillMd = rawBase.toLowerCase() === 'skill.md';
+          const slug = isSkillMd
+            ? path.basename(path.dirname(src))
+            : path.basename(src, path.extname(src));
+          const destName = isSkillMd
+            ? `${slug}-skill.md`
             : rawBase;
           const destPath = path.join(targetSkillsDir, destName);
-          const srcContent = fs.readFileSync(src, 'utf-8');
+          let srcContent = fs.readFileSync(src, 'utf-8');
+          const isKarpathy = slug === 'karpathy-guidelines' || src.includes('karpathy-guidelines');
+          if (isKarpathy) {
+            srcContent = calibrateKarpathySkillContent(srcContent);
+          }
           if (!fs.existsSync(destPath) || fs.readFileSync(destPath, 'utf-8') !== srcContent) {
             fs.writeFileSync(destPath, srcContent, 'utf-8');
           }
           copiedFiles.push(destName);
+
+          // Native Antigravity 2.0 path: <projectPath>/.agents/skills/<slug>/SKILL.md
+          try {
+            const nativeSkillDir = path.join(projectPath, '.agents', 'skills', slug);
+            if (!fs.existsSync(nativeSkillDir)) {
+              fs.mkdirSync(nativeSkillDir, { recursive: true });
+            }
+            const nativeSkillFile = path.join(nativeSkillDir, 'SKILL.md');
+            const nativeContent = ensureSkillFrontmatter(srcContent, slug);
+            if (!fs.existsSync(nativeSkillFile) || fs.readFileSync(nativeSkillFile, 'utf-8') !== nativeContent) {
+              fs.writeFileSync(nativeSkillFile, nativeContent, 'utf-8');
+            }
+
+            // For karpathy-guidelines, also provision examples/EXAMPLES.md
+            if (isKarpathy) {
+              const examplesSrc = path.join(
+                skillsDir,
+                'andrej-karpathy-skills-main',
+                'andrej-karpathy-skills-main',
+                'EXAMPLES.md'
+              );
+              if (fs.existsSync(examplesSrc)) {
+                const examplesDir = path.join(nativeSkillDir, 'examples');
+                if (!fs.existsSync(examplesDir)) {
+                  fs.mkdirSync(examplesDir, { recursive: true });
+                }
+                const examplesDest = path.join(examplesDir, 'EXAMPLES.md');
+                const examplesContent = fs.readFileSync(examplesSrc, 'utf-8');
+                if (!fs.existsSync(examplesDest) || fs.readFileSync(examplesDest, 'utf-8') !== examplesContent) {
+                  fs.writeFileSync(examplesDest, examplesContent, 'utf-8');
+                }
+              }
+            }
+          } catch (nativeErr: any) {
+            Logger.warn(`[SkillRouter] Falha não bloqueante ao provisionar skill nativa ${slug}: ${nativeErr.message}`);
+          }
         }
       } catch (err: any) {
         Logger.warn(`[SkillRouter] Falha não bloqueante ao copiar skills para ${projectPath}: ${err.message}`);

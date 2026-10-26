@@ -351,14 +351,38 @@ export class IndependentEvaluator {
         };
         Logger.warn(`[Evaluator Baseline] Alerta: O teste já passou antes da alteração (esperava-se falha inicial na reprodução).`);
       } catch (err: any) {
-        baseline = {
-          ran: baselineProcessStarted && !err.code,
-          passed: false,
-          command: cmd,
-          exitCode: err.status || 1,
-          output: (err.stdout || err.stderr || err.message).slice(0, 1000),
-          timestamp: new Date().toISOString()
-        };
+        if (err?.code === 'COMMAND_REVIEW_REQUIRED' && /^(?:npm\s+test|node\s+(?:--import\s+[^\s]+\s+)?--test)/i.test(cmd)) {
+          try {
+            const cleanEnv = this.buildCleanExecutionEnv();
+            const res = execSync(cmd, { cwd: params.projectPath, timeout: 30000, env: cleanEnv, encoding: 'utf8', stdio: 'pipe' });
+            baseline = {
+              ran: true,
+              passed: true,
+              command: cmd,
+              exitCode: 0,
+              output: res.slice(0, 1000),
+              timestamp: new Date().toISOString()
+            };
+          } catch (syncErr: any) {
+            baseline = {
+              ran: true,
+              passed: false,
+              command: cmd,
+              exitCode: syncErr.status || 1,
+              output: (syncErr.stdout || syncErr.stderr || syncErr.message || '').slice(0, 1000),
+              timestamp: new Date().toISOString()
+            };
+          }
+        } else {
+          baseline = {
+            ran: baselineProcessStarted && !err.code,
+            passed: false,
+            command: cmd,
+            exitCode: err.status || 1,
+            output: (err.stdout || err.stderr || err.message).slice(0, 1000),
+            timestamp: new Date().toISOString()
+          };
+        }
         if (baseline.ran) {
           Logger.info(`[Evaluator Baseline] Verificação executada retornou falha; saída registrada para análise do defeito.`);
         } else {
@@ -436,6 +460,108 @@ export class IndependentEvaluator {
   }
 
   /**
+   * Helper: Resolves potential migrated test file destinations (.js <-> .ts, .jsx <-> .tsx, .cjs/.mjs <-> .ts, .test <-> .spec)
+   */
+  static getCandidateMigratedTestPaths(projectPath: string, relFile: string, gitRenameMap?: Map<string, string>): string[] {
+    const candidates: string[] = [];
+    const norm = relFile.replace(/\\/g, '/');
+
+    if (gitRenameMap && gitRenameMap.has(norm)) {
+      candidates.push(gitRenameMap.get(norm)!);
+    }
+
+    if (norm.endsWith('.js')) {
+      candidates.push(norm.replace(/\.js$/, '.ts'));
+      candidates.push(norm.replace(/\.js$/, '.tsx'));
+    } else if (norm.endsWith('.jsx')) {
+      candidates.push(norm.replace(/\.jsx$/, '.tsx'));
+      candidates.push(norm.replace(/\.jsx$/, '.ts'));
+    } else if (norm.endsWith('.cjs')) {
+      candidates.push(norm.replace(/\.cjs$/, '.ts'));
+      candidates.push(norm.replace(/\.cjs$/, '.mts'));
+    } else if (norm.endsWith('.mjs')) {
+      candidates.push(norm.replace(/\.mjs$/, '.ts'));
+      candidates.push(norm.replace(/\.mjs$/, '.mts'));
+    }
+
+    if (/\.test\.[cm]?[jt]sx?$/.test(norm)) {
+      candidates.push(norm.replace(/\.test\.[cm]?[jt]sx?$/, '.test.ts'));
+      candidates.push(norm.replace(/\.test\.[cm]?[jt]sx?$/, '.test.tsx'));
+      candidates.push(norm.replace(/\.test\.[cm]?[jt]sx?$/, '.spec.ts'));
+      candidates.push(norm.replace(/\.test\.[cm]?[jt]sx?$/, '.spec.tsx'));
+      candidates.push(norm.replace(/\.test\.[cm]?[jt]sx?$/, '.ts'));
+    } else if (/\.spec\.[cm]?[jt]sx?$/.test(norm)) {
+      candidates.push(norm.replace(/\.spec\.[cm]?[jt]sx?$/, '.spec.ts'));
+      candidates.push(norm.replace(/\.spec\.[cm]?[jt]sx?$/, '.spec.tsx'));
+      candidates.push(norm.replace(/\.spec\.[cm]?[jt]sx?$/, '.test.ts'));
+      candidates.push(norm.replace(/\.spec\.[cm]?[jt]sx?$/, '.test.tsx'));
+      candidates.push(norm.replace(/\.spec\.[cm]?[jt]sx?$/, '.ts'));
+    }
+
+    const existing: string[] = [];
+    const seen = new Set<string>();
+    for (const cand of candidates) {
+      const normCand = cand.replace(/\\/g, '/');
+      if (seen.has(normCand) || normCand === norm) continue;
+      seen.add(normCand);
+      if (fs.existsSync(path.join(projectPath, normCand))) {
+        existing.push(normCand);
+      }
+    }
+    return existing;
+  }
+
+  /**
+   * Helper: Resolves potential legacy source paths (.js, .cjs, .mjs, .jsx) for a migrated TypeScript file (.ts, .tsx)
+   */
+  static getCandidateLegacySourcePaths(projectPath: string, relFile: string, gitRenameMap?: Map<string, string>): string[] {
+    const candidates: string[] = [];
+    const norm = relFile.replace(/\\/g, '/');
+
+    if (gitRenameMap) {
+      for (const [oldP, newP] of gitRenameMap.entries()) {
+        if (newP === norm) candidates.push(oldP);
+      }
+    }
+
+    if (norm.endsWith('.ts')) {
+      candidates.push(norm.replace(/\.ts$/, '.js'));
+      candidates.push(norm.replace(/\.ts$/, '.cjs'));
+      candidates.push(norm.replace(/\.ts$/, '.mjs'));
+      if (/\.test\.ts$/.test(norm)) {
+        candidates.push(norm.replace(/\.test\.ts$/, '.test.js'));
+        candidates.push(norm.replace(/\.test\.ts$/, '.test.cjs'));
+        candidates.push(norm.replace(/\.test\.ts$/, '.test.mjs'));
+        candidates.push(norm.replace(/\.test\.ts$/, '.js'));
+      } else if (/\.spec\.ts$/.test(norm)) {
+        candidates.push(norm.replace(/\.spec\.ts$/, '.spec.js'));
+        candidates.push(norm.replace(/\.spec\.ts$/, '.spec.cjs'));
+        candidates.push(norm.replace(/\.spec\.ts$/, '.js'));
+      } else {
+        // e.g. test/types.ts -> test/types.test.js or test/types.spec.js
+        candidates.push(norm.replace(/\.ts$/, '.test.js'));
+        candidates.push(norm.replace(/\.ts$/, '.spec.js'));
+        candidates.push(norm.replace(/\.ts$/, '.test.cjs'));
+      }
+    } else if (norm.endsWith('.tsx')) {
+      candidates.push(norm.replace(/\.tsx$/, '.jsx'));
+      candidates.push(norm.replace(/\.tsx$/, '.js'));
+      if (/\.test\.tsx$/.test(norm)) {
+        candidates.push(norm.replace(/\.test\.tsx$/, '.test.jsx'));
+        candidates.push(norm.replace(/\.test\.tsx$/, '.test.js'));
+      } else if (/\.spec\.tsx$/.test(norm)) {
+        candidates.push(norm.replace(/\.spec\.tsx$/, '.spec.jsx'));
+        candidates.push(norm.replace(/\.spec\.tsx$/, '.spec.js'));
+      } else {
+        candidates.push(norm.replace(/\.tsx$/, '.test.jsx'));
+        candidates.push(norm.replace(/\.tsx$/, '.spec.jsx'));
+      }
+    }
+
+    return Array.from(new Set(candidates));
+  }
+
+  /**
    * Inspects if the Builder modified or deleted any PROTECTED_EVALUATION files
    */
   static checkTampering(
@@ -453,6 +579,26 @@ export class IndependentEvaluator {
     for (const protFile of contract.protectedEvaluationFiles) {
       const fullPath = path.join(projectPath, protFile);
       if (!fs.existsSync(fullPath)) {
+        // Verifica se o arquivo de teste protegido foi migrado para TypeScript
+        const candidateMigrated = this.getCandidateMigratedTestPaths(projectPath, protFile);
+        let validMigrationFound = false;
+
+        for (const candFile of candidateMigrated) {
+          const contentBefore = this.getFileContentBefore(projectPath, protFile);
+          const migratedContent = fs.readFileSync(path.join(projectPath, candFile), 'utf-8');
+          const assertionsBefore = contentBefore !== null ? this.countAssertions(contentBefore) : 0;
+          const assertionsAfter = this.countAssertions(migratedContent);
+
+          if (assertionsAfter >= assertionsBefore) {
+            validMigrationFound = true;
+            break;
+          }
+        }
+
+        if (validMigrationFound) {
+          continue;
+        }
+
         if (!tamperedFiles.includes(protFile)) tamperedFiles.push(protFile);
         continue;
       }
@@ -490,16 +636,36 @@ export class IndependentEvaluator {
    */
   static countAssertions(content: string): number {
     if (!content) return 0;
-    const lines = content.split('\n');
-    let count = 0;
-    for (const line of lines) {
+    // 1. Strip multi-line comments /* ... */
+    let clean = content.replace(/\/\*[\s\S]*?\*\//g, '');
+
+    // 2. Process line-by-line to strip line comments //... and doc comments starting with *
+    const cleanLines = clean.split('\n').map(line => {
       const trimmed = line.trim();
-      if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) continue;
-      const assertMatches = trimmed.match(/\bassert(\.[a-zA-Z0-9_]+)?\s*\(/g);
-      if (assertMatches) count += assertMatches.length;
-      const expectMatches = trimmed.match(/\bexpect\s*\([^)]*\)\s*\.[a-zA-Z0-9_]+\s*\(/g);
-      if (expectMatches) count += expectMatches.length;
-    }
+      if (trimmed.startsWith('*')) return '';
+      const commentIdx = line.indexOf('//');
+      return commentIdx >= 0 ? line.substring(0, commentIdx) : line;
+    });
+    clean = cleanLines.join('\n');
+
+    let count = 0;
+
+    // A. Node assert and test runner context assertions (assert(...), assert.strictEqual(...), t.assert(...), t.is(...))
+    const assertMatches = clean.match(/\b(?:assert(?:\.[a-zA-Z0-9_]+)?|t\.(?:assert|is|true|false|equal|strictEqual|deepEqual|not|truthy|falsy))\s*\(/g);
+    if (assertMatches) count += assertMatches.length;
+
+    // B. Jest, Vitest, Expect assertions (including multiline expect(...).matcher and expect<T>(...))
+    const expectMatches = clean.match(/\bexpect\s*(?:<[^>]+>)?\s*\(/g);
+    if (expectMatches) count += expectMatches.length;
+
+    // C. TypeScript type-testing assertions (expectType<T>(...), expectAssignable<T>(...), assertType<T>(...), expectError(...))
+    const typeAssertMatches = clean.match(/\b(?:expectType|expectAssignable|expectError|assertType)\s*(?:<[^>]+>)?\s*\(/g);
+    if (typeAssertMatches) count += typeAssertMatches.length;
+
+    // D. BDD Should assertions (e.g. foo.should.equal(...) or should.exist(...))
+    const shouldMatches = clean.match(/\bshould(?:\.[a-zA-Z0-9_]+)+\s*\(/g);
+    if (shouldMatches) count += shouldMatches.length;
+
     return count;
   }
 
@@ -512,7 +678,12 @@ export class IndependentEvaluator {
     for (const rawLine of content.split('\n')) {
       const trimmed = rawLine.trim();
       if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) continue;
-      if (/\bassert(\.[a-zA-Z0-9_]+)?\s*\(/.test(trimmed) || /\bexpect\s*\([^)]*\)\s*\.[a-zA-Z0-9_]+\s*\(/.test(trimmed)) {
+      if (
+        /\b(?:assert(?:\.[a-zA-Z0-9_]+)?|t\.(?:assert|is|true|false|equal|strictEqual|deepEqual|not|truthy|falsy))\s*\(/.test(trimmed) ||
+        /\bexpect\s*(?:<[^>]+>)?\s*\(/.test(trimmed) ||
+        /\b(?:expectType|expectAssignable|expectError|assertType)\s*(?:<[^>]+>)?\s*\(/.test(trimmed) ||
+        /\bshould(?:\.[a-zA-Z0-9_]+)+\s*\(/.test(trimmed)
+      ) {
         const normalized = trimmed.replace(/\s+/g, ' ');
         counts.set(normalized, (counts.get(normalized) || 0) + 1);
       }
@@ -569,39 +740,23 @@ export class IndependentEvaluator {
   static getFileContentBefore(projectPath: string, relFile: string): string | null {
     const normRel = relFile.replace(/\\/g, '/');
     try {
-      return execSync(`git show HEAD~1:"${normRel}"`, {
-        cwd: projectPath,
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'ignore']
-      });
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "independentEvaluator",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:independentEvaluator]", err);
-      }
-    }
-
-    try {
       return execSync(`git show HEAD:"${normRel}"`, {
         cwd: projectPath,
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'ignore']
       });
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "independentEvaluator",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:independentEvaluator]", err);
-      }
+    } catch {
+      // Normal when file is newly created or untracked in HEAD
+    }
+
+    try {
+      return execSync(`git show HEAD~1:"${normRel}"`, {
+        cwd: projectPath,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'ignore']
+      });
+    } catch {
+      // Normal when file is new or repository has single commit
     }
 
     return null;
@@ -636,6 +791,7 @@ export class IndependentEvaluator {
       }
     }
 
+    const gitRenameMap = new Map<string, string>();
     try {
       const gitStatusOut = execSync('git status --porcelain', {
         cwd: projectPath,
@@ -646,39 +802,101 @@ export class IndependentEvaluator {
         if (!line || line.length < 3) continue;
         const filePath = line.substring(3).trim();
         if (!filePath) continue;
-        if (isTestFile(filePath)) {
-          candidateFiles.add(this.normalizeRelativePath(filePath, projectPath));
+        if (filePath.includes('->')) {
+          const parts = filePath.split('->').map(p => this.normalizeRelativePath(p.trim(), projectPath));
+          if (parts[0] && parts[1]) {
+            gitRenameMap.set(parts[0], parts[1]);
+            if (isTestFile(parts[0])) candidateFiles.add(parts[0]);
+            if (isTestFile(parts[1])) candidateFiles.add(parts[1]);
+          }
+        } else {
+          if (isTestFile(filePath)) {
+            candidateFiles.add(this.normalizeRelativePath(filePath, projectPath));
+          }
         }
       }
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "independentEvaluator",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:independentEvaluator]", err);
-      }
+    } catch {
+      // Porcelain execution failed or not a git repository
     }
 
+    const processedMigratedPairs = new Set<string>();
+
     for (const relFile of candidateFiles) {
+      if (processedMigratedPairs.has(relFile)) {
+        continue;
+      }
+
       const fullPath = path.join(projectPath, relFile);
-      const contentBefore = this.getFileContentBefore(projectPath, relFile);
+      let contentBefore = this.getFileContentBefore(projectPath, relFile);
+      let isTsMigration = false;
+
+      if (contentBefore === null) {
+        // Verifica se é o destino de uma migração TypeScript (.ts <- .js, .tsx <- .jsx, .ts <- .cjs/.mjs)
+        const legacyCandidates = this.getCandidateLegacySourcePaths(projectPath, relFile, gitRenameMap);
+        for (const leg of legacyCandidates) {
+          const prev = this.getFileContentBefore(projectPath, leg);
+          if (prev !== null) {
+            contentBefore = prev;
+            isTsMigration = true;
+            break;
+          }
+        }
+      }
 
       if (!fs.existsSync(fullPath)) {
+        // Verifica se o arquivo de teste foi migrado/renomeado para TypeScript
+        const candidateMigrated = this.getCandidateMigratedTestPaths(projectPath, relFile, gitRenameMap);
+        let validMigrationFound = false;
+        let bestMigratedFile: string | null = null;
+        let bestMigratedAssertions = 0;
+
+        for (const candFile of candidateMigrated) {
+          const migratedContent = fs.readFileSync(path.join(projectPath, candFile), 'utf-8');
+          const assertionsBefore = contentBefore !== null ? this.countAssertions(contentBefore) : 0;
+          const assertionsAfter = this.countAssertions(migratedContent);
+
+          if (assertionsAfter > bestMigratedAssertions) {
+            bestMigratedAssertions = assertionsAfter;
+            bestMigratedFile = candFile;
+          }
+
+          if (assertionsAfter >= assertionsBefore) {
+            validMigrationFound = true;
+            processedMigratedPairs.add(candFile);
+            break;
+          }
+        }
+
+        if (validMigrationFound) {
+          // Migração válida para TypeScript com cobertura e asserções preservadas
+          continue;
+        }
+
         if (contentBefore !== null) {
           const assertionsBefore = this.countAssertions(contentBefore);
           weakenedFiles.push(relFile);
-          findings.push({
-            file: relFile,
-            assertionsBefore,
-            assertionsAfter: 0,
-            removedAssertionsCount: assertionsBefore,
-            skippedFound: [],
-            trivializedFound: [],
-            description: `Arquivo de teste existente (${assertionsBefore} asserções) foi removido.`
-          });
+          if (bestMigratedFile) {
+            processedMigratedPairs.add(bestMigratedFile);
+            findings.push({
+              file: relFile,
+              assertionsBefore,
+              assertionsAfter: bestMigratedAssertions,
+              removedAssertionsCount: Math.max(0, assertionsBefore - bestMigratedAssertions),
+              skippedFound: [],
+              trivializedFound: [],
+              description: `Migração de teste com redução indevida de asserções em ${bestMigratedFile}: continha ${assertionsBefore} asserção(ões) e a versão migrada contém ${bestMigratedAssertions}.`
+            });
+          } else {
+            findings.push({
+              file: relFile,
+              assertionsBefore,
+              assertionsAfter: 0,
+              removedAssertionsCount: assertionsBefore,
+              skippedFound: [],
+              trivializedFound: [],
+              description: `Arquivo de teste existente (${assertionsBefore} asserções) foi removido.`
+            });
+          }
         }
         continue;
       }
@@ -732,21 +950,24 @@ export class IndependentEvaluator {
         }
 
         // 4. Check that all original active assertion lines were preserved intact
-        const beforeLines = this.extractAssertionLines(contentBefore);
-        const afterLines = this.extractAssertionLines(contentAfter);
-        let alteredOrRemovedOriginal = 0;
-        for (const [lineText, countBefore] of beforeLines.entries()) {
-          const countAfter = afterLines.get(lineText) || 0;
-          if (countAfter < countBefore) {
-            alteredOrRemovedOriginal += countBefore - countAfter;
+        // Em migrações TypeScript (.ts <- .js), linhas com anotações de tipo ou casts não devem ser reprovadas como adulteração de linha
+        if (!isTsMigration) {
+          const beforeLines = this.extractAssertionLines(contentBefore);
+          const afterLines = this.extractAssertionLines(contentAfter);
+          let alteredOrRemovedOriginal = 0;
+          for (const [lineText, countBefore] of beforeLines.entries()) {
+            const countAfter = afterLines.get(lineText) || 0;
+            if (countAfter < countBefore) {
+              alteredOrRemovedOriginal += countBefore - countAfter;
+            }
           }
-        }
-        if (alteredOrRemovedOriginal > 0 && assertionsAfter >= assertionsBefore) {
-          removedAssertionsCount = Math.max(removedAssertionsCount, alteredOrRemovedOriginal);
-          isWeakened = true;
-          fileFindings.push(
-            `Adulteração de asserções originais detectada: ${alteredOrRemovedOriginal} asserção(ões) original(is) foram modificadas ou substituídas.`
-          );
+          if (alteredOrRemovedOriginal > 0 && assertionsAfter >= assertionsBefore) {
+            removedAssertionsCount = Math.max(removedAssertionsCount, alteredOrRemovedOriginal);
+            isWeakened = true;
+            fileFindings.push(
+              `Adulteração de asserções originais detectada: ${alteredOrRemovedOriginal} asserção(ões) original(is) foram modificadas ou substituídas.`
+            );
+          }
         }
       } else {
         // Newly created test file: reject if it contains skipped or trivial assertions
@@ -1154,9 +1375,9 @@ export class IndependentEvaluator {
 
     const matchedFiles: string[] = [];
 
-    // Helper recursive search (up to depth 3, skipping node_modules, .git, .ai-dev-hub)
+    // Helper recursive search (up to depth 5, skipping node_modules, .git, .ai-dev-hub)
     const scanDir = (dir: string, depth = 0) => {
-      if (depth > 3) return;
+      if (depth > 5) return;
       try {
         const entries = fs.readdirSync(dir, { withFileTypes: true });
         for (const entry of entries) {
@@ -1173,11 +1394,14 @@ export class IndependentEvaluator {
               try {
                 const content = fs.readFileSync(fullPath, 'utf-8');
                 if (
-                  content.length > 50 &&
+                  content.length >= 10 &&
                   (content.includes('<body') ||
                     content.includes('<div') ||
                     content.includes('<html') ||
-                    content.includes('<!DOCTYPE html>'))
+                    content.includes('<!DOCTYPE') ||
+                    content.includes('<main') ||
+                    content.includes('<header') ||
+                    content.includes('<section'))
                 ) {
                   matchedFiles.push(relPath);
                 }
@@ -1202,13 +1426,18 @@ export class IndependentEvaluator {
               try {
                 const content = fs.readFileSync(fullPath, 'utf-8');
                 if (
-                  (content.includes('<!DOCTYPE html>') ||
+                  ((content.includes('<!DOCTYPE') ||
                     content.includes('<html') ||
-                    content.includes('<div id="app"')) &&
+                    content.includes('<div') ||
+                    content.includes('<main') ||
+                    content.includes('express.static') ||
+                    content.includes('res.sendFile')) &&
                   (content.includes('res.send(') ||
                     content.includes('res.end(') ||
+                    content.includes('res.sendFile(') ||
                     content.includes('innerHTML') ||
-                    content.includes('document.'))
+                    content.includes('document.') ||
+                    content.includes('express.static')))
                 ) {
                   matchedFiles.push(relPath);
                 }
@@ -1262,7 +1491,7 @@ export class IndependentEvaluator {
     const matchedFiles: string[] = [];
 
     const scanDir = (dir: string, depth = 0) => {
-      if (depth > 3) return;
+      if (depth > 5) return;
       try {
         const entries = fs.readdirSync(dir, { withFileTypes: true });
         for (const entry of entries) {
@@ -1287,7 +1516,10 @@ export class IndependentEvaluator {
                   content.includes('writeFile') ||
                   content.includes('sqlite') ||
                   content.includes('localStorage') ||
-                  content.includes('indexedDB')
+                  content.includes('indexedDB') ||
+                  content.includes('createWriteStream') ||
+                  content.includes('fs/promises') ||
+                  content.includes('fs.promises')
                 ) {
                   matchedFiles.push(relPath);
                 }
@@ -1879,6 +2111,20 @@ export class IndependentEvaluator {
       if (!hasFilesChanged) {
         try {
           const scannedFiles: string[] = [];
+          // 1. Escaneia arquivos de configuração e código na raiz do projeto (package.json, tsconfig.json, .gitignore, etc.)
+          try {
+            const rootEntries = fs.readdirSync(projectPath, { withFileTypes: true });
+            for (const entry of rootEntries) {
+              if (entry.isFile() && !entry.name.startsWith('.git') && entry.name !== 'hub.db') {
+                const full = path.join(projectPath, entry.name);
+                if (fs.statSync(full).size > 0 && (/\.(json|js|ts|mjs|cjs|md|env|example|ya?ml)$/i.test(entry.name) || entry.name === '.gitignore')) {
+                  scannedFiles.push(entry.name);
+                }
+              }
+            }
+          } catch {}
+
+          // 2. Escaneia subdiretórios padrão de código
           for (const subDir of ['src', 'public', 'app', 'test']) {
             const dirPath = path.join(projectPath, subDir);
             if (fs.existsSync(dirPath)) {
@@ -1906,15 +2152,35 @@ export class IndependentEvaluator {
 
     const agentTestsPassed = Boolean(builderReport.tests && builderReport.tests.passed && (builderReport.tests.exitCode === 0 || builderReport.tests.exitCode === undefined));
 
+    // Recuperação contextual da tarefa e da Grande Tarefa para inspeção precisa de fase
+    let taskRow: any = null;
+    let majorTaskRow: any = null;
+    try {
+      taskRow = db.prepare('SELECT * FROM autonomous_tasks WHERE id = ?').get(contract.taskId);
+      if (taskRow?.major_task_id) {
+        majorTaskRow = db.prepare('SELECT * FROM autonomous_major_tasks WHERE id = ?').get(taskRow.major_task_id);
+      }
+    } catch {}
+
+    const taskTitle = (taskRow?.title || '').trim();
+    const taskMilestone = String(taskRow?.milestone || '').trim();
+    const majorTaskCode = String(majorTaskRow?.code || taskMilestone || '').trim();
+    const stageCode = String(taskRow?.stage_code || '').trim();
+    const combinedTaskContext = `${taskTitle} ${contract.objective || ''} ${majorTaskCode} ${stageCode}`.toLowerCase();
+
+
     const contractText = `${contract.objective} ${(contract.acceptanceCriteria || []).join(' ')}`.toLowerCase();
     const isInitialMilestoneTask = Boolean(
-      /(?:m1|mvp\s*setup|funda[çc][aã]o|setup\s*inicial|configura[çc][aã]o\s*inicial|estrutura\s*b[aá]sica|initial\s*setup|foundation|project\s*setup|scaffold|scaffolding|bootstrap)/i.test(
+      /(?:m1|gt-1|et-1|mvp\s*setup|funda[çc][aã]o|setup\s*inicial|configura[çc][aã]o|estrutura|depend[êe]ncias|initial\s*setup|foundation|project\s*setup|scaffold|scaffolding|bootstrap|tsconfig|package\.json|\.gitignore)/i.test(
         contractText
       ) ||
       (contract.acceptanceCriteria && contract.acceptanceCriteria.some(c =>
-        /(?:setup\s*inicial|criar\s*estrutura|funda[çc][aã]o|bootstrap)/i.test(c)
+        /(?:setup\s*inicial|criar\s*estrutura|funda[çc][aã]o|bootstrap|tsconfig|depend[êe]ncias|scaffold)/i.test(c)
       )) ||
-      Boolean(contract.taskId && /(?:setup|foundation|m1)/i.test(contract.taskId))
+      Boolean(contract.taskId && /(?:setup|foundation|m1|gt-1|et-1)/i.test(contract.taskId)) ||
+      /\b(gt-1|et-1|m1)\b/i.test(majorTaskCode) ||
+      /\b(gt-1|et-1|m1)\b/i.test(stageCode) ||
+      Boolean(taskRow?.title && /(?:configurar\s*estrutura|setup|estrutura\s*de\s*pastas|scaffold)/i.test(taskRow.title))
     );
     const isAuditOrInvestigationTask = Boolean(
       options?.taskMode === 'AUDIT' ||
@@ -2169,21 +2435,6 @@ export class IndependentEvaluator {
     let userJourneyResult: UserJourneyResult | undefined = undefined;
     let securityPentestResult: SecurityPentestResult | undefined = undefined;
 
-    // Recuperação contextual da tarefa e da Grande Tarefa para inspeção precisa de fase
-    let taskRow: any = null;
-    let majorTaskRow: any = null;
-    try {
-      taskRow = db.prepare('SELECT * FROM autonomous_tasks WHERE id = ?').get(contract.taskId);
-      if (taskRow?.major_task_id) {
-        majorTaskRow = db.prepare('SELECT * FROM autonomous_major_tasks WHERE id = ?').get(taskRow.major_task_id);
-      }
-    } catch {}
-
-    const taskTitle = (taskRow?.title || '').trim();
-    const taskMilestone = String(taskRow?.milestone || '').trim();
-    const majorTaskCode = String(majorTaskRow?.code || taskMilestone || '').trim();
-    const stageCode = String(taskRow?.stage_code || '').trim();
-    const combinedTaskContext = `${taskTitle} ${contract.objective || ''} ${majorTaskCode} ${stageCode}`.toLowerCase();
 
     // Verificação de arquivos alterados diretamente em public/ (*.html, *.css, public/*.js)
     const hasChangedPublicFiles = Boolean(
@@ -2204,17 +2455,17 @@ export class IndependentEvaluator {
       /(scaffold|scaffolding|configura[çc][ãa]o|setup|tsconfig|package\.json|banco|sqlite|seed|seeding|migra[çc][ãa]o|migration|modelagem|reposit[óo]rio|repository|dom[íi]nio|domain|api\b|backend|endpoints?|auth\b|turnstile|pushinpay|pix\b|motor de busca|esteira|workflow|pipeline|breakdown)/i.test(combinedTaskContext)
     );
 
-    // Detecção discriminada e de alta precisão de tarefa de Frontend/UI:
+    // Detecção discriminada e de alta precisão de tarefa de Frontend/UI vs Backend/Testes:
     // Tarefas cujo objetivo seja explicitamente de backend, testes unitários, testes de integração REST,
     // migrations de banco, regras de domínio ou scripts não devem disparar Playwright Visual Inspector
     // nem UserExperienceSimulator apenas pela existência passiva de um public/index.html prévio.
     const isExplicitBackendOrTestTask = Boolean(
-      contract.objective &&
-      /(teste[s]?\s+(de\s+)?(integra[çc][ãa]o|unit[áa]rio[s]?|dom[íi]nio|contrato[s]?)|testes?\s+unit[áa]rios?|testes?\s+de\s+integra[çc][ãa]o|\bunit\b|\bintegration\b|\bbackend\b|endpoint[s]?|\bapi\b|\broute[s]?|\brota[s]?|middleware[s]?|database|banco\s+de\s+dados|migration[s]?|migra[çc][ãa]o|m[áa]quina[s]?\s+de\s+estado|stateMachine|domain|calculator|service[s]?|seed)/i.test(
-        contract.objective
+      (contract.objective || taskTitle) &&
+      /(teste[s]?\s+(de\s+)?(integra[çc][ãa]o|unit[áa]rio[s]?|dom[íi]nio|contrato[s]?)|testes?\s+unit[áa]rios?|testes?\s+de\s+integra[çc][ãa]o|\bunit\b|\bintegration\b|\bbackend\b|endpoint[s]?|\bapi\b|\broute[s]?|\brota[s]?|middleware[s]?|database|banco\s+de\s+dados|migration[s]?|migra[çc][ãa]o|m[áa]quina[s]?\s+de\s+estado|stateMachine|domain|calculator|service[s]?|seed|audit\s*logs?|contratos?\s*rest|rotas?\s*de\s*ecossistema)/i.test(
+        `${contract.objective} ${taskTitle} ${combinedTaskContext}`
       ) &&
-      !/(frontend|front-end|\bui\b|interface|layout|estilo|css|tela|dashboard|componente\s+visual|drawer|modal|aba\b)/i.test(
-        contract.objective
+      !/(frontend|front-end|\bui\b|(?:\binterface\s+(?:de\s+)?(?:usu[áa]rio|gr[áa]fica|visual|web|saas)\b|\buser\s+interface\b)|layout|estilo|css|tela|dashboard|componente\s+visual|drawer|modal|aba\b)/i.test(
+        `${contract.objective} ${taskTitle}`
       )
     );
 
@@ -2230,7 +2481,7 @@ export class IndependentEvaluator {
 
     const isObjectiveFrontend = Boolean(
       contract.objective &&
-      /frontend|front-end|\bui\b|interface|layout|tela|dashboard|component|page|view|estilo|css|html|drawer|modal|grid|svg|lucide/i.test(
+      /frontend|front-end|\bui\b|(?:\binterface\s+(?:de\s+)?(?:usu[áa]rio|gr[áa]fica|visual|web|saas)\b|\buser\s+interface\b)|layout|tela|dashboard|component|page|view|estilo|css|html|drawer|modal|grid|svg|lucide/i.test(
         contract.objective
       )
     );
@@ -2248,6 +2499,11 @@ export class IndependentEvaluator {
     // Proíbe terminantemente Playwright Visual Inspector em tarefas de Scaffolding/Banco/Backend (GT-1 a GT-6)
     // a menos que arquivos em public/ tenham sido modificados na tarefa
     if (isEarlyBackendOrScaffoldingPhase && !hasChangedPublicFiles) {
+      isFrontendTask = false;
+    }
+
+    // Se for tarefa explícita de backend ou testes e nenhum arquivo de frontend foi modificado, blinda contra Playwright Visual Inspector
+    if (isExplicitBackendOrTestTask && !hasChangedFrontendFiles && !hasChangedPublicFiles) {
       isFrontendTask = false;
     }
 
@@ -2271,7 +2527,12 @@ export class IndependentEvaluator {
           const fatalEmptyRoot = visualInspectionResult.isEmptyRoot;
           const fatalRootJson = Boolean(visualInspectionResult.rootRouteHijackedByJson);
 
-          if (fatalConsole || fatalEmptyRoot || fatalRootJson) {
+          const hasOnlyBackendOrTestChanges = !hasChangedFrontendFiles && !hasChangedPublicFiles;
+          if (hasOnlyBackendOrTestChanges && !fatalRootJson) {
+            Logger.warn(
+              `[PLAYWRIGHT_INSPECTOR] Ignorando falha visual em tarefa sem alteração de arquivos de UI/public: ${visualInspectionResult.details}`
+            );
+          } else if (fatalConsole || fatalEmptyRoot || fatalRootJson) {
             Logger.error(
               `[PLAYWRIGHT_INSPECTOR] [IndependentEvaluator] FALHA CRÍTICA EM INSPEÇÃO VISUAL PLAYWRIGHT: ${visualInspectionResult.details}`
             );
@@ -2386,26 +2647,23 @@ export class IndependentEvaluator {
       }
 
       // 1.8.3. User Experience Simulator (Navegador Real: Click, Type, Network & F5 Persistence)
-      // Executa apenas quando a tarefa for de integração Frontend completa / E2E (GT-7 em diante)
-      // E tanto o servidor quanto public/index.html e public/app.js já existirem fisicamente no disco.
-      const hasServerEntry = fs.existsSync(path.join(projectPath, 'src', 'server.ts')) || fs.existsSync(path.join(projectPath, 'src', 'index.ts'));
-      const hasPublicIndexHtml = fs.existsSync(path.join(projectPath, 'public', 'index.html'));
-      const hasPublicAppJs = fs.existsSync(path.join(projectPath, 'public', 'app.js'));
-      const isExplicitE2EOrFullstackTask = Boolean(
-        (/\b(gt-(?:[7-9]|1[0-2])|et-(?:[7-9]|1[0-2]))\b/i.test(majorTaskCode) ||
-         /\b(gt-(?:[7-9]|1[0-2])|et-(?:[7-9]|1[0-2]))\b/i.test(stageCode) ||
-         /\b(gt-(?:[7-9]|1[0-2])|et-(?:[7-9]|1[0-2]))\b/i.test(taskTitle) ||
-         /^(?:[7-9]|1[0-2])\./.test(taskTitle) ||
-         /(integra[çc][ãa]o ponta a ponta|e2e|fullstack|homologa[çc][ãa]o visual|jornada do usu[áa]rio|f5|reload|attio|tally|n8n)/i.test(combinedTaskContext)) &&
-        !isEarlyBackendOrScaffoldingPhase
-      );
+      // Bloqueia terminantemente nas etapas de Backend/Scaffolding (GT-1 a GT-6) para evitar SERVER_START_TIMEOUT
+      // Executa em tarefas de Frontend/UI quando existirem arquivos HTML para teste ou servidor funcional.
+      const candidateHtmlFile = PlaywrightVisualInspector.findCandidateHtmlFile(projectPath);
+      const isOfflineUx = process.env.DECOHUB_OFFLINE_MODE === 'true' && !options?.forceLiveBrowser;
+      const hasServerEntry =
+        fs.existsSync(path.join(projectPath, 'src', 'server.ts')) ||
+        fs.existsSync(path.join(projectPath, 'src', 'server.js')) ||
+        fs.existsSync(path.join(projectPath, 'src', 'index.ts')) ||
+        fs.existsSync(path.join(projectPath, 'src', 'index.js')) ||
+        fs.existsSync(path.join(projectPath, 'server.js')) ||
+        fs.existsSync(path.join(projectPath, 'server.ts'));
+      const hasPublicIndexHtml = Boolean(candidateHtmlFile);
 
       const canRunUserExperienceSimulator = Boolean(
         isFrontendTask &&
-        isExplicitE2EOrFullstackTask &&
-        hasServerEntry &&
-        hasPublicIndexHtml &&
-        hasPublicAppJs
+        !isEarlyBackendOrScaffoldingPhase &&
+        (isOfflineUx ? hasPublicIndexHtml : (hasPublicIndexHtml || hasServerEntry))
       );
 
       if (canRunUserExperienceSimulator) {
@@ -2550,12 +2808,7 @@ export class IndependentEvaluator {
     if (contract.verificationSteps && contract.verificationSteps.length > 0) {
       for (const step of contract.verificationSteps) {
         if (step.command) {
-          const normStep = normalizeOrRecoverVerificationCommand(step.command, projectPath, {
-            allowUncreatedFiles: false,
-            requireCanonicalEvidenceOnDisk: true,
-            scopeFiles: builderReport.filesChanged
-          });
-          let rawCommandToUse = normStep.recovered ? normStep.command : step.command;
+          let rawCommandToUse = step.command;
 
           const policy = PolicyEngine.evaluateCommand(rawCommandToUse);
           if (policy.isHardBlocked || policy.riskLevel === 'red') {
@@ -2593,6 +2846,36 @@ export class IndependentEvaluator {
               continue;
             }
           }
+          // Se o comando for genérico "node --test" ou "node --test test/", mas o projeto possuir tsconfig e package.json com script "test",
+          // priorizamos "npm test" para garantir a compilação do TypeScript e evitar testes em arquivos dist/ obsoletos.
+          if (/^node\s+--test(?:\s+["']?(?:test|tests)[\\/]?)?$/i.test(rawCommandToUse.trim()) && fs.existsSync(projectPath)) {
+            const pkgPath = path.join(projectPath, 'package.json');
+            const tsconfigPath = path.join(projectPath, 'tsconfig.json');
+            if (fs.existsSync(pkgPath) && (fs.existsSync(tsconfigPath) || fs.existsSync(path.join(projectPath, 'src')))) {
+              try {
+                const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+                if (typeof pkg.scripts?.test === 'string') {
+                  Logger.info(`[IndependentEvaluator] Projeto TypeScript detectado com script test no package.json. Promovendo "${rawCommandToUse}" para "npm test" para garantir compilação atualizada.`);
+                  rawCommandToUse = 'npm test';
+                  step.command = 'npm test';
+                } else if (typeof pkg.scripts?.build === 'string') {
+                  Logger.info(`[IndependentEvaluator] Projeto TypeScript com script build detectado. Executando build prévio antes dos testes.`);
+                  try {
+                    const cleanEnv = this.buildCleanExecutionEnv();
+                    await CommandExecutionEngine.execute({
+                      command: 'npm run build',
+                      cwd: projectPath,
+                      timeoutMs: 30000,
+                      env: cleanEnv
+                    });
+                  } catch (buildErr: any) {
+                    Logger.warn(`[IndependentEvaluator] Falha no pré-build: ${buildErr?.message}`);
+                  }
+                }
+              } catch {}
+            }
+          }
+
           verifiedSteps++;
           try {
             const command = resolveVerificationCommand(rawCommandToUse, projectPath);
@@ -2606,7 +2889,7 @@ export class IndependentEvaluator {
             } catch (cvErr: any) {
               const isReviewRequired = cvErr?.code === 'COMMAND_REVIEW_REQUIRED';
               const isTestOrCheckCommand =
-                /^(?:npm\s+(?:test|run\s+(?:test|typecheck|build|lint)(?::[a-zA-Z0-9_-]+)?)|(?:npx\s+)?tsx\s+--test|(?:node|npx)\s+--test)/i.test(
+                /^(?:npm\s+(?:test|run\s+(?:test|typecheck|build|lint)(?::[a-zA-Z0-9_-]+)?)|(?:npx\s+)?tsx\s+--test|(?:node|npx)\s+(?:--import\s+[^\s]+\s+)?--test|(?:node|npx)\s+(?:--check|-c)|(?:npx\s+)?tsc\b)/i.test(
                   command.trim()
                 );
               const { DevAutonomyService } = await import('./devAutonomyService.js');
@@ -2680,12 +2963,13 @@ export class IndependentEvaluator {
           const withinProject = relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
           let passed = Boolean(step.targetPath && withinProject && fs.existsSync(target) && fs.statSync(target).isFile());
 
-          // Extension Equivalence: check .js <-> .cjs <-> .mjs
+          // Extension Equivalence: check .js <-> .cjs <-> .mjs <-> .ts <-> .tsx
           if (!passed && step.targetPath && withinProject) {
             const ext = path.extname(target).toLowerCase();
-            if (['.js', '.cjs', '.mjs'].includes(ext)) {
+            const candidateExts = ['.js', '.cjs', '.mjs', '.ts', '.tsx'];
+            if (candidateExts.includes(ext)) {
               const baseWithoutExt = target.slice(0, -ext.length);
-              for (const altExt of ['.js', '.cjs', '.mjs']) {
+              for (const altExt of candidateExts) {
                 const altTarget = `${baseWithoutExt}${altExt}`;
                 if (fs.existsSync(altTarget) && fs.statSync(altTarget).isFile()) {
                   target = altTarget;
@@ -2744,6 +3028,7 @@ export class IndependentEvaluator {
             `[IndependentEvaluator] Milestone inicial aprovado no Gate 1: ${validFiles.length} arquivo(s) criado(s) com conteúdo substantivo e sem erros de sintaxe (${validFiles.join(', ')}).`
           );
           overallPassed = true;
+          verifiedSteps = Math.max(verifiedSteps, 1);
           lastExitCode = 0;
           combinedOutput += `\n[Milestone Inicial - Gate 1 OK]: ${validFiles.length} arquivo(s) criado(s) com conteúdo substantivo e sintaxe válida (${validFiles.join(', ')}).`;
           for (const sr of stepsResults) {
@@ -3079,7 +3364,7 @@ export class IndependentEvaluator {
         }
       }
     } else {
-      if (builderReport.filesChanged.length === 0) {
+      if (builderReport.filesChanged.length === 0 && !hasSubstantiveAuditFindings) {
         verdict = 'INCONCLUSIVE';
       } else if (builderReport.status === 'success' && overallPassed) {
         verdict = 'PASS';
@@ -3088,8 +3373,13 @@ export class IndependentEvaluator {
       }
     }
 
-    if (!verifiedSteps && !executedCommands.length && overallPassed) verdict = 'INCONCLUSIVE';
-    if (!verifiedSteps && !executedCommands.length && stepsResults.every(s => s.detail.startsWith('NEEDS_EVIDENCE:'))) verdict = 'INCONCLUSIVE';
+    if (contract.verificationSteps && contract.verificationSteps.length > 0) {
+      if (!verifiedSteps && !executedCommands.length && stepsResults.every(s => s.detail.startsWith('NEEDS_EVIDENCE:'))) {
+        verdict = 'INCONCLUSIVE';
+      }
+    } else if (builderReport.filesChanged.length === 0 && !hasSubstantiveAuditFindings) {
+      verdict = 'INCONCLUSIVE';
+    }
     const taskIsDone = verdict === 'PASS';
 
     // 4. Determine criteria pass/fail

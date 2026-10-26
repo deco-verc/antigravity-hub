@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { db, ensureDefensiveMigrations } from '../src/db.js';
+import { db, ensureDefensiveMigrations, safeAddColumn } from '../src/db.js';
 
 test('HOTFIX: Migrações Defensivas de Schema SQLite (updated_at, created_at)', async (t) => {
 
@@ -134,6 +134,29 @@ test('HOTFIX: Migrações Defensivas de Schema SQLite (updated_at, created_at)',
     const runCols = db.prepare('PRAGMA table_info(autonomous_runs)').all().map((c: any) => c.name);
     assert.ok(runCols.includes('updated_at'), 'autonomous_runs no db principal deve ter updated_at');
     assert.ok(runCols.includes('created_at'), 'autonomous_runs no db principal deve ter created_at');
+  });
+
+  await t.test('4. safeAddColumn injeta colunas idempotentemente sem warning ou erro de duplicidade', () => {
+    const memoryDb = new DatabaseSync(':memory:');
+    memoryDb.exec(`
+      CREATE TABLE sample_table (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL
+      );
+    `);
+
+    // Inserção da primeira vez deve retornar true
+    const added1 = safeAddColumn(memoryDb, 'sample_table', 'extra_col', 'TEXT');
+    assert.equal(added1, true, 'safeAddColumn deve retornar true ao adicionar nova coluna');
+
+    // Inserção da segunda vez deve retornar false e ser idempotente sem lançar erro
+    const added2 = safeAddColumn(memoryDb, 'sample_table', 'extra_col', 'TEXT');
+    assert.equal(added2, false, 'safeAddColumn deve retornar false ao detectar coluna existente');
+
+    const cols = memoryDb.prepare('PRAGMA table_info(sample_table)').all().map((c: any) => c.name);
+    assert.ok(cols.includes('extra_col'), 'Coluna extra_col deve existir na tabela');
+
+    memoryDb.close();
   });
 
 });

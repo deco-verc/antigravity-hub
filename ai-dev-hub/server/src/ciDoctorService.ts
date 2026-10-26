@@ -151,6 +151,15 @@ export class CiDoctorService {
       }
     }
 
+    // Pattern G: TypeScript compiler diagnostic errors (e.g. error TS1259: ...)
+    if (!assertionMessage) {
+      const tsDiagMatch = cleanOutput.match(/(?:error\s+TS\d+:\s*[^\n]+|TS\d+:\s*[^\n]+|Module\s+['"][^'"]+['"]\s+(?:can only be default-imported|has no default export)[^\n]*)/i);
+      if (tsDiagMatch) {
+        assertionMessage = tsDiagMatch[0].trim();
+        errorType = 'TypeScriptDiagnosticError';
+      }
+    }
+
     // Fallback: Test failure marker ✖ or FAIL
     if (!assertionMessage) {
       const failMarkerMatch = cleanOutput.match(/(?:✖|FAIL|failed:)\s*([^\n]+)/i);
@@ -162,14 +171,16 @@ export class CiDoctorService {
     }
 
     // 2. Extract Stack Frames & Referenced Files
-    const stackLines = cleanOutput.split('\n').filter(line => /^\s*at\s+/.test(line) || /:\d+:\d+/.test(line));
+    const stackLines = cleanOutput.split('\n').filter(line => /^\s*at\s+/.test(line) || /:\d+:\d+/.test(line) || /\(\d+,\d+\)/.test(line));
     const detectedFiles: Array<{ filePath: string; line: number; column: number; isTest: boolean }> = [];
 
     const frameRegexes = [
       // at Object.<anonymous> (C:\path\to\file.ts:12:34)
       /at\s+(?:[a-zA-Z0-9_$.<>]+\s+)?\(?(?:file:\/\/)?([a-zA-Z]:[\\\/][^:\s\n\r"']+|\/[^:\s\n\r"']+|\.[\\\/][^:\s\n\r"']+|[a-zA-Z0-9_.-]+[\\\/][^:\s\n\r"']+):(\d+)(?::(\d+))?\)?/,
       // C:\path\to\file.ts:12:34
-      /([a-zA-Z]:[\\\/][^:\s\n\r"']+|\/[^:\s\n\r"']+|\.[\\\/][^:\s\n\r"']+|[a-zA-Z0-9_.-]+[\\\/][^:\s\n\r"']+\.[cm]?[jt]sx?):(\d+)(?::(\d+))?/
+      /([a-zA-Z]:[\\\/][^:\s\n\r"']+|\/[^:\s\n\r"']+|\.[\\\/][^:\s\n\r"']+|[a-zA-Z0-9_.-]+[\\\/][^:\s\n\r"']+\.[cm]?[jt]sx?):(\d+)(?::(\d+))?/,
+      // C:\path\to\file.ts(12,34)
+      /([a-zA-Z]:[\\\/][^:\s\n\r"'(]+|\/[^:\s\n\r"'(]+|\.[\\\/][^:\s\n\r"'(]+|[a-zA-Z0-9_.-]+[\\\/][^:\s\n\r"'(]+\.[cm]?[jt]sx?)\((\d+),(\d+)\)/
     ];
 
     for (const line of stackLines) {
@@ -438,21 +449,111 @@ export class CiDoctorService {
       const cleanExpected = diagnosis.expected.replace(/^['"`]|['"`]$/g, '').trim();
       const cleanReceived = diagnosis.received.replace(/^['"`]|['"`]$/g, '').trim();
 
-      if (cleanExpected && cleanReceived && cleanExpected !== cleanReceived) {
+      const isSafeLiteralToken = (token: string): boolean => {
+        if (!token || token.length > 80 || token.length < 1) return false;
+        if (/[\r\n]/.test(token)) return false;
+        // Reject syntax keywords and control structures
+        const forbiddenKeywords = /\b(if|else|function|return|import|export|class|const|let|var|typeof|void|while|for|switch|case|break|continue|new|delete|throw|try|catch|finally)\b/;
+        if (forbiddenKeywords.test(token)) return false;
+        // Reject statement terminators or block structures
+        if (/[{};]/.test(token) || token.includes('=>')) return false;
+        // Reject unbalanced quotes
+        const doubleQuotes = (token.match(/"/g) || []).length;
+        const singleQuotes = (token.match(/'/g) || []).length;
+        const backticks = (token.match(/`/g) || []).length;
+        if (doubleQuotes % 2 !== 0 || singleQuotes % 2 !== 0 || backticks % 2 !== 0) {
+          return false;
+        }
+        return true;
+      };
+
+      if (
+        cleanExpected &&
+        cleanReceived &&
+        cleanExpected !== cleanReceived &&
+        isSafeLiteralToken(cleanExpected) &&
+        isSafeLiteralToken(cleanReceived)
+      ) {
         // Direct value substitution in file
         if (originalContent.includes(cleanReceived)) {
-          // If occurrence is unambiguous or on the target line
-          const replaced = originalContent.replace(cleanReceived, cleanExpected);
-          candidates.push({
-            name: `Substituição direta de valor (${cleanReceived} -> ${cleanExpected})`,
-            content: replaced
-          });
+          const lines = originalContent.split(/\r?\n/);
+          const targetLineIdx = diagnosis.line && diagnosis.line > 0 ? diagnosis.line - 1 : -1;
+
+          if (targetLineIdx >= 0 && targetLineIdx < lines.length && lines[targetLineIdx].includes(cleanReceived)) {
+            // Precise replacement on target line only
+            const updatedLines = [...lines];
+            updatedLines[targetLineIdx] = updatedLines[targetLineIdx].replace(cleanReceived, cleanExpected);
+            candidates.push({
+              name: `Substituição direta de valor na linha ${targetLineIdx + 1} (${cleanReceived} -> ${cleanExpected})`,
+              content: updatedLines.join('\n')
+            });
+          } else {
+            // Only allow whole-file replacement if occurrence is unique and unambiguous
+            const firstIdx = originalContent.indexOf(cleanReceived);
+            const lastIdx = originalContent.lastIndexOf(cleanReceived);
+            if (firstIdx !== -1 && firstIdx === lastIdx) {
+              const replaced = originalContent.replace(cleanReceived, cleanExpected);
+              candidates.push({
+                name: `Substituição direta de valor único (${cleanReceived} -> ${cleanExpected})`,
+                content: replaced
+              });
+            }
+          }
         }
       }
     }
 
-    // Candidate Strategy C: Arithmetic / Operator Off-by-One and Sign Fixes (Restrito a ambiente de teste para não criar patches fictícios em modo live)
-    const allowHeuristicOperatorFixes = process.env.NODE_ENV === 'test' || process.env.DECOHUB_ENABLE_ARITHMETIC_HEALING === 'true';
+    // Candidate Strategy C: Node assert/strict default-import TS1259 healing
+    if (
+      (originalContent.includes('assert/strict') || originalContent.includes('assert')) &&
+      /import\s+assert\s+from\s+['"](?:node:)?assert(?:\/strict)?['"]/.test(originalContent)
+    ) {
+      const fixed = originalContent.replace(
+        /import\s+assert\s+from\s+['"](?:node:)?assert(?:\/strict)?['"];?/g,
+        'import { strict as assert } from "node:assert";'
+      );
+      if (fixed !== originalContent) {
+        candidates.push({
+          name: 'Conversão de import default de assert para named import compatível',
+          content: fixed
+        });
+      }
+    }
+
+    // Candidate Strategy C2: Node built-ins default-import TS1192/TS1259 healing (fs, http, path, crypto, os, child_process)
+    const builtins = ['fs', 'http', 'path', 'crypto', 'os', 'child_process'];
+    let fixedBuiltins = originalContent;
+    for (const mod of builtins) {
+      const modRegex = new RegExp(`import\\s+([a-zA-Z0-9_]+)\\s+from\\s+['"](?:node:)?${mod}['"];?`, 'g');
+      fixedBuiltins = fixedBuiltins.replace(modRegex, `import * as $1 from "node:${mod}";`);
+    }
+    if (fixedBuiltins !== originalContent) {
+      candidates.push({
+        name: 'Conversão de default imports de módulos nativos do Node para namespace imports (TS1192/TS1259)',
+        content: fixedBuiltins
+      });
+    }
+
+    // Candidate Strategy D: Strip .ts/.tsx extensions from relative imports (TS5097 healing)
+    if (
+      /from\s+['"]\.\.?[^'"]+?\.(?:ts|tsx)['"]/.test(originalContent)
+    ) {
+      const fixed = originalContent.replace(
+        /from\s+(['"])(\.{1,2}\/[^'"]+?)\.(?:ts|tsx)(['"])/g,
+        'from $1$2$3'
+      );
+      if (fixed !== originalContent) {
+        candidates.push({
+          name: 'Remoção de extensão .ts/.tsx de imports relativos para compatibilidade TS estrita',
+          content: fixed
+        });
+      }
+    }
+
+    // Candidate Strategy E: Arithmetic / Operator Off-by-One and Sign Fixes (Restrito a ambiente de teste para não criar patches fictícios em modo live)
+    const allowHeuristicOperatorFixes = (process.env.NODE_ENV === 'test' || process.env.DECOHUB_ENABLE_ARITHMETIC_HEALING === 'true') &&
+      diagnosis.errorType !== 'TypeScriptDiagnosticError' &&
+      diagnosis.errorType !== 'SyntaxError';
     if (allowHeuristicOperatorFixes) {
       const lines = originalContent.split(/\r?\n/);
       const targetLineIdx = diagnosis.line && diagnosis.line > 0 ? Math.min(lines.length - 1, diagnosis.line - 1) : -1;
