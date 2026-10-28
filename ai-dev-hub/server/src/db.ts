@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
+import { TurnCancellationManager } from './turnCancellationManager.js';
 
 export function isRunningInTestEnvironment(): boolean {
   return (
@@ -1330,10 +1331,95 @@ export function initDatabase() {
 
   if (!isRunningInTestEnvironment()) {
     purgeGhostTestProjectsFromProductionDb(db);
+    purgeContaminatedViralRunsFromProductionDb(db);
   }
 
   if (process.env.MCP_STDIO !== 'true') {
     console.log(`[DB] SQLite database initialized at ${DB_PATH}`);
+  }
+}
+
+/**
+ * Cascading deletion of a single project and all its related records across all tables.
+ */
+export function deleteProjectCascading(projectId: string, targetDb: any = db): { success: boolean; error?: string } {
+  try {
+    const deleteWhereIn = (table: string, column: string, items: string[]) => {
+      if (items.length === 0) return;
+      try {
+        const hasTable = Boolean(targetDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table));
+        if (!hasTable) return;
+        const placeholders = items.map(() => '?').join(',');
+        targetDb.prepare(`DELETE FROM ${table} WHERE ${column} IN (${placeholders})`).run(...items);
+      } catch {
+        // Safe catch if table or column does not exist
+      }
+    };
+
+    let runIds: string[] = [];
+    try {
+      const hasRunsTable = Boolean(targetDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='autonomous_runs'").get());
+      if (hasRunsTable) {
+        const rows = targetDb.prepare('SELECT id FROM autonomous_runs WHERE project_id = ?').all(projectId) as Array<{ id: string }>;
+        runIds = rows.map(r => r.id);
+      }
+    } catch {}
+
+    if (runIds.length > 0) {
+      deleteWhereIn('worker_leases', 'run_id', runIds);
+      deleteWhereIn('agent_turn_observations', 'task_id', runIds);
+      deleteWhereIn('builder_reports', 'run_id', runIds);
+      deleteWhereIn('supervisor_reviews', 'run_id', runIds);
+      deleteWhereIn('runner_heartbeats', 'run_id', runIds);
+      deleteWhereIn('evaluation_results', 'run_id', runIds);
+      deleteWhereIn('success_contracts', 'run_id', runIds);
+      deleteWhereIn('autonomous_events', 'run_id', runIds);
+      deleteWhereIn('autonomous_approvals', 'run_id', runIds);
+      deleteWhereIn('autonomous_tasks', 'run_id', runIds);
+      deleteWhereIn('autonomous_major_tasks', 'run_id', runIds);
+      deleteWhereIn('task_state_transitions', 'run_id', runIds);
+      deleteWhereIn('agent_communications', 'run_id', runIds);
+      deleteWhereIn('command_executions', 'run_id', runIds);
+      deleteWhereIn('run_control_requests', 'run_id', runIds);
+      deleteWhereIn('autonomous_runs', 'id', runIds);
+    }
+
+    const projList = [projectId];
+    deleteWhereIn('agent_sessions', 'project_id', projList);
+    deleteWhereIn('agent_turn_observations', 'project_path', projList);
+    deleteWhereIn('sessions', 'project_id', projList);
+    deleteWhereIn('messages', 'project_id', projList);
+    deleteWhereIn('project_ast_symbols', 'project_id', projList);
+    deleteWhereIn('native_execution_policies', 'project_id', projList);
+    deleteWhereIn('native_execution_policy_audit', 'project_id', projList);
+    deleteWhereIn('chat_submissions', 'project_id', projList);
+    deleteWhereIn('native_workspace_bindings', 'project_id', projList);
+    deleteWhereIn('agent_creation_reservations', 'project_id', projList);
+    deleteWhereIn('command_executions', 'project_id', projList);
+    deleteWhereIn('observability_events', 'project_id', projList);
+    deleteWhereIn('mcp_stats', 'project_id', projList);
+    deleteWhereIn('research_runs', 'project_id', projList);
+    deleteWhereIn('council_deliberations', 'project_id', projList);
+    deleteWhereIn('arena_runs', 'project_id', projList);
+    deleteWhereIn('account_project_sessions', 'project_id', projList);
+    deleteWhereIn('model_preferences', 'project_id', projList);
+    deleteWhereIn('usage_events', 'project_id', projList);
+    deleteWhereIn('conversations', 'project_id', projList);
+    deleteWhereIn('agent_session_events', 'project_id', projList);
+    deleteWhereIn('session_creation_telemetry', 'project_id', projList);
+    deleteWhereIn('operational_lessons', 'project_id', projList);
+    deleteWhereIn('autonomous_major_tasks', 'project_id', projList);
+    deleteWhereIn('agent_communications', 'project_id', projList);
+    deleteWhereIn('project_requirements', 'project_id', projList);
+    deleteWhereIn('meta_chat_threads', 'project_id', projList);
+    deleteWhereIn('ml_episodic_memories', 'project_id', projList);
+    deleteWhereIn('ml_training_samples', 'project_id', projList);
+    deleteWhereIn('autonomous_runs', 'project_id', projList);
+    deleteWhereIn('projects', 'id', projList);
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || String(err) };
   }
 }
 
@@ -1348,20 +1434,36 @@ export function purgeGhostTestProjectsFromProductionDb(targetDb: any = db): { pu
 
     const projectRows = targetDb.prepare('SELECT id, path FROM projects').all() as Array<{ id: string; path: string }>;
 
+    const isProtectedProductionProject = (pathStr: string, idStr: string) => {
+      const p = (pathStr || '').toLowerCase();
+      const id = (idStr || '').toLowerCase();
+      if (id === 'decohub-meta') return true;
+      if (p.includes('c:\\ia\\saas') || p === '/ia/saas' || p.endsWith('\\ia\\saas') || p.endsWith('/ia/saas')) return true;
+      if (p.includes('adslibraryfind')) return true;
+      if (p.includes('ai-dev-hub') && !p.includes('temp') && !p.includes('test-projects')) return true;
+      return false;
+    };
+
     const ghostPrefixes = [
       'proj-rec-', 'proj-heal-', 'proj-test-', 'test-proj-',
       'proj-sim-', 'proj-dag-', 'proj-audit-', 'proj-wave-',
-      'proj-ux-', 'proj-sec-', 'proj-living-', 'proj-council-', 'proj-karpathy-'
+      'proj-ux-', 'proj-sec-', 'proj-living-', 'proj-council-', 'proj-karpathy-',
+      'proj-continuity-', 'proj-mode-switch-'
     ];
 
     const ghostPathSubstrings = [
       'decohub-recovery-test-', 'decohub-selfhealing-test-', 'decohub-test-',
-      'decohub-isolated-', 'temp' + path.sep + 'decohub-', '/tmp/decohub-', '\\temp\\decohub-', '/temp/decohub-'
+      'decohub-isolated-', 'temp' + path.sep + 'decohub-', '/tmp/decohub-', '\\temp\\decohub-', '/temp/decohub-',
+      'test-projects', '/dummy/', '\\dummy\\'
     ];
 
     const ghostProjectIds = new Set<string>();
 
     for (const p of projectRows) {
+      if (isProtectedProductionProject(p.path, p.id)) {
+        continue;
+      }
+
       const idLower = (p.id || '').toLowerCase();
       const pathLower = (p.path || '').toLowerCase();
 
@@ -1386,7 +1488,7 @@ export function purgeGhostTestProjectsFromProductionDb(targetDb: any = db): { pu
       const projId = r.project_id;
       if (ghostRunPrefixes.some(prefix => runIdLower.startsWith(prefix)) || (projId && ghostProjectIds.has(projId))) {
         ghostRunIds.add(r.id);
-        if (projId) {
+        if (projId && !isProtectedProductionProject('', projId)) {
           ghostProjectIds.add(projId);
         }
       }
@@ -1416,6 +1518,8 @@ export function purgeGhostTestProjectsFromProductionDb(targetDb: any = db): { pu
       deleteWhereIn('worker_leases', 'run_id', runIdList);
       deleteWhereIn('agent_turn_observations', 'task_id', runIdList);
       deleteWhereIn('builder_reports', 'run_id', runIdList);
+      deleteWhereIn('supervisor_reviews', 'run_id', runIdList);
+      deleteWhereIn('runner_heartbeats', 'run_id', runIdList);
       deleteWhereIn('evaluation_results', 'run_id', runIdList);
       deleteWhereIn('success_contracts', 'run_id', runIdList);
       deleteWhereIn('autonomous_events', 'run_id', runIdList);
@@ -1436,6 +1540,30 @@ export function purgeGhostTestProjectsFromProductionDb(targetDb: any = db): { pu
       deleteWhereIn('sessions', 'project_id', projIdList);
       deleteWhereIn('messages', 'project_id', projIdList);
       deleteWhereIn('project_ast_symbols', 'project_id', projIdList);
+      deleteWhereIn('native_execution_policies', 'project_id', projIdList);
+      deleteWhereIn('native_execution_policy_audit', 'project_id', projIdList);
+      deleteWhereIn('chat_submissions', 'project_id', projIdList);
+      deleteWhereIn('native_workspace_bindings', 'project_id', projIdList);
+      deleteWhereIn('agent_creation_reservations', 'project_id', projIdList);
+      deleteWhereIn('command_executions', 'project_id', projIdList);
+      deleteWhereIn('observability_events', 'project_id', projIdList);
+      deleteWhereIn('mcp_stats', 'project_id', projIdList);
+      deleteWhereIn('research_runs', 'project_id', projIdList);
+      deleteWhereIn('council_deliberations', 'project_id', projIdList);
+      deleteWhereIn('arena_runs', 'project_id', projIdList);
+      deleteWhereIn('account_project_sessions', 'project_id', projIdList);
+      deleteWhereIn('model_preferences', 'project_id', projIdList);
+      deleteWhereIn('usage_events', 'project_id', projIdList);
+      deleteWhereIn('conversations', 'project_id', projIdList);
+      deleteWhereIn('agent_session_events', 'project_id', projIdList);
+      deleteWhereIn('session_creation_telemetry', 'project_id', projIdList);
+      deleteWhereIn('operational_lessons', 'project_id', projIdList);
+      deleteWhereIn('autonomous_major_tasks', 'project_id', projIdList);
+      deleteWhereIn('agent_communications', 'project_id', projIdList);
+      deleteWhereIn('project_requirements', 'project_id', projIdList);
+      deleteWhereIn('meta_chat_threads', 'project_id', projIdList);
+      deleteWhereIn('ml_episodic_memories', 'project_id', projIdList);
+      deleteWhereIn('ml_training_samples', 'project_id', projIdList);
       deleteWhereIn('autonomous_runs', 'project_id', projIdList);
       deleteWhereIn('projects', 'id', projIdList);
     }
@@ -1453,6 +1581,141 @@ export function purgeGhostTestProjectsFromProductionDb(targetDb: any = db): { pu
       });
     }
     return { purgedProjects: 0, purgedRuns: 0 };
+  }
+}
+
+/**
+ * Purges contaminated runs, tasks, and specs from projects (like AdsLibraryFind) that were erroneously
+ * stamped with hardcoded "Vídeos Virais" / "video_breakdowns" / "Decompositor 3 Pilares" templates.
+ */
+export function purgeContaminatedViralRunsFromProductionDb(targetDb: any = db): { purgedRuns: number; purgedTasks: number } {
+  try {
+    const hasRunsTable = Boolean(targetDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='autonomous_runs'").get());
+    const hasTasksTable = Boolean(targetDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='autonomous_tasks'").get());
+    if (!hasRunsTable || !hasTasksTable) return { purgedRuns: 0, purgedTasks: 0 };
+
+    const hasProjectsTable = Boolean(targetDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='projects'").get());
+    const projectRows = hasProjectsTable
+      ? (targetDb.prepare('SELECT id, name, path FROM projects').all() as Array<{ id: string; name: string; path: string }>)
+      : [];
+
+    const contaminatedProjectIds = new Set<string>();
+    const contaminatedRunIds = new Set<string>();
+
+    for (const p of projectRows) {
+      const pNameLower = (p.name || '').toLowerCase();
+      const pId = p.id;
+      const isAdsProject = /adslibrary|ad\s*intelligence|meta\s*ads/i.test(pNameLower) || pId === '43743246-8621-4a6b-b698-b1c84700da7d';
+      const isExplicitYouTube = /youtube|viral\s*video|creator\s*video/i.test(pNameLower);
+
+      if (isAdsProject || !isExplicitYouTube) {
+        const viralTasks: any[] = targetDb.prepare(`
+          SELECT t.id, t.run_id FROM autonomous_tasks t
+          JOIN autonomous_runs r ON t.run_id = r.id
+          WHERE r.project_id = ?
+            AND (t.title LIKE '%deo%' OR t.title LIKE '%iral%' OR t.title LIKE '%eadline%' OR t.title LIKE '%humbnail%' OR t.title LIKE '%ecompositor%' OR t.title LIKE '%breakdown%' OR t.title LIKE '%ushinpay%' OR t.title LIKE '%urnstile%')
+        `).all(pId);
+
+        if (viralTasks.length > 0) {
+          contaminatedProjectIds.add(pId);
+          for (const vt of viralTasks) {
+            if (vt.run_id) contaminatedRunIds.add(vt.run_id);
+          }
+
+          if (p.path && fs.existsSync(p.path)) {
+            const aiDevHubDir = path.join(path.resolve(p.path), '.ai-dev-hub');
+            const specsDir = path.join(aiDevHubDir, 'specs');
+            if (fs.existsSync(specsDir)) {
+              for (const file of ['CONTEUDO.md', 'BACKEND.md', 'DESIGN.md', 'JORNADAS.md', 'PRINCIPIOS.md']) {
+                const filePath = path.join(specsDir, file);
+                if (fs.existsSync(filePath)) {
+                  try {
+                    const content = fs.readFileSync(filePath, 'utf-8');
+                    if (/YouTube|viral_videos|video_breakdowns|Decompositor 3 Pilares|Headline Hooks|PushinPay|Turnstile/i.test(content)) {
+                      fs.unlinkSync(filePath);
+                    }
+                  } catch {}
+                }
+              }
+            }
+            const tasksMdPath = path.join(aiDevHubDir, 'tasks.md');
+            if (fs.existsSync(tasksMdPath)) {
+              try {
+                const content = fs.readFileSync(tasksMdPath, 'utf-8');
+                if (/YouTube|viral_videos|video_breakdowns|Decompositor 3 Pilares|Headline Hooks|PushinPay|Turnstile/i.test(content)) {
+                  fs.unlinkSync(tasksMdPath);
+                }
+              } catch {}
+            }
+            const archMdPath = path.join(aiDevHubDir, 'architecture.md');
+            if (fs.existsSync(archMdPath)) {
+              try {
+                const content = fs.readFileSync(archMdPath, 'utf-8');
+                if (/YouTube Viral Search|video_breakdowns|viral_videos|viral_score/i.test(content)) {
+                  fs.unlinkSync(archMdPath);
+                }
+              } catch {}
+            }
+          }
+        }
+      }
+    }
+
+    if (contaminatedRunIds.size === 0) {
+      return { purgedRuns: 0, purgedTasks: 0 };
+    }
+
+    const runIdList = Array.from(contaminatedRunIds);
+    let totalPurgedTasks = 0;
+
+    const deleteWhereIn = (table: string, column: string, items: string[]) => {
+      if (items.length === 0) return;
+      try {
+        const hasTable = Boolean(targetDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table));
+        if (!hasTable) return;
+        const placeholders = items.map(() => '?').join(',');
+        targetDb.prepare(`DELETE FROM ${table} WHERE ${column} IN (${placeholders})`).run(...items);
+      } catch {}
+    };
+
+    const taskCountRow: any = targetDb.prepare(`
+      SELECT COUNT(*) as count FROM autonomous_tasks WHERE run_id IN (${runIdList.map(() => '?').join(',')})
+    `).get(...runIdList);
+    totalPurgedTasks = Number(taskCountRow?.count || 0);
+
+    deleteWhereIn('worker_leases', 'run_id', runIdList);
+    deleteWhereIn('agent_turn_observations', 'task_id', runIdList);
+    deleteWhereIn('builder_reports', 'run_id', runIdList);
+    deleteWhereIn('evaluation_results', 'run_id', runIdList);
+    deleteWhereIn('success_contracts', 'run_id', runIdList);
+    deleteWhereIn('execution_reservations', 'run_id', runIdList);
+    deleteWhereIn('run_control_requests', 'run_id', runIdList);
+    deleteWhereIn('autonomous_events', 'run_id', runIdList);
+    deleteWhereIn('autonomous_approvals', 'run_id', runIdList);
+    deleteWhereIn('task_state_transitions', 'run_id', runIdList);
+    deleteWhereIn('autonomous_major_tasks', 'run_id', runIdList);
+    deleteWhereIn('autonomous_tasks', 'run_id', runIdList);
+    deleteWhereIn('autonomous_runs', 'id', runIdList);
+
+    for (const projId of contaminatedProjectIds) {
+      try {
+        TurnCancellationManager.clearProjectCancellations(projId);
+      } catch {}
+    }
+
+    if (process.env.MCP_STDIO !== 'true') {
+      console.log(`[DB] Expurgo de runs contaminados com template viral concluído: ${runIdList.length} run(s), ${totalPurgedTasks} tarefa(s) removidas.`);
+    }
+
+    return { purgedRuns: runIdList.length, purgedTasks: totalPurgedTasks };
+  } catch (err: any) {
+    if (typeof (globalThis as any).logger !== 'undefined' && (globalThis as any).logger?.warn) {
+      (globalThis as any).logger.warn({
+        event: 'server.purge_contaminated_viral_runs_failed',
+        error: err?.message || String(err)
+      });
+    }
+    return { purgedRuns: 0, purgedTasks: 0 };
   }
 }
 

@@ -5097,6 +5097,181 @@ export class HierarchicalOrchestrationService {
   }
 
   /**
+   * Extracts explicitly numbered execution phases and their sub-requirements from a user briefing.
+   */
+  public static extractPhasesFromBriefing(briefing: string): Array<{
+    phaseNumber: number;
+    title: string;
+    description: string;
+    items: string[];
+  }> {
+    if (!briefing || typeof briefing !== 'string') return [];
+    const lines = briefing.split(/\r?\n/);
+    const phases: Array<{
+      phaseNumber: number;
+      title: string;
+      description: string;
+      items: string[];
+    }> = [];
+
+    let currentPhase: {
+      phaseNumber: number;
+      title: string;
+      description: string;
+      items: string[];
+    } | null = null;
+
+    const phaseRegex = /^(?:#{1,4}\s*)?(?:Fase|Etapa|Phase|Stage|Passo)\s*(\d+)[\s:—–-]+([^\n\r]+)/i;
+    const numberedHeaderRegex = /^(?:#{1,3}\s*)(\d+)\.\s+([A-ZÀ-Ú][^\n\r]+)/;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+
+      const pMatch = line.match(phaseRegex);
+      if (pMatch) {
+        if (currentPhase) {
+          phases.push(currentPhase);
+        }
+        currentPhase = {
+          phaseNumber: parseInt(pMatch[1], 10),
+          title: pMatch[2].trim().replace(/^[-—–:\s]+|[-—–:\s]+$/g, ''),
+          description: '',
+          items: []
+        };
+        continue;
+      }
+
+      if (!currentPhase && phases.length >= 2) {
+        const hMatch = line.match(numberedHeaderRegex);
+        if (hMatch) {
+          currentPhase = {
+            phaseNumber: parseInt(hMatch[1], 10),
+            title: hMatch[2].trim(),
+            description: '',
+            items: []
+          };
+          continue;
+        }
+      }
+
+      if (currentPhase) {
+        if (/^##\s*\d+\.\s+/i.test(line) && !line.match(phaseRegex)) {
+          phases.push(currentPhase);
+          currentPhase = null;
+          continue;
+        }
+
+        if (/^[-*•]\s+/.test(line) || /^\d+\.\d+\s+/.test(line) || /^\d+\.\s+/.test(line)) {
+          const itemText = line.replace(/^[-*•]\s+|\d+(\.\d+)?\.\s+/, '').trim();
+          if (itemText.length > 5) {
+            currentPhase.items.push(itemText);
+          }
+        } else if (!currentPhase.description && line.length > 10) {
+          currentPhase.description = line;
+        }
+      }
+    }
+
+    if (currentPhase) {
+      phases.push(currentPhase);
+    }
+
+    const uniquePhases: typeof phases = [];
+    const seen = new Set<number>();
+    for (const p of phases) {
+      if (!seen.has(p.phaseNumber)) {
+        seen.add(p.phaseNumber);
+        uniquePhases.push(p);
+      }
+    }
+
+    return uniquePhases.sort((a, b) => a.phaseNumber - b.phaseNumber);
+  }
+
+  /**
+   * Builds high-fidelity Major Tasks and atomic microtasks directly from the user's explicit briefing phases.
+   */
+  public static buildBlueprintsFromPhases(
+    phases: Array<{ phaseNumber: number; title: string; description: string; items: string[] }>,
+    projectName: string,
+    briefingExtraction: { entities: string[]; services: string[]; filters: string[] }
+  ): any[] {
+    return phases.map((phase, idx) => {
+      const gtCode = `GT-${phase.phaseNumber || idx + 1}`;
+      const stageCode = `ET-${phase.phaseNumber || idx + 1}.1`;
+      const microtasks: any[] = [];
+
+      if (phase.items.length >= 2) {
+        const stepItems = phase.items.slice(0, 4);
+        stepItems.forEach((item, mIdx) => {
+          const subCode = `${phase.phaseNumber || idx + 1}.${mIdx + 1}`;
+          microtasks.push({
+            subCode,
+            title: `${item.slice(0, 80)} de ${projectName}`,
+            desc: `${item}. Implementação no escopo da ${phase.title} de ${projectName}.`,
+            files: mIdx === 0
+              ? ['package.json', 'src/types/index.ts', 'src/config.ts']
+              : [`src/services/${(briefingExtraction.services[mIdx] || 'domainService').replace(/Service$/i, '')}Service.ts`, `test/${subCode.replace('.', '_')}.test.ts`],
+            criteria: [
+              `Implementação completa de: ${item}`,
+              `Verificação automatizada com saída limpa e testes determinísticos`
+            ]
+          });
+        });
+      } else {
+        const sub1 = `${phase.phaseNumber || idx + 1}.1`;
+        const sub2 = `${phase.phaseNumber || idx + 1}.2`;
+        const sub3 = `${phase.phaseNumber || idx + 1}.3`;
+
+        microtasks.push(
+          {
+            subCode: sub1,
+            title: `Implementar estrutura e contratos base de ${phase.title} para ${projectName}`,
+            desc: `Construir tipos, interfaces, configurações e base operacional para ${phase.title} (${phase.description || phase.title}).`,
+            files: idx === 0
+              ? ['package.json', 'tsconfig.json', 'src/types/index.ts']
+              : [`src/domain/${gtCode.toLowerCase()}.ts`, `src/types/${gtCode.toLowerCase()}.ts`],
+            criteria: [
+              `Estrutura e tipos de ${phase.title} definidos com tipagem estrita`,
+              `Sem dependências quebradas ou imports circulares`
+            ]
+          },
+          {
+            subCode: sub2,
+            title: `Implementar lógica e integração core de ${phase.title} para ${projectName}`,
+            desc: `Desenvolver a implementação funcional de ${phase.title} conectando dados, regras de negócio e serviços.`,
+            files: [`src/services/${gtCode.toLowerCase()}Service.ts`, `src/controllers/${gtCode.toLowerCase()}Controller.ts`],
+            criteria: [
+              `Lógica central de ${phase.title} implementada e integrada`,
+              `Tratamento de exceções e erros de domínio com códigos canônicos`
+            ]
+          },
+          {
+            subCode: sub3,
+            title: `Validar e homologar com testes automatizados de ${phase.title} para ${projectName}`,
+            desc: `Construir suíte de testes determinísticos para comprovar a execução de ${phase.title} com evidências reais.`,
+            files: [`test/${gtCode.toLowerCase()}.test.ts`],
+            criteria: [
+              `Testes automatizados cobrindo os critérios de ${phase.title}`,
+              `Execução de testes finalizando com sucesso (código 0)`
+            ]
+          }
+        );
+      }
+
+      return {
+        code: gtCode,
+        title: phase.title,
+        stageCode,
+        stageTitle: phase.title,
+        reqCats: ['general', 'persistence', 'api_contracts'],
+        microtasks
+      };
+    });
+  }
+
+  /**
    * Deterministic Two-Wave Multi-Pass Generator:
    * Divides a project briefing into 6 domain-aligned Major Tasks (Scaffolding, Models/Persistence,
    * Domain Logic, APIs, UI/Views, and Testing/Verification), each with atomic microtasks (>15 total),
@@ -5255,452 +5430,11 @@ export class HierarchicalOrchestrationService {
     const hasExplicitBilling = briefingExtraction.hasExplicitBilling;
     const hasExplicitKanban = briefingExtraction.hasExplicitKanban;
 
-    const isYouTubeViralSearch = Boolean(
-      /youtube|viral|video|transcri[çc]|headline|thumbnail|outlier|hook/i.test(originalDescription) ||
-      /youtube|viral/i.test(pName) ||
-      (params.projectPath && (
-        fs.existsSync(path.join(path.resolve(params.projectPath), '.ai-dev-hub', 'specs', 'CONTEUDO.md')) ||
-        fs.existsSync(path.join(path.resolve(params.projectPath), '.ai-dev-hub', 'specs', 'BACKEND.md'))
-      ))
-    );
-
-    const youtubeViralSearchBlueprints = [
-      {
-        code: 'GT-1',
-        title: 'Fundação, Config Dual-Mode DOCSIMP & Test Harness',
-        stageCode: 'ET-1.1',
-        stageTitle: 'Fundação e Configuração Dual-Mode',
-        reqCats: ['general'],
-        microtasks: [
-          {
-            subCode: '1.1',
-            title: `Configurar package.json, tsconfig.json, .gitignore, .env.example e tipos centrais de ${pName}`,
-            desc: `Configurar package.json, tsconfig.json, .gitignore, .env.example e tipos centrais de ${pName} (ViralVideo, VideoBreakdown, HeadlineAnalysis, TranscriptSegment, ThumbnailInspection, UserSession, PixPayment).`,
-            files: ['package.json', 'tsconfig.json', '.gitignore', '.env.example', 'src/types/index.ts'],
-            criteria: [
-              'package.json, tsconfig.json, .gitignore e .env.example provisionados com tipagem TypeScript strict',
-              'Interfaces e tipos centrais de domínio definidos em src/types/index.ts (ViralVideo, VideoBreakdown, HeadlineAnalysis, TranscriptSegment, ThumbnailInspection, UserSession, PixPayment)'
-            ]
-          },
-          {
-            subCode: '1.2',
-            title: `Implementar configuração resiliente Dual-Mode, logger estruturado, cache TTL e Dockerfile de ${pName}`,
-            desc: 'Implementar configuração resiliente Dual-Mode (src/config.ts), logger estruturado (src/logger.ts), cache TTL (Upstash com fallback em memória) e Dockerfile.',
-            files: ['src/config.ts', 'src/logger.ts', 'src/cache.ts', 'Dockerfile'],
-            criteria: [
-              'Configuração resiliente Dual-Mode em src/config.ts com defaults seguros',
-              'Logger estruturado e gerenciador de cache TTL com fallback em memória'
-            ]
-          },
-          {
-            subCode: '1.3',
-            title: `Configurar servidor HTTP base, rotas de status e harness de testes de ${pName}`,
-            desc: 'Configurar servidor HTTP base (src/server.ts na porta PORT || 4000), rota GET /api/health, GET /api/system/integrations e harness de testes (test/smoke.test.ts).',
-            files: ['src/server.ts', 'test/smoke.test.ts'],
-            criteria: [
-              'Servidor HTTP Express/Node escutando na porta dinâmica PORT || 4000',
-              'Endpoints GET /api/health e GET /api/system/integrations respondendo com status 200',
-              'Harness de testes determinístico configurado com smoke test inicial passando'
-            ]
-          }
-        ]
-      },
-      {
-        code: 'GT-2',
-        title: 'Modelagem SQLite Completa: Vídeos Virais, Decompositor 3 Pilares & SaaS Auth/PIX',
-        stageCode: 'ET-2.1',
-        stageTitle: 'Modelagem Relacional e Schemas de Vídeos Virais',
-        reqCats: ['persistence'],
-        microtasks: [
-          {
-            subCode: '2.1',
-            title: `Implementar conexão SQLite WAL e schema de domínio de canais e vídeos virais de ${pName}`,
-            desc: 'Implementar conexão SQLite WAL (src/db/connection.ts) e schema de domínio (channels, viral_videos com views_count, subscriber_count, outlier_multiplier, viral_score, engagement_rate, duration_sec, niche, language, published_at).',
-            files: ['src/db/connection.ts', 'src/db/schema.sql'],
-            criteria: [
-              'Conexão SQLite em modo WAL com PRAGMA foreign_keys = ON e PRAGMA busy_timeout',
-              'Tabelas channels e viral_videos modeladas com métricas completas de viralidade e índices adequados'
-            ]
-          },
-          {
-            subCode: '2.2',
-            title: `Modelar tabela video_breakdowns separando Headline, Transcrição e Thumbnail de ${pName}`,
-            desc: 'Modelar tabela video_breakdowns separando as 3 dimensões pedidas: Headline (headline_original, hook_category, ctr_score, power_words_json, variations_json), Transcrição (transcript_hook_0_30s, transcript_body_json, transcript_cta, full_transcript) e Thumbnail (thumbnail_url, overlay_text, visual_emotion, contrast_score, hex_palette_json).',
-            files: ['src/db/breakdownsSchema.sql', 'src/db/breakdownModels.ts'],
-            criteria: [
-              'Tabela video_breakdowns estruturada com os 3 pilares isolados em colunas e JSON tipado',
-              'Constraints de integridade relacional com a tabela viral_videos'
-            ]
-          },
-          {
-            subCode: '2.3',
-            title: `Modelar tabelas SaaS de Autenticação, Pagamentos PIX, esteira n8n e audit logs de ${pName}`,
-            desc: 'Modelar tabelas SaaS de Autenticação (users, auth_sessions compatível com Supabase Auth + Turnstile), Pagamentos (subscriptions, pix_charges), workflow_runs (esteira n8n), saved_collections e audit_logs.',
-            files: ['src/db/saasSchema.sql', 'src/db/saasModels.ts'],
-            criteria: [
-              'Tabelas users, auth_sessions, subscriptions, pix_charges, workflow_runs e saved_collections provisionadas',
-              'Tabela audit_logs para auditoria detalhada de mutações de sistema'
-            ]
-          },
-          {
-            subCode: '2.4',
-            title: `Implementar repositórios parametrizados para vídeos, breakdowns, usuários e coleções de ${pName}`,
-            desc: 'Implementar repositórios parametrizados (?) para viral_videos, video_breakdowns, users, pix_charges e saved_collections com testes unitários de banco (test/db.test.ts).',
-            files: ['src/repositories/videoRepository.ts', 'src/repositories/breakdownRepository.ts', 'src/repositories/userRepository.ts', 'test/db.test.ts'],
-            criteria: [
-              'Camada de acesso a dados usando exclusivamente consultas preparadas (?) contra injeção SQL',
-              'Suíte de testes de banco em test/db.test.ts executando com sucesso'
-            ]
-          }
-        ]
-      },
-      {
-        code: 'GT-3',
-        title: 'Smart Demo Seeding Realista de 35 Vídeos Virais Completos',
-        stageCode: 'ET-3.1',
-        stageTitle: 'Seeding Realista e Fixtures de Vídeos Virais',
-        reqCats: ['persistence'],
-        microtasks: [
-          {
-            subCode: '3.1',
-            title: `Implementar seedIfEmpty populando 35 vídeos virais realistas completos de ${pName}`,
-            desc: 'Implementar seedIfEmpty() populando 35 vídeos virais realistas do YouTube em múltiplos nichos, cada um com sua Headline analisada + 3 variações, Transcrição completa separada em Hook (0:00–0:35), Corpo com Timestamps e CTA, e Thumbnail com paleta HEX e score de contraste.',
-            files: ['src/db/seedVideos.ts', 'src/db/seeds.ts'],
-            criteria: [
-              'Geração determinística de 35 vídeos virais autênticos nos nichos de Tecnologia, Finanças, Creator Economy, Saúde e IA',
-              'Cada vídeo provido de Headline analisada + 3 variações, Transcrição estruturada em 3 partes e Thumbnail com paleta HEX'
-            ]
-          },
-          {
-            subCode: '3.2',
-            title: `Popular planos, usuário demo, coleções salvas e logs da esteira n8n de ${pName}`,
-            desc: 'Popular planos (Creator Free, Viral Pro, Agency Scale), usuário demo, coleções salvas e logs de execução da esteira n8n (test/seed.test.ts).',
-            files: ['src/db/seedSaaS.ts', 'test/seed.test.ts'],
-            criteria: [
-              'Planos Creator Free, Viral Pro e Agency Scale configurados com cotas e limites',
-              'Usuário demo autenticado e histórico de execuções da esteira de mineração populados',
-              'Testes automatizados do seeder test/seed.test.ts passando com exit code 0'
-            ]
-          }
-        ]
-      },
-      {
-        code: 'GT-4',
-        title: 'Autenticação Funcional Supabase + Cloudflare Turnstile + Gateway PIX PushinPay',
-        stageCode: 'ET-4.1',
-        stageTitle: 'Autenticação Supabase, Turnstile e Cobrança PIX',
-        reqCats: ['authentication', 'security'],
-        microtasks: [
-          {
-            subCode: '4.1',
-            title: `Implementar serviço de Autenticação Supabase Auth com fallback SQLite de ${pName}`,
-            desc: 'Implementar serviço de Autenticação Supabase Auth (src/services/authService.ts) com fallback SQLite transparente (POST /api/auth/register, POST /api/auth/login, POST /api/auth/logout, GET /api/auth/me) e controle de cotas por plano.',
-            files: ['src/services/authService.ts', 'src/controllers/authController.ts', 'src/routes/authRoutes.ts'],
-            criteria: [
-              'Endpoints /api/auth/register, /api/auth/login, /api/auth/logout e /api/auth/me funcionais',
-              'Fallback SQLite transparente quando chaves externas de produção não estiverem configuradas'
-            ]
-          },
-          {
-            subCode: '4.2',
-            title: `Implementar verificação anti-bot Cloudflare Turnstile com bypass seguro de teste de ${pName}`,
-            desc: 'Implementar verificação anti-bot Cloudflare Turnstile (POST /api/auth/verify-turnstile e middleware no login/cadastro com bypass seguro para chave de teste Cloudflare).',
-            files: ['src/services/turnstileService.ts', 'src/middlewares/turnstileMiddleware.ts'],
-            criteria: [
-              'Validação síncrona de token Turnstile via endpoint POST /api/auth/verify-turnstile',
-              'Bypass seguro documentado para o token de homologação da Cloudflare'
-            ]
-          },
-          {
-            subCode: '4.3',
-            title: `Implementar Gateway de Pagamentos PushinPay PIX com QR Code e Webhook de ${pName}`,
-            desc: 'Implementar Gateway de Pagamentos PushinPay PIX (GET /api/billing/plans, POST /api/billing/checkout-pix, POST /api/webhooks/pushinpay, GET /api/billing/status) gerando QR Code PIX + Copia-e-Cola e atualizando o plano do usuário via webhook.',
-            files: ['src/services/pixService.ts', 'src/controllers/billingController.ts', 'src/routes/billingRoutes.ts'],
-            criteria: [
-              'Geração de cobrança PIX com código Copia-e-Cola e payload de QR Code em /api/billing/checkout-pix',
-              'Recepção de webhook em POST /api/webhooks/pushinpay atualizando o plano da conta com idempotência'
-            ]
-          },
-          {
-            subCode: '4.4',
-            title: `Criar suíte de testes de integração de Login Supabase, Turnstile e Checkout PIX de ${pName}`,
-            desc: 'Criar suíte de testes de integração cobrindo Login Supabase, Cloudflare Turnstile e Checkout/Webhook PIX (test/authAndBilling.test.ts).',
-            files: ['test/authAndBilling.test.ts'],
-            criteria: [
-              'Suíte completa test/authAndBilling.test.ts cobrindo registro, login, verificação de bot e checkout PIX',
-              'Execução determinística com exit code 0'
-            ]
-          }
-        ]
-      },
-      {
-        code: 'GT-5',
-        title: 'Motor de Busca de Vídeos Virais com Filtros Compostos & Esteira n8n',
-        stageCode: 'ET-5.1',
-        stageTitle: 'Busca de Vídeos Virais, Filtros e Esteira n8n',
-        reqCats: ['filters', 'domain_calculations'],
-        microtasks: [
-          {
-            subCode: '5.1',
-            title: `Implementar motor de busca de vídeos virais com filtros combináveis de ${pName}`,
-            desc: 'Implementar motor de busca GET /api/videos/search com filtros combináveis (q, niche, minViews, minOutlierMultiplier 3x/5x/10x/25x, duration shorts/medium/long, publishedPeriod 24h/7d/30d/90d, language, sortBy).',
-            files: ['src/services/searchService.ts', 'src/controllers/searchController.ts', 'src/routes/videoRoutes.ts'],
-            criteria: [
-              'GET /api/videos/search com suporte a filtros combinados de nicho, outlier multiplier, duração e período',
-              'Ordenação dinâmica por viral_score, views_count ou published_at com paginação'
-            ]
-          },
-          {
-            subCode: '5.2',
-            title: `Implementar esteira de mineração assíncrona estilo n8n com telemetria de ${pName}`,
-            desc: 'Implementar esteira de mineração assíncrona estilo n8n (POST /api/workflows/mine e GET /api/workflows/runs) executando os 4 nós (YouTube Harvester -> Outlier Filter -> Transcript & Hook Extractor -> Thumbnail Analyzer) com telemetria em ms.',
-            files: ['src/services/workflowPipeline.ts', 'src/controllers/workflowController.ts', 'src/routes/workflowRoutes.ts'],
-            criteria: [
-              'Execução sequencial dos 4 nós do pipeline com telemetria de execução em milissegundos',
-              'Armazenamento do status e nós processados em workflow_runs acessível via GET /api/workflows/runs'
-            ]
-          },
-          {
-            subCode: '5.3',
-            title: `Implementar gerenciamento de Coleções Salvas e exportação CSV RFC-4180 de ${pName}`,
-            desc: 'Implementar gerenciamento de Coleções Salvas / Swipe File (GET/POST/DELETE /api/collections) e exportação CSV RFC-4180 (POST /api/export/csv).',
-            files: ['src/controllers/collectionController.ts', 'src/services/exportService.ts', 'src/routes/collectionRoutes.ts'],
-            criteria: [
-              'Endpoints para criar, listar e remover coleções e itens salvos no Swipe File',
-              'Exportação tabular CSV RFC-4180 em /api/export/csv com tratamento adequado de aspas e quebras de linha'
-            ]
-          }
-        ]
-      },
-      {
-        code: 'GT-6',
-        title: 'Motor Separador de Transcrição, Headline e Thumbnail + Revisão Total do Backend',
-        stageCode: 'ET-6.1',
-        stageTitle: 'Decompositor 3 Pilares e Blindagem Backend',
-        reqCats: ['domain_calculations', 'security'],
-        microtasks: [
-          {
-            subCode: '6.1',
-            title: `Implementar endpoints do motor separador de Transcrição, Headline e Thumbnail de ${pName}`,
-            desc: 'Implementar endpoints GET /api/videos/:id/breakdown e POST /api/videos/:id/analyze entregando separadamente: 1. Análise de Headline & Gerador de 3 Variações, 2. Transcrição dividida em Hook/Corpo/CTA com busca interna e exportação .txt/.json, e 3. Inspeção de Thumbnail com paleta HEX e contraste.',
-            files: ['src/services/breakdownService.ts', 'src/controllers/breakdownController.ts'],
-            criteria: [
-              'GET /api/videos/:id/breakdown entregando as 3 dimensões desacopladas com contratos estritos',
-              'Geração de 3 variações de Headline com score CTR e divisão do Hook 0:00–0:35'
-            ]
-          },
-          {
-            subCode: '6.2',
-            title: `Implementar blindagem de segurança OWASP e suporte a DECOHUB_PREVIEW_MODE de ${pName}`,
-            desc: 'Implementar blindagem OWASP (security.ts com suporte a DECOHUB_PREVIEW_MODE, anti-SQLi, anti-XSS, anti-Path Traversal e validação HTTP 400 contra negativos/NaN).',
-            files: ['src/middlewares/security.ts', 'src/middlewares/sanitize.ts'],
-            criteria: [
-              'Middlewares com cabeçalhos de segurança, anti-XSS, anti-SQLi e proteção contra Path Traversal',
-              'Suporte à variável DECOHUB_PREVIEW_MODE para inspeção limpa'
-            ]
-          },
-          {
-            subCode: '6.3',
-            title: `Executar bateria completa de testes de todos os contratos do Backend de ${pName}`,
-            desc: 'Executar bateria completa de testes de todos os contratos do Backend (test/backendComplete.test.ts).',
-            files: ['test/backendComplete.test.ts'],
-            criteria: [
-              'Suíte test/backendComplete.test.ts cobrindo rotas REST, decompositor, auth e banco',
-              'Execução 100% verde com exit code 0'
-            ]
-          }
-        ]
-      },
-      {
-        code: 'GT-7',
-        title: 'Frontend Simples Funcional Conectado — Prova Ponta a Ponta',
-        stageCode: 'ET-7.1',
-        stageTitle: 'Frontend Funcional Conectado',
-        reqCats: ['ui_responsive'],
-        microtasks: [
-          {
-            subCode: '7.1',
-            title: `Construir estrutura HTML e JS funcional conectando todas as rotas do backend de ${pName}`,
-            desc: 'Construir estrutura HTML/JS funcional em public/index.html e public/app.js conectando via fetch() todas as rotas do backend (Busca com filtros, visualização de Headline/Transcrição/Thumbnail, Login/Turnstile e Checkout PIX).',
-            files: ['public/index.html', 'public/app.js'],
-            criteria: [
-              'public/index.html e public/app.js consumindo a API REST do backend',
-              'Exibição de resultados de busca, modal de login/Turnstile, modal de PIX e detalhes de breakdown'
-            ]
-          },
-          {
-            subCode: '7.2',
-            title: `Validar integração ponta a ponta entre Frontend e Backend com persistência F5 de ${pName}`,
-            desc: 'Validar integração ponta a ponta entre Frontend e Backend com sobrevivência ao F5 (test/fullstackIntegration.test.ts).',
-            files: ['test/fullstackIntegration.test.ts'],
-            criteria: [
-              'Suíte test/fullstackIntegration.test.ts comprovando conexão real frontend-backend',
-              'Confirmação de integridade e persistência de dados após reload'
-            ]
-          }
-        ]
-      },
-      {
-        code: 'GT-8',
-        title: 'Design System Dark Studio, Cores ui-ux-pro-max / brandkit & App Shell',
-        stageCode: 'ET-8.1',
-        stageTitle: 'Design System Dark Studio e App Shell',
-        reqCats: ['ui_responsive'],
-        microtasks: [
-          {
-            subCode: '8.1',
-            title: `Aplicar Design System Dark Studio, paleta de alto contraste e tokens CSS de ${pName}`,
-            desc: 'Aplicar paleta de cores de alto contraste (#090b10 / #121622 / #ff2d55 / #6366f1), tipografia Inter + JetBrains Mono (tabular-nums) e tokens CSS em public/style.css seguindo ui-ux-pro-max, brandkit e vercel-web-design-guidelines.',
-            files: ['public/style.css', 'public/tokens.css'],
-            criteria: [
-              'Paleta Dark Studio (#090b10 / #121622 / #ff2d55 / #6366f1) configurada em variáveis CSS :root',
-              'font-variant-numeric: tabular-nums e tipografia Inter/JetBrains Mono em tabelas e scores'
-            ]
-          },
-          {
-            subCode: '8.2',
-            title: `Construir App Shell com Sidebar colapsável, Topbar e Command Palette Ctrl+K de ${pName}`,
-            desc: 'Construir App Shell com Sidebar colapsável (role="tab", data-tab), Topbar com status das integrações, Command Palette (Ctrl+K) e 100% ícones SVG Lucide inline.',
-            files: ['public/index.html', 'public/app.js'],
-            criteria: [
-              'Sidebar com atributos role="tab" e data-tab com estado colapsável persistente',
-              'Command Palette funcional acionada por Ctrl+K/Cmd+K e 100% de ícones em SVG inline'
-            ]
-          }
-        ]
-      },
-      {
-        code: 'GT-9',
-        title: 'Explorador de Vídeos Virais & Filtros Empilháveis padrão Attio.com',
-        stageCode: 'ET-9.1',
-        stageTitle: 'Explorador de Virais e Filtros Attio',
-        reqCats: ['forms', 'reports'],
-        microtasks: [
-          {
-            subCode: '9.1',
-            title: `Refinar aba Explorar Virais com barra de busca rápida e filtros empilháveis Attio de ${pName}`,
-            desc: 'Refinar a aba Explorar Virais (data-tab="explorar") seguindo attio-crm-data-engine_rea_blueprint.md: barra de busca com slash-commands (/nicho, /outlier, /shorts), filtros compostos empilháveis e KPIs de viralidade.',
-            files: ['public/index.html', 'public/app.js', 'public/style.css'],
-            criteria: [
-              'Barra de busca com comandos rápidos (/nicho, /outlier, /shorts) e filtros empilháveis em chips',
-              'Cards de KPIs de viralidade com taxas de engajamento e multiplicadores de outlier'
-            ]
-          },
-          {
-            subCode: '9.2',
-            title: `Implementar alternância instantânea entre Grid de Vídeos, Tabela Attio e Kanban de ${pName}`,
-            desc: 'Implementar alternância instantânea entre Grid Visual de Cards com Thumbnails, Tabela Densa estilo Attio e Quadro Kanban (Swipe File), com Bulk Actions e exportação CSV.',
-            files: ['public/index.html', 'public/app.js'],
-            criteria: [
-              'Alternância em 1 clique entre Grid de Thumbnails, Tabela Densa e Quadro Kanban',
-              'Seleção em lote com barra flutuante de ações (Bulk Actions) e exportação CSV'
-            ]
-          }
-        ]
-      },
-      {
-        code: 'GT-10',
-        title: 'Decompositor de Vídeo em 3 Abas Separadas + Esteira Visual padrão n8n.io',
-        stageCode: 'ET-10.1',
-        stageTitle: 'Decompositor 3 Abas e Visualizador n8n',
-        reqCats: ['forms', 'reports'],
-        microtasks: [
-          {
-            subCode: '10.1',
-            title: `Construir Aba 1 do Decompositor: Headline, Hooks, CTR Score e 3 Variações de ${pName}`,
-            desc: 'Construir no Decompositor (data-tab="decompositor" e Slide-Over Drawer) a Aba 1: Headline & Hooks (título original, categoria do gancho, CTR Score 0–100, palavras-gatilho destacadas e 3 variações copiáveis em 1 clique).',
-            files: ['public/index.html', 'public/app.js'],
-            criteria: [
-              'Aba Headline & Hooks com CTR Score, categoria do gancho e palavras-gatilho destacadas',
-              'Exibição de 3 variações de headline com botão Copiar e feedback visual'
-            ]
-          },
-          {
-            subCode: '10.2',
-            title: `Construir Aba 2 do Decompositor: Transcrição Separada com Hook, Timestamps e CTA de ${pName}`,
-            desc: 'Construir a Aba 2: Transcrição Separada (cards visuais distintos para Hook 00:00–00:35, Corpo com Timestamps clicáveis e CTA Final, busca interna na transcrição e botões Copiar Transcrição / Baixar .TXT).',
-            files: ['public/index.html', 'public/app.js'],
-            criteria: [
-              'Cards distintos para Hook 0:00–0:35, Corpo com timestamps clicáveis e CTA Final',
-              'Campo de busca interna na transcrição e botões funcionais Copiar Transcrição e Baixar .TXT'
-            ]
-          },
-          {
-            subCode: '10.3',
-            title: `Construir Aba 3 do Decompositor: Thumbnail Inspector e Esteira Visual n8n de ${pName}`,
-            desc: 'Construir a Aba 3: Thumbnail Inspector (preview HD, simulação de leitura Desktop vs Mobile, texto da thumb, score de contraste e chips clicáveis da Paleta HEX) + aba da Esteira Visual n8n (data-tab="pipeline").',
-            files: ['public/index.html', 'public/app.js'],
-            criteria: [
-              'Thumbnail Inspector com preview HD, contraste de texto e paleta de cores HEX clicável',
-              'Aba Esteira Visual n8n (data-tab="pipeline") renderizando nós e métricas de telemetria'
-            ]
-          }
-        ]
-      },
-      {
-        code: 'GT-11',
-        title: 'Auth Supabase + Turnstile & Checkout PIX padrão Tally.so + Responsividade Mobile/Desktop',
-        stageCode: 'ET-11.1',
-        stageTitle: 'Auth Tally, Checkout PIX e Responsividade',
-        reqCats: ['authentication', 'ui_responsive'],
-        microtasks: [
-          {
-            subCode: '11.1',
-            title: `Refinar telas de Auth Supabase com Turnstile e Checkout PIX padrão Tally de ${pName}`,
-            desc: 'Refinar as telas/modais de Login & Cadastro com Cloudflare Turnstile e Planos & Checkout PIX PushinPay seguindo tally-form-block-ux_rea_blueprint.md.',
-            files: ['public/index.html', 'public/app.js', 'public/style.css'],
-            criteria: [
-              'Modais de login/cadastro estilizados padrão Tally com widget anti-bot Turnstile',
-              'Tela de planos com comparador e fluxo de checkout PIX com QR Code dinâmico'
-            ]
-          },
-          {
-            subCode: '11.2',
-            title: `Otimizar responsividade completa para Desktop, Tablet e Mobile com animações fluidas de ${pName}`,
-            desc: 'Otimizar responsividade completa para Desktop (1440x900), Tablet (768x1024) e Mobile (390x844) aplicando modern-frontend-design, taste-skill e web-animation-design.',
-            files: ['public/style.css', 'public/app.js'],
-            criteria: [
-              'Layout responsivo sem quebras em 1440x900, 768x1024 e 390x844',
-              'Transições fluidas respeitando preferências de reduced-motion'
-            ]
-          }
-        ]
-      },
-      {
-        code: 'GT-12',
-        title: 'Homologação Visual Playwright Desktop/Mobile & Envio das Screenshots no Chat',
-        stageCode: 'ET-12.1',
-        stageTitle: 'Homologação Visual Playwright e Conclusão',
-        reqCats: ['testing'],
-        microtasks: [
-          {
-            subCode: '12.1',
-            title: `Executar auditoria E2E completa com persistência pós-F5, zero botões mortos e Pentest de ${pName}`,
-            desc: 'Executar auditoria E2E completa (persistência pós-F5, zero botões mortos, zero erros de console e pentest OWASP).',
-            files: ['test/e2e/workflow.test.ts', 'test/security/appSec.test.ts'],
-            criteria: [
-              'Auditoria E2E comprovando persistência de dados em recargas F5',
-              'Zero botões mortos, zero exceções de console e validações de segurança OWASP atendidas'
-            ]
-          },
-          {
-            subCode: '12.2',
-            title: `Capturar Screenshots reais no Playwright Desktop e Mobile e publicar Resumo Visual de ${pName}`,
-            desc: 'Capturar as Screenshots reais no Playwright (Desktop e Mobile) de todas as abas e publicar o Resumo Visual de Conclusão no Chat do Projeto.',
-            files: [
-              'test/visual/captureScreenshots.test.ts',
-              'scripts/capture_screenshots.py',
-              'scripts/captureScreenshots.ts',
-              'scripts/capture_screenshots.ts'
-            ],
-            criteria: [
-              'Screenshots reais de alta resolução capturadas via Playwright para Desktop e Mobile de todas as abas',
-              'Publicação do Resumo Visual de Conclusão no feed de eventos do projeto'
-            ]
-          }
-        ]
-      }
-    ];
+    // 1. Extração dinâmica de Fases enumeradas no briefing do usuário (Fase 1, Fase 2, etc.)
+    const extractedPhases = HierarchicalOrchestrationService.extractPhasesFromBriefing(originalDescription);
+    const dynamicPhaseBlueprints = extractedPhases.length >= 3
+      ? HierarchicalOrchestrationService.buildBlueprintsFromPhases(extractedPhases, pName, briefingExtraction)
+      : null;
 
     const saasEncyclopediaBlueprints = [
       {
@@ -5871,14 +5605,18 @@ export class HierarchicalOrchestrationService {
           },
           {
             subCode: '4.2',
-            title: (domainBlueprint.domainKey === 'creator_video_analytics' || domainBlueprint.domainKey === 'creator_economy')
+            title: domainBlueprint.domainKey === 'ad_intelligence'
+              ? `Implementar motor de Opportunity Score, longevidade de veiculação e agrupamento de anúncios de ${pName}`
+              : (domainBlueprint.domainKey === 'creator_video_analytics' || domainBlueprint.domainKey === 'creator_economy')
               ? `Implementar motor de cálculos analíticos: Outlier Multiplier, taxa de engajamento e velocidade VPH de ${pName}`
               : domainBlueprint.domainKey === 'ai_automation_agents'
               ? `Implementar motor de métricas de telemetria: latência P95, contabilidade de tokens e custo de inferência de ${pName}`
               : hasExplicitBilling
               ? `Implementar motor de cálculos analíticos, agregação de métricas e indicadores de desempenho de ${pName}`
               : `Implementar motor de cálculos analíticos, métricas de agregação e fórmulas do domínio de ${pName}`,
-            desc: (domainBlueprint.domainKey === 'creator_video_analytics' || domainBlueprint.domainKey === 'creator_economy')
+            desc: domainBlueprint.domainKey === 'ad_intelligence'
+              ? 'Construir algoritmos de normalização de anúncios da Meta Ads Library, deduplicação de criativos e cálculo de Opportunity Score (0 a 100) baseado em dados observáveis.'
+              : (domainBlueprint.domainKey === 'creator_video_analytics' || domainBlueprint.domainKey === 'creator_economy')
               ? 'Construir algoritmos de consolidação de dados de viralidade, cálculo de Outlier Score em relação ao baseline do canal, Engagement Rate e Views Per Hour (VPH).'
               : domainBlueprint.domainKey === 'ai_automation_agents'
               ? 'Construir algoritmos de cálculo de latência percentil P95, consumo acumulado de prompt/completion tokens e estimativa financeira por modelo.'
@@ -5886,7 +5624,12 @@ export class HierarchicalOrchestrationService {
               ? 'Construir algoritmos de consolidação de dados, médias móveis, variações percentuais (Δ%) e somatórios.'
               : `Construir algoritmos analíticos de consolidação, agregações e fórmulas essenciais do domínio (${domainBlueprint.formulas.slice(0, 2).join('; ') || 'médias móveis e variações percentuais'}).`,
             files: ['src/domain/calculator.ts', 'src/services/analyticsService.ts'],
-            criteria: (domainBlueprint.domainKey === 'creator_video_analytics' || domainBlueprint.domainKey === 'creator_economy')
+            criteria: domainBlueprint.domainKey === 'ad_intelligence'
+              ? [
+                  'Cálculo preciso de Opportunity Score considerando longevidade, multiplicidade de anúncios e criativos',
+                  'Algoritmo de deduplicação e agrupamento por anunciante e página'
+                ]
+              : (domainBlueprint.domainKey === 'creator_video_analytics' || domainBlueprint.domainKey === 'creator_economy')
               ? [
                   'Cálculo preciso de Outlier Score com baseline histórico e detecção de virais autênticos (>= 3x a 50x)',
                   'Cálculo de taxa de engajamento percentual e velocidade de visualizações por hora (VPH)'
@@ -5942,10 +5685,14 @@ export class HierarchicalOrchestrationService {
           },
           {
             subCode: '5.3',
-            title: (domainBlueprint.domainKey === 'creator_video_analytics' || domainBlueprint.domainKey === 'creator_economy')
+            title: domainBlueprint.domainKey === 'ad_intelligence'
+              ? `Implementar filtros de tempo ativo (7d, 30d, 90d), presença multi-plataforma e exportação CSV de ${pName}`
+              : (domainBlueprint.domainKey === 'creator_video_analytics' || domainBlueprint.domainKey === 'creator_economy')
               ? `Implementar filtros de engajamento, Outlier Multiplier (>3x, >5x, >10x), busca e exportação CSV de ${pName}`
               : `Implementar filtros compostos do domínio, ordenação dinâmica, paginação e exportação CSV RFC-4180 de ${pName}`,
-            desc: (domainBlueprint.domainKey === 'creator_video_analytics' || domainBlueprint.domainKey === 'creator_economy')
+            desc: domainBlueprint.domainKey === 'ad_intelligence'
+              ? `Suportar busca por palavra-chave, filtros por país, plataforma, tempo ativo, tipo de mídia e exportação tabular formatada em CSV RFC-4180 de ${pName}.`
+              : (domainBlueprint.domainKey === 'creator_video_analytics' || domainBlueprint.domainKey === 'creator_economy')
               ? 'Suportar busca textual com debounce (250ms), filtros multi-range por Outlier Score, views mínimas, engajamento e exportação tabular formatada em CSV RFC-4180.'
               : `Suportar busca textual com debounce (250ms), filtros combinados específicos do domínio (${briefingExtraction.filters.join(', ') || 'status e categorias'}) e exportação tabular formatada em CSV RFC-4180.`,
             files: ['src/services/filterService.ts', 'src/routes/exportRoutes.ts'],
@@ -6179,7 +5926,7 @@ export class HierarchicalOrchestrationService {
                 ]
               : [
                   'Toggle de visualização fluido entre Tabela Analítica e Galeria de Cards 16:9 com aspect-ratio preservado',
-                  'Cards exibindo pílulas de destaque semântico (ex: Outlier Multiplier >= 5x, métricas em tabular-nums)'
+                  'Cards exibindo pílulas de destaque semântico (ex: scores de oportunidade e métricas em tabular-nums)'
                 ]
           },
           {
@@ -6600,8 +6347,8 @@ export class HierarchicalOrchestrationService {
       }
     ];
 
-    const majorBlueprints = isYouTubeViralSearch
-      ? youtubeViralSearchBlueprints
+    const majorBlueprints = dynamicPhaseBlueprints && dynamicPhaseBlueprints.length >= 3
+      ? dynamicPhaseBlueprints
       : (isSaaS ? saasEncyclopediaBlueprints : standardBlueprints);
 
     const plannedTasks: PlannedTask[] = [];

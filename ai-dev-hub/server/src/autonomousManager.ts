@@ -184,7 +184,7 @@ export class AutonomousManager {
       const totalTasks = Number(taskCounts?.total || 0);
       const pendingTasks = Number(taskCounts?.pending || 0);
       const hasNoPendingTasks = totalTasks > 0 ? (pendingTasks === 0) : true;
-      const isStalledOrErrored = ['error', 'blocked', 'paused', 'waiting_resource'].includes(activeRun.status) || totalTasks === 0;
+      const isStalledOrErrored = ['error', 'blocked', 'paused', 'waiting_resource'].includes(activeRun.status) || totalTasks === 0 || (activeRun.status === 'waiting_approval' && totalTasks === pendingTasks);
 
       if (config.forceNew || isStalledOrErrored || hasNoPendingTasks) {
         const finalStatus = isStalledOrErrored ? 'failed' : 'completed';
@@ -208,6 +208,13 @@ export class AutonomousManager {
 
     const runId = crypto.randomUUID();
     const nowIso = new Date().toISOString();
+    try {
+      const { RunControl } = await import('./runControl.js');
+      RunControl.clear(runId);
+      if (activeRun?.id) RunControl.clear(activeRun.id);
+      const { TurnCancellationManager } = await import('./turnCancellationManager.js');
+      TurnCancellationManager.clearProjectCancellations(config.projectId);
+    } catch {}
     const dateTag = new Date().toISOString().slice(0, 10);
     const branchName = `ai/autonomous-build-${dateTag}-${runId.slice(0, 6)}`;
 
@@ -2994,7 +3001,11 @@ export class AutonomousManager {
     const run = this.getRun(runId);
     if (run.status === 'completed') return run;
     // Limpa qualquer solicitação antiga de pausa/cancelamento ao retomar explicitamente
-    try { db.prepare('DELETE FROM run_control_requests WHERE run_id = ?').run(runId); } catch {}
+    try {
+      db.prepare('DELETE FROM run_control_requests WHERE run_id = ?').run(runId);
+      const { TurnCancellationManager } = await import('./turnCancellationManager.js');
+      TurnCancellationManager.clearProjectCancellations(run.project_id);
+    } catch {}
     const { ExecutionCoordinator } = await import('./executionCoordinator.js');
     ExecutionCoordinator.reconcileDeadReservations();
 

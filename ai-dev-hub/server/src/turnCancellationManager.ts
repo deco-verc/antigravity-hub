@@ -47,6 +47,15 @@ export class TurnCancellationManager {
   }
 
   /**
+   * Clears cancellation status for a project and any associated session keys.
+   */
+  static clearProjectCancellations(projectId: string, ...extraKeys: (string | null | undefined)[]): void {
+    if (!projectId) return;
+    this.clearCancellation(projectId, ...extraKeys);
+    Logger.info(`[TurnCancellationManager] Cancelamento removido para projeto "${projectId}"`);
+  }
+
+  /**
    * Resets all active cancellations (useful for test resets).
    */
   static clearAll(): void {

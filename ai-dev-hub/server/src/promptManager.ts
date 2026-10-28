@@ -405,8 +405,9 @@ export class PromptManager {
         const specsDir = path.join(path.resolve(params.project.projectPath), '.ai-dev-hub', 'specs');
         if (fs.existsSync(specsDir)) {
           livingSpecsXml = [
-            '<canonical_living_specs_contract>',
-            '  Antes de iniciar qualquer microtarefa, inspecione via view_file os documentos canônicos em `.ai-dev-hub/specs/` (Fonte Única de Verdade):',
+            '<canonical_living_specs_contract title="ESPECIFICAÇÕES VIVAS OBRIGATÓRIAS">',
+            '  === ESPECIFICAÇÕES VIVAS OBRIGATÓRIAS (.ai-dev-hub/specs/) ===',
+            '  Antes de iniciar qualquer microtarefa, inspecione via view_file os documentos canônicos em `.ai-dev-hub/specs/` (Fonte Única de Verdade do projeto):',
             '  - @.ai-dev-hub/specs/PRINCIPIOS.md: Invariantes Karpathy, PORT_GUARD (faixa 4000-4999) e blindagem AppSec.',
             '  - @.ai-dev-hub/specs/CONTEUDO.md: Seções canônicas (01-Dashboard, etc.), abas role="tab", KPIs e dados realistas de seed.',
             '  - @.ai-dev-hub/specs/BACKEND.md: Tabelas SQLite exatas, contratos REST e regras de validação HTTP 400.',

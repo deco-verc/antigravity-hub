@@ -92,4 +92,13 @@ export class RunControl {
   static clearPause(runId: string): void {
     db.prepare('DELETE FROM run_control_requests WHERE run_id=?').run(runId);
   }
+
+  static clear(runId: string): void {
+    if (!runId) return;
+    try {
+      db.prepare('DELETE FROM run_control_requests WHERE run_id=?').run(runId);
+    } catch {
+      // non-blocking
+    }
+  }
 }

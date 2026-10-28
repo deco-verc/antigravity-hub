@@ -87,7 +87,15 @@ export interface SupervisorPromptInput {
     lastError?: string;
   };
   // Specific for FINAL_REVIEW
-  allCompletedTasks?: Array<{ id: string; title: string }>;
+  allCompletedTasks?: Array<{ id?: string; title: string }>;
+  finalReviewEvidence?: Array<{
+    title?: string;
+    verdict?: string;
+    taskIsDone?: boolean;
+    exitCode?: number | null;
+    notes?: string[];
+    summary?: any;
+  }>;
   docSimpContextBlock?: string;
   designSkillContextBlock?: string;
   designSkillBlock?: string;
@@ -430,8 +438,13 @@ export class PromptArchitectureService {
       sections.push(`  </recovery_state>`);
     }
 
-    if (input.mode === 'FINAL_REVIEW' && input.allCompletedTasks) {
-      sections.push(`  <all_completed_tasks>\n${input.allCompletedTasks.map(t => `    - ${t.title}`).join('\n')}\n  </all_completed_tasks>`);
+    if (input.mode === 'FINAL_REVIEW') {
+      if (input.allCompletedTasks && input.allCompletedTasks.length > 0) {
+        sections.push(`  <all_completed_tasks>\n${input.allCompletedTasks.map(t => `    - [CONCLUÍDO] ${t.title}`).join('\n')}\n  </all_completed_tasks>`);
+      }
+      if (input.finalReviewEvidence && input.finalReviewEvidence.length > 0) {
+        sections.push(`  <final_review_evidence>\n${input.finalReviewEvidence.map(e => `    - Tarefa: ${e.title || 'Microtarefa'} | Veredito: ${e.verdict || 'PASS'} | ExitCode: ${e.exitCode ?? 0}${e.notes?.length ? ` | Notas: ${e.notes.join('; ')}` : ''}`).join('\n')}\n  </final_review_evidence>`);
+      }
     }
 
     if (input.docSimpContextBlock) {
@@ -552,10 +565,34 @@ export class PromptArchitectureService {
 
       case 'FINAL_REVIEW':
         sections.push(
-          `  <mode_objective>Executar a homologação final (Success Auditor) de todas as tarefas concluídas no Autonomous Run.</mode_objective>`,
-          `  <final_homologation_criteria>`,
-          `    - Confirmar se o objetivo original do projeto e 100% dos requisitos obrigatórios foram comprovados por testes e evidências visuais/API, autorizando o encerramento da missão.`,
-          `  </final_homologation_criteria>`
+          `  <mode_objective>Atuar como SUCCESS AUDITOR & STAFF QUALITY PRINCIPAL para a homologação final e encerramento do Autonomous Run.</mode_objective>`,
+          `  <project_completion_invariants>`,
+          `    1. ESTADO DA ESTEIRA: 100% das microtarefas planejadas foram implementadas e atestadas com exit code 0 pelo Independent Evaluator.`,
+          `    2. AVALIAÇÃO FACTUAL DOS 7 PILARES SAAS MASTER:`,
+          `       - Arquitetura & Backend: Rotas /api funcionais, SPA servida na raiz GET /, validação HTTP 400 e blindagem OWASP (Path Traversal com path.resolve, nosniff, sanitização DOM).`,
+          `       - Persistência & Dados: Banco SQLite com PRAGMA journal_mode = WAL;, tabela audit_logs e rotina seedIfEmpty() com dados realistas.`,
+          `       - Interface & UX: Design Tokens :root, ícones SVG Lucide inline (zero emojis), navegação por abas [role="tab"]/data-tab e persistência pós-reload (F5).`,
+          `       - Governança & Cloud: Dockerfile limpo (PORT 4000-4999 com PORT_GUARD) e documentação /docs íntegra.`,
+          `    3. CRITÉRIO DE HOMOLOGAÇÃO:`,
+          `       - Se 100% das tarefas foram executadas com sucesso sem regressões atestadas, o veredito DEVE ser obrigatoriamente "APPROVED".`,
+          `       - Se houver falha crítica factual comprovada por evidências nos testes, emita "CHANGES_REQUESTED" detalhando o reparo.`,
+          `  </project_completion_invariants>`,
+          `  <output_contract format="application/json">`,
+          `    IMPORTANTE: É ESTRITAMENTE PROIBIDO responder com texto conversacional solto, saudações ou markdown fora do bloco JSON.`,
+          `    Responda EXCLUSIVAMENTE com um único objeto JSON válido (application/json, puro ou em bloco \`\`\`json):`,
+          `    {`,
+          `      "verdict": "APPROVED" | "CHANGES_REQUESTED" | "BLOCKED",`,
+          `      "feedback": "Parecer executivo detalhado da homologação final, destacando os módulos entregues e a comprovação dos testes.",`,
+          `      "nextAction": "Projeto concluído com sucesso" | "Ação corretiva recomendada",`,
+          `      "qualityScore": 10,`,
+          `      "requirementsMet": true,`,
+          `      "buildPassed": true,`,
+          `      "testsPassed": true,`,
+          `      "uiFunctional": true,`,
+          `      "summary": "Resumo de alto nível do projeto entregue.",`,
+          `      "highlights": ["Destaque 1", "Destaque 2"]`,
+          `    }`,
+          `  </output_contract>`
         );
         break;
 
@@ -664,11 +701,12 @@ export class PromptArchitectureService {
     }
 
     if (input.marketDiscoveryContextBlock) {
-      sections.push(`  <market_discovery_pointer>Consulte @.ai-dev-hub/market-research-rea.md para benchmarks de produtos de referência e entidades recomendadas.</market_discovery_pointer>`);
+      sections.push(`  <market_discovery_pointer title="DIRETRIZES DA ONDA 0 (MARKET RESEARCH & REA)">\n=== DIRETRIZES DA ONDA 0 (MARKET RESEARCH & REA) ===\nConsulte @.ai-dev-hub/market-research-rea.md para benchmarks de produtos de referência e entidades recomendadas.\n  </market_discovery_pointer>`);
     }
 
     if (input.livingSpecContextBlock) {
       sections.push(`  <living_specifications_truth source=".ai-dev-hub/specs/">`);
+      sections.push(`=== FONTE ÚNICA DE VERDADE DO PROJETO (.ai-dev-hub/specs/) ===`);
       sections.push(input.livingSpecContextBlock);
       sections.push(`    INSTRUÇÕES OBRIGATÓRIAS AO WORKER:`);
       sections.push(`    - Siga rigorosamente os nomes exatos de tabelas, colunas e rotas REST de @.ai-dev-hub/specs/BACKEND.md;`);
@@ -690,6 +728,7 @@ export class PromptArchitectureService {
         const specBlock = ProjectLivingSpecService.getRoleSpecificSpecContext(input.projectPath, taskRole);
         if (specBlock) {
           sections.push(`  <living_specifications_truth source=".ai-dev-hub/specs/">`);
+          sections.push(`=== FONTE ÚNICA DE VERDADE DO PROJETO (.ai-dev-hub/specs/) ===`);
           sections.push(specBlock);
           sections.push(`    INSTRUÇÕES OBRIGATÓRIAS AO WORKER:`);
           sections.push(`    - Siga rigorosamente os nomes exatos de tabelas, colunas e rotas REST de @.ai-dev-hub/specs/BACKEND.md;`);
@@ -961,28 +1000,31 @@ export class PromptArchitectureService {
     sections.push(`  </project_metadata>`);
     sections.push(`  <user_briefing>\n${input.briefing}\n  </user_briefing>`);
 
+    const isLargeBriefing = (input.briefing || '').length > 5000;
+    const maxAuxiliaryChars = isLargeBriefing ? 1200 : 3500;
+
     if (input.requirements && input.requirements.length > 0) {
       sections.push(`  <traceable_requirements>\n${input.requirements.map(r => `    - ${r}`).join('\n')}\n  </traceable_requirements>`);
     }
-    if (input.constitutionSnippet) sections.push(`  <constitution>\n${input.constitutionSnippet.slice(0, 3500)}\n  </constitution>`);
-    if (input.existingMemorySnippet) sections.push(`  <memory>\n${input.existingMemorySnippet.slice(0, 3500)}\n  </memory>`);
-    if (input.docSimpContextBlock) sections.push(`  <docsimp_blueprints>\n${input.docSimpContextBlock}\n  </docsimp_blueprints>`);
+    if (input.constitutionSnippet) sections.push(`  <constitution>\n${input.constitutionSnippet.slice(0, maxAuxiliaryChars)}\n  </constitution>`);
+    if (input.existingMemorySnippet) sections.push(`  <memory>\n${input.existingMemorySnippet.slice(0, maxAuxiliaryChars)}\n  </memory>`);
+    if (input.docSimpContextBlock) sections.push(`  <docsimp_blueprints>\n${input.docSimpContextBlock.slice(0, maxAuxiliaryChars)}\n  </docsimp_blueprints>`);
 
     const designBlock = input.designSkillContextBlock || input.designSkillBlock;
-    if (designBlock) sections.push(`  <design_skill_tokens>\n${designBlock}\n  </design_skill_tokens>`);
-    if (input.reaSaaSMasterContextBlock) sections.push(`  <rea_saas_master>\n${input.reaSaaSMasterContextBlock}\n  </rea_saas_master>`);
+    if (designBlock) sections.push(`  <design_skill_tokens>\n${designBlock.slice(0, maxAuxiliaryChars)}\n  </design_skill_tokens>`);
+    if (input.reaSaaSMasterContextBlock) sections.push(`  <rea_saas_master>\n${input.reaSaaSMasterContextBlock.slice(0, maxAuxiliaryChars)}\n  </rea_saas_master>`);
 
     if (input.marketDiscoveryContextBlock) {
-      sections.push(`  <onda_0_market_discovery>\n${input.marketDiscoveryContextBlock}\n    Incorpore os diferenciais 10-star, entidades recomendadas e fluxos mapeados na modelagem das Grandes Tarefas.\n  </onda_0_market_discovery>`);
+      sections.push(`  <onda_0_market_discovery title="CAMADA C: ESTUDO DE MERCADO, BENCHMARKING & REA DISCOVERY (ONDA 0)">\n=== CAMADA C: ESTUDO DE MERCADO, BENCHMARKING & REA DISCOVERY (ONDA 0) ===\n${input.marketDiscoveryContextBlock.slice(0, maxAuxiliaryChars)}\n    Incorpore os diferenciais 10-star, entidades recomendadas e fluxos mapeados na modelagem das Grandes Tarefas.\n  </onda_0_market_discovery>`);
     }
 
     if (input.livingSpecContextBlock) {
-      sections.push(`  <living_specifications source=".ai-dev-hub/specs/">\n${input.livingSpecContextBlock}\n    Incorpore rigorosamente as seções de CONTEUDO.md, schemas de BACKEND.md, tokens de DESIGN.md e invariantes de PRINCIPIOS.md nas Grandes Tarefas.\n  </living_specifications>`);
+      sections.push(`  <living_specifications source=".ai-dev-hub/specs/">\n${input.livingSpecContextBlock.slice(0, isLargeBriefing ? 2000 : 4000)}\n    Incorpore rigorosamente as seções de CONTEUDO.md, schemas de BACKEND.md, tokens de DESIGN.md e invariantes de PRINCIPIOS.md nas Grandes Tarefas.\n  </living_specifications>`);
     } else if (input.projectPath && fs.existsSync(path.join(input.projectPath, '.ai-dev-hub', 'specs'))) {
       try {
         const specBlock = ProjectLivingSpecService.getRoleSpecificSpecContext(input.projectPath, 'SUPERVISOR_BLUEPRINT');
         if (specBlock) {
-          sections.push(`  <living_specifications source=".ai-dev-hub/specs/">\n${specBlock}\n    Incorpore rigorosamente as seções de CONTEUDO.md, schemas de BACKEND.md, tokens de DESIGN.md e invariantes de PRINCIPIOS.md nas Grandes Tarefas.\n  </living_specifications>`);
+          sections.push(`  <living_specifications source=".ai-dev-hub/specs/">\n${specBlock.slice(0, isLargeBriefing ? 2000 : 4000)}\n    Incorpore rigorosamente as seções de CONTEUDO.md, schemas de BACKEND.md, tokens de DESIGN.md e invariantes de PRINCIPIOS.md nas Grandes Tarefas.\n  </living_specifications>`);
         }
       } catch (err) {
         if (typeof (globalThis as any).logger !== 'undefined' && (globalThis as any).logger?.warn) {
@@ -1006,19 +1048,20 @@ export class PromptArchitectureService {
       `  <blueprint_architecture_mandates>`,
       `    OBJETIVO: Estruturar as Grandes Tarefas (Major Tasks - GT) e Etapas (Stages - ET) cobrindo todo o ciclo de vida do software sob a metodologia BACKEND-FIRST, ROCK-SOLID & TESTED -> PROGRESSIVE FRONTEND REFINEMENT.`,
       `    === FASE MACRO 1: BACKEND 100% FUNCIONAL, TESTADO E REVISADO + FRONTEND SIMPLES CONECTADO (GT-1 a GT-7) ===`,
-      `    * GT-1 [Infra Dual-Mode DOCSIMP, Cache e Config]: Scaffolding, pesquisa de arquitetura (rea-backend-workflows, saas_plug_and_play_standard), configuração de ambiente (.env.example), endpoint /api/system/integrations, cache/rate-limiting (Upstash Redis com fallback em memória), Dockerfile e servidor HTTP base (PORT_GUARD 4000-4999).`,
-      `    * GT-2 [Banco de Dados SQLite Relacional & Seed Realista]: Modelagem relacional completa de todas as tabelas do domínio real + tabelas SaaS (users, auth_sessions, subscriptions, pix_payments, channels, viral_videos, video_breakdowns, workflow_runs, saved_collections, audit_logs) com PRAGMA journal_mode = WAL; e rotina seedIfEmpty() rica com 30 a 40 registros interconectados e realistas.`,
-      `    * GT-3 [Autenticação Funcional Supabase Auth + Cloudflare Turnstile]: Implementação completa de /api/auth/register, /api/auth/login, /api/auth/logout, /api/auth/me com middleware JWT/Session (Supabase Auth com fallback local SQLite transparente) e verificação anti-bot Cloudflare Turnstile (/api/auth/verify-turnstile + widget e token de teste funcional).`,
-      `    * GT-4 [Gateway de Pagamentos PIX & Assinaturas PushinPay]: Integração completa (/api/billing/plans, /api/billing/checkout-pix, /api/webhooks/pushinpay) com geração de QR Code PIX dinâmico, código Copia-e-Cola, webhook de confirmação idempotente, upgrade imediato de plano e liberação de cotas.`,
-      `    * GT-5 [Motor Core do Domínio & Filtros Compostos]: Motor de busca avançado com múltiplos filtros combinados, ordenação, paginação, esteira de extração estilo n8n (/api/workflows/harvest, /api/workflows/runs) com separação explícita de Headline (hooks e CTR score), Transcrição (hook 0-30s com timestamps) e Thumbnail (cores, contraste e emoção), coleções salvas e exportação CSV/TXT/JSON RFC-4180.`,
+      `    * GT-1 [Infra Dual-Mode DOCSIMP, Cache e Config]: Scaffolding, tipagem TypeScript estrita, configuração de ambiente (.env.example), endpoint /api/system/integrations, cache/rate-limiting com fallback em memória, Dockerfile e servidor HTTP base (PORT_GUARD 4000-4999).`,
+      `    * GT-2 [Banco de Dados SQLite Relacional & Seed Realista]: Modelagem relacional completa das entidades e tabelas do domínio solicitadas no briefing com PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; e rotina seedIfEmpty() rica com 30 a 50 registros interconectados e realistas.`,
+      `    * GT-3 [Autenticação e Permissões (se solicitado no briefing)]: Implementação de rotas de autenticação, sessão e proteção apenas se requerido pelo projeto; caso contrário, focar nos contratos de persistência e domínio.`,
+      `    * GT-4 [Cobrança e Monetização (se solicitado no briefing)]: Integração de planos e gateway de pagamento apenas se requerido pelo projeto; caso contrário, focar em regras de negócio e serviços core.`,
+      `    * GT-5 [Motor Core do Domínio & Filtros Compostos]: Motor de busca e filtros do domínio com debounce, validação de invariantes de negócio, cálculos analíticos/scores e exportação tabular (CSV RFC-4180 / JSON).`,
       `    * GT-6 [Bateria Exaustiva de Testes, Revisão e Blindagem do Backend]: Suíte completa de testes unitários, testes de integração REST, validações HTTP 400 (rejeição de valores negativos/NaN/campos nulos) e defesas AppSec Red Team (blindagem contra SQLi, XSS e Path Traversal) — Hard Milestone Gate: nenhuma tarefa de polimento visual começa antes de 100% do backend estar testado e aprovado em GT-6.`,
-      `    * GT-7 [Frontend Simples Funcional — Prova de Integração Ponta a Ponta]: Construção de interface limpa conectando via fetch() a 100% das rotas do backend (Login/Turnstile, Busca com Filtros Compostos, Visualização de Transcrição/Headline/Thumbnail e Checkout PIX), comprovando integração ponta a ponta.`,
-      `    === FASE MACRO 2: REFINAMENTO PROFUNDO DE FRONTEND (TALLY + N8N + ATTIO + TODAS AS SKILLS) & SCREENSHOTS FINAIS (GT-8 a GT-12) ===`,
+      `    * GT-7 [Frontend Simples Funcional — Prova de Integração Ponta a Ponta]: Construção de interface limpa conectando via fetch() a 100% das rotas do backend com persistência pós-F5, comprovando integração ponta a ponta sem botões mortos.`,
+      `    === FASE MACRO 2: REFINAMENTO PROFUNDO DE FRONTEND & SCREENSHOTS FINAIS (GT-8 a GT-12) ===`,
       `    * GT-8 [Cores & Tipografia: ui-ux-pro-max + brandkit]: Sistema de cores profissional de alto contraste, tokens CSS em :root, hierarquia tipográfica precisa (Inter + JetBrains Mono com tabular-nums), superfícies refinadas e badges semânticos.`,
-      `    * GT-9 [Inputs, Busca / & Modais Zero-Fricção: tally-form-block-ux_rea_blueprint.md + vercel-web-design-guidelines]: Refinamento da tela de Login/Turnstile, barra de busca com slash-commands (/), modais de criação e modal de Checkout PIX (max-w-[580px]) com validação inline em tempo real.`,
-      `    * GT-10 [Data Grid de Alta Densidade & Filtros Empilháveis: attio-crm-data-engine_rea_blueprint.md + modern-frontend-design]: Refinamento da tabela (linhas compactas h-9, tabular-nums) e cards, filtros compostos empilháveis, alternância Tabela/Kanban, Bulk Actions e Slide-Over Detail Drawer de 480px-520px.`,
-      `    * GT-11 [Esteira Visual & Decompositor de 3 Pilares: n8n-workflow-automation_rea_blueprint.md + taste-skill + web-animation-design]: Painel Decompositor com as 3 abas dedicadas (Headline Hooks com score CTR, Transcrição timestamped com cópia em 1 clique e Thumbnail Inspector com paleta e contraste), esteira em nós de execução e responsividade completa para Desktop (1440x900), Tablet (768x1024) e Mobile (390x844).`,
+      `    * GT-9 [Inputs, Busca e Modais Zero-Fricção]: Refinamento de formulários, barra de busca com comandos rápidos, modais de criação e visualização com validação inline em tempo real.`,
+      `    * GT-10 [Data Grid de Alta Densidade & Filtros Empilháveis]: Refinamento da tabela de registros do domínio (linhas compactas h-9, tabular-nums) e cards, filtros compostos empilháveis, Bulk Actions e Slide-Over Detail Drawer lateral de 480px-520px.`,
+      `    * GT-11 [Visualizações Especializadas do Domínio & Responsividade]: Painéis de análise, comparadores ou visualizadores específicos do domínio conforme solicitado no briefing, com responsividade completa para Desktop (1440x900), Tablet (768x1024) e Mobile (390x844).`,
       `    * GT-12 [Homologação Visual Playwright & Screenshots no Chat: playwright-agent-cli]: Auditoria visual E2E Desktop e Mobile, garantia de sobrevivência ao F5, zero botões mortos, zero overflow horizontal, captura de evidências fotográficas em PNG no Playwright e envio automático das Screenshots finais no Chat do Projeto.`,
+      `    - FIDELIDADE ABSOLUTA AO BRIEFING: Modele estritamente os módulos, entidades e fluxos solicitados no briefing do usuário (@.ai-dev-hub/BRIEFING_ORIGINAL.md). Jamais invente módulos não solicitados (como vídeos virais do YouTube, PIX, Turnstile ou n8n, a menos que constem no briefing).`,
       `    - Explicitar no campo "objective" de cada Grande Tarefa e Etapa os nomes principais de tabelas, módulos e rotas da API para orientar a Onda 2.`,
       `  </blueprint_architecture_mandates>`,
       `  <output_contract>`,
@@ -1078,7 +1121,7 @@ export class PromptArchitectureService {
     if (input.reaSaaSMasterContextBlock) sections.push(`  <rea_saas_master>\n${input.reaSaaSMasterContextBlock}\n  </rea_saas_master>`);
 
     if (input.marketDiscoveryContextBlock) {
-      sections.push(`  <onda_0_market_discovery>\n${input.marketDiscoveryContextBlock}\n  </onda_0_market_discovery>`);
+      sections.push(`  <onda_0_market_discovery title="CAMADA C: ESTUDO DE MERCADO & REA DISCOVERY (ONDA 0)">\n=== CAMADA C: ESTUDO DE MERCADO & REA DISCOVERY (ONDA 0) ===\n${input.marketDiscoveryContextBlock}\n  </onda_0_market_discovery>`);
     }
 
     if (input.livingSpecContextBlock) {

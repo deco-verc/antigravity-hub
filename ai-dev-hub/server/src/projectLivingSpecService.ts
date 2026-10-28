@@ -1207,6 +1207,218 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs (entity, entity_i
       accentColor: '#3b82f6'
     },
 
+    ad_intelligence: {
+      domainKey: 'ad_intelligence',
+      domainName: 'Ad Intelligence & Meta Ads Library Mining SaaS',
+      targetAudience: 'Gestores de tráfego, anunciantes, agências e profissionais de mídia paga que buscam pesquisar anúncios da Meta Ads Library, normalizar dados, calcular indicadores de escala e identificar criativos duradouros.',
+      referenceApps: [
+        'Meta Ads Library (Official Library & Ad Transparency)',
+        'AdSpy (Ad Intelligence & Social Mining)',
+        'Foreplay.co (Ad Creative Discovery & Swipe Files)',
+        'BigSpy (Ad Monitoring & Creative Analytics)',
+        'Dropispy (E-commerce Ad Discovery)'
+      ],
+      marketBenchmark: 'Plataformas líderes de inteligência de anúncios conectam-se à Meta Ads Library oficial ou scrapers autorizados, deduplicam criativos, calculam longevidade de veiculação e Opportunity Score heurístico sem prometer lucro garantido.',
+      differentials: [
+        'Pesquisa avançada com filtros de tempo ativo (7d, 30d, 90d), presença multi-plataforma e quantidade de variantes',
+        'Opportunity Score calibrado por longevidade, multiplicidade de anúncios e diversidade de criativos',
+        'Detalhamento analítico de anúncios com histórico observacional e exportação CSV estruturada',
+        'Arquitetura desacoplada com AdDataProvider e suporte a provedores configuráveis'
+      ],
+      sections: [
+        {
+          code: '01',
+          name: 'Pesquisa e Filtros de Anúncios',
+          tabId: 'search',
+          kpis: ['Anúncios Rastreados: 2.840', 'Anunciantes Ativos: 420', 'Criativos em Escala: 94'],
+          chart: 'Volume de Anúncios Ativos por Nicho ao Longo do Tempo (Gráfico SVG Multi-Série)',
+          gridColumns: ['ID', 'Criativo', 'Anunciante', 'Plataformas', 'Dias Ativo', 'Score de Escala', 'Status'],
+          filters: ['Palavra-Chave', 'Plataforma (Facebook, Instagram)', 'Tempo Ativo (>= 7d, >= 30d, >= 90d)', 'Tipo de Mídia (Vídeo, Imagem)'],
+          drawerContent: 'Detalhes completos do anúncio, histórico de observações, variações do criativo e parâmetros da biblioteca',
+          modalContent: 'Modal de Nova Pesquisa na Meta Ads Library e exportação de resultados',
+          seedSummary: '30 anúncios de exemplo com métricas de tempo de veiculação e análise de criativos'
+        },
+        {
+          code: '02',
+          name: 'Radar de Criativos em Escala',
+          tabId: 'radar',
+          kpis: ['Taxa de Reaplicação: 42%', 'Média de Dias Ativo: 38 dias', 'Score Médio: 78/100'],
+          chart: 'Distribuição de Criativos por Faixa de Longevidade (Barras SVG)',
+          gridColumns: ['Criativo', 'Anunciante', 'Variações Detectadas', 'Primeira Observação', 'Última Observação', 'Score'],
+          filters: ['Score de Escala', 'Múltiplas Peças Ativas', 'Presença Multi-Plataforma'],
+          drawerContent: 'Análise de argumentos, chamadas para ação e hipóteses observáveis do criativo',
+          modalContent: 'Salvar criativo em pasta de referências',
+          seedSummary: 'Coleção de criativos duradouros categorizados por nicho'
+        },
+        {
+          code: '03',
+          name: 'Painel de Anunciantes',
+          tabId: 'advertisers',
+          kpis: ['Total de Anunciantes: 420', 'Com Anúncios Ativos: 310', 'Média de Peças/Anunciante: 6.8'],
+          chart: 'Top Anunciantes por Volume de Criativos Simultâneos',
+          gridColumns: ['Nome da Página', 'ID da Página', 'Total de Anúncios', 'Anúncios Ativos', 'Mídia Dominante', 'Ações'],
+          filters: ['Faixa de Anúncios Ativos', 'Categoria da Página'],
+          drawerContent: 'Perfil detalhado do anunciante e todos os anúncios veiculados pela página',
+          modalContent: 'Exportar lista de anunciantes para análise',
+          seedSummary: 'Páginas anunciantes com histórico de campanhas na Meta'
+        }
+      ],
+      formulas: [
+        'score_escala = Math.min(100, Math.round((dias_ativo * 1.5) + (total_variacoes * 4) + (plataformas_count * 8)))',
+        'taxa_replicacao = (criativos_variantes / Math.max(total_criativos, 1)) * 100'
+      ],
+      validations: [
+        'query deve ter pelo menos 2 caracteres não vazios (HTTP 400)',
+        'dias_ativo deve ser numérico maior ou igual a zero (HTTP 400)',
+        'pageId deve ser informado quando aplicável (HTTP 400)'
+      ],
+      envKeys: ['APIFY_API_TOKEN=', 'DATABASE_URL=./data/ad_intelligence.db', 'PORT=4000'],
+      sqliteSchema: `-- Esquema Relacional SQLite - Ad Intelligence & Meta Ads Library Mining
+CREATE TABLE IF NOT EXISTS searches (
+  id TEXT PRIMARY KEY,
+  query TEXT NOT NULL,
+  total_results INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'completed',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS advertisers (
+  id TEXT PRIMARY KEY,
+  page_id TEXT NOT NULL UNIQUE,
+  page_name TEXT NOT NULL,
+  profile_url TEXT,
+  total_ads_observed INTEGER NOT NULL DEFAULT 0,
+  active_ads_observed INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS creatives (
+  id TEXT PRIMARY KEY,
+  advertiser_id TEXT NOT NULL,
+  body_text TEXT,
+  title TEXT,
+  call_to_action TEXT,
+  media_type TEXT NOT NULL DEFAULT 'image',
+  media_url TEXT,
+  display_format TEXT,
+  raw_snapshot_json TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (advertiser_id) REFERENCES advertisers (id)
+);
+
+CREATE TABLE IF NOT EXISTS ads (
+  id TEXT PRIMARY KEY,
+  library_id TEXT NOT NULL UNIQUE,
+  advertiser_id TEXT NOT NULL,
+  creative_id TEXT,
+  start_date TEXT,
+  end_date TEXT,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  platforms_json TEXT NOT NULL DEFAULT '[]',
+  opportunity_score REAL NOT NULL DEFAULT 0.0,
+  days_active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (advertiser_id) REFERENCES advertisers (id),
+  FOREIGN KEY (creative_id) REFERENCES creatives (id)
+);
+
+CREATE TABLE IF NOT EXISTS ad_observations (
+  id TEXT PRIMARY KEY,
+  ad_id TEXT NOT NULL,
+  observed_at TEXT NOT NULL DEFAULT (datetime('now')),
+  is_active INTEGER NOT NULL DEFAULT 1,
+  status_snapshot_json TEXT,
+  FOREIGN KEY (ad_id) REFERENCES ads (id)
+);
+
+CREATE TABLE IF NOT EXISTS saved_references (
+  id TEXT PRIMARY KEY,
+  ad_id TEXT NOT NULL,
+  collection_name TEXT NOT NULL DEFAULT 'Geral',
+  notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (ad_id) REFERENCES ads (id)
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id TEXT PRIMARY KEY,
+  actor TEXT NOT NULL DEFAULT 'system',
+  action TEXT NOT NULL,
+  entity TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  diff_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_ads_advertiser ON ads (advertiser_id);
+CREATE INDEX IF NOT EXISTS idx_ads_active ON ads (is_active);
+CREATE INDEX IF NOT EXISTS idx_ads_score ON ads (opportunity_score DESC);
+CREATE INDEX IF NOT EXISTS idx_creatives_advertiser ON creatives (advertiser_id);
+CREATE INDEX IF NOT EXISTS idx_observations_ad ON ad_observations (ad_id);`,
+      restContracts: [
+        {
+          method: 'GET',
+          path: '/api/health',
+          requestBody: 'N/A',
+          responseBody: '{ status: "ok", uptime: number, database: "connected", timestamp: string }',
+          description: 'Healthcheck de integridade operacional do backend'
+        },
+        {
+          method: 'GET',
+          path: '/api/kpis',
+          requestBody: 'N/A',
+          responseBody: '{ totalAdsTracked: number, activeAdvertisers: number, scalingCreatives: number, avgOpportunityScore: number }',
+          description: 'Cards de métricas consolidadas da inteligência de anúncios'
+        },
+        {
+          method: 'POST',
+          path: '/api/searches',
+          requestBody: '{ query: string, platforms?: string[], minDaysActive?: number }',
+          responseBody: '{ id: string, query: string, totalResults: number, ads: Array<object> } (Status 201)',
+          description: 'Dispara pesquisa na Meta Ads Library via provedor configurado'
+        },
+        {
+          method: 'GET',
+          path: '/api/ads',
+          requestBody: 'Query: ?q=&advertiser=&minDaysActive=&platform=&sort=&page=&limit=',
+          responseBody: 'Array<{ id: string, library_id: string, page_name: string, days_active: number, opportunity_score: number, is_active: boolean, creative: object }>',
+          description: 'Listagem de anúncios minerados com paginação e filtros empilháveis'
+        },
+        {
+          method: 'GET',
+          path: '/api/ads/:id',
+          requestBody: 'N/A',
+          responseBody: '{ id: string, library_id: string, advertiser: object, creative: object, observations: Array<object> }',
+          description: 'Detalhes analíticos completos do anúncio com histórico de observações'
+        },
+        {
+          method: 'GET',
+          path: '/api/advertisers',
+          requestBody: 'Query: ?q=&page=&limit=',
+          responseBody: 'Array<{ id: string, page_id: string, page_name: string, total_ads_observed: number, active_ads_observed: number }>',
+          description: 'Painel de páginas anunciantes mapeadas'
+        },
+        {
+          method: 'POST',
+          path: '/api/saved-references',
+          requestBody: '{ ad_id: string, collection_name?: string, notes?: string }',
+          responseBody: '{ id: string, ad_id: string, collection_name: string } (Status 201)',
+          description: 'Salva criativo/anúncio na pasta de referências'
+        },
+        {
+          method: 'POST',
+          path: '/api/export/csv',
+          requestBody: '{ entity: "ads" | "advertisers" | "audit_logs" }',
+          responseBody: 'Content-Type: text/csv',
+          description: 'Exportação em lote em conformidade com RFC-4180'
+        }
+      ],
+      archetype: 'clean-saas',
+      accentColor: '#2563eb'
+    },
+
     youtube_viral_intelligence: {
       domainKey: 'youtube_viral_intelligence',
       domainName: 'YouTube Viral Search, Video Intelligence & Creator SaaS',
@@ -2890,7 +3102,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs (entity, entity_i
     const text = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
     const base: DomainSpecBlueprint = baseBlueprint
       ? JSON.parse(JSON.stringify(baseBlueprint))
-      : JSON.parse(JSON.stringify(this.DOMAIN_SPECS.youtube_viral_intelligence || this.DOMAIN_SPECS.creator_viral_video || this.DOMAIN_SPECS.general_saas));
+      : JSON.parse(JSON.stringify(this.DOMAIN_SPECS.general_saas));
 
     // PROIBIÇÃO ESTRITA: Se o core business do produto não for contabilidade/banco digital,
     // purgar qualquer métrica de MRR ou lançamentos contábeis.
@@ -2941,8 +3153,76 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs (entity, entity_i
     const raw = briefing || '';
     const text = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
-    // 1. YouTube / Vídeos Virais / Creator Economy (Prioridade Máxima)
-    if (/youtube|video|viral|engajamento|views?|likes?|transcri|transcript|roteiro|nicho|canal|thumbnail|tiktok|reels|creator|copywriting|headline|outlier/i.test(text)) {
+    // 0. Ad Intelligence / Meta Ads Library / Tráfego Pago / Anúncios
+    if (/\b(ads\s*library|ad\s*intelligence|anuncios?\s+da\s+meta|meta\s+ads|biblioteca\s+de\s+anuncios|pesquisa\s+de\s+anuncios|minerador\s+de\s+anuncios|espi[aã]o\s+de\s+anuncios|ad\s*spy|ad\s*crawler|criativos?\s+de\s+anuncio)\b/i.test(text)) {
+      const adBlueprint: DomainSpecBlueprint = this.DOMAIN_SPECS.ad_intelligence || {
+        domainKey: 'ad_intelligence',
+        domainName: 'Ad Intelligence & Meta Ads Library Mining SaaS',
+        targetAudience: 'Gestores de tráfego, anunciantes, agências e profissionais de mídia paga que buscam pesquisar anúncios da Meta Ads Library, normalizar dados, calcular indicadores de escala e identificar criativos duradouros.',
+        referenceApps: ['Meta Ads Library', 'AdSpy', 'Foreplay.co', 'BigSpy', 'Dropispy'],
+        marketBenchmark: 'Plataformas líderes de inteligência de anúncios conectam-se à Meta Ads Library oficial ou scrapers autorizados, deduplicam criativos, calculam longevidade de veiculação e Opportunity Score heurístico sem prometer lucro garantido.',
+        differentials: [
+          'Pesquisa avançada com filtros de tempo ativo (7d, 30d, 90d), presença multi-plataforma e quantidade de variantes',
+          'Opportunity Score calibrado por longevidade, multiplicidade de anúncios e diversidade de criativos',
+          'Detalhamento analítico de anúncios com histórico observacional e exportação CSV estruturada',
+          'Arquitetura desacoplada com AdDataProvider e suporte a provedores configuráveis'
+        ],
+        sections: [
+          {
+            code: '01',
+            name: 'Pesquisa e Filtros de Anúncios',
+            tabId: 'search',
+            kpis: ['Anúncios Rastreados: 2.840', 'Anunciantes Ativos: 420', 'Criativos em Escala: 94'],
+            chart: 'Volume de Anúncios Ativos por Nicho ao Longo do Tempo (Gráfico SVG Multi-Série)',
+            gridColumns: ['ID', 'Criativo', 'Anunciante', 'Plataformas', 'Dias Ativo', 'Score de Escala', 'Status'],
+            filters: ['Palavra-Chave', 'Plataforma (Facebook, Instagram)', 'Tempo Ativo (>= 7d, >= 30d, >= 90d)', 'Tipo de Mídia (Vídeo, Imagem)'],
+            drawerContent: 'Detalhes completos do anúncio, histórico de observações, variações do criativo e parâmetros da biblioteca',
+            modalContent: 'Modal de Nova Pesquisa na Meta Ads Library e exportação de resultados',
+            seedSummary: '30 anúncios de exemplo com métricas de tempo de veiculação e análise de criativos'
+          },
+          {
+            code: '02',
+            name: 'Radar de Criativos em Escala',
+            tabId: 'radar',
+            kpis: ['Taxa de Reaplicação: 42%', 'Média de Dias Ativo: 38 dias', 'Score Médio: 78/100'],
+            chart: 'Distribuição de Criativos por Faixa de Longevidade (Barras SVG)',
+            gridColumns: ['Criativo', 'Anunciante', 'Variações Detectadas', 'Primeira Observação', 'Última Observação', 'Score'],
+            filters: ['Score de Escala', 'Múltiplas Peças Ativas', 'Presença Multi-Plataforma'],
+            drawerContent: 'Análise de argumentos, chamadas para ação e hipóteses observáveis do criativo',
+            modalContent: 'Salvar criativo em pasta de referências',
+            seedSummary: 'Coleção de criativos duradouros categorizados por nicho'
+          },
+          {
+            code: '03',
+            name: 'Painel de Anunciantes',
+            tabId: 'advertisers',
+            kpis: ['Total de Anunciantes: 420', 'Com Anúncios Ativos: 310', 'Média de Peças/Anunciante: 6.8'],
+            chart: 'Top Anunciantes por Volume de Criativos Simultâneos',
+            gridColumns: ['Nome da Página', 'ID da Página', 'Total de Anúncios', 'Anúncios Ativos', 'Mídia Dominante', 'Ações'],
+            filters: ['Faixa de Anúncios Ativos', 'Categoria da Página'],
+            drawerContent: 'Perfil detalhado do anunciante e todos os anúncios veiculados pela página',
+            modalContent: 'Exportar lista de anunciantes para análise',
+            seedSummary: 'Páginas anunciantes com histórico de campanhas na Meta'
+          }
+        ],
+        formulas: [
+          'score_escala = Math.min(100, Math.round((dias_ativo * 1.5) + (total_variacoes * 4) + (plataformas_count * 8)))',
+          'taxa_replicacao = (criativos_variantes / Math.max(total_criativos, 1)) * 100'
+        ],
+        validations: [
+          'query deve ter pelo menos 2 caracteres não vazios (HTTP 400)',
+          'dias_ativo deve ser numérico maior ou igual a zero (HTTP 400)',
+          'pageId deve ser informado quando aplicável (HTTP 400)'
+        ],
+        envKeys: ['APIFY_API_TOKEN=', 'DATABASE_URL=./data/ad_intelligence.db', 'PORT=4000'],
+        archetype: 'clean-saas',
+        accentColor: '#2563eb'
+      };
+      return this.buildCustomBriefingBlueprint(briefing, adBlueprint);
+    }
+
+    // 1. YouTube / Vídeos Virais / Creator Economy (Somente se explicitamente sobre YouTube ou virais de vídeo)
+    if (/\b(youtube|canal\s+do\s+youtube|canais\s+do\s+youtube|video\s+viral|videos\s+virais|minerador\s+de\s+virais|outlier\s+video)\b/i.test(text)) {
       const blueprint = this.DOMAIN_SPECS.youtube_viral_intelligence || this.DOMAIN_SPECS.creator_viral_video || this.DOMAIN_SPECS.creator_video_analytics || this.DOMAIN_SPECS.creator_economy;
       return this.buildCustomBriefingBlueprint(briefing, blueprint);
     }

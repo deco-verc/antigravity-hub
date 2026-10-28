@@ -9,7 +9,7 @@ import { RunControl } from './runControl.js';
 import { NativeExecutionPolicy } from './nativeExecutionPolicy.js';
 import { NativeWorkspaceBinding } from './nativeWorkspaceBinding.js';
 import { normalizeRuntimePath } from './runtimeProfileSelector.js';
-import { db, DB_PATH } from './db.js';
+import { db, DB_PATH, deleteProjectCascading, purgeGhostTestProjectsFromProductionDb } from './db.js';
 import { MemoryManager } from './memoryManager.js';
 import { GitManager, GitInfo } from './gitManager.js';
 import { ProjectAnalyzer } from './analyzer.js';
@@ -1974,12 +1974,22 @@ apiRouter.delete('/projects/:id', (req, res) => {
   try {
     const { id } = req.params;
     const proj: any = db.prepare('SELECT name FROM projects WHERE id = ?').get(id);
-    db.prepare('DELETE FROM messages WHERE project_id = ?').run(id);
-    db.prepare('DELETE FROM sessions WHERE project_id = ?').run(id);
-    db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+    const result = deleteProjectCascading(id);
+    if (!result.success) {
+      return res.status(500).json({ error: result.error || 'Falha ao remover projeto com cascata' });
+    }
 
     Logger.info(`Projeto removido do Hub: ${proj?.name || id}`);
     res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.post('/system/purge-test-projects', (_req, res) => {
+  try {
+    const result = purgeGhostTestProjectsFromProductionDb(db);
+    res.json({ success: true, ...result });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -2559,6 +2569,9 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
       replyContent = `Nova tarefa adicionada às pendências: **"${taskText}"** (sincronizada com \`tasks.md\`).`;
       execution = { status: 'stored', command: 'task_added' };
     } else {
+      // 0. Auto-clear stale cancellation tokens for this project on user message dispatch
+      TurnCancellationManager.clearProjectCancellations(id);
+
       // 1. Centralized Intent Classification Layer
       intentResult = ChatIntentClassifier.classify(content);
       const activeExistingRun = AutonomousManager.getActiveRunForProject(id);
@@ -2637,17 +2650,29 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
         // Connect to Autonomous Development Engine for execution instructions
         try {
           const explicitReplan = !forceNew && (Boolean(req.body?.replan) || /^(replanejar|novo requisito|alterar requisito|defeito):/i.test(content.trim()));
+          const isFullProjectPrompt = content.trim().length > 500 || /^(?:#?\s*PROJETO:|OBJETIVO DO PRODUTO:)/i.test(content.trim());
+          const taskCounts: any = activeExistingRun
+            ? db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed FROM autonomous_tasks WHERE run_id = ?`).get(activeExistingRun.id)
+            : null;
+          const completedCount = Number(taskCounts?.completed || 0);
+
           const isRunStalledOrBlocked = activeExistingRun && (
-            ['blocked', 'error', 'paused', 'waiting_resource'].includes(activeExistingRun.status) ||
-            (!activeExistingRun.tasks || activeExistingRun.tasks.length === 0)
+            ['blocked', 'error', 'paused', 'waiting_resource', 'waiting_approval'].includes(activeExistingRun.status) ||
+            (!activeExistingRun.tasks || activeExistingRun.tasks.length === 0) ||
+            (completedCount === 0 && ['stopped', 'waiting_for_worker', 'planning', 'waiting_approval'].includes(activeExistingRun.status)) ||
+            (isFullProjectPrompt && completedCount === 0)
           );
-          const isRunBusy = activeExistingRun && ['running', 'building', 'testing', 'reviewing', 'planning', 'waiting_for_worker'].includes(activeExistingRun.status) && Boolean(activeExistingRun.tasks?.length);
+          const isRunBusy = !isRunStalledOrBlocked && activeExistingRun && ['running', 'building', 'testing', 'reviewing', 'planning', 'waiting_for_worker'].includes(activeExistingRun.status) && Boolean(activeExistingRun.tasks?.length);
 
           if (activeExistingRun && (forceNew || isRunStalledOrBlocked)) {
-            // Se o projeto possuir um run anterior com status blocked, error, paused ou waiting_resource (ou forceNew):
+            // Se o projeto possuir um run anterior bloqueado, pausado, sem progresso ou se for um novo briefing completo:
             // Não prenda em QUEUED_USER_INSTRUCTION.
             // Arquive/finalize o run anterior e crie imediatamente um NOVO Autonomous Run.
-            const prevFinalStatus = ['error', 'blocked', 'waiting_resource'].includes(activeExistingRun.status) ? 'failed' : 'completed';
+            const prevFinalStatus = ['error', 'blocked', 'waiting_resource', 'waiting_approval', 'paused'].includes(activeExistingRun.status) ? 'failed' : 'completed';
+            const { RunControl } = await import('./runControl.js');
+            RunControl.clear(activeExistingRun.id);
+            TurnCancellationManager.clearProjectCancellations(id);
+
             db.prepare(`
               UPDATE autonomous_runs
               SET status = ?, end_time = COALESCE(end_time, ?), next_action = 'Finalizado para iniciar novo plano solicitado pelo usuário', updated_at = ?
