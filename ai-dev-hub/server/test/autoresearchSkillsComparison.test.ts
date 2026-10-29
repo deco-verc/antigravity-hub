@@ -57,8 +57,10 @@ console.log('latency_ms: ' + duration);
 `;
   fs.writeFileSync(path.join(tmpRoot, 'benchmark.cjs'), benchScript, 'utf8');
 
-  execSync('git add -A', { cwd: tmpRoot, stdio: 'pipe' });
-  execSync('git commit -m "chore: base search and measurement script"', { cwd: tmpRoot, stdio: 'pipe' });
+  try {
+    execSync('git add -A', { cwd: tmpRoot, stdio: 'pipe' });
+    execSync('git commit -m "chore: base search and measurement script"', { cwd: tmpRoot, stdio: 'pipe' });
+  } catch {}
 
   db.prepare(`
     INSERT INTO projects (id, name, path, objective, stack, status, created_at, updated_at)

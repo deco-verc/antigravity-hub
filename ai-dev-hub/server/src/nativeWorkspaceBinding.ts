@@ -12,6 +12,84 @@ import {
   NativeExecutionChoice
 } from './nativeExecutionPolicy.js';
 
+export function isOfflineExecution(): boolean {
+  if (process.env.DECOHUB_OFFLINE_MODE === 'false') return false;
+  if (process.env.DECOHUB_OFFLINE_MODE === 'true') return true;
+  if (process.env.NODE_ENV === 'test' && process.env.DECOHUB_ALLOW_LIVE_AGENTAPI !== 'true') return true;
+  try {
+    const gateway = require('./agentApiGateway.js')?.AgentApiGateway;
+    if (gateway && typeof gateway.isOfflineMode === 'function') {
+      return gateway.isOfflineMode();
+    }
+  } catch {}
+  return false;
+}
+
+export function isRealUserHomeDir(dirPath: string | null | undefined): boolean {
+  if (!dirPath || typeof dirPath !== 'string') return false;
+  const normalized = normalizeRuntimePath(dirPath).toLowerCase().replace(/\/+$/, '');
+  const realHome = (process.env.REAL_USERPROFILE || '').trim().toLowerCase().replace(/[\\/]+$/, '');
+  if (realHome && normalized === normalizeRuntimePath(realHome).toLowerCase().replace(/\/+$/, '')) {
+    return true;
+  }
+  if (/^[a-z]:\/users\/[^/]+$/i.test(normalized)) {
+    return true;
+  }
+  return false;
+}
+
+export function isExcludedFromNativeGeminiProjects(projectName: string | undefined, projectPath: string | undefined): { excluded: boolean; reason?: string } {
+  if (!projectPath || typeof projectPath !== 'string') {
+    return { excluded: true, reason: 'Caminho de projeto inválido ou ausente' };
+  }
+
+  const normalizedPath = normalizeRuntimePath(projectPath).toLowerCase().replace(/\/+$/, '');
+  const tmpDir = normalizeRuntimePath(os.tmpdir()).toLowerCase().replace(/\/+$/, '');
+
+  // 1. Pastas temporárias (os.tmpdir(), AppData/Local/Temp, etc.)
+  if (
+    normalizedPath === tmpDir ||
+    normalizedPath.startsWith(tmpDir + '/') ||
+    normalizedPath.includes('/appdata/local/temp') ||
+    normalizedPath.includes('decohub-test-') ||
+    normalizedPath.includes('decohub-forensic-') ||
+    normalizedPath.includes('decohub-homologacao-') ||
+    normalizedPath.includes('/temp-') ||
+    normalizedPath.includes('\\temp-')
+  ) {
+    return { excluded: true, reason: `Pasta temporária detectada (${projectPath})` };
+  }
+
+  // 2. Pastas que não existem no disco
+  if (!fs.existsSync(projectPath)) {
+    return { excluded: true, reason: `Pasta não existe no disco (${projectPath})` };
+  }
+
+  // 3. Raiz genérica C:\IA (ou X:\IA onde X é qualquer letra de unidade)
+  if (/^[a-z]:\/ia$/i.test(normalizedPath) || /^[a-z]:\\ia$/i.test(normalizedPath)) {
+    return { excluded: true, reason: `Raiz genérica de workspace detectada (${projectPath})` };
+  }
+
+  // 4. Nomes sintéticos de suítes de teste
+  const name = (projectName || '').trim();
+  const normalizedName = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+  const testNamePatterns = [
+    /homologacao e2e/i,
+    /forensic hardening/i,
+    /test project/i,
+    /(^|\s)temp-/i,
+    /projeto forensic/i,
+    /app financeiro homologacao/i
+  ];
+
+  if (testNamePatterns.some(pattern => pattern.test(normalizedName))) {
+    return { excluded: true, reason: `Nome sintético de teste detectado ("${name}")` };
+  }
+
+  return { excluded: false };
+}
+
 export interface NativeWorkspaceRecord {
   projectId: string;
   accountProfileId: string;
@@ -157,6 +235,27 @@ export class NativeWorkspaceBinding {
       .get(projectId) as any;
     if (!project) throw new Error('NATIVE_WORKSPACE_HUB_PROJECT_MISMATCH');
 
+    const isOffline = isOfflineExecution();
+    let effectiveUserProfileDir = userProfileDir;
+
+    if (isOffline) {
+      if (!effectiveUserProfileDir || isRealUserHomeDir(effectiveUserProfileDir)) {
+        effectiveUserProfileDir = process.env.DECOHUB_TEST_USERPROFILE ||
+          (process.env.AI_DEV_HUB_DATA_DIR ? path.join(process.env.AI_DEV_HUB_DATA_DIR, 'offline-userprofile') : path.join(os.tmpdir(), 'decohub-test-userprofile'));
+        try {
+          if (!fs.existsSync(effectiveUserProfileDir)) fs.mkdirSync(effectiveUserProfileDir, { recursive: true });
+        } catch {}
+      }
+    } else {
+      // Modo Live (produção): NUNCA crie um arquivo <uuid>.json em .gemini/config/projects/ para:
+      // projetos temporários (os.tmpdir()), pastas que não existam em disco, para a raiz genérica C:\IA,
+      // ou para nomes sintéticos de suítes de teste (Homologação E2E, Forensic Hardening, Test Project, temp-).
+      const exclusion = isExcludedFromNativeGeminiProjects(project.name, project.path);
+      if (exclusion.excluded) {
+        throw new Error(`NATIVE_WORKSPACE_INVALID_TARGET: Criação de manifesto nativo no Antigravity bloqueada para projetos temporários, raiz genérica ou de teste (${exclusion.reason}).`);
+      }
+    }
+
     // If switching to a valid registered account profile via ensureBinding, align project's active_account_profile_id
     if (project.active_account_profile_id !== accountProfileId) {
       const validProfile = db
@@ -253,7 +352,7 @@ export class NativeWorkspaceBinding {
     if (db.prepare('SELECT 1 FROM native_workspace_bindings WHERE project_id=?').get(projectId)) {
       try {
         const existing = this.get(projectId, accountProfileId);
-        if (normalizeRuntimePath(existing.userProfileDir) === normalizeRuntimePath(userProfileDir)) {
+        if (normalizeRuntimePath(existing.userProfileDir) === normalizeRuntimePath(effectiveUserProfileDir)) {
           return existing;
         }
       } catch (err) {
@@ -269,7 +368,7 @@ export class NativeWorkspaceBinding {
     }
     }
 
-    const directory = path.join(userProfileDir, '.gemini', 'config', 'projects');
+    const directory = path.join(effectiveUserProfileDir, '.gemini', 'config', 'projects');
     if (!fs.existsSync(directory)) {
       fs.mkdirSync(directory, { recursive: true });
     }
@@ -279,7 +378,7 @@ export class NativeWorkspaceBinding {
       if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.json$/i.test(name)) continue;
       const id = name.slice(0, -5);
       try {
-        this.inspect(userProfileDir, id, project.path, currentPolicy);
+        this.inspect(effectiveUserProfileDir, id, project.path, currentPolicy);
         candidates.push(id);
       } catch (err) {
         if ((err as any)?.message === 'NATIVE_WORKSPACE_FOLDER_MISMATCH' || (err as any)?.message?.includes('MISMATCH')) {
@@ -330,6 +429,9 @@ export class NativeWorkspaceBinding {
     } else {
       nativeProjectId = randomUUID();
       const configFile = path.join(directory, `${nativeProjectId}.json`);
+      if (isOffline && isRealUserHomeDir(effectiveUserProfileDir)) {
+        throw new Error('FAIL_CLOSED_GUARD: Tentativa de gravação no USERPROFILE real do usuário em modo offline.');
+      }
       const nativeConfig = {
         id: nativeProjectId,
         name: project.name,
@@ -359,47 +461,67 @@ export class NativeWorkspaceBinding {
       fs.writeFileSync(configFile, JSON.stringify(nativeConfig, null, 2), 'utf8');
     }
 
-    // 2. Espelha SEMPRE o nativeProjectId.json para o diretório global do usuário e atualize cache do CLI
-    try {
-      const globalProjectsDir = path.join(os.homedir(), '.gemini', 'config', 'projects');
-      fs.mkdirSync(globalProjectsDir, { recursive: true });
-      const sourceConfigFile = path.join(directory, `${nativeProjectId}.json`);
-      const globalConfigFile = path.join(globalProjectsDir, `${nativeProjectId}.json`);
-      if (fs.existsSync(sourceConfigFile) && normalizeRuntimePath(sourceConfigFile) !== normalizeRuntimePath(globalConfigFile)) {
-        fs.copyFileSync(sourceConfigFile, globalConfigFile);
-      }
+    // 2. Espelha nativeProjectId.json para o diretório global do usuário e atualize cache do CLI
+    if (!isOffline) {
+      try {
+        const globalProjectsDir = path.join(os.homedir(), '.gemini', 'config', 'projects');
+        fs.mkdirSync(globalProjectsDir, { recursive: true });
+        const sourceConfigFile = path.join(directory, `${nativeProjectId}.json`);
+        const globalConfigFile = path.join(globalProjectsDir, `${nativeProjectId}.json`);
+        if (fs.existsSync(sourceConfigFile) && normalizeRuntimePath(sourceConfigFile) !== normalizeRuntimePath(globalConfigFile)) {
+          fs.copyFileSync(sourceConfigFile, globalConfigFile);
+        }
 
-      // Atualiza também ~/.gemini/antigravity-cli/cache/projects.json
-      const cliCacheDir = path.join(os.homedir(), '.gemini', 'antigravity-cli', 'cache');
-      fs.mkdirSync(cliCacheDir, { recursive: true });
-      const cliProjectsFile = path.join(cliCacheDir, 'projects.json');
-      let cacheData: any = {};
-      if (fs.existsSync(cliProjectsFile)) {
-        try { cacheData = JSON.parse(fs.readFileSync(cliProjectsFile, 'utf8')); } catch { cacheData = {}; }
+        // Atualiza também ~/.gemini/antigravity-cli/cache/projects.json
+        const cliCacheDir = path.join(os.homedir(), '.gemini', 'antigravity-cli', 'cache');
+        fs.mkdirSync(cliCacheDir, { recursive: true });
+        const cliProjectsFile = path.join(cliCacheDir, 'projects.json');
+        let cacheData: any = {};
+        if (fs.existsSync(cliProjectsFile)) {
+          try { cacheData = JSON.parse(fs.readFileSync(cliProjectsFile, 'utf8')); } catch { cacheData = {}; }
+        }
+        if (Array.isArray(cacheData)) {
+          const idx = cacheData.findIndex((p: any) => p.id === nativeProjectId || p.path === project.path);
+          const entry = { id: nativeProjectId, name: project.name, path: project.path, folderUri: pathToFileURL(project.path).href };
+          if (idx >= 0) cacheData[idx] = entry;
+          else cacheData.push(entry);
+        } else {
+          cacheData[nativeProjectId] = {
+            id: nativeProjectId,
+            name: project.name,
+            path: project.path,
+            folderUri: pathToFileURL(project.path).href
+          };
+        }
+        fs.writeFileSync(cliProjectsFile, JSON.stringify(cacheData, null, 2), 'utf8');
+      } catch (mirrorErr: any) {
+        Logger.warn(`[NativeWorkspaceBinding] Aviso ao espelhar manifesto no home global: ${mirrorErr.message}`);
       }
-      if (Array.isArray(cacheData)) {
-        const idx = cacheData.findIndex((p: any) => p.id === nativeProjectId || p.path === project.path);
-        const entry = { id: nativeProjectId, name: project.name, path: project.path, folderUri: pathToFileURL(project.path).href };
-        if (idx >= 0) cacheData[idx] = entry;
-        else cacheData.push(entry);
-      } else {
+    } else {
+      // Em modo offline/teste: atualiza cache exclusivamente dentro da sandbox de teste
+      try {
+        const testCacheDir = path.join(effectiveUserProfileDir, '.gemini', 'antigravity-cli', 'cache');
+        fs.mkdirSync(testCacheDir, { recursive: true });
+        const testProjectsFile = path.join(testCacheDir, 'projects.json');
+        let cacheData: any = {};
+        if (fs.existsSync(testProjectsFile)) {
+          try { cacheData = JSON.parse(fs.readFileSync(testProjectsFile, 'utf8')); } catch { cacheData = {}; }
+        }
         cacheData[nativeProjectId] = {
           id: nativeProjectId,
           name: project.name,
           path: project.path,
           folderUri: pathToFileURL(project.path).href
         };
-      }
-      fs.writeFileSync(cliProjectsFile, JSON.stringify(cacheData, null, 2), 'utf8');
-    } catch (mirrorErr: any) {
-      Logger.warn(`[NativeWorkspaceBinding] Aviso ao espelhar manifesto no home global: ${mirrorErr.message}`);
+        fs.writeFileSync(testProjectsFile, JSON.stringify(cacheData, null, 2), 'utf8');
+      } catch {}
     }
 
     return this.bind({
       projectId,
       accountProfileId,
       nativeProjectId,
-      userProfileDir,
+      userProfileDir: effectiveUserProfileDir,
       workspacePath: project.path
     });
   }
@@ -662,17 +784,22 @@ export class NativeWorkspaceBinding {
     ) {
       if (env?.USERPROFILE) {
         try {
-          // Espelha o nativeProjectId.json para o diretório de destino se ainda não existir
-          const sourceDir = path.join(record.userProfileDir, '.gemini', 'config', 'projects');
-          const targetDir = path.join(env.USERPROFILE, '.gemini', 'config', 'projects');
-          const sourceFile = path.join(sourceDir, `${record.nativeProjectId}.json`);
-          const targetFile = path.join(targetDir, `${record.nativeProjectId}.json`);
-          if (fs.existsSync(sourceFile) && !fs.existsSync(targetFile)) {
-            fs.mkdirSync(targetDir, { recursive: true });
-            fs.copyFileSync(sourceFile, targetFile);
-          } else if (fs.existsSync(targetFile) && !fs.existsSync(sourceFile)) {
-            fs.mkdirSync(sourceDir, { recursive: true });
-            fs.copyFileSync(targetFile, sourceFile);
+          const isOffline = isOfflineExecution();
+          if (isOffline && isRealUserHomeDir(env.USERPROFILE)) {
+            // Em modo offline/teste, JAMAIS espelhe para o USERPROFILE real
+          } else {
+            // Espelha o nativeProjectId.json para o diretório de destino se ainda não existir
+            const sourceDir = path.join(record.userProfileDir, '.gemini', 'config', 'projects');
+            const targetDir = path.join(env.USERPROFILE, '.gemini', 'config', 'projects');
+            const sourceFile = path.join(sourceDir, `${record.nativeProjectId}.json`);
+            const targetFile = path.join(targetDir, `${record.nativeProjectId}.json`);
+            if (fs.existsSync(sourceFile) && !fs.existsSync(targetFile)) {
+              fs.mkdirSync(targetDir, { recursive: true });
+              fs.copyFileSync(sourceFile, targetFile);
+            } else if (fs.existsSync(targetFile) && !fs.existsSync(sourceFile)) {
+              fs.mkdirSync(sourceDir, { recursive: true });
+              fs.copyFileSync(targetFile, sourceFile);
+            }
           }
           record = this.resolve(projectId, record.accountProfileId, env.USERPROFILE, true);
         } catch {
@@ -681,7 +808,9 @@ export class NativeWorkspaceBinding {
         }
       } else {
         if (!record.userProfileDir) {
-          record.userProfileDir = os.homedir();
+          record.userProfileDir = isOfflineExecution()
+            ? (process.env.DECOHUB_TEST_USERPROFILE || path.join(os.tmpdir(), 'decohub-test-userprofile'))
+            : os.homedir();
         }
       }
     }

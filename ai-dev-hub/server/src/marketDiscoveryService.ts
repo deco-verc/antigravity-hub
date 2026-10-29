@@ -546,6 +546,7 @@ export class MarketDiscoveryService {
     integrations: string[];
     sections: string[];
     formulas: string[];
+    services: string[];
     hasExplicitBilling: boolean;
     hasExplicitKanban: boolean;
   } {
@@ -557,6 +558,7 @@ export class MarketDiscoveryService {
     const integrations: string[] = [];
     const sections: string[] = [];
     const formulas: string[] = [];
+    const services: string[] = [];
 
     const hasExplicitBilling = /billing|fatura|cobran[cç]a|pix|checkout|assinatura|planos pagos|stripe/i.test(text);
     const hasExplicitKanban = /kanban|quadro de tarefas|colunas de sprint/i.test(text);
@@ -572,7 +574,17 @@ export class MarketDiscoveryService {
       }
     }
 
-    if (/youtube|video|viral|canal|thumbnail/i.test(text)) {
+    // Service matches
+    const serviceMatches = raw.match(/\b([A-Z][a-zA-Z0-9]+(?:Service|Provider|Registry|Engine|Manager|Controller|Repository|Client|Adapter))\b/g);
+    if (serviceMatches) {
+      for (const sm of serviceMatches) {
+        if (!['DatabaseSync', 'EventEmitter', 'Promise', 'Array', 'String', 'Object'].includes(sm)) {
+          services.push(sm);
+        }
+      }
+    }
+
+    if (/\b(youtube|canal\s+do\s+youtube|canais\s+do\s+youtube|video\s+viral|videos\s+virais|minerador\s+de\s+virais)\b/i.test(text)) {
       entities.push('viral_videos', 'channels', 'saved_niches');
       filters.push('Filtros de Engajamento (Views, Likes, Comentários)', 'Outlier Multiplier (>=2.5x, >=5x)', 'Formato (Shorts vs Longos)', 'Nicho');
       integrations.push('YouTube Data API', 'Groq / Whisper (Transcrições)');
@@ -582,7 +594,16 @@ export class MarketDiscoveryService {
         'outlier_score = Number((views / Math.max(channel_avg_views, 1)).toFixed(2))',
         'views_per_hour = Math.round(views / Math.max((Date.now() - new Date(published_at).getTime()) / 3600000, 1))'
       );
-    } else if (/\b(?:ia|ai)\b|llm|prompt|agente|rag|transcri/i.test(text)) {
+    } else if (/\b(ads\s*library|ad\s*intelligence|anuncios?\s+da\s+meta|meta\s+ads|biblioteca\s+de\s+anuncios|anuncios?\s+ativos|criativos?\s+de\s+anuncios?|ad\s*spy|ad\s*crawler)\b/i.test(text)) {
+      entities.push('searches', 'ads', 'creatives', 'ad_observations', 'advertisers');
+      filters.push('Palavra-Chave', 'Plataforma (FB, IG, Audience Network)', 'Tempo Ativo (Dias)', 'Tipo de Mídia (Vídeo, Imagem, Carrossel)', 'Status Ativo');
+      integrations.push('Meta Ads Library API / Web Collector', 'SQLite Persistência');
+      sections.push('Pesquisa de Anúncios', 'Radar de Criativos em Escala', 'Painel de Anunciantes');
+      formulas.push(
+        'opportunity_score = Math.min(100, Math.round((dias_ativo * 1.5) + (total_variacoes * 4) + (plataformas_count * 8)))',
+        'taxa_replicacao = (criativos_variantes / Math.max(total_criativos, 1)) * 100'
+      );
+    } else if (/\b(?:ia|ai)\b|llm|prompt|agente|rag/i.test(text)) {
       entities.push('prompt_templates', 'agent_runs', 'token_metrics');
       filters.push('Filtro por Modelo (GPT-4o, Claude, Gemini)', 'Faixa de Latência P95', 'Status de Execução');
       integrations.push('OpenAI / Anthropic / Google Gemini API', 'Vector DB / RAG Store');
@@ -614,6 +635,7 @@ export class MarketDiscoveryService {
       integrations: Array.from(new Set(integrations)),
       sections: Array.from(new Set(sections)),
       formulas: Array.from(new Set(formulas)),
+      services: Array.from(new Set(services)),
       hasExplicitBilling,
       hasExplicitKanban
     };

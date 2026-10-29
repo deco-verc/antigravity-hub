@@ -658,6 +658,18 @@ export class AgentApiGateway {
           throw new Error(`QUOTA_EXHAUSTED: ${errStr}`);
         }
 
+        const isProjectNotFoundError =
+          errStr.includes('not_found: project') ||
+          (errStr.includes('project') && errStr.includes('not found'));
+
+        if (isProjectNotFoundError && cleanEnv.ANTIGRAVITY_PROJECT_ID) {
+          Logger.warn(
+            `[AgentApiGateway] Projeto nativo "${cleanEnv.ANTIGRAVITY_PROJECT_ID}" não reconhecido pelo Language Server. Removendo ANTIGRAVITY_PROJECT_ID e retentando diretamente no diretório do projeto.`
+          );
+          delete cleanEnv.ANTIGRAVITY_PROJECT_ID;
+          continue;
+        }
+
         if (
           err instanceof FailClosedGuardError ||
           err.code === 'FAIL_CLOSED_GUARD' ||
@@ -1050,6 +1062,18 @@ export class AgentApiGateway {
         }
         if (this.isQuotaOrCreditsError(errStr)) {
           throw new Error(`QUOTA_EXHAUSTED: ${errStr}`);
+        }
+
+        const isProjectNotFoundError =
+          errStr.includes('not_found: project') ||
+          (errStr.includes('project') && errStr.includes('not found'));
+
+        if (isProjectNotFoundError && cleanEnv.ANTIGRAVITY_PROJECT_ID) {
+          Logger.warn(
+            `[AgentApiGateway] Projeto nativo "${cleanEnv.ANTIGRAVITY_PROJECT_ID}" não reconhecido pelo Language Server. Removendo ANTIGRAVITY_PROJECT_ID e retentando diretamente no diretório do projeto.`
+          );
+          delete cleanEnv.ANTIGRAVITY_PROJECT_ID;
+          continue;
         }
 
         if (

@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DecoHUB - Iniciando</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    body {
+      background-color: #080a10;
+      color: #e2e8f0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 28px;
+      overflow: hidden;
+      border: 1px solid #1c2236;
+      border-radius: 18px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .logo-badge {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 18px rgba(79, 70, 229, 0.4);
+    }
+    .logo-badge svg {
+      width: 24px;
+      height: 24px;
+      fill: none;
+      stroke: #ffffff;
+      stroke-width: 2;
+    }
+    .title-group h1 {
+      font-size: 19px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      color: #ffffff;
+    }
+    .title-group p {
+      font-size: 12px;
+      color: #7e8ba6;
+      margin-top: 2px;
+    }
+    .checklist {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin: 18px 0;
+    }
+    .item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+      color: #64748b;
+      transition: all 0.3s ease;
+    }
+    .item.active {
+      color: #93c5fd;
+      font-weight: 600;
+    }
+    .item.done {
+      color: #34d399;
+      font-weight: 500;
+    }
+    .icon {
+      width: 16px;
+      height: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background-color: #334155;
+    }
+    .spinner {
+      width: 12px;
+      height: 12px;
+      border: 2px solid #60a5fa;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    .check {
+      color: #10b981;
+      font-weight: bold;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .footer {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .status-text {
+      font-size: 11px;
+      color: #94a3b8;
+      display: flex;
+      justify-content: space-between;
+    }
+    .progress-bar {
+      width: 100%;
+      height: 4px;
+      background-color: #161c2d;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #4f46e5, #06b6d4);
+      border-radius: 2px;
+      transition: width 0.4s ease;
+      box-shadow: 0 0 10px rgba(6, 182, 212, 0.5);
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo-badge">
+      <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+    </div>
+    <div class="title-group">
+      <h1>DecoHUB</h1>
+      <p id="sub-msg">Iniciando ambiente integrado...</p>
+    </div>
+  </div>
+
+  <ul class="checklist" id="checklist">
+    <li class="item" id="item-backend"><span class="icon"><span class="dot"></span></span><span>Backend Node.js & SQLite</span></li>
+    <li class="item" id="item-hub"><span class="icon"><span class="dot"></span></span><span>AI Dev Hub Core</span></li>
+    <li class="item" id="item-mcp"><span class="icon"><span class="dot"></span></span><span>Servidores MCP (ai-dev-hub + github)</span></li>
+    <li class="item" id="item-antigravity"><span class="icon"><span class="dot"></span></span><span>Antigravity Language Server</span></li>
+    <li class="item" id="item-accounts"><span class="icon"><span class="dot"></span></span><span>Perfis de Contas Google</span></li>
+    <li class="item" id="item-git"><span class="icon"><span class="dot"></span></span><span>Git Environment</span></li>
+  </ul>
+
+  <div class="footer">
+    <div class="status-text">
+      <span id="footer-status">Verificando serviços...</span>
+      <span id="pct-status">0%</span>
+    </div>
+    <div class="progress-bar">
+      <div class="progress-fill" id="progress-fill"></div>
+    </div>
+  </div>
+
+  <script>
+    const items = [
+      'item-backend',
+      'item-hub',
+      'item-mcp',
+      'item-antigravity',
+      'item-accounts',
+      'item-git'
+    ];
+
+    let current = 0;
+
+    function step() {
+      if (current < items.length) {
+        const id = items[current];
+        const el = document.getElementById(id);
+        if (el) {
+          el.className = 'item active';
+          el.querySelector('.icon').innerHTML = '<span class="spinner"></span>';
+        }
+
+        setTimeout(() => {
+          if (el) {
+            el.className = 'item done';
+            el.querySelector('.icon').innerHTML = '<span class="check">✓</span>';
+          }
+          current++;
+          const pct = Math.round((current / items.length) * 100);
+          document.getElementById('progress-fill').style.width = pct + '%';
+          document.getElementById('pct-status').textContent = pct + '%';
+          if (current < items.length) {
+            document.getElementById('footer-status').textContent = 'Iniciando ' + items[current].replace('item-', '') + '...';
+            setTimeout(step, 200);
+          } else {
+            document.getElementById('footer-status').textContent = 'Ambiente pronto! Abrindo Simple IDE...';
+            document.getElementById('sub-msg').textContent = 'Pronto para uso';
+          }
+        }, 320);
+      }
+    }
+
+    // Auto-start animation
+    setTimeout(step, 150);
+  </script>
+</body>
+</html>

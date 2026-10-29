@@ -86,7 +86,10 @@ export class SkillSlashCommandService {
       return path.resolve(process.env.DECOHUB_ROOT);
     }
     const candidates = [
+      'C:\\IA\\IA\\Antigravity HUB',
       'C:\\IA\\Antigravity HUB',
+      path.resolve(__dirname, '../../..'),
+      path.resolve(process.cwd(), '../..'),
       path.resolve(process.cwd(), '..'),
       path.resolve(process.cwd())
     ];
@@ -206,6 +209,13 @@ export class SkillSlashCommandService {
         )
       ],
       'karpathy-guidelines': [
+        path.join(hubRoot, '.agents', 'skills', 'karpathy-guidelines', 'SKILL.md'),
+        path.join(hubRoot, 'server', '.agents', 'skills', 'karpathy-guidelines', 'SKILL.md'),
+        path.join(hubRoot, 'server', '.ai-dev-hub', 'skills', 'karpathy-guidelines-skill.md'),
+        path.join(__dirname, '../../.agents/skills/karpathy-guidelines/SKILL.md'),
+        path.join(__dirname, '../.agents/skills/karpathy-guidelines/SKILL.md'),
+        path.join(__dirname, '../.ai-dev-hub/skills/karpathy-guidelines-skill.md'),
+        path.join(process.cwd(), '.agents', 'skills', 'karpathy-guidelines', 'SKILL.md'),
         path.join(
           hubRoot,
           'Skills',
@@ -237,6 +247,10 @@ export class SkillSlashCommandService {
       'frontend-design': [
         path.join(designSkills, 'frontend-design.md')
       ],
+      'modern-frontend-design': [
+        path.join(designSkills, 'frontend-design.md'),
+        path.join(designSkills, 'taste-skill', 'skills', 'taste-skill', 'SKILL.md')
+      ],
       'llm-council': [
         path.join(hubRoot, 'Skills', 'llm-council-master', 'llm-council-master', 'CLAUDE.md'),
         path.join(hubRoot, 'Skills', 'llm-council-master', 'llm-council-master', 'README.md'),
@@ -249,6 +263,25 @@ export class SkillSlashCommandService {
    * Official Catalogue of Slash Commands.
    */
   public static readonly SLASH_COMMANDS_REGISTRY: SlashCommandDefinition[] = [
+    {
+      command: '/21st',
+      aliases: ['/shadcn', '/ui-pro'],
+      title: 'Padrões de Alta Conversão 21st.dev & shadcn/ui',
+      description:
+        'Provisiona o guia shadcn/ui + 21st.dev no DESIGN.md e dispara evolução visual refatorando Bento Cards, Data Tables, Sheets, Tabs e Botões para a estética shadcn.io e 21st.dev.',
+      category: 'Design & UI',
+      skillsUsed: [
+        'taste-skill',
+        'frontend-design',
+        'modern-frontend-design',
+        'ui-styling',
+        'design-system',
+        'vercel-web-design-guidelines',
+        'playwright-agent-cli'
+      ],
+      executionType: 'AUTONOMOUS_DELTA',
+      argHint: '[foco opcional: bento, table, sheet, tabs, buttons]'
+    },
     {
       command: '/frontend',
       aliases: ['/ui', '/taste'],
@@ -556,6 +589,14 @@ export class SkillSlashCommandService {
             // For karpathy-guidelines, also provision examples/EXAMPLES.md
             if (isKarpathy) {
               const examplesCandidates = [
+                path.join(hubRoot, '.agents', 'skills', 'karpathy-guidelines', 'examples', 'EXAMPLES.md'),
+                path.join(hubRoot, 'server', '.agents', 'skills', 'karpathy-guidelines', 'examples', 'EXAMPLES.md'),
+                path.join(hubRoot, 'server', '.ai-dev-hub', 'skills', 'EXAMPLES.md'),
+                path.join(__dirname, '../../.agents/skills/karpathy-guidelines/examples/EXAMPLES.md'),
+                path.join(__dirname, '../.agents/skills/karpathy-guidelines/examples/EXAMPLES.md'),
+                path.join(__dirname, '../.ai-dev-hub/skills/EXAMPLES.md'),
+                path.join(process.cwd(), '.agents', 'skills', 'karpathy-guidelines', 'examples', 'EXAMPLES.md'),
+                path.join(process.cwd(), 'server', '.agents', 'skills', 'karpathy-guidelines', 'examples', 'EXAMPLES.md'),
                 path.join(hubRoot, 'Skills', 'andrej-karpathy-skills-main', 'andrej-karpathy-skills-main', 'EXAMPLES.md'),
                 path.join(hubRoot, 'Skills', 'karpathy-guidelines', 'examples', 'EXAMPLES.md'),
                 path.join(hubRoot, 'Skills', 'karpathy-guidelines', 'EXAMPLES.md')
@@ -631,6 +672,18 @@ export class SkillSlashCommandService {
       `INSTRUÇÃO DO USUÁRIO: ${args || 'Execução padrão das diretrizes da especialidade.'}`,
       `DIRETRIZES TÉCNICAS OBRIGATÓRIAS:`
     ];
+
+    if (def.command === '/21st' || (def.aliases && def.aliases.includes('/21st')) || def.command === '/shadcn') {
+      return [
+        ...baseHeader,
+        `1. PADRÕES 21ST.DEV & SHADCN/UI: Refatore Bento Cards, Data Tables, Sheets/Drawers laterais, Segmented Tabs e Botões/Inputs para a estética limpa de alta conversão de shadcn.io e 21st.dev.`,
+        `2. ANATOMIA DE BOTÕES & INPUTS: Utilize botões com classes utilitárias e tokens correspondentes (btn-primary, btn-secondary, btn-ghost, btn-destructive) e inputs com focus-visible:ring-2 e border-input.`,
+        `3. BENTO SPOTLIGHT & DATA TABLES: Implemente cards de KPI com borda sutil de 1px, hover radial-gradient suave, badge de variação tabular-nums (+14.2% em esmeralda), sparklines SVG e tabelas analíticas com cabeçalhos text-xs uppercase tracking-wider e hover:bg-muted/50.`,
+        `4. SHEET DRAWER & TABS: Implemente slide-overs com backdrop-blur-sm bg-black/60 e transição suave, além de navegação com abas em pílula (role="tab", data-tab) e Empty States ilustrados com SVG Lucide.`,
+        `5. PRESERVAÇÃO RIGOROSA: Mantenha 100% das rotas REST (/api/*), schemas SQLite e suíte de testes íntegros sem nenhuma regressão funcional.`,
+        `=== FIM DO PLAYBOOK ===`
+      ].join('\n');
+    }
 
     if (def.command === '/rea') {
       return [
@@ -818,6 +871,7 @@ export class SkillSlashCommandService {
       case '/plan-ceo':
       case '/plan-eng':
       case '/brand':
+      case '/21st':
       default:
         return this.handleAutonomousTransformation(context, def, args);
     }
@@ -1821,10 +1875,14 @@ export class SkillSlashCommandService {
       def.command === '/frontend' ||
       def.command === '/redesign' ||
       def.command === '/img2code' ||
-      def.command === '/brand'
+      def.command === '/brand' ||
+      def.command === '/21st'
     ) {
       try {
         await DesignSkillService.provisionDesignSkillsForProject(args || 'design premium', context.projectPath);
+        if (def.command === '/21st') {
+          await DesignSkillService.injectShadcnAndTwentyFirstDevPatterns(context.projectPath);
+        }
       } catch (err) {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({

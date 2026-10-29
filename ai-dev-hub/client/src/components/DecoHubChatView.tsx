@@ -56,6 +56,46 @@ interface DecoHubChatViewProps {
 
 import { ImageCarouselLightbox, LightboxImageItem } from './ImageCarouselLightbox';
 
+export function cleanChatMessage(content: string, isUser: boolean): string {
+  if (isUser || !content) return content || '';
+  return content
+    .replace(/<thought[\s\S]*?<\/thought>/gi, '')
+    .replace(/<thinking[\s\S]*?<\/thinking>/gi, '')
+    .replace(/<system_invariants[\s\S]*?<\/system_invariants>/gi, '')
+    .replace(/<meta_engineer_identity[\s\S]*?<\/meta_engineer_identity>/gi, '')
+    .replace(/<operational_safety_invariants[\s\S]*?<\/operational_safety_invariants>/gi, '')
+    .replace(/<workspace_context[\s\S]*?<\/workspace_context>/gi, '')
+    .replace(/<execution_directive[^>]*>[\s\S]*?<\/execution_directive>/gi, '')
+    .replace(/<evolution_mission[\s\S]*?<\/evolution_mission>/gi, '')
+    .replace(/<briefing_contract[\s\S]*?<\/briefing_contract>/gi, '')
+    .replace(/<autonomous_evolution_cycle[\s\S]*?<\/autonomous_evolution_cycle>/gi, '')
+    .replace(/<antigravity_output[\s\S]*?<\/antigravity_output>/gi, '')
+    .replace(/<task_review[\s\S]*?<\/task_review>/gi, '')
+    .replace(/<system_message[\s\S]*?<\/system_message>/gi, '')
+    .replace(/<context_bridge[\s\S]*?<\/context_bridge>/gi, '')
+    .replace(/<user_request[\s\S]*?<\/user_request>/gi, '')
+    .replace(/<user_attachments[\s\S]*?<\/user_attachments>/gi, '')
+    .replace(/<failure_diagnostics[\s\S]*?<\/failure_diagnostics>/gi, '')
+    .replace(/<scoped_modified_files[\s\S]*?<\/scoped_modified_files>/gi, '')
+    .replace(/<\/?(?:system_invariants|meta_engineer_identity|operational_safety_invariants|workspace_context|execution_directive|evolution_mission|briefing_contract|autonomous_evolution_cycle|thought|thinking|antigravity_output|task_review|system_message|context_bridge|user_request|user_attachments|scoped_modified_files|failure_diagnostics)[^>]*>/gi, '')
+    .replace(/\[(?:FILE|ARQUIVO|CRIAR|MODIFICAR):\s*[^\]]+\][\s\S]*?\[ENDFILE\]/gi, '')
+    .replace(/```(?:[a-zA-Z0-9_-]+)?\s*\[(?:FILE|ARQUIVO|CRIAR|MODIFICAR):[^\]]+\][\s\S]*?```/gi, '')
+    .replace(/^Created At:\s+[^\r\n]+/gm, '')
+    .replace(/^Completed At:\s+[^\r\n]+/gm, '')
+    .replace(/Showing lines \d+-\d+ of \d+[^\r\n]*/gm, '')
+    .replace(/Made \d+ replacements? in [^\r\n]*/gm, '')
+    .replace(/^Command exited with code \d+[^\r\n]*/gm, '')
+    .replace(/^Command output:[^\r\n]*/gm, '')
+    .replace(/^Log output:[^\r\n]*/gm, '')
+    .replace(/The tool's output was truncated[^\r\n]*/gi, '')
+    .replace(/\[(?:TYPECHECK|VISUAL GATE|DOUBLE ORACLE|SIMPLICITY|APPLIED)\]\s*/gi, '')
+    .replace(/\[AI DEV Council\]:[^\n]*/gi, '')
+    .replace(/\(NEEDS_EVIDENCE:[^\n]*/gi, '')
+    .replace(/### (?:\u{1F4F8} )?Evidências Visuais Capturadas via Playwright:[^\n]*/giu, '')
+    .replace(/!\[(.*?)\]\((.*?)\)/g, '')
+    .trim();
+}
+
 export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
   project,
   projectRun,
@@ -73,6 +113,7 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCommandMenuOpen, setIsCommandMenuOpen] = useState(false);
   const [commandFilter, setCommandFilter] = useState('');
+  const [sentNotice, setSentNotice] = useState<{ id: string; text: string; secondsLeft: number } | null>(null);
   const submissionRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const pendingRequestRef = useRef<{ projectId: string; content: string; id: string } | null>(null);
@@ -245,6 +286,19 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
     }
   }, [messages, isSubmitting]);
 
+  // Auto-dismiss 3-second interactive dispatch banner
+  useEffect(() => {
+    if (!sentNotice) return;
+    const timer = setInterval(() => {
+      setSentNotice(prev => {
+        if (!prev) return null;
+        if (prev.secondsLeft <= 0.1) return null;
+        return { ...prev, secondsLeft: Math.max(0, +(prev.secondsLeft - 0.1).toFixed(1)) };
+      });
+    }, 100);
+    return () => clearInterval(timer);
+  }, [sentNotice?.id]);
+
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const content = inputText.trim();
@@ -257,6 +311,9 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
     try {
       localStorage.setItem('decohub.pendingSubmission:' + project.id, JSON.stringify({ content, id: request.id }));
     } catch {}
+
+    const displaySnippet = content.length > 80 ? content.slice(0, 77) + '...' : content;
+    setSentNotice({ id: request.id, text: displaySnippet, secondsLeft: 3 });
 
     setInputText('');
     setIsSubmitting(true);
@@ -626,52 +683,105 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
         onScroll={handleScroll}
         className="flex flex-col flex-1 min-h-0 overflow-y-auto scroll-smooth custom-scrollbar [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-700/60"
       >
-        {/* Área Compacta de Atividade Atual (HUD de Execução Real) */}
-        <div className="px-6 pt-3 flex-shrink-0 max-w-4xl mx-auto w-full">
-          <DecoHubCurrentActivityWidget
-            run={effectiveRun}
-            agentStatus={agentStatus}
-            evidence={homologationEvidence}
-            onContinueOrResume={handlePauseResume}
-            onResolveApproval={handleResolveApproval}
-            onOpenAdvanced={onOpenAdvanced}
-            onOpenLightbox={({ url, label, index = 0 }) => {
-              const screenshots: LightboxImageItem[] = (homologationEvidence?.screenshots || []).map((s, idx) => ({
-                url: api.getEvidenceFileUrl(project.id, s.filename),
-                label: s.label,
-                filename: s.filename,
-                title: s.title || s.label,
-                sectionName: s.sectionName,
-                index: s.index || idx + 1,
-                total: s.total || homologationEvidence?.screenshots.length,
-                sizeBytes: s.sizeBytes
-              }));
-              if (screenshots.length === 0) {
-                screenshots.push({
-                  url,
-                  label,
-                  filename: 'screenshot.png',
-                  title: label,
-                  sectionName: label,
-                  index: 1,
-                  total: 1,
-                  sizeBytes: 0
+        {/* Área Compacta de Atividade Atual (Apenas quando houver execução ativa ou pendente) */}
+        {Boolean(effectiveRun && (isRunActive || isRunSelfHealing || isRunReviewing || isRunWaitingApproval || isRunBlocked || isRunError || (totalTasks > 0 && !isRunCompleted))) && (
+          <div className="px-6 pt-3 flex-shrink-0 max-w-4xl mx-auto w-full">
+            <DecoHubCurrentActivityWidget
+              run={effectiveRun}
+              agentStatus={agentStatus}
+              evidence={homologationEvidence}
+              onContinueOrResume={handlePauseResume}
+              onResolveApproval={handleResolveApproval}
+              onOpenAdvanced={onOpenAdvanced}
+              onOpenLightbox={({ url, label, index = 0 }) => {
+                const screenshots: LightboxImageItem[] = (homologationEvidence?.screenshots || []).map((s, idx) => ({
+                  url: api.getEvidenceFileUrl(project.id, s.filename),
+                  label: s.label,
+                  filename: s.filename,
+                  title: s.title || s.label,
+                  sectionName: s.sectionName,
+                  index: s.index || idx + 1,
+                  total: s.total || homologationEvidence?.screenshots.length,
+                  sizeBytes: s.sizeBytes
+                }));
+                if (screenshots.length === 0) {
+                  screenshots.push({
+                    url,
+                    label,
+                    filename: 'screenshot.png',
+                    title: label,
+                    sectionName: label,
+                    index: 1,
+                    total: 1,
+                    sizeBytes: 0
+                  });
+                }
+                setCarouselLightbox({
+                  isOpen: true,
+                  images: screenshots,
+                  initialIndex: index
                 });
-              }
-              setCarouselLightbox({
-                isOpen: true,
-                images: screenshots,
-                initialIndex: index
-              });
-            }}
-            onOpenLiveApp={handleOpenLiveApp}
-            isStartingPreview={isStartingPreview}
-            isActionLoading={isActionLoading}
-          />
-        </div>
+              }}
+              onOpenLiveApp={handleOpenLiveApp}
+              isStartingPreview={isStartingPreview}
+              isActionLoading={isActionLoading}
+            />
+          </div>
+        )}
+
+        {/* Telinha bonita interativa de envio que some após 3 segundos */}
+        {sentNotice && (
+          <div
+            onClick={() => setSentNotice(null)}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-message-enter cursor-pointer"
+          >
+            <div
+              onClick={e => e.stopPropagation()}
+              className="bg-[#0e1322]/95 border border-indigo-500/40 shadow-2xl shadow-indigo-950/80 rounded-2xl p-6 max-w-sm w-full mx-auto flex flex-col items-center text-center space-y-3.5 relative overflow-hidden transition-all duration-300 animate-scale-up"
+            >
+              <div className="absolute -top-10 left-1/2 -translate-x-1/2 w-36 h-36 bg-indigo-500/20 rounded-full blur-2xl pointer-events-none" />
+
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-indigo-600/30 to-cyan-500/20 border border-indigo-400/40 text-indigo-300 flex items-center justify-center shadow-lg shadow-indigo-500/20 relative">
+                <Sparkles className="w-7 h-7 text-indigo-300 animate-pulse" />
+                <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 border-2 border-[#0e1322] flex items-center justify-center">
+                  <Check className="w-2.5 h-2.5 text-white" />
+                </span>
+              </div>
+
+              <div className="space-y-1">
+                <h3 className="text-sm font-bold text-white tracking-tight flex items-center justify-center gap-2">
+                  <span>Mensagem Enviada!</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/25 border border-indigo-500/40 text-indigo-200 font-mono font-bold">
+                    {Math.ceil(sentNotice.secondsLeft)}s
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-300 leading-relaxed font-sans line-clamp-2">
+                  "{sentNotice.text}"
+                </p>
+              </div>
+
+              {/* Barra de contagem regressiva de 3 segundos */}
+              <div className="w-full bg-[#181f33] h-1.5 rounded-full overflow-hidden mt-1">
+                <div
+                  className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-cyan-400 rounded-full transition-all duration-100 ease-linear shadow-[0_0_8px_rgba(99,102,241,0.6)]"
+                  style={{ width: `${(sentNotice.secondsLeft / 3) * 100}%` }}
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSentNotice(null)}
+                className="text-[11px] text-slate-400 hover:text-white transition-colors pt-0.5"
+              >
+                Toque para fechar
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Lista de Mensagens de Conversação Limpas */}
         <div className="flex-1 px-6 py-4 space-y-6 max-w-4xl mx-auto w-full">
+
         {messages.length === 0 ? (
           <div className="py-16 text-center space-y-6">
             <div className="w-12 h-12 rounded-2xl bg-indigo-600/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center mx-auto">
@@ -741,15 +851,7 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
 
             const isCompletionMessage = metadataObj?.type === 'run_completion' || (screenshots.length > 0 && msg.content.includes('Homologad'));
 
-            let cleanedText = msg.content;
-            if (!isUser) {
-              cleanedText = cleanedText
-                .replace(/\[AI DEV Council\]:[^\n]*/gi, '')
-                .replace(/\(NEEDS_EVIDENCE:[^\n]*/gi, '')
-                .replace(/### (?:\u{1F4F8} )?Evidências Visuais Capturadas via Playwright:[^\n]*/giu, '')
-                .replace(/!\[(.*?)\]\((.*?)\)/g, '')
-                .trim();
-            }
+            let cleanedText = cleanChatMessage(msg.content, isUser);
 
             const badgesMap = new Map<string, any>((metadataObj?.badges || []).map((b: any) => [b.id, b]));
             const devPassed = (badgesMap.get('dev_tests') as any)?.status !== 'FAILED';

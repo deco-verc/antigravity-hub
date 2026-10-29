@@ -223,8 +223,9 @@ export class AntigravityConversationalService {
         // Wait for live response in transcript
         const liveReply = await this.waitForTranscriptResponse(providerConvId, minStepIndex, timeoutMs, effectiveEnv);
         if (liveReply && liveReply.trim().length > 0) {
+          const cleanedLiveReply = this.sanitizeConversationalReply(liveReply.trim());
           return {
-            replyContent: liveReply.trim(),
+            replyContent: cleanedLiveReply || liveReply.trim(),
             source: 'ANTIGRAVITY_LIVE',
             conversationId: providerConvId,
             metadata: {
@@ -447,6 +448,42 @@ export class AntigravityConversationalService {
       await new Promise(r => setTimeout(r, 750));
     }
     return null;
+  }
+
+  /**
+   * Sanitizes conversational agent responses by stripping internal XML wrappers, thoughts, and CLI output
+   */
+  public static sanitizeConversationalReply(rawText: string): string {
+    if (!rawText || typeof rawText !== 'string') return '';
+    return rawText
+      .replace(/<thought[\s\S]*?<\/thought>/gi, '')
+      .replace(/<thinking[\s\S]*?<\/thinking>/gi, '')
+      .replace(/<system_invariants[\s\S]*?<\/system_invariants>/gi, '')
+      .replace(/<meta_engineer_identity[\s\S]*?<\/meta_engineer_identity>/gi, '')
+      .replace(/<operational_safety_invariants[\s\S]*?<\/operational_safety_invariants>/gi, '')
+      .replace(/<workspace_context[\s\S]*?<\/workspace_context>/gi, '')
+      .replace(/<execution_directive[^>]*>[\s\S]*?<\/execution_directive>/gi, '')
+      .replace(/<evolution_mission[\s\S]*?<\/evolution_mission>/gi, '')
+      .replace(/<briefing_contract[\s\S]*?<\/briefing_contract>/gi, '')
+      .replace(/<autonomous_evolution_cycle[\s\S]*?<\/autonomous_evolution_cycle>/gi, '')
+      .replace(/<antigravity_output[\s\S]*?<\/antigravity_output>/gi, '')
+      .replace(/<task_review[\s\S]*?<\/task_review>/gi, '')
+      .replace(/<system_message[\s\S]*?<\/system_message>/gi, '')
+      .replace(/<context_bridge[\s\S]*?<\/context_bridge>/gi, '')
+      .replace(/<user_request[\s\S]*?<\/user_request>/gi, '')
+      .replace(/<\/?(?:system_invariants|meta_engineer_identity|operational_safety_invariants|workspace_context|execution_directive|evolution_mission|briefing_contract|autonomous_evolution_cycle|thought|thinking|antigravity_output|task_review|system_message|context_bridge|user_request|scoped_modified_files|failure_diagnostics)[^>]*>/gi, '')
+      .replace(/\[(?:FILE|ARQUIVO|CRIAR|MODIFICAR):\s*[^\]]+\][\s\S]*?\[ENDFILE\]/gi, '')
+      .replace(/^Created At:\s+[^\r\n]+/gm, '')
+      .replace(/^Completed At:\s+[^\r\n]+/gm, '')
+      .replace(/Showing lines \d+-\d+ of \d+[^\r\n]*/gm, '')
+      .replace(/Made \d+ replacements? in [^\r\n]*/gm, '')
+      .replace(/^Command exited with code \d+[^\r\n]*/gm, '')
+      .replace(/^Command output:[^\r\n]*/gm, '')
+      .replace(/^Log output:[^\r\n]*/gm, '')
+      .replace(/The tool's output was truncated[^\r\n]*/gi, '')
+      .replace(/\[AI DEV Council\]:[^\n]*/gi, '')
+      .replace(/\(NEEDS_EVIDENCE:[^\n]*/gi, '')
+      .trim();
   }
 
   /**

@@ -103,6 +103,34 @@
   animation: gentlePulse 1.5s ease-in-out infinite;
 }
 
+@keyframes sentCountdown {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+
+.animate-sent-countdown {
+  animation: sentCountdown 3s linear forwards;
+}
+
+@keyframes scaleUp {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-scale-up {
+  animation: scaleUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-message-enter,
   .animate-gentle-pulse,

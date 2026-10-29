@@ -12,6 +12,7 @@ export function installPipelineFixture(projectId: string, projectPath: string, c
   if (!AgentApiGateway.isOfflineMode()) throw new Error('Fixture requires fail-closed offline mode');
   const provider = new DefaultFakeAgentApiProvider();
   const brain = path.join(AccountProfileManager.getGlobalActiveProfile().environment_path, '.gemini', 'antigravity', 'brain');
+  process.env.ANTIGRAVITY_BRAIN_FALLBACK_DIR = brain;
   const attempts = new Map<number, number>();
   const dispatches: Array<{ task: number; conversationId: string; cwd: string; exitCode: number }> = [];
   const tasks = Array.from({ length: count }, (_,i) => ({
@@ -25,8 +26,7 @@ export function installPipelineFixture(projectId: string, projectPath: string, c
     ? JSON.stringify({ verdict:'APPROVED',feedback:'Revisão explicitamente simulada; avanço depende do Evaluator real',qualityScore:9 })
     : JSON.stringify(tasks);
   const send = provider.sendMessage.bind(provider);
-  provider.sendMessage = options => {
-    send(options);
+  const handleWorkerPrompt = (options: { conversationId: string; prompt: string; role?: string | null; projectId?: string | null }) => {
     if (options.role !== 'WORKER') return;
     if (options.projectId !== projectId) throw new Error('Fixture cross-project violation');
     const task = Number(options.prompt.match(/TAREFA ATUAL:\s*Implementar incremento (\d+)/i)?.[1] || options.prompt.match(/Implementar incremento (\d+)/)?.[1]) || 1;
@@ -42,10 +42,15 @@ export function installPipelineFixture(projectId: string, projectPath: string, c
     const logs=path.join(brain,options.conversationId,'.system_generated','logs');fs.mkdirSync(logs,{recursive:true});
     const transcript=path.join(logs,'transcript.jsonl');
     const events = [
+      {type:'USER_INPUT',status:'DONE',content:options.prompt},
       {type:'TOOL_CALL',status:'DONE',tool_calls:[{name:'write_to_file',args:{TargetFile:file}},{name:'run_command',args:{CommandLine:`node acceptance.test.cjs ${task}`},exit_code:exitCode,output}]},
       {type:'PLANNER_RESPONSE',status:'DONE',content:`Entrega simulada do incremento ${task}. Verificar independentemente o resultado.`,step_index:attempt}
     ];
     fs.appendFileSync(transcript,events.map(e=>JSON.stringify(e)).join('\n')+'\n');
+  };
+  provider.sendMessage = options => {
+    send(options);
+    handleWorkerPrompt(options);
   };
   AgentApiGateway.setMockProvider(provider);
   AccountProfileManager.updateStatus('acc-pro-1','READY');

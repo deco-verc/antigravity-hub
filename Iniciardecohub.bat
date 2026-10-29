@@ -2,25 +2,53 @@
 setlocal EnableDelayedExpansion
 title DecoHUB - Central de Desenvolvimento Autonomo v1.1
 
-if exist "%~dp0ai-dev-hub" (
-  cd /d "%~dp0ai-dev-hub"
-) else (
+:: ============================================================================
+:: DecoHUB Desktop Launcher
+:: Localiza o repositorio, valida ambiente, sincroniza bundles e inicia o runtime
+:: ============================================================================
+
+:: 1. Localizacao robusta do repositorio raiz
+set "DECOHUB_DIR=C:\IA\IA\Antigravity HUB\ai-dev-hub"
+
+if exist "%DECOHUB_DIR%\package.json" (
+  cd /d "%DECOHUB_DIR%"
+) else if exist "%~dp0package.json" (
   cd /d "%~dp0"
-)
-
-echo ====================================================
-echo   INICIANDO DECOHUB v1.1 (DIRECT RUNTIME)
-echo   Ambiente limpo, portas liberadas e codigo sincronizado
-echo ====================================================
-echo.
-
-where node >nul 2>nul
-if errorlevel 1 (
-  echo [ERRO] Node.js nao foi encontrado no PATH.
+) else if exist "%~dp0ai-dev-hub\package.json" (
+  cd /d "%~dp0ai-dev-hub"
+) else if exist "%~dp0..\ai-dev-hub\package.json" (
+  cd /d "%~dp0..\ai-dev-hub"
+) else if exist "C:\IA\Antigravity HUB\ai-dev-hub\package.json" (
+  set "DECOHUB_DIR=C:\IA\Antigravity HUB\ai-dev-hub"
+  cd /d "C:\IA\Antigravity HUB\ai-dev-hub"
+) else (
+  echo [ERRO] Repositorio do DecoHUB nao foi encontrado.
+  echo Caminho esperado: %DECOHUB_DIR%
   pause
   exit /b 1
 )
 
+:: Garante que o atalho com icone oficial existe na Area de Trabalho
+if not exist "%USERPROFILE%\Desktop\DecoHUB.lnk" (
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%USERPROFILE%\Desktop\DecoHUB.lnk'); $s.TargetPath = '%USERPROFILE%\Desktop\Iniciar DecoHUB.bat'; $s.WorkingDirectory = '%DECOHUB_DIR%'; $s.IconLocation = '%DECOHUB_DIR%\desktop\assets\icon.ico,0'; $s.Description = 'DecoHUB - Central de Desenvolvimento Autonomo'; $s.Save()" >nul 2>&1
+)
+
+echo ====================================================
+echo   INICIANDO DECOHUB v1.1 (DIRECT RUNTIME)
+echo   Repositorio: %CD%
+echo ====================================================
+echo.
+
+:: 2. Verificacao do Node.js no PATH
+where node >nul 2>nul
+if errorlevel 1 (
+  echo [ERRO] Node.js nao foi encontrado no PATH do sistema.
+  echo Instale o Node.js v20+ ou configure as variaveis de ambiente.
+  pause
+  exit /b 1
+)
+
+:: 3. Limpeza de processos orfaos e liberacao da porta 3001
 echo [1/4] Limpando processos antigos e liberando porta 3001...
 taskkill /F /IM "DecoHUB.exe" /T >nul 2>&1
 taskkill /F /IM "AI DEV.exe" /T >nul 2>&1
@@ -28,16 +56,18 @@ taskkill /F /IM "electron.exe" /T >nul 2>&1
 
 node -e "try{const{execSync}=require('child_process');const out=execSync('netstat -ano -p tcp',{encoding:'utf8'});out.split('\n').forEach(l=>{if(l.includes('LISTENING')&&l.includes(':3001')){const p=l.trim().split(/\s+/).pop();if(p&&+p>0)try{process.kill(+p,'SIGKILL');console.log('[INFO] Finalizando processo preso na porta 3001 (PID '+p+')...');}catch(e){}}});}catch(e){}" >nul 2>&1
 
+:: 4. Verificacao de dependencias
 if not exist "node_modules" (
   echo [INFO] Instalando dependencias principais...
-  call npm install
+  call npm.cmd install
   if errorlevel 1 (
-    echo [ERRO] Falha ao instalar dependencias.
+    echo [ERRO] Falha ao instalar dependencias com npm.
     pause
     exit /b 1
   )
 )
 
+:: 5. Verificacao e compilacao (TypeScript + Vite)
 set NEED_BUILD=0
 if not exist "server\dist\index.js" set NEED_BUILD=1
 if not exist "client\dist\index.html" set NEED_BUILD=1
@@ -59,7 +89,7 @@ if errorlevel 2 goto skip_build_choice
 
 :do_build
 echo [2/4] Compilando servidor e interface (TypeScript + Vite)...
-call npm run build
+call npm.cmd run build
 if errorlevel 1 (
   echo [ERRO] Falha na compilacao do projeto.
   pause
@@ -71,8 +101,9 @@ goto do_sync
 echo [2/4] Inicializacao rapida selecionada (Build preservado).
 
 :do_sync
+:: 6. Sincronizacao de bundles com caches e executaveis desktop
 echo [3/4] Sincronizando bundles com caches e executaveis desktop...
-set TARGET_APPDATA=C:\Users\Deco\AppData\Local\Programs\ai-dev-hub-root\resources\app.asar.unpacked
+set TARGET_APPDATA=%LOCALAPPDATA%\Programs\ai-dev-hub-root\resources\app.asar.unpacked
 set TARGET_DIST=dist-desktop\win-unpacked\resources\app.asar.unpacked
 
 if exist "%TARGET_APPDATA%" (
@@ -90,6 +121,7 @@ if exist "%TARGET_DIST%" (
 rem Limpa ERRORLEVEL gerado pelo robocopy antes de prosseguir
 cmd /c "exit /b 0"
 
+:: 7. Execucao do DecoHUB Desktop Direct Runtime
 echo.
 echo [4/4] Abrindo DecoHUB Desktop (Direct Runtime)...
 echo ====================================================
@@ -97,7 +129,7 @@ echo ====================================================
 if exist "node_modules\.bin\electron.cmd" (
   call "node_modules\.bin\electron.cmd" desktop\main.cjs
 ) else (
-  call npm run desktop
+  call npm.cmd run desktop
 )
 
 if errorlevel 1 (

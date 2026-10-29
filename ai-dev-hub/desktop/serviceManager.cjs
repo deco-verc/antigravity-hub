@@ -21,9 +21,13 @@ class ServiceManager extends EventEmitter {
     let serverDir = options.serverDir;
     let clientDir = null;
 
-    // Prioridade 1: Sempre priorizar o código-fonte real compilado em C:\IA\Antigravity HUB\ai-dev-hub
-    const canonicalServer = 'C:\\IA\\Antigravity HUB\\ai-dev-hub\\server';
-    const canonicalClient = 'C:\\IA\\Antigravity HUB\\ai-dev-hub\\client\\dist';
+    // Prioridade 1: Sempre priorizar o código-fonte real compilado no repositório DecoHUB
+    const canonicalServer = fs.existsSync('C:\\IA\\IA\\Antigravity HUB\\ai-dev-hub\\server\\dist\\index.js')
+      ? 'C:\\IA\\IA\\Antigravity HUB\\ai-dev-hub\\server'
+      : 'C:\\IA\\Antigravity HUB\\ai-dev-hub\\server';
+    const canonicalClient = fs.existsSync('C:\\IA\\IA\\Antigravity HUB\\ai-dev-hub\\client\\dist\\index.html')
+      ? 'C:\\IA\\IA\\Antigravity HUB\\ai-dev-hub\\client\\dist'
+      : 'C:\\IA\\Antigravity HUB\\ai-dev-hub\\client\\dist';
     const canonicalServerDist = path.join(canonicalServer, 'dist', 'index.js');
     const canonicalClientHtml = path.join(canonicalClient, 'index.html');
 

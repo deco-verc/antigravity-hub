@@ -125,7 +125,10 @@ export class SkillRouter {
       return path.resolve(process.env.DECOHUB_ROOT);
     }
     const candidates = [
+      'C:\\IA\\IA\\Antigravity HUB',
       'C:\\IA\\Antigravity HUB',
+      path.resolve(__dirname, '../../..'),
+      path.resolve(process.cwd(), '../..'),
       path.resolve(process.cwd(), '..'),
       path.resolve(process.cwd())
     ];
@@ -264,30 +267,104 @@ export class SkillRouter {
     ].join(' ').toLowerCase();
 
     const candidates: string[] = [];
+    const localSkillsDir = path.resolve(__dirname, '../.ai-dev-hub/skills');
+    const findFirstExisting = (...paths: (string | undefined | null)[]): string => {
+      for (const p of paths) {
+        if (p && fs.existsSync(p)) return p;
+      }
+      return paths[0] || '';
+    };
 
-    const karpathySkillFile = path.join(skillsDir, 'andrej-karpathy-skills-main', 'andrej-karpathy-skills-main', 'skills', 'karpathy-guidelines', 'SKILL.md');
-    const karpathyExamplesFile = path.join(skillsDir, 'andrej-karpathy-skills-main', 'andrej-karpathy-skills-main', 'EXAMPLES.md');
-    const backendWorkflowFile = path.join(reaBlueprints, 'saas-master-backend-and-workflows.md');
-    const plugAndPlayFile = path.join(docSimp, 'saas_plug_and_play_standard.md');
-    const supabaseKnowledgeFile = path.join(docSimp, 'supabase_knowledge_ready.md');
-    const cloudflareKnowledgeFile = path.join(docSimp, 'cloudflare_knowledge_ready.md');
-    const pushinpayKnowledgeFile = path.join(docSimp, 'pushinpay_docs_knowledge_ready.md');
-    const upstashKnowledgeFile = path.join(docSimp, 'upstash_knowledge_ready.md');
+    const karpathySkillFile = findFirstExisting(
+      path.join(skillsDir, 'andrej-karpathy-skills-main', 'andrej-karpathy-skills-main', 'skills', 'karpathy-guidelines', 'SKILL.md'),
+      path.join(hubRoot, '.agents', 'skills', 'karpathy-guidelines', 'SKILL.md'),
+      path.join(__dirname, '../../.agents/skills/karpathy-guidelines/SKILL.md'),
+      path.join(localSkillsDir, 'karpathy-guidelines-skill.md')
+    );
+    const karpathyExamplesFile = findFirstExisting(
+      path.join(skillsDir, 'andrej-karpathy-skills-main', 'andrej-karpathy-skills-main', 'EXAMPLES.md'),
+      path.join(hubRoot, '.agents', 'skills', 'karpathy-guidelines', 'examples', 'EXAMPLES.md'),
+      path.join(__dirname, '../../.agents/skills/karpathy-guidelines/examples/EXAMPLES.md'),
+      path.join(localSkillsDir, 'EXAMPLES.md')
+    );
+    const backendWorkflowFile = findFirstExisting(
+      path.join(reaBlueprints, 'saas-master-backend-and-workflows.md'),
+      path.join(localSkillsDir, 'saas-master-backend-and-workflows.md')
+    );
+    const plugAndPlayFile = findFirstExisting(
+      path.join(docSimp, 'saas_plug_and_play_standard.md'),
+      path.join(localSkillsDir, 'saas_plug_and_play_standard.md')
+    );
+    const supabaseKnowledgeFile = findFirstExisting(
+      path.join(docSimp, 'supabase_knowledge_ready.md'),
+      path.join(localSkillsDir, 'supabase_knowledge_ready.md')
+    );
+    const cloudflareKnowledgeFile = findFirstExisting(
+      path.join(docSimp, 'cloudflare_knowledge_ready.md'),
+      path.join(localSkillsDir, 'cloudflare_knowledge_ready.md')
+    );
+    const pushinpayKnowledgeFile = findFirstExisting(
+      path.join(docSimp, 'pushinpay_docs_knowledge_ready.md'),
+      path.join(localSkillsDir, 'pushinpay_docs_knowledge_ready.md')
+    );
+    const upstashKnowledgeFile = findFirstExisting(
+      path.join(docSimp, 'upstash_knowledge_ready.md'),
+      path.join(localSkillsDir, 'upstash_knowledge_ready.md')
+    );
 
-    const tallyBlueprintFile = path.join(reaBlueprints, 'tally-form-block-ux_rea_blueprint.md');
-    const n8nBlueprintFile = path.join(reaBlueprints, 'n8n-workflow-automation_rea_blueprint.md');
-    const attioBlueprintFile = path.join(reaBlueprints, 'attio-crm-data-engine_rea_blueprint.md');
+    const tallyBlueprintFile = findFirstExisting(
+      path.join(reaBlueprints, 'tally-form-block-ux_rea_blueprint.md'),
+      path.join(localSkillsDir, 'tally-form-block-ux_rea_blueprint.md')
+    );
+    const n8nBlueprintFile = findFirstExisting(
+      path.join(reaBlueprints, 'n8n-workflow-automation_rea_blueprint.md'),
+      path.join(localSkillsDir, 'n8n-workflow-automation_rea_blueprint.md')
+    );
+    const attioBlueprintFile = findFirstExisting(
+      path.join(reaBlueprints, 'attio-crm-data-engine_rea_blueprint.md'),
+      path.join(localSkillsDir, 'attio-crm-data-engine_rea_blueprint.md')
+    );
 
-    const uiUxProMaxFile = path.join(designSkills, 'ui-ux-pro-max.md');
-    const brandkitSkillFile = path.join(designSkills, 'taste-skill', 'skills', 'brandkit', 'SKILL.md');
-    const vercelWebDesignFile = path.join(designSkills, 'vercel-web-design-guidelines.md');
-    const tasteSkillFile = path.join(designSkills, 'taste-skill.md');
-    const frontendDesignFile = path.join(designSkills, 'frontend-design.md');
-    const modernFrontendFile = path.join(designSkills, 'modern-frontend-design.md');
-    const shellAndStateFile = path.join(reaBlueprints, 'saas-master-shell-and-state.md');
-    const webAnimationFile = path.join(designSkills, 'web-animation-design.md');
-    const vercelBestPracticesFile = path.join(designSkills, 'vercel-react-best-practices.md');
-    const playwrightAgentCliFile = path.join(designSkills, 'playwright-agent-cli.md');
+    const uiUxProMaxFile = findFirstExisting(
+      path.join(designSkills, 'ui-ux-pro-max.md'),
+      path.join(localSkillsDir, 'ui-ux-pro-max.md')
+    );
+    const brandkitSkillFile = findFirstExisting(
+      path.join(designSkills, 'taste-skill', 'skills', 'brandkit', 'SKILL.md'),
+      path.join(localSkillsDir, 'brandkit-skill.md')
+    );
+    const vercelWebDesignFile = findFirstExisting(
+      path.join(designSkills, 'vercel-web-design-guidelines.md'),
+      path.join(localSkillsDir, 'vercel-web-design-guidelines.md')
+    );
+    const tasteSkillFile = findFirstExisting(
+      path.join(designSkills, 'taste-skill.md'),
+      path.join(localSkillsDir, 'taste-skill.md')
+    );
+    const frontendDesignFile = findFirstExisting(
+      path.join(designSkills, 'frontend-design.md'),
+      path.join(localSkillsDir, 'frontend-design.md')
+    );
+    const modernFrontendFile = findFirstExisting(
+      path.join(designSkills, 'modern-frontend-design.md'),
+      path.join(localSkillsDir, 'modern-frontend-design.md')
+    );
+    const shellAndStateFile = findFirstExisting(
+      path.join(reaBlueprints, 'saas-master-shell-and-state.md'),
+      path.join(localSkillsDir, 'saas-master-shell-and-state.md')
+    );
+    const webAnimationFile = findFirstExisting(
+      path.join(designSkills, 'web-animation-design.md'),
+      path.join(localSkillsDir, 'web-animation-design.md')
+    );
+    const vercelBestPracticesFile = findFirstExisting(
+      path.join(designSkills, 'vercel-react-best-practices.md'),
+      path.join(localSkillsDir, 'vercel-react-best-practices.md')
+    );
+    const playwrightAgentCliFile = findFirstExisting(
+      path.join(designSkills, 'playwright-agent-cli.md'),
+      path.join(localSkillsDir, 'playwright-agent-cli.md')
+    );
 
     const backendSuite = [
       karpathySkillFile,
@@ -428,13 +505,8 @@ export class SkillRouter {
 
             // For karpathy-guidelines, also provision examples/EXAMPLES.md
             if (isKarpathy) {
-              const examplesSrc = path.join(
-                skillsDir,
-                'andrej-karpathy-skills-main',
-                'andrej-karpathy-skills-main',
-                'EXAMPLES.md'
-              );
-              if (fs.existsSync(examplesSrc)) {
+              const examplesSrc = karpathyExamplesFile;
+              if (examplesSrc && fs.existsSync(examplesSrc)) {
                 const examplesDir = path.join(nativeSkillDir, 'examples');
                 if (!fs.existsSync(examplesDir)) {
                   fs.mkdirSync(examplesDir, { recursive: true });

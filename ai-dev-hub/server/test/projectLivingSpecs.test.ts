@@ -51,6 +51,19 @@ describe('ProjectLivingSpecService - Motor Autônomo de Especificação Viva na 
       assert.ok(design.includes('Populated State'), 'Deve exigir estado Populated State');
       assert.ok(design.includes('Error Toast'), 'Deve exigir estado Error Toast');
       assert.ok(design.includes('Lucide inline'), 'Deve exigir ícones SVG Lucide inline');
+      assert.ok(design.includes('--card'), 'Deve conter tokens do shadcn/ui (--card)');
+      assert.ok(design.includes('--primary-foreground'), 'Deve conter tokens do shadcn/ui (--primary-foreground)');
+      assert.ok(design.includes('--destructive'), 'Deve conter tokens do shadcn/ui (--destructive)');
+      assert.ok(design.includes('Arquitetura de Componentes shadcn/ui & 21st.dev'), 'Deve conter seção shadcn & 21st.dev');
+      assert.ok(design.includes('Bento Grid & Spotlight Metric Cards'), 'Deve conter padrão Bento Grid');
+      assert.ok(design.includes('Shadcn Data Table Avançada'), 'Deve conter padrão Shadcn Data Table');
+      assert.ok(design.includes('Shadcn Sheet (Slide-Over Drawer) & Dialog'), 'Deve conter padrão Shadcn Sheet');
+      assert.ok(design.includes('Animated Segmented Tabs'), 'Deve conter padrão Segmented Tabs');
+      assert.ok(design.includes('btn-primary'), 'Deve conter anatomia de botões');
+
+      const rootDesign = fs.readFileSync(result.designMdRootPath, 'utf-8');
+      assert.ok(rootDesign.includes('Arquitetura de Componentes shadcn/ui & 21st.dev'), 'Cópia raiz de DESIGN.md deve conter seção shadcn/21st.dev');
+      assert.ok(rootDesign.includes('--primary-foreground'), 'Cópia raiz de DESIGN.md deve conter tokens shadcn');
 
       // Validar BACKEND.md
       const backend = fs.readFileSync(result.backendMdPath, 'utf-8');
@@ -110,6 +123,7 @@ describe('ProjectLivingSpecService - Motor Autônomo de Especificação Viva na 
       assert.ok(frontendCtx.includes('SEÇÕES OBRIGATÓRIAS DA INTERFACE'), 'Frontend context deve conter seções');
       assert.ok(frontendCtx.includes('TOKENS CSS :ROOT'), 'Frontend context deve conter tokens CSS');
       assert.ok(frontendCtx.includes('CONTRATOS REST PARA FETCH'), 'Frontend context deve conter contratos de fetch');
+      assert.ok(frontendCtx.includes('COMPONENTES SHADCN/UI & 21ST.DEV'), 'Frontend context deve conter componentes shadcn e 21st.dev');
       assert.ok(frontendCtx.length >= 1500, `Frontend context deve ter >= 1500 chars (obtido: ${frontendCtx.length})`);
       assert.ok(frontendCtx.length <= 3800, `Frontend context deve ter <= 3800 chars (obtido: ${frontendCtx.length})`);
 
@@ -870,4 +884,31 @@ describe('ProjectLivingSpecService - Motor Autônomo de Especificação Viva na 
     }
     }
   });
+  it('15. FASE 24: Injeção de tokens shadcn/ui e padrões 21st.dev em DESIGN.md e no contexto de WORKER_FRONTEND (<24.000 chars)', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'decohub-shadcn-21st-'));
+    try {
+      const result = await ProjectLivingSpecService.generateAndPersistLivingSpecs({
+        projectName: 'SaaS Pro Analytics',
+        projectPath: tempDir,
+        briefing: 'Plataforma SaaS de analytics com KPIs de alta conversão, spotlight cards e data table avançada.'
+      });
+
+      const designMd = fs.readFileSync(result.designMdPath, 'utf-8');
+      assert.ok(designMd.includes('--card'), 'DESIGN.md deve conter tokens semânticos shadcn/ui');
+      assert.ok(designMd.includes('.dark {'), 'DESIGN.md deve conter bloco .dark do shadcn/ui');
+      assert.ok(designMd.includes('Bento Grid & Spotlight Metric Cards'), 'DESIGN.md deve conter padrão 21st.dev Bento Grid');
+      assert.ok(designMd.includes('Shadcn Data Table'), 'DESIGN.md deve conter padrão Shadcn Data Table');
+      assert.ok(designMd.includes('Slide-Over Inspector Drawer'), 'DESIGN.md deve conter Sheet/Drawer');
+
+      // Validar contexto WORKER_FRONTEND
+      const workerContext = ProjectLivingSpecService.getRoleSpecificSpecContext(tempDir, 'WORKER_FRONTEND');
+
+      assert.ok(workerContext.includes('COMPONENTES SHADCN/UI & 21ST.DEV'), 'Contexto deve conter seção de componentes shadcn/ui & 21st.dev');
+      assert.ok(workerContext.includes('Bento Grid & Spotlight Metric Cards'), 'Contexto deve instruir Bento Grid');
+      assert.ok(workerContext.length < 5000, 'Contexto do worker deve ser conciso e focado');
+    } finally {
+      try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+    }
+  });
+
 });

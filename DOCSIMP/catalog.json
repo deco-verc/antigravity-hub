@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "updated_at": "2026-10-26T21:05:25.680Z",
+  "updated_at": "2026-10-26T21:07:12.512Z",
   "documents": [
     {
       "id": "pushinpay",
@@ -363,6 +363,34 @@
       ],
       "summary": "Documentação oficial extraída sob demanda de https://nextjs.org/docs/app/getting-started (1 páginas catalogadas).",
       "file_path": "nextjs_org_knowledge_ready.md",
+      "required_env_vars": [],
+      "fallback_strategy": "Mock local seguro e respostas simuladas caso credenciais externas não estejam configuradas."
+    },
+    {
+      "id": "prisma_io",
+      "name": "PRISMA IO Docs",
+      "aliases": [
+        "prisma_io",
+        "prisma io",
+        "https://www.prisma.io/docs/orm",
+        "www.prisma.io"
+      ],
+      "summary": "Documentação oficial extraída sob demanda de https://www.prisma.io/docs/orm (1 páginas catalogadas).",
+      "file_path": "prisma_io_knowledge_ready.md",
+      "required_env_vars": [],
+      "fallback_strategy": "Mock local seguro e respostas simuladas caso credenciais externas não estejam configuradas."
+    },
+    {
+      "id": "bullmq_io",
+      "name": "BULLMQ IO Docs",
+      "aliases": [
+        "bullmq_io",
+        "bullmq io",
+        "https://docs.bullmq.io/",
+        "docs.bullmq.io"
+      ],
+      "summary": "Documentação oficial extraída sob demanda de https://docs.bullmq.io/ (15 páginas catalogadas).",
+      "file_path": "bullmq_io_knowledge_ready.md",
       "required_env_vars": [],
       "fallback_strategy": "Mock local seguro e respostas simuladas caso credenciais externas não estejam configuradas."
     }

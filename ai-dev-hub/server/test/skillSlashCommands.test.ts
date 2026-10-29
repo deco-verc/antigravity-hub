@@ -1,7 +1,7 @@
 // server/test/skillSlashCommands.test.ts
 // Testes de Validação do Motor Universal de Slash Commands e Catálogo de Skills (FASE 16)
 
-import test, { describe, beforeEach, afterEach } from 'node:test';
+import test, { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -350,4 +350,44 @@ describe('FASE 16: Motor Universal de Slash Commands e Arsenal de Skills', () =>
     const examplesContent = fs.readFileSync(nativeExamplesFile, 'utf-8');
     assert.ok(examplesContent.length > 500, 'EXAMPLES.md deve conter conteudo completo de exemplos');
   });
+  it('FASE 24: Slash Command /21st e /shadcn provisiona DESIGN.md e dispara evolução visual', async () => {
+    // 1. Parsing and alias verification
+    assert.equal(SkillSlashCommandService.isSlashCommand('/21st'), true);
+    assert.equal(SkillSlashCommandService.isSlashCommand('/shadcn'), true);
+
+    const parsed21st = SkillSlashCommandService.parseCommand('/21st refatorar metric-cards');
+    assert.ok(parsed21st);
+    assert.equal(parsed21st.def.command, '/21st');
+    assert.equal(parsed21st.args, 'refatorar metric-cards');
+
+    const parsedShadcn = SkillSlashCommandService.parseCommand('/shadcn');
+    assert.ok(parsedShadcn);
+    assert.equal(parsedShadcn.def.command, '/21st');
+
+    const parsedUiPro = SkillSlashCommandService.parseCommand('/ui-pro tabelas');
+    assert.ok(parsedUiPro);
+    assert.equal(parsedUiPro.def.command, '/21st');
+    assert.equal(parsedUiPro.args, 'tabelas');
+
+    // 2. Execution of /21st
+    // Create an initial DESIGN.md without shadcn patterns
+    fs.writeFileSync(path.join(testProjectDir, 'DESIGN.md'), '# DESIGN SYSTEM BASE\n:root { --old: 1; }\n', 'utf-8');
+
+    const result = await SkillSlashCommandService.handleSlashCommand({
+      projectId: testProjectId,
+      projectPath: testProjectDir,
+      command: '/21st',
+      args: 'aplicar bento grid e spotlight',
+      fullMessage: '/21st aplicar bento grid e spotlight'
+    });
+
+    assert.equal(result.execution.status, 'started');
+    assert.equal(result.execution.command, '/21st');
+
+    // Verify DESIGN.md was enriched with shadcn/ui and 21st.dev patterns
+    const updatedDesign = fs.readFileSync(path.join(testProjectDir, 'DESIGN.md'), 'utf-8');
+    assert.ok(updatedDesign.includes('shadcn/ui & 21st.dev'), 'DESIGN.md deve ser enriquecido com os padrões');
+    assert.ok(updatedDesign.includes('--primary-foreground'), 'DESIGN.md deve receber tokens CSS do shadcn');
+  });
+
 });

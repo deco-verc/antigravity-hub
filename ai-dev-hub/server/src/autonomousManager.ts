@@ -119,6 +119,8 @@ export interface SupervisorReviewInput {
   enableAutoRepair?: boolean;
 }
 
+const defaultSupervisorPlanTasks = GeminiSupervisorProvider.prototype.planTasks;
+
 export class AutonomousManager {
   /**
    * Helper alias to trigger a scheduler tick across all running projects
@@ -184,7 +186,7 @@ export class AutonomousManager {
       const totalTasks = Number(taskCounts?.total || 0);
       const pendingTasks = Number(taskCounts?.pending || 0);
       const hasNoPendingTasks = totalTasks > 0 ? (pendingTasks === 0) : true;
-      const isStalledOrErrored = ['error', 'blocked', 'paused', 'waiting_resource'].includes(activeRun.status) || totalTasks === 0;
+      const isStalledOrErrored = ['error', 'blocked', 'paused', 'waiting_resource'].includes(activeRun.status) || totalTasks === 0 || (activeRun.status === 'waiting_approval' && totalTasks === pendingTasks);
 
       if (config.forceNew || isStalledOrErrored || hasNoPendingTasks) {
         const finalStatus = isStalledOrErrored ? 'failed' : 'completed';
@@ -208,6 +210,13 @@ export class AutonomousManager {
 
     const runId = crypto.randomUUID();
     const nowIso = new Date().toISOString();
+    try {
+      const { RunControl } = await import('./runControl.js');
+      RunControl.clear(runId);
+      if (activeRun?.id) RunControl.clear(activeRun.id);
+      const { TurnCancellationManager } = await import('./turnCancellationManager.js');
+      TurnCancellationManager.clearProjectCancellations(config.projectId);
+    } catch {}
     const dateTag = new Date().toISOString().slice(0, 10);
     const branchName = `ai/autonomous-build-${dateTag}-${runId.slice(0, 6)}`;
 
@@ -300,17 +309,40 @@ export class AutonomousManager {
 
     try {
       let plannedTasks: TaskDefinition[] | null = null;
-      const { AgentApiGateway } = await import('./agentApiGateway.js');
-      if (AgentApiGateway.isOfflineMode()) {
-        const mockProvider = AgentApiGateway.getMockProvider();
-        const customPlan = mockProvider?.getResponse?.(project.id, 'PLAN');
-        if (customPlan) {
-          try {
-            const raw = JSON.parse(customPlan);
-            if (Array.isArray(raw) && raw.length > 0) {
-              plannedTasks = raw;
-            }
-          } catch {}
+
+      const isSupervisorMocked = typeof GeminiSupervisorProvider.prototype.planTasks === 'function' &&
+        GeminiSupervisorProvider.prototype.planTasks !== defaultSupervisorPlanTasks;
+
+      if (isSupervisorMocked) {
+        try {
+          const supervisor = new GeminiSupervisorProvider('flash', undefined, undefined, project.id);
+          const supervisorResult = await supervisor.planTasks(briefing || 'Construção autônoma do software', {
+            name: project.name,
+            path: project.path,
+            objective: objective || project.objective,
+            id: project.id
+          }, { mode: 'INITIAL_PLAN' as any, runId });
+          if (Array.isArray(supervisorResult) && supervisorResult.length > 0) {
+            plannedTasks = supervisorResult as any;
+          }
+        } catch (planErr: any) {
+          Logger.warn(`[AutonomousManager] Supervisor planTasks mock error: ${planErr.message}`);
+        }
+      }
+
+      if (!plannedTasks || plannedTasks.length === 0) {
+        const { AgentApiGateway } = await import('./agentApiGateway.js');
+        if (AgentApiGateway.isOfflineMode()) {
+          const mockProvider = AgentApiGateway.getMockProvider();
+          const customPlan = mockProvider?.getResponse?.(project.id, 'PLAN');
+          if (customPlan) {
+            try {
+              const raw = JSON.parse(customPlan);
+              if (Array.isArray(raw) && raw.length > 0) {
+                plannedTasks = raw;
+              }
+            } catch {}
+          }
         }
       }
 
@@ -323,6 +355,98 @@ export class AutonomousManager {
           projectId: project.id,
           requirements: config.requirements
         }) as any;
+      }
+
+      // AI DEV COUNCIL: Plan Architecture Critique Gate
+      if (plannedTasks && plannedTasks.length > 0) {
+        const { CouncilManager } = await import('./councilManager.js');
+        try {
+          const planDeliberation = await CouncilManager.deliberate({
+            taskId: `plan-${runId.slice(0, 8)}`,
+            projectId: project.id,
+            runId,
+            task: {
+              title: `Plano Arquitetural Inicial: ${config.name}`,
+              description: briefing,
+              plannedTasks
+            },
+            riskLevel: 'high',
+            policyTrigger: 'PLAN_ARCHITECTURE_CRITIQUE'
+          });
+
+          let activePlanDeliberation = planDeliberation;
+
+          if (planDeliberation.chairmanVerdict === 'CHANGES_REQUESTED' && planDeliberation.actionItems.length > 0) {
+            Logger.info(`[AutonomousManager] Refinando plano conforme crítica do Conselho...`);
+            try {
+              const supervisor = new GeminiSupervisorProvider('flash', undefined, undefined, project.id);
+              const refinedTasks = await supervisor.planTasks(briefing, {
+                name: project.name,
+                path: project.path,
+                objective: objective || project.objective,
+                id: project.id
+              }, {
+                mode: 'REPLAN' as any,
+                runId,
+                replanReason: `Crítica do Conselho: ${planDeliberation.actionItems.join('; ')}`
+              } as any);
+              if (refinedTasks && refinedTasks.length > 0) {
+                plannedTasks = refinedTasks as any;
+                const reDeliberation = await CouncilManager.deliberate({
+                  taskId: `plan-${runId.slice(0, 8)}`,
+                  projectId: project.id,
+                  runId,
+                  task: {
+                    title: `Plano Arquitetural Refinado: ${config.name}`,
+                    description: briefing,
+                    plannedTasks
+                  },
+                  riskLevel: 'high',
+                  policyTrigger: 'PLAN_ARCHITECTURE_CRITIQUE'
+                });
+                activePlanDeliberation = reDeliberation;
+                try {
+                  db.prepare('UPDATE autonomous_runs SET plan_deliberation_id = ? WHERE id = ?')
+                    .run(reDeliberation.id, runId);
+                } catch {}
+                this.logEvent(
+                  runId,
+                  null,
+                  'supervisor',
+                  'COUNCIL_PLAN_REVISED',
+                  `Plano refinado e reavaliado pelo Conselho: ${reDeliberation.chairmanVerdict} (${refinedTasks.length} tarefas).`,
+                  {
+                    deliberationId: reDeliberation.id,
+                    verdict: reDeliberation.chairmanVerdict,
+                    scores: reDeliberation.scores
+                  }
+                );
+              }
+            } catch (replanErr: any) {
+              Logger.warn(`[AutonomousManager] Falha ao refinar plano: ${replanErr.message}`);
+            }
+          }
+
+          if (activePlanDeliberation.chairmanVerdict === 'BLOCKED' || activePlanDeliberation.chairmanVerdict === 'CHANGES_REQUESTED') {
+            Logger.warn(`[AutonomousManager] Plano reprovado pelo Conselho (${activePlanDeliberation.chairmanVerdict}). Impedindo despacho ao Worker.`);
+            db.prepare(`
+              UPDATE autonomous_runs
+              SET status = 'waiting_approval', next_action = 'Plano reprovado pelo Conselho (${activePlanDeliberation.chairmanVerdict}). Aguardando aprovação na Inbox.', updated_at = ?
+              WHERE id = ?
+            `).run(new Date().toISOString(), runId);
+            this.logEvent(
+              runId,
+              null,
+              'system',
+              'PLAN_EXECUTION_BLOCKED',
+              `Execução impedida pelo Conselho: ${activePlanDeliberation.chairmanSynthesis || 'Plano requer ajustes'}`,
+              { deliberationId: activePlanDeliberation.id, verdict: activePlanDeliberation.chairmanVerdict }
+            );
+            return this.getRun(runId);
+          }
+        } catch (councilErr: any) {
+          Logger.warn(`[AutonomousManager] Conselho não concluiu crítica do plano: ${councilErr.message}`);
+        }
       }
 
       if (plannedTasks && plannedTasks.length > 0) {
@@ -2994,7 +3118,11 @@ export class AutonomousManager {
     const run = this.getRun(runId);
     if (run.status === 'completed') return run;
     // Limpa qualquer solicitação antiga de pausa/cancelamento ao retomar explicitamente
-    try { db.prepare('DELETE FROM run_control_requests WHERE run_id = ?').run(runId); } catch {}
+    try {
+      db.prepare('DELETE FROM run_control_requests WHERE run_id = ?').run(runId);
+      const { TurnCancellationManager } = await import('./turnCancellationManager.js');
+      TurnCancellationManager.clearProjectCancellations(run.project_id);
+    } catch {}
     const { ExecutionCoordinator } = await import('./executionCoordinator.js');
     ExecutionCoordinator.reconcileDeadReservations();
 

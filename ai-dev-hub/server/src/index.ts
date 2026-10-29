@@ -120,6 +120,20 @@ const server = app.listen(Number(PORT), HOST, () => {
       Logger.warn(`[AI DEV HUB] Erro na recuperação de runs de Self-Improvement: ${err.message}`);
     });
   });
+
+  // Sanitize ghost/orphan Antigravity projects from ~/.gemini and hub.db on startup
+  import('./ghostProjectSanitizer.js').then(({ sanitizeGhostAntigravityProjects }) => {
+    try {
+      const sanitizeResult = sanitizeGhostAntigravityProjects();
+      if (sanitizeResult.totalRemoved > 0) {
+        Logger.info(`[AI DEV HUB] Saneamento de projetos fantasmas no Antigravity executado: ${sanitizeResult.totalRemoved} registros removidos.`);
+      }
+    } catch (err: any) {
+      Logger.warn(`[AI DEV HUB] Aviso no saneamento de projetos fantasmas: ${err.message}`);
+    }
+  }).catch((err) => {
+    Logger.warn(`[AI DEV HUB] Aviso ao carregar ghostProjectSanitizer: ${err.message}`);
+  });
 });
 
 function gracefulShutdown() {

@@ -236,6 +236,20 @@ describe('FASE 4: EphemeralWorktreeService & Best-of-N Trajectories Concorrentes
       verification_command: 'node --test test/service.test.js'
     };
 
+    try {
+      const { db } = await import('../src/db.js');
+      const now = new Date().toISOString();
+      db.prepare(`INSERT OR IGNORE INTO projects (id, name, path, objective, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`).run(
+        mockProject.id, mockProject.name, mockProject.path, mockProject.objective, now, now
+      );
+      db.prepare(`INSERT OR IGNORE INTO autonomous_runs (id, project_id, name, objective, start_time, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+        mockRun.id, mockProject.id, 'Run Worktree Test', mockRun.briefing, now, now, now
+      );
+      db.prepare(`INSERT OR IGNORE INTO autonomous_tasks (id, run_id, title, description, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+        mockTask.id, mockRun.id, mockTask.title, mockTask.description, 'in_progress', now, now
+      );
+    } catch {}
+
     const mockEngineeringPackage = {
       adaptiveEffort: { effortLevel: 'HIGH', changeRisk: 'high' },
       taskContract: {

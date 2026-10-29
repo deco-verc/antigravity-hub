@@ -81,7 +81,7 @@ export class ObservabilityService {
       id,
       timestamp,
       level,
-      event: input.event,
+      event: input.event || 'system.log',
       message: cleanMessage,
       service,
       environment,

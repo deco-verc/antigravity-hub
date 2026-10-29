@@ -59,6 +59,219 @@ export interface ProvisionDesignResult {
   directiveBlock: string;
 }
 
+export interface ShadcnTokensConfig {
+  root: Record<string, string>;
+  dark: Record<string, string>;
+}
+
+export const SHADCN_CSS_TOKENS: ShadcnTokensConfig = {
+  root: {
+    '--background': '0 0% 100%',
+    '--foreground': '222.2 84% 4.9%',
+    '--card': '0 0% 100%',
+    '--card-foreground': '222.2 84% 4.9%',
+    '--popover': '0 0% 100%',
+    '--popover-foreground': '222.2 84% 4.9%',
+    '--primary': '222.2 47.4% 11.2%',
+    '--primary-foreground': '210 40% 98%',
+    '--secondary': '210 40% 96.1%',
+    '--secondary-foreground': '222.2 47.4% 11.2%',
+    '--muted': '210 40% 96.1%',
+    '--muted-foreground': '215.4 16.3% 46.9%',
+    '--accent': '210 40% 96.1%',
+    '--accent-foreground': '222.2 47.4% 11.2%',
+    '--destructive': '0 84.2% 60.2%',
+    '--destructive-foreground': '210 40% 98%',
+    '--border': '214.3 31.8% 91.4%',
+    '--input': '214.3 31.8% 91.4%',
+    '--ring': '222.2 84% 4.9%',
+    '--radius': '0.5rem'
+  },
+  dark: {
+    '--background': '222.2 84% 4.9%',
+    '--foreground': '210 40% 98%',
+    '--card': '222.2 84% 4.9%',
+    '--card-foreground': '210 40% 98%',
+    '--popover': '222.2 84% 4.9%',
+    '--popover-foreground': '210 40% 98%',
+    '--primary': '210 40% 98%',
+    '--primary-foreground': '222.2 47.4% 11.2%',
+    '--secondary': '217.2 32.6% 17.5%',
+    '--secondary-foreground': '210 40% 98%',
+    '--muted': '217.2 32.6% 17.5%',
+    '--muted-foreground': '215 20.2% 65.1%',
+    '--accent': '217.2 32.6% 17.5%',
+    '--accent-foreground': '210 40% 98%',
+    '--destructive': '0 62.8% 30.6%',
+    '--destructive-foreground': '210 40% 98%',
+    '--border': '217.2 32.6% 17.5%',
+    '--input': '217.2 32.6% 17.5%',
+    '--ring': '212.7 26.8% 83.9%',
+    '--radius': '0.5rem'
+  }
+};
+
+export interface TwentyFirstDevPattern {
+  name: string;
+  description: string;
+  htmlTemplate: string;
+  cssRecipe: string;
+}
+
+export const TWENTY_FIRST_DEV_PATTERNS: Record<string, TwentyFirstDevPattern> = {
+  bentoSpotlightCard: {
+    name: 'Bento Grid & Spotlight Metric Cards',
+    description: 'Cards de KPI com borda sutil 1px solid, efeito de brilho suave no hover (radial-gradient), badge de variação percentual (+14.2% em verde esmeralda com tabular-nums) e sparkline SVG no rodapé do card.',
+    htmlTemplate: `<div class="bento-card group relative overflow-hidden rounded-xl border border-border bg-card p-6 shadow-sm transition-all duration-300 hover:shadow-md" onmousemove="this.style.setProperty('--mouse-x', event.offsetX + 'px'); this.style.setProperty('--mouse-y', event.offsetY + 'px');">
+  <div class="pointer-events-none absolute -inset-px opacity-0 transition-opacity duration-300 group-hover:opacity-100" style="background: radial-gradient(400px circle at var(--mouse-x, 0) var(--mouse-y, 0), rgba(255,255,255,0.08), transparent 40%);"></div>
+  <div class="flex items-center justify-between">
+    <span class="text-sm font-medium text-muted-foreground">Receita Mensal Recorrente (MRR)</span>
+    <span class="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-500 tabular-nums">+14.2%</span>
+  </div>
+  <div class="mt-4 flex items-baseline gap-2">
+    <span class="text-3xl font-bold tracking-tight text-foreground tabular-nums">R$ 48.250</span>
+    <span class="text-xs text-muted-foreground">vs mês anterior</span>
+  </div>
+  <div class="mt-4 h-8 w-full">
+    <svg class="h-full w-full stroke-emerald-500" fill="none" viewBox="0 0 100 25" preserveAspectRatio="none">
+      <path d="M0 20 Q 25 5, 50 15 T 100 5" stroke-width="2" stroke-linecap="round" vector-effect="non-scaling-stroke"></path>
+    </svg>
+  </div>
+</div>`,
+    cssRecipe: `.bento-card {
+  position: relative;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+  border-radius: var(--radius);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.bento-card:hover {
+  border-color: hsl(var(--border) / 0.8);
+}`
+  },
+  dataTable: {
+    name: 'Shadcn Data Table Avançada',
+    description: 'Cabeçalho fixo com tipografia text-xs font-medium text-muted-foreground uppercase tracking-wider, linhas com hover:bg-muted/50 transition-colors, badges semânticos rounded-full px-2.5 py-0.5 text-xs font-medium, barra de busca com atalho visual ⌘K / Ctrl+K e dropdown de filtros.',
+    htmlTemplate: `<div class="w-full space-y-4">
+  <div class="flex items-center justify-between gap-4">
+    <div class="relative flex-1 max-w-sm">
+      <input type="text" placeholder="Filtrar registros..." class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+      <kbd class="pointer-events-none absolute right-2.5 top-2 inline-flex h-5 select-none items-center gap-1 rounded border border-border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">⌘K</kbd>
+    </div>
+    <div class="flex items-center gap-2">
+      <select class="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <option value="all">Todos os Status</option>
+        <option value="active">Ativo</option>
+        <option value="pending">Pendente</option>
+      </select>
+    </div>
+  </div>
+  <div class="rounded-md border border-border overflow-hidden">
+    <table class="w-full caption-bottom text-sm">
+      <thead class="[&_tr]:border-b bg-muted/40">
+        <tr class="border-b transition-colors hover:bg-muted/50">
+          <th class="h-10 px-4 text-left align-middle text-xs font-medium text-muted-foreground uppercase tracking-wider">Entidade</th>
+          <th class="h-10 px-4 text-left align-middle text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
+          <th class="h-10 px-4 text-right align-middle text-xs font-medium text-muted-foreground uppercase tracking-wider">Valor</th>
+        </tr>
+      </thead>
+      <tbody class="[&_tr:last-child]:border-0 divide-y divide-border">
+        <tr class="transition-colors hover:bg-muted/50">
+          <td class="p-4 align-middle font-medium text-foreground">Exemplo Principal</td>
+          <td class="p-4 align-middle"><span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-emerald-500/15 text-emerald-500">Ativo</span></td>
+          <td class="p-4 align-middle text-right font-mono tabular-nums text-foreground">R$ 1.250,00</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>`,
+    cssRecipe: `table thead th {
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: hsl(var(--muted-foreground));
+}
+table tbody tr {
+  transition: background-color 0.15s ease;
+}
+table tbody tr:hover {
+  background-color: hsl(var(--muted) / 0.5);
+}`
+  },
+  sheetAndDialog: {
+    name: 'Shadcn Sheet (Slide-Over Drawer) & Dialog',
+    description: 'Painel lateral com backdrop backdrop-blur-sm bg-black/60, transição suave cubic-bezier(0.16, 1, 0.3, 1), cabeçalho com título/subtítulo e rodapé fixo de ações.',
+    htmlTemplate: `<div id="sheet-overlay" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm transition-opacity duration-300 opacity-0 pointer-events-none" onclick="closeSheet()"></div>
+<aside id="sheet-drawer" class="fixed inset-y-0 right-0 z-50 flex h-full w-full max-w-md flex-col border-l border-border bg-background p-6 shadow-xl transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] translate-x-full" role="dialog" aria-modal="true">
+  <div class="flex items-center justify-between pb-4 border-b border-border">
+    <div class="space-y-1">
+      <h3 class="text-lg font-semibold tracking-tight text-foreground">Painel de Detalhes</h3>
+      <p class="text-sm text-muted-foreground">Inspecione e edite os atributos da entidade.</p>
+    </div>
+    <button type="button" class="rounded-sm opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring" onclick="closeSheet()" aria-label="Fechar">
+      <svg class="h-4 w-4 stroke-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+    </button>
+  </div>
+  <div class="flex-1 overflow-y-auto py-4 space-y-4">
+    <!-- Conteúdo principal do painel -->
+  </div>
+  <div class="flex items-center justify-end gap-2 pt-4 border-t border-border">
+    <button type="button" class="btn-secondary inline-flex items-center justify-center rounded-md text-sm font-medium h-9 px-4 py-2 bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors" onclick="closeSheet()">Cancelar</button>
+    <button type="button" class="btn-primary inline-flex items-center justify-center rounded-md text-sm font-medium h-9 px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">Salvar</button>
+  </div>
+</aside>`,
+    cssRecipe: `.sheet-open #sheet-overlay { opacity: 1; pointer-events: auto; }
+.sheet-open #sheet-drawer { transform: translateX(0); }`
+  },
+  animatedSegmentedTabs: {
+    name: 'Animated Segmented Tabs & Empty State',
+    description: 'Navegação com indicador ativo em formato de pílula (bg-secondary text-foreground shadow-sm) com role="tab" e data-tab, e estados vazios (Empty State) ilustrados com SVG Lucide + botão de Call-to-Action primário.',
+    htmlTemplate: `<div class="space-y-6">
+  <div class="inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground" role="tablist">
+    <button type="button" role="tab" data-tab="dashboard" class="inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring bg-secondary text-foreground shadow-sm" aria-selected="true">Dashboard</button>
+    <button type="button" role="tab" data-tab="records" class="inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring hover:text-foreground" aria-selected="false">Registros</button>
+    <button type="button" role="tab" data-tab="settings" class="inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring hover:text-foreground" aria-selected="false">Configurações</button>
+  </div>
+
+  <div class="flex flex-col items-center justify-center rounded-lg border border-dashed border-border p-12 text-center">
+    <div class="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+      <svg class="h-6 w-6 stroke-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"></path>
+      </svg>
+    </div>
+    <h3 class="mt-4 text-base font-semibold text-foreground">Nenhum dado cadastrado</h3>
+    <p class="mt-1 text-sm text-muted-foreground max-w-sm">Comece criando o primeiro item para visualizar gráficos e métricas.</p>
+    <button type="button" class="btn-primary mt-6 inline-flex items-center justify-center rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-4 py-2 shadow transition-colors">
+      Cadastrar Primeiro Item
+    </button>
+  </div>
+</div>`,
+    cssRecipe: `[role="tab"][aria-selected="true"] {
+  background-color: hsl(var(--secondary));
+  color: hsl(var(--foreground));
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}`
+  },
+  buttonAndInputAnatomy: {
+    name: 'Anatomia de Botões e Inputs Shadcn',
+    description: 'Anatomia de botões (btn-primary, btn-secondary, btn-ghost, btn-destructive) e inputs com focus ring (focus-visible:ring-2).',
+    htmlTemplate: `<div class="flex flex-wrap items-center gap-3">
+  <button type="button" class="btn-primary inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50">Primário</button>
+  <button type="button" class="btn-secondary inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-secondary text-secondary-foreground hover:bg-secondary/80 h-10 px-4 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Secundário</button>
+  <button type="button" class="btn-ghost inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground h-10 px-4 py-2">Ghost</button>
+  <button type="button" class="btn-destructive inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-destructive text-destructive-foreground hover:bg-destructive/90 h-10 px-4 py-2">Destrutivo</button>
+</div>
+<div class="mt-4 max-w-sm">
+  <input type="text" placeholder="Digite aqui..." class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50" />
+</div>`,
+    cssRecipe: `.btn-primary { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
+.btn-secondary { background: hsl(var(--secondary)); color: hsl(var(--secondary-foreground)); }
+.btn-destructive { background: hsl(var(--destructive)); color: hsl(var(--destructive-foreground)); }
+.btn-ghost:hover { background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); }`
+  }
+};
+
 export class DesignSkillService {
   /**
    * Resolves the central design-skills directory within DOCSIMP.
@@ -70,7 +283,10 @@ export class DesignSkillService {
     const docSimpBase = DocSimpService.getDocSimpDir();
     const candidatePaths = [
       path.join(docSimpBase, 'design-skills'),
+      'C:\\IA\\IA\\Antigravity HUB\\DOCSIMP\\design-skills',
       'C:\\IA\\Antigravity HUB\\DOCSIMP\\design-skills',
+      path.resolve(__dirname, '../../../DOCSIMP/design-skills'),
+      path.resolve(process.cwd(), '../../DOCSIMP/design-skills'),
       path.resolve(process.cwd(), '..', 'DOCSIMP', 'design-skills'),
       path.resolve(process.cwd(), 'DOCSIMP', 'design-skills')
     ];
@@ -1044,5 +1260,74 @@ export class DesignSkillService {
     scanSkillsFolder(designSkillsRoot, 0);
 
     return Array.from(matchedSkills);
+  }
+
+  /**
+   * Generates the semantic CSS tokens block for :root and .dark following shadcn/ui.
+   */
+  static getShadcnCssTokensBlock(): string {
+    const rootLines = Object.entries(SHADCN_CSS_TOKENS.root)
+      .map(([k, v]) => `  ${k}: ${v};`)
+      .join('\n');
+    const darkLines = Object.entries(SHADCN_CSS_TOKENS.dark)
+      .map(([k, v]) => `  ${k}: ${v};`)
+      .join('\n');
+    return `:root {\n${rootLines}\n}\n\n.dark {\n${darkLines}\n}`;
+  }
+
+  /**
+   * Generates the canonical markdown documentation for 21st.dev and shadcn/ui component patterns.
+   */
+  static getTwentyFirstDevPatternsBlock(): string {
+    return [
+      `## 5. Arquitetura de Componentes shadcn/ui & 21st.dev`,
+      `Padrões de componentes de alta conversão e microinterações modernas:`,
+      `- **Anatomia Exata de Botões:**`,
+      `  - \`btn-primary\`: \`inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50\``,
+      `  - \`btn-secondary\`: \`inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-secondary text-secondary-foreground hover:bg-secondary/80 h-10 px-4 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring\``,
+      `  - \`btn-ghost\`: \`inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground h-10 px-4 py-2\``,
+      `  - \`btn-destructive\`: \`inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-destructive text-destructive-foreground hover:bg-destructive/90 h-10 px-4 py-2\``,
+      `- **Inputs com Focus Ring:** \`flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50\``,
+      `- **Bento Grid & Spotlight Metric Cards (21st.dev):** Cards de KPI com borda sutil (\`1px solid\`), efeito de brilho suave no hover (\`radial-gradient\`), badge de variação percentual (\`+14.2%\` em verde esmeralda com \`tabular-nums\`) e sparkline SVG no rodapé do card.`,
+      `- **Shadcn Data Table Avançada:** Cabeçalho fixo com tipografia \`text-xs font-medium text-muted-foreground uppercase tracking-wider\`, linhas com \`hover:bg-muted/50 transition-colors\`, badges semânticos (\`rounded-full px-2.5 py-0.5 text-xs font-medium\`), barra de busca com atalho visual \`⌘K\` / \`Ctrl+K\` e dropdown de filtros.`,
+      `- **Shadcn Sheet (Slide-Over Drawer) & Dialog:** Painel lateral com backdrop \`backdrop-blur-sm bg-black/60\`, transição suave (\`cubic-bezier(0.16, 1, 0.3, 1)\`), cabeçalho com título/subtítulo e rodapé fixo de ações.`,
+      `- **Animated Segmented Tabs (\`role="tab"\` + \`data-tab\`):** Navegação com indicador ativo em formato de pílula (\`bg-secondary text-foreground shadow-sm\`) e estados vazios (\`Empty State\`) ilustrados com SVG Lucide + botão de Call-to-Action primário.`,
+      `- **Declaração CSS/HTML:** Quando o projeto usar Tailwind CDN ou CSS modular, declarar as classes utilitárias e variáveis do shadcn/ui logo no início de \`public/styles.css\` ou \`public/index.html\`.`
+    ].join('\n');
+  }
+
+  /**
+   * Proactively provisions or updates DESIGN.md and public/styles.css with shadcn/ui and 21st.dev specifications.
+   */
+  static async injectShadcnAndTwentyFirstDevPatterns(projectPath: string): Promise<boolean> {
+    const candidates = [
+      path.join(projectPath, '.ai-dev-hub', 'specs', 'DESIGN.md'),
+      path.join(projectPath, 'DESIGN.md')
+    ];
+    let touched = false;
+    const patternsMd = this.getTwentyFirstDevPatternsBlock();
+    const tokensBlock = this.getShadcnCssTokensBlock();
+
+    for (const filePath of candidates) {
+      if (fs.existsSync(filePath)) {
+        let content = fs.readFileSync(filePath, 'utf-8');
+        if (!content.includes('shadcn/ui & 21st.dev') || !content.includes('--primary-foreground')) {
+          content += `\n\n---\n\n${patternsMd}\n\n\`\`\`css\n${tokensBlock}\n\`\`\`\n`;
+          this.writeFileIfChanged(filePath, content);
+          touched = true;
+        }
+      }
+    }
+
+    const cssFile = path.join(projectPath, 'public', 'styles.css');
+    if (fs.existsSync(cssFile)) {
+      let cssContent = fs.readFileSync(cssFile, 'utf-8');
+      if (!cssContent.includes('--primary-foreground') && !cssContent.includes('--destructive-foreground')) {
+        cssContent = `${tokensBlock}\n\n${cssContent}`;
+        this.writeFileIfChanged(cssFile, cssContent);
+        touched = true;
+      }
+    }
+    return touched;
   }
 }

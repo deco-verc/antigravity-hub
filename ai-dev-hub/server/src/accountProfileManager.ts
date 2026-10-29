@@ -86,6 +86,19 @@ export interface AutoFailoverResult {
   message: string;
 }
 
+export function isRealUserProfilePath(dirPath: string | null | undefined): boolean {
+  if (!dirPath || typeof dirPath !== 'string') return false;
+  const normalized = normalizeRuntimePath(dirPath).toLowerCase().replace(/\/+$/, '');
+  const realHome = (process.env.REAL_USERPROFILE || '').trim().toLowerCase().replace(/[\\/]+$/, '');
+  if (realHome && normalized === normalizeRuntimePath(realHome).toLowerCase().replace(/\/+$/, '')) {
+    return true;
+  }
+  if (/^[a-z]:\/users\/[^/]+$/i.test(normalized)) {
+    return true;
+  }
+  return false;
+}
+
 const HUB_PROFILES_DIR = path.join(HUB_DATA_DIR, 'profiles');
 if (!fs.existsSync(HUB_PROFILES_DIR)) {
   fs.mkdirSync(HUB_PROFILES_DIR, { recursive: true });
@@ -149,6 +162,19 @@ export class AccountProfileManager {
   }
 
   static getUserProfileDir(profile: AccountProfile): string {
+    if (this.isOfflineMode()) {
+      const isDefault = !profile?.environment_path || normalizeRuntimePath(profile.environment_path) === normalizeRuntimePath(this.defaultRoamingPath);
+      const isRealHome = profile?.environment_path && isRealUserProfilePath(profile.environment_path);
+      if (isDefault || isRealHome) {
+        const testHome = process.env.DECOHUB_TEST_USERPROFILE ||
+          (HUB_DATA_DIR ? path.join(HUB_DATA_DIR, 'offline-userprofile') : path.join(os.tmpdir(), 'decohub-test-userprofile'));
+        try {
+          if (!fs.existsSync(testHome)) fs.mkdirSync(testHome, { recursive: true });
+        } catch {}
+        return testHome;
+      }
+      return profile.environment_path;
+    }
     const isDefault = normalizeRuntimePath(profile.environment_path) === normalizeRuntimePath(this.defaultRoamingPath);
     return isDefault ? (process.env.USERPROFILE || os.homedir()) : profile.environment_path;
   }
@@ -188,6 +214,9 @@ export class AccountProfileManager {
    */
   static ensureProfileDirectoriesAndSyncAuth(environmentPath: string): string {
     if (!environmentPath) return environmentPath;
+    if (this.isOfflineMode() && isRealUserProfilePath(environmentPath)) {
+      return environmentPath;
+    }
     const isDefault = normalizeRuntimePath(environmentPath) === normalizeRuntimePath(this.defaultRoamingPath);
     if (isDefault) {
       return this.defaultRoamingPath;
@@ -1716,7 +1745,9 @@ export class AccountProfileManager {
           }
         }
       }
-      cleanEnv.ANTIGRAVITY_PROJECT_ID = nativeBinding.nativeProjectId;
+      if (projectId !== 'decohub-meta') {
+        cleanEnv.ANTIGRAVITY_PROJECT_ID = nativeBinding.nativeProjectId;
+      }
     }
 
     return cleanEnv;

@@ -185,11 +185,50 @@ function renderTextLines(textBlock: string, keyPrefix: string): React.ReactNode 
   );
 }
 
-function renderFormattedMetaChatContent(content: string, isUser: boolean): React.ReactNode {
+export function cleanMetaChatMessage(content: string, isUser: boolean): string {
+  if (isUser || !content) return content || '';
+  return content
+    .replace(/<thought[\s\S]*?<\/thought>/gi, '')
+    .replace(/<thinking[\s\S]*?<\/thinking>/gi, '')
+    .replace(/<system_invariants[\s\S]*?<\/system_invariants>/gi, '')
+    .replace(/<meta_engineer_identity[\s\S]*?<\/meta_engineer_identity>/gi, '')
+    .replace(/<operational_safety_invariants[\s\S]*?<\/operational_safety_invariants>/gi, '')
+    .replace(/<workspace_context[\s\S]*?<\/workspace_context>/gi, '')
+    .replace(/<execution_directive[^>]*>[\s\S]*?<\/execution_directive>/gi, '')
+    .replace(/<evolution_mission[\s\S]*?<\/evolution_mission>/gi, '')
+    .replace(/<briefing_contract[\s\S]*?<\/briefing_contract>/gi, '')
+    .replace(/<autonomous_evolution_cycle[\s\S]*?<\/autonomous_evolution_cycle>/gi, '')
+    .replace(/<antigravity_output[\s\S]*?<\/antigravity_output>/gi, '')
+    .replace(/<task_review[\s\S]*?<\/task_review>/gi, '')
+    .replace(/<system_message[\s\S]*?<\/system_message>/gi, '')
+    .replace(/<context_bridge[\s\S]*?<\/context_bridge>/gi, '')
+    .replace(/<user_request[\s\S]*?<\/user_request>/gi, '')
+    .replace(/<user_attachments[\s\S]*?<\/user_attachments>/gi, '')
+    .replace(/<failure_diagnostics[\s\S]*?<\/failure_diagnostics>/gi, '')
+    .replace(/<scoped_modified_files[\s\S]*?<\/scoped_modified_files>/gi, '')
+    .replace(/<\/?(?:system_invariants|meta_engineer_identity|operational_safety_invariants|workspace_context|execution_directive|evolution_mission|briefing_contract|autonomous_evolution_cycle|thought|thinking|antigravity_output|task_review|system_message|context_bridge|user_request|user_attachments|scoped_modified_files|failure_diagnostics)[^>]*>/gi, '')
+    .replace(/\[(?:FILE|ARQUIVO|CRIAR|MODIFICAR):\s*[^\]]+\][\s\S]*?\[ENDFILE\]/gi, '')
+    .replace(/```(?:[a-zA-Z0-9_-]+)?\s*\[(?:FILE|ARQUIVO|CRIAR|MODIFICAR):[^\]]+\][\s\S]*?```/gi, '')
+    .replace(/^Created At:\s+[^\r\n]+/gm, '')
+    .replace(/^Completed At:\s+[^\r\n]+/gm, '')
+    .replace(/Showing lines \d+-\d+ of \d+[^\r\n]*/gm, '')
+    .replace(/Made \d+ replacements? in [^\r\n]*/gm, '')
+    .replace(/^Command exited with code \d+[^\r\n]*/gm, '')
+    .replace(/^Command output:[^\r\n]*/gm, '')
+    .replace(/^Log output:[^\r\n]*/gm, '')
+    .replace(/The tool's output was truncated[^\r\n]*/gi, '')
+    .replace(/\[(?:TYPECHECK|VISUAL GATE|DOUBLE ORACLE|SIMPLICITY|APPLIED)\]\s*/gi, '')
+    .replace(/\[AI DEV Council\]:[^\n]*/gi, '')
+    .replace(/\(NEEDS_EVIDENCE:[^\n]*/gi, '')
+    .trim();
+}
+
+function renderFormattedMetaChatContent(rawContent: string, isUser: boolean): React.ReactNode {
   if (isUser) {
-    return <div className="whitespace-pre-wrap font-sans">{content}</div>;
+    return <div className="whitespace-pre-wrap font-sans">{rawContent}</div>;
   }
 
+  const content = cleanMetaChatMessage(rawContent, false);
   const codeBlockRegex = /```([a-zA-Z0-9_-]*)\r?\n([\s\S]*?)```/g;
   const sections: React.ReactNode[] = [];
   let lastIndex = 0;
@@ -238,9 +277,11 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
   const [messages, setMessages] = useState<MetaChatMessageItem[]>([]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [sentNotice, setSentNotice] = useState<{ id: string; text: string; secondsLeft: number } | null>(null);
   const [liveStatus, setLiveStatus] = useState<MetaChatLiveStatus | null>(null);
   const [isCommandMenuOpen, setIsCommandMenuOpen] = useState(false);
   const [commandFilter, setCommandFilter] = useState('');
+  const [showDetailedCockpit, setShowDetailedCockpit] = useState<boolean>(false);
   const [isRecompiling, setIsRecompiling] = useState(false);
   const [recompileResult, setRecompileResult] = useState<MetaChatRecompileResult | null>(null);
 
@@ -524,6 +565,19 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
+
+  // Auto-dismiss 3-second interactive dispatch banner
+  useEffect(() => {
+    if (!sentNotice) return;
+    const timer = setInterval(() => {
+      setSentNotice(prev => {
+        if (!prev) return null;
+        if (prev.secondsLeft <= 0.1) return null;
+        return { ...prev, secondsLeft: Math.max(0, +(prev.secondsLeft - 0.1).toFixed(1)) };
+      });
+    }, 100);
+    return () => clearInterval(timer);
+  }, [sentNotice?.id]);
 
   useEffect(() => {
     let timer: any = null;
@@ -809,6 +863,9 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
       created_at: new Date().toISOString()
     };
     setMessages(prev => [...prev, tempUserMsg]);
+
+    const displaySnippet = effectiveText.length > 80 ? effectiveText.slice(0, 77) + '...' : effectiveText;
+    setSentNotice({ id: tempUserMsg.id, text: displaySnippet, secondsLeft: 3 });
 
     try {
       const res = await api.sendMetaChatMessage(
@@ -1431,6 +1488,56 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
             ref={scrollContainerRef}
             className="flex-1 overflow-y-auto px-6 py-6 space-y-6 max-w-4xl mx-auto w-full"
           >
+            {/* Telinha bonita interativa de envio que some após 3 segundos */}
+            {sentNotice && (
+              <div
+                onClick={() => setSentNotice(null)}
+                className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-message-enter cursor-pointer"
+              >
+                <div
+                  onClick={e => e.stopPropagation()}
+                  className="bg-[#0e1322]/95 border border-cyan-500/40 shadow-2xl shadow-cyan-950/80 rounded-2xl p-6 max-w-sm w-full mx-auto flex flex-col items-center text-center space-y-3.5 relative overflow-hidden transition-all duration-300 animate-scale-up"
+                >
+                  <div className="absolute -top-10 left-1/2 -translate-x-1/2 w-36 h-36 bg-cyan-500/20 rounded-full blur-2xl pointer-events-none" />
+
+                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-cyan-600/30 to-indigo-500/20 border border-cyan-400/40 text-cyan-300 flex items-center justify-center shadow-lg shadow-cyan-500/20 relative">
+                    <Sparkles className="w-7 h-7 text-cyan-300 animate-pulse" />
+                    <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 border-2 border-[#0e1322] flex items-center justify-center">
+                      <Check className="w-2.5 h-2.5 text-white" />
+                    </span>
+                  </div>
+
+                  <div className="space-y-1">
+                    <h3 className="text-sm font-bold text-white tracking-tight flex items-center justify-center gap-2">
+                      <span>Mensagem Enviada!</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/25 border border-cyan-500/40 text-cyan-200 font-mono font-bold">
+                        {Math.ceil(sentNotice.secondsLeft)}s
+                      </span>
+                    </h3>
+                    <p className="text-xs text-slate-300 leading-relaxed font-sans line-clamp-2">
+                      "{sentNotice.text}"
+                    </p>
+                  </div>
+
+                  {/* Barra de contagem regressiva de 3 segundos */}
+                  <div className="w-full bg-[#181f33] h-1.5 rounded-full overflow-hidden mt-1">
+                    <div
+                      className="h-full bg-gradient-to-r from-cyan-500 via-indigo-400 to-cyan-400 rounded-full transition-all duration-100 ease-linear shadow-[0_0_8px_rgba(6,182,212,0.6)]"
+                      style={{ width: `${(sentNotice.secondsLeft / 3) * 100}%` }}
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setSentNotice(null)}
+                    className="text-[11px] text-slate-400 hover:text-white transition-colors pt-0.5"
+                  >
+                    Toque para fechar
+                  </button>
+                </div>
+              </div>
+            )}
+
         {messages.length === 0 ? (
           <div className="py-14 text-center space-y-6">
             <div className="w-14 h-14 rounded-2xl bg-cyan-600/10 border border-cyan-500/20 text-cyan-400 flex items-center justify-center mx-auto shadow-lg">
@@ -1761,144 +1868,167 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
           })
         )}
 
-        {/* Cockpit de Telemetria e Ações em Tempo Real */}
+        {/* Indicador Limpo de Pensamento / Telemetria Opcional */}
         {isLoading && (
-          <div className="rounded-2xl bg-[#0b0e18] border border-cyan-500/40 p-4 shadow-xl space-y-3.5 my-2 animate-message-enter">
-            {/* Top Bar do Cockpit */}
-            <div className="flex items-center justify-between gap-3 border-b border-[#1b233a] pb-3">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-6 h-6 rounded-lg bg-cyan-500/20 text-cyan-300 flex items-center justify-center flex-shrink-0 animate-pulse">
-                  <Activity className="w-3.5 h-3.5" />
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-white truncate">
-                      {liveActivity?.currentActionSummary || liveStatus?.currentPhase || 'Processando no DecoHUB...'}
-                    </span>
-                    <span className="px-2 py-0.5 rounded-full text-[9px] font-mono bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 flex-shrink-0 animate-pulse">
-                      AO VIVO
-                    </span>
-                  </div>
-                  <div className="text-[10px] text-slate-400 font-mono truncate">
-                    {liveStatus?.lastStep || (liveActivity?.liveSteps && liveActivity.liveSteps.length > 0 ? liveActivity.liveSteps[liveActivity.liveSteps.length - 1].details : 'Pipeline autônomo de auto-evolução')}
-                  </div>
-                </div>
+          <div className="space-y-3 my-2 animate-message-enter">
+            <div className="flex gap-3 justify-start items-center">
+              <div className="w-7 h-7 rounded-lg border bg-cyan-600/20 border-cyan-500/30 text-cyan-400 flex items-center justify-center flex-shrink-0">
+                <Sparkles className="w-4 h-4 animate-pulse" />
               </div>
-
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <div className="flex items-center gap-1 text-[11px] font-mono tabular-nums text-slate-300 bg-[#141a2c] px-2.5 py-1 rounded-lg border border-[#232b40]">
-                  <Clock className="w-3 h-3 text-cyan-400" />
-                  <span>{formatElapsed(elapsedSeconds)}</span>
-                </div>
+              <div className="rounded-2xl px-4 py-2.5 bg-[#0f1320] border border-cyan-500/30 text-cyan-200 text-xs flex items-center gap-3 shadow-lg flex-wrap">
+                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                <span className="font-medium">
+                  {liveActivity?.currentActionSummary || liveStatus?.currentPhase || 'DecoHUB está pensando e formulando a resposta...'}
+                </span>
+                <span className="text-[10px] text-slate-400 font-mono">({formatElapsed(elapsedSeconds)})</span>
+                <button
+                  type="button"
+                  onClick={() => setShowDetailedCockpit(prev => !prev)}
+                  className="text-[10px] text-cyan-400 hover:text-cyan-300 underline underline-offset-2 ml-1 cursor-pointer"
+                >
+                  {showDetailedCockpit ? 'Ocultar detalhes' : 'Ver telemetria detalhada'}
+                </button>
                 <button
                   type="button"
                   onClick={handleCancelActiveExecution}
                   disabled={isCancelling}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/40 text-rose-300 hover:text-white transition-colors text-[11px] font-medium disabled:opacity-50"
-                  title="Interromper execução do Meta-Chat"
+                  className="ml-auto px-2 py-0.5 rounded bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/40 text-rose-300 text-[10px] font-semibold transition-colors cursor-pointer"
                 >
-                  <Square className="w-3 h-3 fill-current" />
-                  <span>{isCancelling ? 'Cancelando...' : 'Interromper'}</span>
+                  {isCancelling ? 'Cancelando...' : 'Interromper'}
                 </button>
               </div>
             </div>
 
-            {/* Os 4 Estágios do Pipeline */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {(liveActivity?.pipelineTasks || [
-                { id: 'task-inspect', label: 'Mapeamento', status: 'in_progress', details: 'Análise de contexto' },
-                { id: 'task-implement', label: 'Modificação', status: 'pending', details: 'Código cirúrgico' },
-                { id: 'task-verify', label: 'Typecheck', status: 'pending', details: 'tsc --noEmit' },
-                { id: 'task-guard', label: 'Testes', status: 'pending', details: 'Verificação final' }
-              ]).map(t => {
-                const isDone = t.status === 'completed';
-                const isProg = t.status === 'in_progress';
-                const isFail = t.status === 'failed';
-                return (
-                  <div
-                    key={t.id}
-                    className={`p-2 rounded-xl border text-[11px] flex items-center gap-2 transition-all ${
-                      isDone
-                        ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-300'
-                        : isProg
-                        ? 'bg-cyan-950/30 border-cyan-500/50 text-cyan-200 shadow-sm shadow-cyan-900/30'
-                        : isFail
-                        ? 'bg-rose-950/20 border-rose-500/30 text-rose-300'
-                        : 'bg-[#101422] border-[#1e2538] text-slate-400'
-                    }`}
-                  >
-                    {isDone ? (
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
-                    ) : isProg ? (
-                      <Loader2 className="w-3.5 h-3.5 text-cyan-400 animate-spin flex-shrink-0" />
-                    ) : isFail ? (
-                      <AlertCircle className="w-3.5 h-3.5 text-rose-400 flex-shrink-0" />
-                    ) : (
-                      <div className="w-3.5 h-3.5 rounded-full border border-slate-600 flex-shrink-0 flex items-center justify-center">
-                        <div className="w-1 h-1 rounded-full bg-slate-500" />
-                      </div>
-                    )}
+            {/* Cockpit de Telemetria e Ações em Tempo Real (Expandível sob demanda) */}
+            {showDetailedCockpit && (
+              <div className="rounded-2xl bg-[#0b0e18] border border-cyan-500/40 p-4 shadow-xl space-y-3.5 animate-message-enter">
+                {/* Top Bar do Cockpit */}
+                <div className="flex items-center justify-between gap-3 border-b border-[#1b233a] pb-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-6 h-6 rounded-lg bg-cyan-500/20 text-cyan-300 flex items-center justify-center flex-shrink-0 animate-pulse">
+                      <Activity className="w-3.5 h-3.5" />
+                    </div>
                     <div className="min-w-0">
-                      <div className="font-medium truncate">{t.label}</div>
-                      {t.details && <div className="text-[9px] opacity-70 truncate">{t.details}</div>}
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-white truncate">
+                          {liveActivity?.currentActionSummary || liveStatus?.currentPhase || 'Processando no DecoHUB...'}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[9px] font-mono bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 flex-shrink-0 animate-pulse">
+                          AO VIVO
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-slate-400 font-mono truncate">
+                        {liveStatus?.lastStep || (liveActivity?.liveSteps && liveActivity.liveSteps.length > 0 ? liveActivity.liveSteps[liveActivity.liveSteps.length - 1].details : 'Pipeline autônomo de auto-evolução')}
+                      </div>
                     </div>
                   </div>
-                );
-              })}
-            </div>
 
-            {/* Feed de Ações em Tempo Real */}
-            {liveActivity?.liveSteps && liveActivity.liveSteps.length > 0 && (
-              <div className="space-y-1.5 pt-1.5 border-t border-[#1b233a]">
-                <div className="flex items-center justify-between text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
-                  <span>Ações Executadas em Tempo Real</span>
-                  <span className="font-mono">{liveActivity.liveSteps.length} passo(s)</span>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <div className="flex items-center gap-1 text-[11px] font-mono tabular-nums text-slate-300 bg-[#141a2c] px-2.5 py-1 rounded-lg border border-[#232b40]">
+                      <Clock className="w-3 h-3 text-cyan-400" />
+                      <span>{formatElapsed(elapsedSeconds)}</span>
+                    </div>
+                  </div>
                 </div>
-                <div className="max-h-36 overflow-y-auto space-y-1 pr-1 font-mono text-[10px]">
-                  {liveActivity.liveSteps.map((step, idx) => {
-                    const badgeClass =
-                      step.type === 'EDIT'
-                        ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-                        : step.type === 'READ'
-                        ? 'bg-blue-500/15 text-blue-300 border-blue-500/30'
-                        : step.type === 'SEARCH'
-                        ? 'bg-purple-500/15 text-purple-300 border-purple-500/30'
-                        : step.type === 'GUARD'
-                        ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
-                        : 'bg-amber-500/15 text-amber-300 border-amber-500/30';
 
+                {/* Os 4 Estágios do Pipeline */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {(liveActivity?.pipelineTasks || [
+                    { id: 'task-inspect', label: 'Mapeamento', status: 'in_progress', details: 'Análise de contexto' },
+                    { id: 'task-implement', label: 'Modificação', status: 'pending', details: 'Código cirúrgico' },
+                    { id: 'task-verify', label: 'Typecheck', status: 'pending', details: 'tsc --noEmit' },
+                    { id: 'task-guard', label: 'Testes', status: 'pending', details: 'Verificação final' }
+                  ]).map(t => {
+                    const isDone = t.status === 'completed';
+                    const isProg = t.status === 'in_progress';
+                    const isFail = t.status === 'failed';
                     return (
                       <div
-                        key={step.id || idx}
-                        className="flex items-center justify-between gap-2 px-2.5 py-1 rounded-lg bg-[#07090f] border border-[#1a2034]"
+                        key={t.id}
+                        className={`p-2 rounded-xl border text-[11px] flex items-center gap-2 transition-all ${
+                          isDone
+                            ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-300'
+                            : isProg
+                            ? 'bg-cyan-950/30 border-cyan-500/50 text-cyan-200 shadow-sm shadow-cyan-900/30'
+                            : isFail
+                            ? 'bg-rose-950/20 border-rose-500/30 text-rose-300'
+                            : 'bg-[#101422] border-[#1e2538] text-slate-400'
+                        }`}
                       >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold border ${badgeClass}`}>
-                            {step.type}
-                          </span>
-                          <span className="text-slate-300 truncate">{step.details || step.target}</span>
-                        </div>
-                        {step.durationMs ? (
-                          <span className="text-[9px] text-slate-500 flex-shrink-0">{step.durationMs}ms</span>
+                        {isDone ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                        ) : isProg ? (
+                          <Loader2 className="w-3.5 h-3.5 text-cyan-400 animate-spin flex-shrink-0" />
+                        ) : isFail ? (
+                          <AlertCircle className="w-3.5 h-3.5 text-rose-400 flex-shrink-0" />
                         ) : (
-                          <span className="text-[9px] text-emerald-400 flex-shrink-0 font-sans">ok</span>
+                          <div className="w-3.5 h-3.5 rounded-full border border-slate-600 flex-shrink-0 flex items-center justify-center">
+                            <div className="w-1 h-1 rounded-full bg-slate-500" />
+                          </div>
                         )}
+                        <div className="min-w-0">
+                          <div className="font-medium truncate">{t.label}</div>
+                          {t.details && <div className="text-[9px] opacity-70 truncate">{t.details}</div>}
+                        </div>
                       </div>
                     );
                   })}
                 </div>
-              </div>
-            )}
 
-            {/* Arquivos Modificados no Turno */}
-            {liveActivity?.filesModified && liveActivity.filesModified.length > 0 && (
-              <div className="pt-2 border-t border-[#1b233a] flex items-center gap-2 flex-wrap text-[10px]">
-                <span className="text-slate-400 font-medium">Arquivos modificados ({liveActivity.filesModified.length}):</span>
-                {liveActivity.filesModified.map(f => (
-                  <span key={f} className="px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 font-mono">
-                    {f}
-                  </span>
-                ))}
+                {/* Feed de Ações em Tempo Real */}
+                {liveActivity?.liveSteps && liveActivity.liveSteps.length > 0 && (
+                  <div className="space-y-1.5 pt-1.5 border-t border-[#1b233a]">
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
+                      <span>Ações Executadas em Tempo Real</span>
+                      <span className="font-mono">{liveActivity.liveSteps.length} passo(s)</span>
+                    </div>
+                    <div className="max-h-36 overflow-y-auto space-y-1 pr-1 font-mono text-[10px]">
+                      {liveActivity.liveSteps.map((step, idx) => {
+                        const badgeClass =
+                          step.type === 'EDIT'
+                            ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                            : step.type === 'READ'
+                            ? 'bg-blue-500/15 text-blue-300 border-blue-500/30'
+                            : step.type === 'SEARCH'
+                            ? 'bg-purple-500/15 text-purple-300 border-purple-500/30'
+                            : step.type === 'GUARD'
+                            ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
+                            : 'bg-amber-500/15 text-amber-300 border-amber-500/30';
+
+                        return (
+                          <div
+                            key={step.id || idx}
+                            className="flex items-center justify-between gap-2 px-2.5 py-1 rounded-lg bg-[#07090f] border border-[#1a2034]"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold border ${badgeClass}`}>
+                                {step.type}
+                              </span>
+                              <span className="text-slate-300 truncate">{step.details || step.target}</span>
+                            </div>
+                            {step.durationMs ? (
+                              <span className="text-[9px] text-slate-500 flex-shrink-0">{step.durationMs}ms</span>
+                            ) : (
+                              <span className="text-[9px] text-emerald-400 flex-shrink-0 font-sans">ok</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Arquivos Modificados no Turno */}
+                {liveActivity?.filesModified && liveActivity.filesModified.length > 0 && (
+                  <div className="pt-2 border-t border-[#1b233a] flex items-center gap-2 flex-wrap text-[10px]">
+                    <span className="text-slate-400 font-medium">Arquivos modificados ({liveActivity.filesModified.length}):</span>
+                    {liveActivity.filesModified.map(f => (
+                      <span key={f} className="px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 font-mono">
+                        {f}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -317,7 +317,7 @@ export class MetaChatService {
 ${
   params.mode === 'ANALYTICAL_BRIEFING'
     ? `<execution_directive mode="ANALYTICAL_BRIEFING">
-  Com base exclusivamente na inspeção real dos arquivos do repositório DecoHUB em <workspace_context> usando ferramentas de leitura (\`view_file\`, \`grep_search\`, \`find_by_name\`, \`list_dir\`), responda à solicitação abaixo produzindo um **Briefing Executivo Markdown Literal, Denso e Completo**:
+  Com base exclusivamente na inspeção real dos arquivos do repositório DecoHUB em <workspace_context> usando ferramentas de leitura (\`view_file\`, \`grep_search\`, \`find_by_name\`, \`list_dir\`), responda à solicitação abaixo de forma direta, clara e humana:
 
   <user_request>
 ${params.userQueryOrMission}
@@ -325,12 +325,13 @@ ${params.userQueryOrMission}
 
   <briefing_contract>
     1. MODO SOMENTE LEITURA: Inspecione os arquivos reais em \`server/src/\` e \`client/src/\` via \`grep_search\` e \`view_file\` antes de afirmar qualquer fato técnico. Não modifique nenhum arquivo neste modo.
-    2. ESTRUTURA OBRIGATÓRIA DA RESPOSTA DIRETA NO CHAT:
-       - **Sumário Executivo e Diagnóstico Direto**;
-       - **Mapeamento Técnico com Coordenadas Exatas** (\`caminho/do/arquivo.ts:linha\`);
-       - **Tabela Comparativa de Riscos / Trade-offs Arquiteturais**;
-       - **Plano de Ação / Implementação Recomendado**.
-    3. COMPLETUDE LITERAL: Não trunque listas, não omita análises em arquivos externos e não entregue respostas superficiais.
+    2. FORMATO DA RESPOSTA AO USUÁRIO (DIRETO, SIMPLES E SEM POLUIÇÃO):
+       - Responda em português claro, objetivo e amigável.
+       - Estrutura recomendada:
+         **O que foi identificado:** breve diagnóstico do problema ou resposta à pergunta.
+         **Como resolver / Recomendações:** ações práticas para a correção.
+       - NUNCA inclua tags XML (<tag>...</tag>), logs de comandos ou despejos desnecessários de código que não foram solicitados. O usuário quer uma resposta simples e clara do que foi feito.
+       - Omita detalhes e tags desnecessárias.
   </briefing_contract>
 </execution_directive>`
     : `<execution_directive mode="AUTONOMOUS_EVOLUTION">
@@ -349,6 +350,7 @@ ${params.userQueryOrMission}
        - Explique de forma enxuta e técnica:
          **O que foi feito:** resumo claro e objetivo da solução implementada e da causa raiz resolvida.
          **Arquivos alterados:** lista concisa indicando em 1 linha o que mudou em cada arquivo (\`caminho/do/arquivo.ts\`).
+       - NUNCA inclua tags XML (<tag>...</tag>), logs brutos de ferramentas ou blocos desnecessários de código no relatório final.
   </autonomous_evolution_cycle>
 </execution_directive>`
 }`;
@@ -2404,10 +2406,33 @@ ${rawCompilerDiagnostics}
   static ensureDecoHubNativeSkills(root: string): void {
     const hubRoot = SkillRouter.getHubRootDir();
     const skillsDir = path.join(hubRoot, 'Skills');
-    const karpathySrc = path.join(skillsDir, 'andrej-karpathy-skills-main', 'andrej-karpathy-skills-main', 'skills', 'karpathy-guidelines', 'SKILL.md');
-    const examplesSrc = path.join(skillsDir, 'andrej-karpathy-skills-main', 'andrej-karpathy-skills-main', 'EXAMPLES.md');
+    const karpathyCandidates = [
+      path.join(skillsDir, 'andrej-karpathy-skills-main', 'andrej-karpathy-skills-main', 'skills', 'karpathy-guidelines', 'SKILL.md'),
+      path.join(hubRoot, '.agents', 'skills', 'karpathy-guidelines', 'SKILL.md'),
+      path.join(hubRoot, 'server', '.agents', 'skills', 'karpathy-guidelines', 'SKILL.md'),
+      path.join(hubRoot, 'server', '.ai-dev-hub', 'skills', 'karpathy-guidelines-skill.md'),
+      path.join(__dirname, '../../.agents/skills/karpathy-guidelines/SKILL.md'),
+      path.join(__dirname, '../.agents/skills/karpathy-guidelines/SKILL.md'),
+      path.join(__dirname, '../.ai-dev-hub/skills/karpathy-guidelines-skill.md'),
+      path.join(process.cwd(), '.agents', 'skills', 'karpathy-guidelines', 'SKILL.md'),
+      path.join(process.cwd(), 'server', '.agents', 'skills', 'karpathy-guidelines', 'SKILL.md')
+    ];
+    const karpathySrc = karpathyCandidates.find(c => fs.existsSync(c));
 
-    if (fs.existsSync(karpathySrc)) {
+    const examplesCandidates = [
+      path.join(skillsDir, 'andrej-karpathy-skills-main', 'andrej-karpathy-skills-main', 'EXAMPLES.md'),
+      path.join(hubRoot, '.agents', 'skills', 'karpathy-guidelines', 'examples', 'EXAMPLES.md'),
+      path.join(hubRoot, 'server', '.agents', 'skills', 'karpathy-guidelines', 'examples', 'EXAMPLES.md'),
+      path.join(hubRoot, 'server', '.ai-dev-hub', 'skills', 'EXAMPLES.md'),
+      path.join(__dirname, '../../.agents/skills/karpathy-guidelines/examples/EXAMPLES.md'),
+      path.join(__dirname, '../.agents/skills/karpathy-guidelines/examples/EXAMPLES.md'),
+      path.join(__dirname, '../.ai-dev-hub/skills/EXAMPLES.md'),
+      path.join(process.cwd(), '.agents', 'skills', 'karpathy-guidelines', 'examples', 'EXAMPLES.md'),
+      path.join(process.cwd(), 'server', '.agents', 'skills', 'karpathy-guidelines', 'examples', 'EXAMPLES.md')
+    ];
+    const examplesSrc = examplesCandidates.find(c => fs.existsSync(c));
+
+    if (karpathySrc && fs.existsSync(karpathySrc)) {
       const nativeDir = path.join(root, '.agents', 'skills', 'karpathy-guidelines');
       if (!fs.existsSync(nativeDir)) {
         fs.mkdirSync(nativeDir, { recursive: true });
@@ -2420,7 +2445,7 @@ ${rawCompilerDiagnostics}
         fs.writeFileSync(nativeSkillFile, withFrontmatter, 'utf-8');
       }
 
-      if (fs.existsSync(examplesSrc)) {
+      if (examplesSrc && fs.existsSync(examplesSrc)) {
         const examplesDir = path.join(nativeDir, 'examples');
         if (!fs.existsSync(examplesDir)) {
           fs.mkdirSync(examplesDir, { recursive: true });
@@ -3983,18 +4008,18 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
               telemetryFooter += `\n\n**Arquivos alterados:**\n` + filesChanged.map(f => `- \`${f}\``).join('\n');
             }
             telemetryFooter +=
-              `\n\n[TYPECHECK] **Typecheck Guard:** Aprovado em ${typecheckResult.durationMs}ms (0 erros de compilação).\n`;
+              `\n\n**Validação de Qualidade:**\n- Compilação TypeScript: Aprovada (${typecheckResult.durationMs}ms, 0 erros).\n`;
             if (clientGateResult && clientGateResult.passed) {
-              telemetryFooter += `[VISUAL GATE] **Playwright Visual Gate:** Aprovado (0 erros de console, 0 erros de página).\n`;
+              telemetryFooter += `- Integridade Visual Playwright: Aprovada (0 erros de console/página).\n`;
             }
             if (testResult.ran && testResult.passed) {
-              telemetryFooter += `[DOUBLE ORACLE] **Avaliador Imutável:** Teste ${unitTestName} aprovado com código 0.\n`;
+              telemetryFooter += `- Testes Automatizados: Aprovados com sucesso (\`${unitTestName}\`).\n`;
             }
             if (simplicityResult) {
-              telemetryFooter += `[SIMPLICITY] **Navalha de Occam:** Delta de linhas (+${simplicityResult.linesAdded}/-${simplicityResult.linesRemoved}, delta: ${simplicityResult.delta}).\n`;
+              telemetryFooter += `- Critério de Simplicidade: +${simplicityResult.linesAdded}/-${simplicityResult.linesRemoved} linhas (delta: ${simplicityResult.delta}).\n`;
             }
             telemetryFooter +=
-              `Clique em **"Recompilar e Atualizar Produção"** para empacotar as melhorias no executável local.`;
+              `\nClique em **"Recompilar e Atualizar Produção"** para empacotar as melhorias no executável local.`;
             reply =
               (sanitized
                 ? sanitized
@@ -4384,6 +4409,32 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
   public static sanitizeMetaChatReply(rawText: string, filesChanged: string[] = []): string {
     if (!rawText || typeof rawText !== 'string') return '';
     let cleaned = stripRawLineNumberDumps(rawText)
+      // Strip internal reasoning and thinking tags
+      .replace(/<thought[\s\S]*?<\/thought>/gi, '')
+      .replace(/<thinking[\s\S]*?<\/thinking>/gi, '')
+      // Strip system, directive, and context XML blocks
+      .replace(/<system_invariants[\s\S]*?<\/system_invariants>/gi, '')
+      .replace(/<meta_engineer_identity[\s\S]*?<\/meta_engineer_identity>/gi, '')
+      .replace(/<operational_safety_invariants[\s\S]*?<\/operational_safety_invariants>/gi, '')
+      .replace(/<workspace_context[\s\S]*?<\/workspace_context>/gi, '')
+      .replace(/<execution_directive[^>]*>[\s\S]*?<\/execution_directive>/gi, '')
+      .replace(/<evolution_mission[\s\S]*?<\/evolution_mission>/gi, '')
+      .replace(/<briefing_contract[\s\S]*?<\/briefing_contract>/gi, '')
+      .replace(/<autonomous_evolution_cycle[\s\S]*?<\/autonomous_evolution_cycle>/gi, '')
+      .replace(/<antigravity_output[\s\S]*?<\/antigravity_output>/gi, '')
+      .replace(/<task_review[\s\S]*?<\/task_review>/gi, '')
+      .replace(/<system_message[\s\S]*?<\/system_message>/gi, '')
+      .replace(/<context_bridge[\s\S]*?<\/context_bridge>/gi, '')
+      .replace(/<user_request[\s\S]*?<\/user_request>/gi, '')
+      .replace(/<user_attachments[\s\S]*?<\/user_attachments>/gi, '')
+      .replace(/<failure_diagnostics[\s\S]*?<\/failure_diagnostics>/gi, '')
+      .replace(/<scoped_modified_files[\s\S]*?<\/scoped_modified_files>/gi, '')
+      // Strip any isolated system XML tags
+      .replace(/<\/?(?:system_invariants|meta_engineer_identity|operational_safety_invariants|workspace_context|execution_directive|evolution_mission|briefing_contract|autonomous_evolution_cycle|thought|thinking|antigravity_output|task_review|system_message|context_bridge|user_request|user_attachments|scoped_modified_files|failure_diagnostics)[^>]*>/gi, '')
+      // Strip code directives and file wrapper blocks
+      .replace(/\[(?:FILE|ARQUIVO|CRIAR|MODIFICAR):\s*[^\]]+\][\s\S]*?\[ENDFILE\]/gi, '')
+      .replace(/```(?:[a-zA-Z0-9_-]+)?\s*\[(?:FILE|ARQUIVO|CRIAR|MODIFICAR):[^\]]+\][\s\S]*?```/gi, '')
+      // Strip command execution artifacts
       .replace(/^Created At:\s+[^\r\n]+/gm, '')
       .replace(/^Completed At:\s+[^\r\n]+/gm, '')
       .replace(/Showing lines \d+-\d+ of \d+[^\r\n]*/gm, '')
@@ -4392,7 +4443,10 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
       .replace(/^Command output:[^\r\n]*/gm, '')
       .replace(/^Log output:[^\r\n]*/gm, '')
       .replace(/The tool's output was truncated[^\r\n]*/gi, '')
-      .replace(/\[FILE:\s*[^\]]+\][\s\S]*?\[ENDFILE\]/g, '')
+      // Clean up bracket tags
+      .replace(/\[(?:TYPECHECK|VISUAL GATE|DOUBLE ORACLE|SIMPLICITY|APPLIED)\]\s*/gi, '')
+      .replace(/\[AI DEV Council\]:[^\n]*/gi, '')
+      .replace(/\(NEEDS_EVIDENCE:[^\n]*/gi, '')
       .trim();
 
     if (!cleaned) {

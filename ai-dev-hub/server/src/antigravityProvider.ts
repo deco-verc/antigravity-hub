@@ -91,15 +91,19 @@ export function resolveConversationTranscriptPath(conversationId: string, primar
   if (!conversationId) return null;
   const home = os.homedir();
   const up = process.env.USERPROFILE || home;
+  const fallbackBrain = process.env.ANTIGRAVITY_BRAIN_FALLBACK_DIR;
   const candidates: string[] = [
     primaryBrainDir ? path.join(primaryBrainDir, conversationId, '.system_generated', 'logs', 'transcript.jsonl') : '',
     primaryBrainDir ? path.join(primaryBrainDir, '.system_generated', 'logs', 'transcript.jsonl') : '',
+    fallbackBrain ? path.join(fallbackBrain, conversationId, '.system_generated', 'logs', 'transcript.jsonl') : '',
+    fallbackBrain ? path.join(fallbackBrain, '.system_generated', 'logs', 'transcript.jsonl') : '',
     path.join(home, '.gemini', 'antigravity', 'brain', conversationId, '.system_generated', 'logs', 'transcript.jsonl'),
     path.join(home, '.gemini', 'antigravity-cli', 'brain', conversationId, '.system_generated', 'logs', 'transcript.jsonl'),
     path.join(home, '.gemini', 'antigravity-ide', 'brain', conversationId, '.system_generated', 'logs', 'transcript.jsonl'),
     up !== home ? path.join(up, '.gemini', 'antigravity', 'brain', conversationId, '.system_generated', 'logs', 'transcript.jsonl') : '',
     // Flat fallbacks
     primaryBrainDir ? path.join(primaryBrainDir, `${conversationId}.jsonl`) : '',
+    fallbackBrain ? path.join(fallbackBrain, `${conversationId}.jsonl`) : '',
     path.join(home, '.gemini', 'antigravity', 'brain', `${conversationId}.jsonl`),
     path.join(home, '.gemini', 'antigravity-cli', 'brain', `${conversationId}.jsonl`)
   ].filter(Boolean);
@@ -114,9 +118,12 @@ export function resolveConversationTranscriptFullPath(conversationId: string, pr
   if (!conversationId) return null;
   const home = os.homedir();
   const up = process.env.USERPROFILE || home;
+  const fallbackBrain = process.env.ANTIGRAVITY_BRAIN_FALLBACK_DIR;
   const candidates: string[] = [
     primaryBrainDir ? path.join(primaryBrainDir, conversationId, '.system_generated', 'logs', 'transcript_full.jsonl') : '',
     primaryBrainDir ? path.join(primaryBrainDir, '.system_generated', 'logs', 'transcript_full.jsonl') : '',
+    fallbackBrain ? path.join(fallbackBrain, conversationId, '.system_generated', 'logs', 'transcript_full.jsonl') : '',
+    fallbackBrain ? path.join(fallbackBrain, '.system_generated', 'logs', 'transcript_full.jsonl') : '',
     path.join(home, '.gemini', 'antigravity', 'brain', conversationId, '.system_generated', 'logs', 'transcript_full.jsonl'),
     path.join(home, '.gemini', 'antigravity-cli', 'brain', conversationId, '.system_generated', 'logs', 'transcript_full.jsonl'),
     path.join(home, '.gemini', 'antigravity-ide', 'brain', conversationId, '.system_generated', 'logs', 'transcript_full.jsonl'),
@@ -132,8 +139,10 @@ export function resolveConversationTranscriptFullPath(conversationId: string, pr
 export function resolveConversationArtifactDir(conversationId: string, primaryBrainDir?: string): string {
   const home = os.homedir();
   const up = process.env.USERPROFILE || home;
+  const fallbackBrain = process.env.ANTIGRAVITY_BRAIN_FALLBACK_DIR;
   const candidates: string[] = [
     primaryBrainDir ? (primaryBrainDir.endsWith(conversationId) ? primaryBrainDir : path.join(primaryBrainDir, conversationId)) : '',
+    fallbackBrain ? (fallbackBrain.endsWith(conversationId) ? fallbackBrain : path.join(fallbackBrain, conversationId)) : '',
     path.join(home, '.gemini', 'antigravity', 'brain', conversationId),
     path.join(home, '.gemini', 'antigravity-cli', 'brain', conversationId),
     path.join(home, '.gemini', 'antigravity-ide', 'brain', conversationId),
@@ -390,6 +399,14 @@ export class AntigravityProvider implements AgentProvider {
     if (options?.isNewSession || options?.isInitialTurn) {
       this.captureTurnStart(sessionId, taskInput.context.projectPath, taskInput.task.id);
       AgentTurnState.setPhase(sessionId, 'IN_FLIGHT');
+      if (AgentApiGateway.isOfflineMode()) {
+        AgentApiGateway.sendMessage({
+          conversationId: sessionId,
+          prompt: prompt,
+          projectId: options?.projectId,
+          role: 'WORKER'
+        });
+      }
       Logger.info(`[AntigravityProvider] Sessão iniciada com o prompt completo da 1ª tarefa (${sessionId.slice(0, 8)}). Turno inicial ativado sem duplicar envio.`);
       return { sessionId, rotated: false };
     }

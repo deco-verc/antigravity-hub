@@ -42,7 +42,10 @@ export class DocSimpService {
       return path.resolve(process.env.DOCSIMP_DIR);
     }
     const candidatePaths = [
+      'C:\\IA\\IA\\Antigravity HUB\\DOCSIMP',
       'C:\\IA\\Antigravity HUB\\DOCSIMP',
+      path.resolve(__dirname, '../../../DOCSIMP'),
+      path.resolve(process.cwd(), '../../DOCSIMP'),
       path.resolve(process.cwd(), '..', 'DOCSIMP'),
       path.resolve(process.cwd(), 'DOCSIMP')
     ];
