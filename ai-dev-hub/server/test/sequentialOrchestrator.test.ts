@@ -102,6 +102,7 @@ test('Sequential Orchestration, Idempotency & Intelligent Evaluation Suite (24 S
     // Clean up second run to keep subsequent tests deterministic
     db.prepare('DELETE FROM autonomous_tasks WHERE run_id = ?').run(forcedRun.id);
     db.prepare('DELETE FROM autonomous_runs WHERE id = ?').run(forcedRun.id);
+    db.prepare("UPDATE autonomous_runs SET status = 'running' WHERE project_id = ?").run(projId);
   });
 
   // -------------------------------------------------------------

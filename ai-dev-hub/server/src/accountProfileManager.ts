@@ -1,4 +1,5 @@
-import { execFileSync, execSync, spawn } from 'node:child_process';
+import childProcess, { execFileSync, execSync, spawn } from 'node:child_process';
+const nativeExecFileSync = childProcess.execFileSync;
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -341,7 +342,7 @@ export class AccountProfileManager {
   /**
    * Builds a clean, isolated environment for spawning or communicating with a profile's Antigravity runtime
    */
-  private static buildIsolatedSpawnEnv(profile: AccountProfile): NodeJS.ProcessEnv {
+  static buildIsolatedSpawnEnv(profile: AccountProfile): NodeJS.ProcessEnv {
     const cleanEnv: NodeJS.ProcessEnv = { ...process.env };
     delete cleanEnv.ELECTRON_RUN_AS_NODE;
     delete cleanEnv.ELECTRON_NO_ASAR;
@@ -832,53 +833,12 @@ export class AccountProfileManager {
     const existing = this.getRunningInstanceForProfile(profile.environment_path);
     if (existing) return existing;
 
-    const antigravityExe = AntigravityDiscovery.getAntigravityAppExe();
-    if (!antigravityExe) return null;
-
-    const canonicalUserDataDir = this.ensureProfileDirectoriesAndSyncAuth(profile.environment_path);
-    const evidence = this.inspectLocalAuthEvidence(profile.environment_path);
-    if (!evidence.hasAuthEvidence) {
+    try {
+      const { RuntimeDaemonManager } = require('./runtimeDaemonManager.js');
+      return RuntimeDaemonManager.ensureSingleRuntimeRunningSync(profile.id, timeoutMs);
+    } catch {
       return null;
     }
-
-    const isLegacyDefault =
-      normalizeRuntimePath(profile.environment_path) === normalizeRuntimePath(this.defaultRoamingPath);
-
-    const lastBootAttempt = this.runtimeBootLocks.get(profile.id) || 0;
-    if (Date.now() - lastBootAttempt > 8000) {
-      this.runtimeBootLocks.set(profile.id, Date.now());
-      try {
-        const cleanEnv = this.buildIsolatedSpawnEnv(profile);
-        const args = isLegacyDefault ? [] : [`--user-data-dir=${canonicalUserDataDir}`];
-        Logger.info(
-          `[AccountProfileManager] Auto-iniciando runtime isolado em background para a conta "${profile.display_name}" (${profile.id})...`
-        );
-        const child = spawn(antigravityExe, args, {
-          detached: true,
-          stdio: 'ignore',
-          env: cleanEnv,
-          windowsHide: true
-        });
-        child.on('error', err => {
-          Logger.warn(`[AccountProfileManager] Aviso no auto-boot do perfil ${profile.id}: ${err.message}`);
-        });
-        child.unref();
-      } catch (spawnErr: any) {
-        Logger.warn(`[AccountProfileManager] Falha ao iniciar runtime do perfil ${profile.id}: ${spawnErr.message}`);
-        return null;
-      }
-    }
-
-    // Completely non-blocking check without Atomics.wait to never freeze Express Event Loop
-    this.ensureProfileDirectoriesAndSyncAuth(profile.environment_path);
-    const instance = this.getRunningInstanceForProfile(profile.environment_path);
-    if (instance) {
-      Logger.success(
-        `[AccountProfileManager] Runtime da conta "${profile.display_name}" (${profile.id}) ativo em ${instance.address} (PID ${instance.pid}).`
-      );
-      return instance;
-    }
-    return null;
   }
 
   /**
@@ -895,57 +855,12 @@ export class AccountProfileManager {
     const existing = this.getRunningInstanceForProfile(profile.environment_path);
     if (existing) return existing;
 
-    const antigravityExe = AntigravityDiscovery.getAntigravityAppExe();
-    if (!antigravityExe) return null;
-
-    const canonicalUserDataDir = this.ensureProfileDirectoriesAndSyncAuth(profile.environment_path);
-    const evidence = this.inspectLocalAuthEvidence(profile.environment_path);
-    if (!evidence.hasAuthEvidence) {
+    try {
+      const { RuntimeDaemonManager } = await import('./runtimeDaemonManager.js');
+      return await RuntimeDaemonManager.ensureSingleRuntimeRunning(profile.id, timeoutMs);
+    } catch {
       return null;
     }
-
-    const isLegacyDefault =
-      normalizeRuntimePath(profile.environment_path) === normalizeRuntimePath(this.defaultRoamingPath);
-
-    const lastBootAttempt = this.runtimeBootLocks.get(profile.id) || 0;
-    if (Date.now() - lastBootAttempt > 8000) {
-      this.runtimeBootLocks.set(profile.id, Date.now());
-      try {
-        const cleanEnv = this.buildIsolatedSpawnEnv(profile);
-        const args = isLegacyDefault ? [] : [`--user-data-dir=${canonicalUserDataDir}`];
-        Logger.info(
-          `[AccountProfileManager] Auto-iniciando runtime isolado em background para a conta "${profile.display_name}" (${profile.id})...`
-        );
-        const child = spawn(antigravityExe, args, {
-          detached: true,
-          stdio: 'ignore',
-          env: cleanEnv,
-          windowsHide: true
-        });
-        child.on('error', err => {
-          Logger.warn(`[AccountProfileManager] Aviso no auto-boot do perfil ${profile.id}: ${err.message}`);
-        });
-        child.unref();
-      } catch (spawnErr: any) {
-        Logger.warn(`[AccountProfileManager] Falha ao iniciar runtime do perfil ${profile.id}: ${spawnErr.message}`);
-        return null;
-      }
-    }
-
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      await new Promise(r => setTimeout(r, 600));
-      this.ensureProfileDirectoriesAndSyncAuth(profile.environment_path);
-      const instance = this.getRunningInstanceForProfile(profile.environment_path);
-      if (instance) {
-        Logger.success(
-          `[AccountProfileManager] Runtime da conta "${profile.display_name}" (${profile.id}) ativo em ${instance.address} (PID ${instance.pid}).`
-        );
-        return instance;
-      }
-    }
-
-    return this.getRunningInstanceForProfile(profile.environment_path);
   }
 
   private static defaultRoamingPathParent(): string {
@@ -1457,7 +1372,8 @@ export class AccountProfileManager {
 
   /** Inspect a profile/process binding without reading credentials or calling agentapi. Never cached. */
   static getRuntimeBindingForProfile(envPath: string): ProfileRuntimeBinding | null {
-    if (AccountProfileManager.isOfflineMode()) return null;
+    const isMocked = (childProcess.execFileSync as any) !== nativeExecFileSync;
+    if (AccountProfileManager.isOfflineMode() || (!isMocked && this.isAutomatedTestRuntime() && process.env.DECOHUB_ALLOW_LIVE_AGENTAPI !== 'true')) return null;
     const appExecutable = AntigravityDiscovery.getAntigravityAppExe();
     if (!appExecutable) return null;
     const expectedData = profileUserDataDirectory(envPath, this.defaultRoamingPath);
@@ -1552,7 +1468,8 @@ export class AccountProfileManager {
   }
 
   static getRunningInstanceForProfile(envPath: string): { address: string; csrfToken: string; pid: number } | null {
-    if (AccountProfileManager.isOfflineMode()) return null;
+    const isMocked = (childProcess.execFileSync as any) !== nativeExecFileSync;
+    if (AccountProfileManager.isOfflineMode() || (!isMocked && this.isAutomatedTestRuntime() && process.env.DECOHUB_ALLOW_LIVE_AGENTAPI !== 'true')) return null;
     const isTest = this.isAutomatedTestRuntime();
     const cacheKey = envPath ? normalizeRuntimePath(envPath) : '';
     const cached = this.runningInstanceCache.get(cacheKey);

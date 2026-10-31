@@ -378,14 +378,16 @@ export const WorkersTab: React.FC<WorkersTabProps> = ({ onShowToast }) => {
                   </div>
 
                   {worker.last_checkpoint && (
-                    <div className="pt-1 border-t border-[#1e2233] text-[10px] text-emerald-400/90 truncate" title={worker.last_checkpoint}>
-                      ✓ {worker.last_checkpoint}
+                    <div className="pt-1 border-t border-[#1e2233] text-[10px] text-emerald-400/90 truncate flex items-center gap-1" title={worker.last_checkpoint}>
+                      <CheckCircle2 className="w-3 h-3 text-emerald-400 flex-shrink-0" />
+                      <span>{worker.last_checkpoint}</span>
                     </div>
                   )}
 
                   {worker.last_error && (
-                    <div className="pt-1 border-t border-rose-500/20 text-[10px] text-rose-400 truncate" title={worker.last_error}>
-                      ⚠ {worker.last_error}
+                    <div className="pt-1 border-t border-rose-500/20 text-[10px] text-rose-400 truncate flex items-center gap-1" title={worker.last_error}>
+                      <AlertTriangle className="w-3 h-3 text-rose-400 flex-shrink-0" />
+                      <span>{worker.last_error}</span>
                     </div>
                   )}
                 </div>

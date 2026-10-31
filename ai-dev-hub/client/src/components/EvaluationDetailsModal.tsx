@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, ShieldCheck, CheckCircle2, AlertTriangle, Terminal, FileCode, Check, AlertOctagon, Clock, ShieldAlert } from 'lucide-react';
+import { X, ShieldCheck, CheckCircle2, AlertTriangle, Terminal, FileCode, Check, AlertOctagon, Clock, ShieldAlert, Lock } from 'lucide-react';
 
 export interface SuccessContractData {
   id: string;
@@ -172,9 +172,10 @@ export const EvaluationDetailsModal: React.FC<EvaluationDetailsModalProps> = ({
                     {contract.protectedEvaluationFiles.map((file, i) => (
                       <span
                         key={i}
-                        className="px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 font-mono text-[11px]"
+                        className="px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 font-mono text-[11px] inline-flex items-center"
                       >
-                        🔒 {file}
+                        <Lock className="w-3 h-3 inline mr-1 text-indigo-400" />
+                        {file}
                       </span>
                     ))}
                   </div>

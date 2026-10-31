@@ -1,7 +1,36 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../services/api';
-import { AnalysisResult, AccountProfile, Project } from '../types';
-import { Folder, X, Search, Sparkles, AlertCircle, GitBranch, UserCheck, CheckSquare, Square, Shield, Lock, Cpu, Zap } from 'lucide-react';
+import {
+  AnalysisResult,
+  AccountProfile,
+  Project,
+  ProjectProfileMode,
+  ProjectCapabilities,
+  DEFAULT_CAPABILITIES_LOCAL_PERSONAL,
+  DEFAULT_CAPABILITIES_COMMERCIAL_SAAS
+} from '../types';
+import {
+  Folder,
+  X,
+  Search,
+  Sparkles,
+  AlertCircle,
+  GitBranch,
+  UserCheck,
+  CheckSquare,
+  Square,
+  Shield,
+  Lock,
+  Cpu,
+  Zap,
+  Database,
+  CreditCard,
+  Layers,
+  Sprout,
+  Check,
+  Wrench,
+  Rocket
+} from 'lucide-react';
 
 const GithubIcon: React.FC<{ className?: string }> = ({ className = "w-4 h-4" }) => (
   <svg className={className} fill="currentColor" viewBox="0 0 24 24">
@@ -50,6 +79,31 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
   const [showTokenInput, setShowTokenInput] = useState(false);
   const [ghStatus, setGhStatus] = useState<any>(null);
 
+  // Perfil de Projeto e Capacidades Modulares
+  const [projectProfile, setProjectProfile] = useState<ProjectProfileMode>('local_personal');
+  const [capabilities, setCapabilities] = useState<ProjectCapabilities>(DEFAULT_CAPABILITIES_LOCAL_PERSONAL);
+
+  const handleProfileSelect = (mode: 'local_personal' | 'commercial_saas') => {
+    setProjectProfile(mode);
+    if (mode === 'local_personal') {
+      setCapabilities({ ...DEFAULT_CAPABILITIES_LOCAL_PERSONAL });
+    } else {
+      setCapabilities({ ...DEFAULT_CAPABILITIES_COMMERCIAL_SAAS });
+    }
+  };
+
+  const handleCapabilityToggle = (key: keyof ProjectCapabilities) => {
+    setCapabilities(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      const isCommercial = next.database && next.auth && next.payments && next.advancedSaas && next.demoSeed;
+      const isLocal = next.database && !next.auth && !next.payments && !next.advancedSaas && !next.demoSeed;
+      if (isCommercial) setProjectProfile('commercial_saas');
+      else if (isLocal) setProjectProfile('local_personal');
+      else setProjectProfile('custom');
+      return next;
+    });
+  };
+
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -67,6 +121,8 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
     setGithubRepo('');
     setGithubToken('');
     setShowTokenInput(false);
+    setProjectProfile('local_personal');
+    setCapabilities(DEFAULT_CAPABILITIES_LOCAL_PERSONAL);
     setAnalysis(null);
     setError(null);
   };
@@ -161,7 +217,9 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
         reasoningLevel,
         githubAction,
         githubRepo: githubRepo.trim() || undefined,
-        githubToken: githubToken.trim() || undefined
+        githubToken: githubToken.trim() || undefined,
+        projectProfile,
+        capabilities
       });
 
       // Trata caso a API retorne objeto envelopado { project: ... }
@@ -181,6 +239,9 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
         active_account_profile_id: rawProj?.active_account_profile_id || finalSelectedAccountId,
         selected_model: rawProj?.selected_model || selectedModel,
         reasoning_level: rawProj?.reasoning_level || reasoningLevel,
+        project_profile: rawProj?.project_profile || projectProfile,
+        projectProfile: rawProj?.projectProfile || projectProfile,
+        capabilities: rawProj?.capabilities || capabilities,
         created_at: rawProj?.created_at || new Date().toISOString(),
         updated_at: rawProj?.updated_at || new Date().toISOString(),
         ...rawProj
@@ -411,6 +472,175 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                 <option value="MEDIUM">Médio (MEDIUM — Equilibrado)</option>
                 <option value="LOW">Baixo (LOW — Rápido)</option>
               </select>
+            </div>
+          </div>
+
+          {/* Tipo de Projeto & Módulos Inclusos */}
+          <div className="p-4 rounded-xl bg-[#0f121d] border border-[#1e2338] space-y-3.5">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <Layers className="w-4 h-4 text-indigo-400" />
+                  Tipo de Projeto & Módulos Inclusos
+                </span>
+                <p className="text-[11px] text-slate-400">
+                  {projectProfile === 'local_personal'
+                    ? 'Uso Pessoal / Local (Direto ao ponto, sem burocracia)'
+                    : projectProfile === 'commercial_saas'
+                      ? 'SaaS Comercial Completo (Login, PIX e Multi-usuário)'
+                      : 'Configuração Personalizada'}
+                </p>
+              </div>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-semibold border ${
+                projectProfile === 'local_personal'
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                  : projectProfile === 'commercial_saas'
+                    ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30'
+                    : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+              }`}>
+                {projectProfile === 'local_personal' ? 'LOCAL / PESSOAL' : projectProfile === 'commercial_saas' ? 'SAAS COMERCIAL' : 'CUSTOM'}
+              </span>
+            </div>
+
+            {/* 2 Botões Principais de Perfil Rápido */}
+            <div className="grid grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                onClick={() => handleProfileSelect('local_personal')}
+                className={`p-3 rounded-xl border text-left transition-all ${
+                  projectProfile === 'local_personal'
+                    ? 'bg-emerald-600/15 border-emerald-500/60 text-white shadow-sm ring-1 ring-emerald-500/30'
+                    : 'bg-[#121522] border-[#1e243a] text-slate-400 hover:text-slate-200 hover:bg-[#161a29]'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-bold flex items-center gap-1.5 text-white">
+                    <Wrench className="w-3.5 h-3.5 text-emerald-400" />
+                    Uso Pessoal / Local
+                  </span>
+                  {projectProfile === 'local_personal' && (
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  )}
+                </div>
+                <p className="text-[10px] text-slate-400 leading-relaxed">
+                  Para uso próprio. Direto na tela principal, sem PIX, sem planos e sem login obrigatório.
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleProfileSelect('commercial_saas')}
+                className={`p-3 rounded-xl border text-left transition-all ${
+                  projectProfile === 'commercial_saas'
+                    ? 'bg-indigo-600/15 border-indigo-500/60 text-white shadow-sm ring-1 ring-indigo-500/30'
+                    : 'bg-[#121522] border-[#1e243a] text-slate-400 hover:text-slate-200 hover:bg-[#161a29]'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-bold flex items-center gap-1.5 text-white">
+                    <Rocket className="w-3.5 h-3.5 text-indigo-400" />
+                    SaaS Comercial
+                  </span>
+                  {projectProfile === 'commercial_saas' && (
+                    <Check className="w-3.5 h-3.5 text-indigo-400" />
+                  )}
+                </div>
+                <p className="text-[10px] text-slate-400 leading-relaxed">
+                  Produto para venda com Login, Planos, Checkout PIX, Multi-usuário e BI.
+                </p>
+              </button>
+            </div>
+
+            {/* Grade de 5 Checkboxes/Toggles Modulares */}
+            <div className="space-y-1.5 pt-1">
+              <span className="text-[10px] font-semibold text-slate-400 block uppercase tracking-wider">
+                Módulos e Recursos Selecionados:
+              </span>
+
+              {/* 1. Banco de Dados Local (SQLite) */}
+              <label className="flex items-center justify-between p-2 rounded-lg bg-[#121522] border border-[#1e243a] hover:border-slate-700 cursor-pointer transition-colors select-none">
+                <div className="flex items-center gap-2">
+                  <Database className={`w-3.5 h-3.5 ${capabilities.database ? 'text-cyan-400' : 'text-slate-500'}`} />
+                  <div>
+                    <span className="text-xs font-semibold text-slate-200 block">Banco de Dados Local (SQLite)</span>
+                    <span className="text-[10px] text-slate-400">Salvar histórico, pesquisas e registros no banco</span>
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={capabilities.database}
+                  onChange={() => handleCapabilityToggle('database')}
+                  className="w-4 h-4 rounded bg-[#0b0d16] border-[#22283d] text-indigo-600 focus:ring-0 cursor-pointer"
+                />
+              </label>
+
+              {/* 2. Login e Autenticação */}
+              <label className="flex items-center justify-between p-2 rounded-lg bg-[#121522] border border-[#1e243a] hover:border-slate-700 cursor-pointer transition-colors select-none">
+                <div className="flex items-center gap-2">
+                  <Lock className={`w-3.5 h-3.5 ${capabilities.auth ? 'text-amber-400' : 'text-slate-500'}`} />
+                  <div>
+                    <span className="text-xs font-semibold text-slate-200 block">Login e Autenticação</span>
+                    <span className="text-[10px] text-slate-400">Tela de login/senha e controle de sessão</span>
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={capabilities.auth}
+                  onChange={() => handleCapabilityToggle('auth')}
+                  className="w-4 h-4 rounded bg-[#0b0d16] border-[#22283d] text-indigo-600 focus:ring-0 cursor-pointer"
+                />
+              </label>
+
+              {/* 3. Pagamentos e Planos (PIX) */}
+              <label className="flex items-center justify-between p-2 rounded-lg bg-[#121522] border border-[#1e243a] hover:border-slate-700 cursor-pointer transition-colors select-none">
+                <div className="flex items-center gap-2">
+                  <CreditCard className={`w-3.5 h-3.5 ${capabilities.payments ? 'text-emerald-400' : 'text-slate-500'}`} />
+                  <div>
+                    <span className="text-xs font-semibold text-slate-200 block">Pagamentos e Planos (PIX)</span>
+                    <span className="text-[10px] text-slate-400">Checkout PIX, faturas e planos de assinatura</span>
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={capabilities.payments}
+                  onChange={() => handleCapabilityToggle('payments')}
+                  className="w-4 h-4 rounded bg-[#0b0d16] border-[#22283d] text-indigo-600 focus:ring-0 cursor-pointer"
+                />
+              </label>
+
+              {/* 4. Recursos Avançados SaaS */}
+              <label className="flex items-center justify-between p-2 rounded-lg bg-[#121522] border border-[#1e243a] hover:border-slate-700 cursor-pointer transition-colors select-none">
+                <div className="flex items-center gap-2">
+                  <Shield className={`w-3.5 h-3.5 ${capabilities.advancedSaas ? 'text-indigo-400' : 'text-slate-500'}`} />
+                  <div>
+                    <span className="text-xs font-semibold text-slate-200 block">Recursos Avançados SaaS</span>
+                    <span className="text-[10px] text-slate-400">Gestão de equipe (RBAC), API Keys e Webhooks</span>
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={capabilities.advancedSaas}
+                  onChange={() => handleCapabilityToggle('advancedSaas')}
+                  className="w-4 h-4 rounded bg-[#0b0d16] border-[#22283d] text-indigo-600 focus:ring-0 cursor-pointer"
+                />
+              </label>
+
+              {/* 5. Dados de Exemplo no Boot (Demo Seed) */}
+              <label className="flex items-center justify-between p-2 rounded-lg bg-[#121522] border border-[#1e243a] hover:border-slate-700 cursor-pointer transition-colors select-none">
+                <div className="flex items-center gap-2">
+                  <Sprout className={`w-3.5 h-3.5 ${capabilities.demoSeed ? 'text-green-400' : 'text-slate-500'}`} />
+                  <div>
+                    <span className="text-xs font-semibold text-slate-200 block">Dados de Exemplo no Boot (Demo Seed)</span>
+                    <span className="text-[10px] text-slate-400">Preencher tabelas com dados fictícios no 1º boot</span>
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={capabilities.demoSeed}
+                  onChange={() => handleCapabilityToggle('demoSeed')}
+                  className="w-4 h-4 rounded bg-[#0b0d16] border-[#22283d] text-indigo-600 focus:ring-0 cursor-pointer"
+                />
+              </label>
             </div>
           </div>
 

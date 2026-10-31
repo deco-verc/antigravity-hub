@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, execSync } from 'node:child_process';
-import { db } from './db.js';
+import { db, resolveProjectCapabilities, resolveProjectProfileMode, ProjectCapabilities, ProjectProfileMode } from './db.js';
 import { Logger } from './logger.js';
 import { GitManager } from './gitManager.js';
 import { IndependentEvaluator, EvaluationResult } from './independentEvaluator.js';
@@ -43,6 +43,25 @@ export type MicrotaskLifecycleState = TaskLifecycleState;
 export type AgentRole = AgentRoleType;
 export type AgentRoleType = 'supervisor' | 'worker' | 'review' | 'system' | 'user';
 export type ReviewDecisionVerdict = 'APPROVED' | 'REJECTED' | 'BLOCKED';
+
+export interface BriefingSubsection {
+  subNumber?: string;
+  title: string;
+  rawContent: string;
+  items: string[];
+  targetFiles: string[];
+}
+
+export interface BriefingPhase {
+  phaseNumber: number;
+  title: string;
+  cleanTitle?: string;
+  description: string;
+  rawContent?: string;
+  items: string[];
+  subsections?: BriefingSubsection[];
+  targetFiles?: string[];
+}
 
 export type AgentMessageType =
   | 'TASK_PLANNED'
@@ -1037,7 +1056,8 @@ export class HierarchicalOrchestrationService {
           anySplitInPass = true;
           const nextDepth = taskDepth + 1;
           const baseCode = task.code || 'UI';
-          const requiredUiTasks = ReaSaaSMasterService.getRequiredSaaSMasterMicrotasks(cleanTitle);
+          const taskCaps = resolveProjectCapabilities(undefined, cleanTitle);
+          const requiredUiTasks = ReaSaaSMasterService.getRequiredSaaSMasterMicrotasks(cleanTitle, taskCaps);
 
           const generatedTasks: HierarchicalMicrotaskInput[] = [];
           let previousTitle: string | null = null;
@@ -1179,17 +1199,7 @@ export class HierarchicalOrchestrationService {
           continue;
         }
 
-        // Proibir a dupla subdivisão mecânica: se uma tarefa já veio de um plano multi-pass (GT-1 a GT-12)
-        // ou tem <= 8 arquivos no escopo, NÃO subdividir em (Parte 1: Estrutura e Núcleo), (Parte 1.1), (Parte 2), etc.
-        const isFromMultiPassPlan = Boolean(
-          (task.milestone && /GT-\d+/i.test(task.milestone)) ||
-          (task.majorTaskCode && /GT-\d+/i.test(task.majorTaskCode)) ||
-          (task.code && /^(?:GT-)?\d+\.\d+/i.test(task.code))
-        );
-        const hasSmallOrAtomicScope = scopeFiles.length <= 8 && criteria.length < 6;
-        const alreadyHasPartClones = /\((?:Parte|Part)\s*[\d.]+/i.test(normalizedTitle);
-
-        if (isAlreadyDecomposedPlan || isFromMultiPassPlan || hasSmallOrAtomicScope || alreadyHasPartClones) {
+        if (isAlreadyDecomposedPlan) {
           passResult.push(task);
           continue;
         }
@@ -5063,87 +5073,198 @@ export class HierarchicalOrchestrationService {
   }
 
   /**
+   * Helper to extract explicit file targets from a line or block of text.
+   */
+  public static extractTargetFilesFromText(text: string): string[] {
+    if (!text || typeof text !== 'string') return [];
+    const found = new Set<string>();
+
+    // 1. Parenthesized file paths: (types/ad.ts), (app/api/mine/route.ts), (components/SearchFilters.tsx)
+    const parenMatches = text.match(/\(([^)\n\r]+\.[a-zA-Z0-9]+)\)/g);
+    if (parenMatches) {
+      for (const pm of parenMatches) {
+        const clean = pm.slice(1, -1).trim().replace(/^[./\\]+/, '');
+        if (clean && !clean.includes(' ') && /\.(?:ts|tsx|js|jsx|json|css|scss|html|md|prisma|sql)$/i.test(clean)) {
+          found.add(clean.replace(/\\/g, '/'));
+        }
+      }
+    }
+
+    // 2. Paths with slashes or code blocks: `types/ad.ts` or components/AdCard.tsx or app/api/mine/route.ts
+    const pathMatches = text.match(/`?([a-zA-Z0-9_.\-]+\/[a-zA-Z0-9_.\-/]+\.[a-zA-Z0-9]+)`?/g);
+    if (pathMatches) {
+      for (const pm of pathMatches) {
+        const clean = pm.replace(/[`']/g, '').trim().replace(/^[./\\]+/, '');
+        if (clean && !clean.includes(' ') && /\.(?:ts|tsx|js|jsx|json|css|scss|html|md|prisma|sql)$/i.test(clean)) {
+          found.add(clean.replace(/\\/g, '/'));
+        }
+      }
+    }
+
+    // 3. Known root project files
+    const rootFileMatches = text.match(/`?(package\.json|tsconfig\.json|\.env\.example|\.env|Dockerfile|README\.md)`?/gi);
+    if (rootFileMatches) {
+      for (const rm of rootFileMatches) {
+        found.add(rm.replace(/[`']/g, '').trim());
+      }
+    }
+
+    return Array.from(found);
+  }
+
+  /**
    * Extracts explicitly numbered execution phases and their sub-requirements from a user briefing.
    */
-  public static extractPhasesFromBriefing(briefing: string): Array<{
-    phaseNumber: number;
-    title: string;
-    description: string;
-    items: string[];
-  }> {
+  public static extractPhasesFromBriefing(briefing: string): BriefingPhase[] {
     if (!briefing || typeof briefing !== 'string') return [];
     const lines = briefing.split(/\r?\n/);
-    const phases: Array<{
-      phaseNumber: number;
-      title: string;
-      description: string;
-      items: string[];
-    }> = [];
+    const phases: BriefingPhase[] = [];
 
-    let currentPhase: {
-      phaseNumber: number;
-      title: string;
-      description: string;
-      items: string[];
-    } | null = null;
+    let currentPhase: BriefingPhase | null = null;
+    let currentSubsection: BriefingSubsection | null = null;
 
     const phaseRegex = /^(?:#{1,4}\s*)?(?:Fase|Etapa|Phase|Stage|Passo)\s*(\d+)[\s:—–-]+([^\n\r]+)/i;
     const numberedHeaderRegex = /^(?:#{1,3}\s*)(\d+)\.\s+([A-ZÀ-Ú][^\n\r]+)/;
+    const subsectionRegex = /^(?:#{3,4}\s*)(?:(?:Subetapa|Subfase|Parte)\s*)?(\d+(?:\.\d+)+)?[\s:—–.-]*([^\n\r]+)/i;
+
+    const finalizeSubsection = () => {
+      if (currentSubsection && currentPhase) {
+        if (!currentPhase.subsections) currentPhase.subsections = [];
+        currentPhase.subsections.push(currentSubsection);
+        currentSubsection = null;
+      }
+    };
+
+    const finalizePhase = () => {
+      finalizeSubsection();
+      if (currentPhase) {
+        phases.push(currentPhase);
+        currentPhase = null;
+      }
+    };
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
       if (!line) continue;
 
+      // 1. Main Phase check
       const pMatch = line.match(phaseRegex);
       if (pMatch) {
-        if (currentPhase) {
-          phases.push(currentPhase);
-        }
+        finalizePhase();
+        const rawTitle = pMatch[2].trim().replace(/^[-—–:\s]+|[-—–:\s]+$/g, '');
         currentPhase = {
           phaseNumber: parseInt(pMatch[1], 10),
-          title: pMatch[2].trim().replace(/^[-—–:\s]+|[-—–:\s]+$/g, ''),
+          title: rawTitle,
+          cleanTitle: rawTitle.replace(/^(?:Etapa|Fase|Phase|Stage|Passo)\s*\d+[\s:—–-]+/i, '').trim(),
           description: '',
-          items: []
+          rawContent: line + '\n',
+          items: [],
+          subsections: [],
+          targetFiles: HierarchicalOrchestrationService.extractTargetFilesFromText(line)
         };
         continue;
       }
 
+      // Check numbered header as main phase if after phase 1 or multiple numbered
       if (!currentPhase && phases.length >= 2) {
         const hMatch = line.match(numberedHeaderRegex);
-        if (hMatch) {
+        if (hMatch && !line.includes('.' + hMatch[1])) {
+          finalizePhase();
+          const rawTitle = hMatch[2].trim();
           currentPhase = {
             phaseNumber: parseInt(hMatch[1], 10),
-            title: hMatch[2].trim(),
+            title: rawTitle,
+            cleanTitle: rawTitle,
             description: '',
-            items: []
+            rawContent: line + '\n',
+            items: [],
+            subsections: [],
+            targetFiles: HierarchicalOrchestrationService.extractTargetFilesFromText(line)
           };
           continue;
         }
       }
 
       if (currentPhase) {
-        if (/^##\s*\d+\.\s+/i.test(line) && !line.match(phaseRegex)) {
-          phases.push(currentPhase);
-          currentPhase = null;
+        // If a new ## section appears that is not a phase regex
+        if (/^##\s+\d+\.\s+/i.test(line) && !line.match(phaseRegex)) {
+          finalizePhase();
           continue;
         }
 
-        if (/^[-*•]\s+/.test(line) || /^\d+\.\d+\s+/.test(line) || /^\d+\.\s+/.test(line)) {
+        // 2. Subsection check (e.g. ### 4.1. Barra de Busca... or ### Card do Anúncio)
+        if (/^#{3,4}\s+/.test(line)) {
+          const subMatch = line.match(subsectionRegex);
+          finalizeSubsection();
+          const subTitle = (subMatch ? subMatch[2] : line.replace(/^#{3,4}\s+/, '')).trim();
+          const subNumber = subMatch && subMatch[1] ? subMatch[1] : undefined;
+          currentSubsection = {
+            subNumber,
+            title: subTitle,
+            rawContent: line + '\n',
+            items: [],
+            targetFiles: HierarchicalOrchestrationService.extractTargetFilesFromText(line)
+          };
+          currentPhase.rawContent = (currentPhase.rawContent || '') + line + '\n';
+          continue;
+        }
+
+        // 3. Bullets / Specification items
+        if (/^[-*•]\s+/.test(line) || /^\d+(\.\d+)?\.\s+/.test(line)) {
           const itemText = line.replace(/^[-*•]\s+|\d+(\.\d+)?\.\s+/, '').trim();
-          if (itemText.length > 5) {
-            currentPhase.items.push(itemText);
+          if (itemText.length > 2) {
+            const detectedFiles = HierarchicalOrchestrationService.extractTargetFilesFromText(line);
+            if (currentSubsection) {
+              currentSubsection.items.push(itemText);
+              currentSubsection.rawContent += line + '\n';
+              if (detectedFiles.length > 0) {
+                currentSubsection.targetFiles.push(...detectedFiles);
+              }
+            } else {
+              currentPhase.items.push(itemText);
+              if (detectedFiles.length > 0 && currentPhase.targetFiles) {
+                currentPhase.targetFiles.push(...detectedFiles);
+              }
+            }
           }
-        } else if (!currentPhase.description && line.length > 10) {
-          currentPhase.description = line;
+          currentPhase.rawContent = (currentPhase.rawContent || '') + line + '\n';
+        } else {
+          // Regular text
+          if (currentSubsection) {
+            currentSubsection.rawContent += line + '\n';
+            const detectedFiles = HierarchicalOrchestrationService.extractTargetFilesFromText(line);
+            if (detectedFiles.length > 0) {
+              currentSubsection.targetFiles.push(...detectedFiles);
+            }
+          } else {
+            currentPhase.rawContent = (currentPhase.rawContent || '') + line + '\n';
+            if (!currentPhase.description && line.length > 10) {
+              currentPhase.description = line;
+            }
+            const detectedFiles = HierarchicalOrchestrationService.extractTargetFilesFromText(line);
+            if (detectedFiles.length > 0 && currentPhase.targetFiles) {
+              currentPhase.targetFiles.push(...detectedFiles);
+            }
+          }
         }
       }
     }
 
-    if (currentPhase) {
-      phases.push(currentPhase);
+    finalizePhase();
+
+    // Deduplicate targetFiles inside each phase & subsection
+    for (const p of phases) {
+      if (p.targetFiles) {
+        p.targetFiles = Array.from(new Set(p.targetFiles));
+      }
+      if (p.subsections) {
+        for (const s of p.subsections) {
+          s.targetFiles = Array.from(new Set(s.targetFiles));
+        }
+      }
     }
 
-    const uniquePhases: typeof phases = [];
+    const uniquePhases: BriefingPhase[] = [];
     const seen = new Set<number>();
     for (const p of phases) {
       if (!seen.has(p.phaseNumber)) {
@@ -5157,84 +5278,554 @@ export class HierarchicalOrchestrationService {
 
   /**
    * Builds high-fidelity Major Tasks and atomic microtasks directly from the user's explicit briefing phases.
+   * PROIBIÇÃO ABSOLUTA de picotar bullets individuais em microtarefas separadas.
+   * 1 Tarefa = 1 Etapa / Subseção / Arquivo Completo.
    */
   public static buildBlueprintsFromPhases(
-    phases: Array<{ phaseNumber: number; title: string; description: string; items: string[] }>,
+    phases: BriefingPhase[],
     projectName: string,
     briefingExtraction: { entities: string[]; services: string[]; filters: string[] }
   ): any[] {
-    return phases.map((phase, idx) => {
-      const gtCode = `GT-${phase.phaseNumber || idx + 1}`;
-      const stageCode = `ET-${phase.phaseNumber || idx + 1}.1`;
+    const blueprints: any[] = [];
+    let hasHomologation = false;
+
+    phases.forEach((phase, idx) => {
+      const gtNumber = phase.phaseNumber || idx + 1;
+      const gtCode = `GT-${gtNumber}`;
+      const stageCode = `ET-${gtNumber}.1`;
       const microtasks: any[] = [];
 
-      if (phase.items.length >= 2) {
-        const stepItems = phase.items.slice(0, 4);
-        stepItems.forEach((item, mIdx) => {
-          const subCode = `${phase.phaseNumber || idx + 1}.${mIdx + 1}`;
+      const cleanPhaseTitle = (phase.cleanTitle || phase.title)
+        .replace(/^(?:Etapa|Fase|Phase|Stage|Passo)\s*\d+[\s:—–-]+/i, '')
+        .trim();
+
+      if (/(homologa|build|valida.*(tsc|compila)|homologação)/i.test(phase.title)) {
+        hasHomologation = true;
+      }
+
+      // Caso A: A Etapa possui subseções explícitas (ex: 4.1 Barra de Busca, 4.2 Card do Anúncio)
+      if (phase.subsections && phase.subsections.length > 0) {
+        phase.subsections.forEach((sub, subIdx) => {
+          const subNumStr = sub.subNumber || `${gtNumber}.${subIdx + 1}`;
+          const cleanSubTitle = sub.title
+            .replace(/^(?:\d+(?:\.\d+)?[\s:—–.-]+)/, '')
+            .trim();
+
+          const subFiles = sub.targetFiles && sub.targetFiles.length > 0
+            ? sub.targetFiles
+            : (phase.targetFiles && phase.targetFiles.length > 0
+                ? phase.targetFiles
+                : [`src/components/${cleanSubTitle.replace(/[^a-zA-Z0-9]/g, '') || 'Component'}.tsx`]);
+
+          const bulletsText = sub.items.length > 0
+            ? '\n\nEspecificações e regras detalhadas:\n' + sub.items.map(it => `- ${it}`).join('\n')
+            : '';
+          const desc = `${sub.rawContent.trim() || `Implementar ${cleanSubTitle} atendendo integralmente ao escopo definido.`}${bulletsText}`;
+
+          const criteria: string[] = [];
+          if (sub.items.length > 0) {
+            sub.items.slice(0, 8).forEach(it => criteria.push(it));
+            if (sub.items.length > 8) {
+              criteria.push(`Atender integralmente às ${sub.items.length} regras e especificações de ${cleanSubTitle}`);
+            }
+          } else {
+            criteria.push(`Implementação completa de ${cleanSubTitle} atendendo a todos os requisitos`);
+          }
+          criteria.push('Código sem erros de compilação TypeScript e pronto para integração');
+
+          const actionPrefix = /^(?:Criar|Implementar|Configurar|Construir|Desenvolver|Integrar|Validar)\b/i.test(cleanSubTitle)
+            ? ''
+            : 'Implementar ';
+
           microtasks.push({
-            subCode,
-            title: `${item.slice(0, 80)} de ${projectName}`,
-            desc: `${item}. Implementação no escopo da ${phase.title} de ${projectName}.`,
-            files: mIdx === 0
-              ? ['package.json', 'src/types/index.ts', 'src/config.ts']
-              : [`src/services/${(briefingExtraction.services[mIdx] || 'domainService').replace(/Service$/i, '')}Service.ts`, `test/${subCode.replace('.', '_')}.test.ts`],
-            criteria: [
-              `Implementação completa de: ${item}`,
-              `Verificação automatizada com saída limpa e testes determinísticos`
-            ]
+            subCode: subNumStr,
+            title: `${actionPrefix}${cleanSubTitle}`,
+            desc,
+            files: subFiles,
+            criteria
           });
         });
       } else {
-        const sub1 = `${phase.phaseNumber || idx + 1}.1`;
-        const sub2 = `${phase.phaseNumber || idx + 1}.2`;
-        const sub3 = `${phase.phaseNumber || idx + 1}.3`;
-
-        microtasks.push(
-          {
-            subCode: sub1,
-            title: `Implementar estrutura e contratos base de ${phase.title} para ${projectName}`,
-            desc: `Construir tipos, interfaces, configurações e base operacional para ${phase.title} (${phase.description || phase.title}).`,
-            files: idx === 0
+        // Caso B: A Etapa trata de um único arquivo ou rota coesa (ex: types/ad.ts ou app/api/mine/route.ts)
+        const phaseFiles = phase.targetFiles && phase.targetFiles.length > 0
+          ? phase.targetFiles
+          : (idx === 0
               ? ['package.json', 'tsconfig.json', 'src/types/index.ts']
-              : [`src/domain/${gtCode.toLowerCase()}.ts`, `src/types/${gtCode.toLowerCase()}.ts`],
+              : [`src/modules/${cleanPhaseTitle.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || 'module'}.ts`]);
+
+        const bulletsText = phase.items.length > 0
+          ? '\n\nEspecificações e regras detalhadas:\n' + phase.items.map(it => `- ${it}`).join('\n')
+          : '';
+        const fullDesc = `${(phase.rawContent || '').trim() || phase.description || `Implementar ${cleanPhaseTitle} atendendo integralmente ao escopo definido.`}${bulletsText}`;
+
+        // Se a etapa for grande e possuir múltiplos arquivos alvo distintos e muitos itens (> 12 itens),
+        // divide em até 2 microtarefas coesas (ex: rota core + heurísticas/filtros)
+        if (phaseFiles.length >= 2 && phase.items.length >= 12) {
+          const half = Math.ceil(phase.items.length / 2);
+          const items1 = phase.items.slice(0, half);
+          const items2 = phase.items.slice(half);
+
+          microtasks.push({
+            subCode: `${gtNumber}.1`,
+            title: `Implementar ${cleanPhaseTitle} — Estrutura e Serviços Core`,
+            desc: `${fullDesc}\n\nFoco da Parte 1:\n${items1.map(it => `- ${it}`).join('\n')}`,
+            files: [phaseFiles[0]],
             criteria: [
-              `Estrutura e tipos de ${phase.title} definidos com tipagem estrita`,
-              `Sem dependências quebradas ou imports circulares`
+              ...items1.slice(0, 6),
+              'Estrutura e serviços core implementados com tipagem estrita e validação'
             ]
-          },
-          {
-            subCode: sub2,
-            title: `Implementar lógica e integração core de ${phase.title} para ${projectName}`,
-            desc: `Desenvolver a implementação funcional de ${phase.title} conectando dados, regras de negócio e serviços.`,
-            files: [`src/services/${gtCode.toLowerCase()}Service.ts`, `src/controllers/${gtCode.toLowerCase()}Controller.ts`],
+          });
+
+          microtasks.push({
+            subCode: `${gtNumber}.2`,
+            title: `Implementar ${cleanPhaseTitle} — Heurísticas, Integrações e Filtros`,
+            desc: `${fullDesc}\n\nFoco da Parte 2:\n${items2.map(it => `- ${it}`).join('\n')}`,
+            files: phaseFiles.slice(1),
             criteria: [
-              `Lógica central de ${phase.title} implementada e integrada`,
-              `Tratamento de exceções e erros de domínio com códigos canônicos`
+              ...items2.slice(0, 6),
+              'Heurísticas, integrações e validações complementares funcionando sem erros'
             ]
-          },
-          {
-            subCode: sub3,
-            title: `Validar e homologar com testes automatizados de ${phase.title} para ${projectName}`,
-            desc: `Construir suíte de testes determinísticos para comprovar a execução de ${phase.title} com evidências reais.`,
-            files: [`test/${gtCode.toLowerCase()}.test.ts`],
-            criteria: [
-              `Testes automatizados cobrindo os critérios de ${phase.title}`,
-              `Execução de testes finalizando com sucesso (código 0)`
-            ]
+          });
+        } else {
+          // 1 única microtarefa coesa para o arquivo/módulo completo!
+          const criteria: string[] = [];
+          if (phase.items.length > 0) {
+            phase.items.slice(0, 10).forEach(it => criteria.push(it));
+            if (phase.items.length > 10) {
+              criteria.push(`Atender a todas as ${phase.items.length} regras e propriedades de ${cleanPhaseTitle}`);
+            }
+          } else {
+            criteria.push(`Implementação completa de ${cleanPhaseTitle} atendendo a todos os requisitos`);
           }
-        );
+          criteria.push('Código compilando sem erros e validado');
+
+          const actionPrefix = /^(?:Criar|Implementar|Configurar|Construir|Desenvolver|Integrar|Validar)\b/i.test(cleanPhaseTitle)
+            ? ''
+            : 'Implementar ';
+
+          microtasks.push({
+            subCode: `${gtNumber}.1`,
+            title: `${actionPrefix}${cleanPhaseTitle}`,
+            desc: fullDesc,
+            files: phaseFiles,
+            criteria
+          });
+        }
       }
 
-      return {
+      blueprints.push({
         code: gtCode,
         title: phase.title,
         stageCode,
         stageTitle: phase.title,
         reqCats: ['general', 'persistence', 'api_contracts'],
         microtasks
-      };
+      });
     });
+
+    // Se nenhuma etapa explícita de homologação/build foi encontrada, adiciona 1 etapa final de Homologação e Build
+    if (!hasHomologation) {
+      const finalGtNum = phases.length + 1;
+      const finalGtCode = `GT-${finalGtNum}`;
+      blueprints.push({
+        code: finalGtCode,
+        title: 'Homologação, Build e Validação Integrada',
+        stageCode: `ET-${finalGtNum}.1`,
+        stageTitle: 'Homologação e Build Final',
+        reqCats: ['testing_verification'],
+        microtasks: [
+          {
+            subCode: `${finalGtNum}.1`,
+            title: 'Validar compilação TypeScript (tsc / next build), .env.example e funcionamento integrado de todas as rotas e componentes',
+            desc: 'Executar verificação estática de tipos, compilação de produção, conferência de variáveis de ambiente no .env.example e teste integrado de todas as rotas e componentes do projeto.',
+            files: ['package.json', 'tsconfig.json', '.env.example', 'README.md'],
+            criteria: [
+              'Compilação TypeScript estrita sem erros de tipo (tsc / next build)',
+              'Arquivo .env.example completo documentando todas as chaves e variáveis necessárias',
+              'Todas as rotas e componentes integrados funcionando sem quebras ou dependências órfãs'
+            ]
+          }
+        ]
+      });
+    }
+
+    return blueprints;
+  }
+
+  /**
+   * Extrai a stack tecnológica real descrita no briefing do usuário.
+   * Evita fixar stacks estáticas (como Next.js/React) quando o prompt especifica Node.js, Baileys, SQLite WAL, Fastify, etc.
+   */
+  public static extractTechStackFromBriefing(briefing: string): {
+    framework: string;
+    architecture: string;
+    details?: string[];
+  } {
+    if (!briefing || typeof briefing !== 'string') {
+      return {
+        framework: 'Node.js / TypeScript',
+        architecture: 'Arquitetura Modular em Camadas'
+      };
+    }
+
+    const lower = briefing.toLowerCase();
+    const details: string[] = [];
+
+    // WhatsApp / Baileys + Cakto + SQLite WAL
+    const hasBaileys = lower.includes('baileys') || lower.includes('@whiskeysockets/baileys');
+    const hasWhatsApp = lower.includes('whatsapp') || hasBaileys;
+    const hasCakto = lower.includes('cakto');
+    const hasSqlite = lower.includes('sqlite') || lower.includes('better-sqlite3');
+    const hasWal = lower.includes('wal');
+    const hasFastify = lower.includes('fastify');
+    const hasExpress = lower.includes('express');
+    const hasFfmpeg = lower.includes('ffmpeg') || lower.includes('libopus') || lower.includes('opus') || lower.includes('ptt');
+
+    if (hasWhatsApp && (hasBaileys || hasCakto || hasSqlite)) {
+      const httpPart = (hasFastify && hasExpress) ? 'Fastify/Express' : (hasFastify ? 'Fastify' : (hasExpress ? 'Express' : 'Fastify/Express'));
+      const dbPart = hasWal ? 'SQLite WAL' : 'SQLite';
+      return {
+        framework: `Node.js • TypeScript • Baileys • ${dbPart} • ${httpPart}`,
+        architecture: 'Arquitetura Monolítica Modular com Fila Anti-Ban, Máquina de Estados e SQLite WAL',
+        details: [
+          'Node.js (LTS) + TypeScript (Strict Mode)',
+          `Servidor HTTP: ${httpPart}`,
+          'Motor WhatsApp: @whiskeysockets/baileys',
+          'Banco de Dados: better-sqlite3 (PRAGMA journal_mode = WAL)',
+          ...(hasFfmpeg ? ['Áudio: FFmpeg (PTT Opus)'] : []),
+          ...(hasCakto ? ['Webhooks: Cakto com Idempotência'] : []),
+          'Infraestrutura: VPS Google Cloud (Ubuntu LTS) + PM2 + Caddy Server'
+        ]
+      };
+    }
+
+    // Python / FastAPI / Django
+    if (lower.includes('fastapi') || (lower.includes('python') && !lower.includes('javascript'))) {
+      const framework = lower.includes('fastapi') ? 'Python • FastAPI' : 'Python';
+      return {
+        framework,
+        architecture: hasSqlite ? 'Arquitetura Modular em Camadas com SQLite' : 'Arquitetura Modular em Camadas',
+        details: [framework]
+      };
+    }
+
+    // Next.js / React
+    const isNext = lower.includes('next.js') || lower.includes('nextjs');
+    const isReact = lower.includes('react');
+    if (isNext || isReact) {
+      const framework = isNext ? 'Next.js • React • TypeScript' : 'React • TypeScript';
+      return {
+        framework,
+        architecture: hasSqlite ? 'Arquitetura Modular Full-Stack com SQLite' : 'Arquitetura Modular Full-Stack',
+        details: [framework]
+      };
+    }
+
+    // Backend Node.js padrão
+    const httpFramework = hasFastify ? 'Fastify' : (hasExpress ? 'Express' : 'Node.js');
+    const dbName = hasSqlite ? (hasWal ? 'SQLite WAL' : 'SQLite') : (lower.includes('postgres') ? 'PostgreSQL' : '');
+    const frameworkParts = ['Node.js', 'TypeScript'];
+    if (httpFramework !== 'Node.js') frameworkParts.push(httpFramework);
+    if (dbName) frameworkParts.push(dbName);
+
+    return {
+      framework: frameworkParts.join(' • '),
+      architecture: hasSqlite ? 'Arquitetura Modular em Camadas com SQLite WAL' : 'Arquitetura Modular em Camadas',
+      details: frameworkParts
+    };
+  }
+
+  /**
+   * Decompõe briefings arquiteturais completos em 5 a 8 etapas modulares reais e coesas,
+   * mapeando com exatidão os arquivos, módulos, contratos e regras descritos no prompt do usuário.
+   */
+  public static decomposeArchitecturalBriefing(params: {
+    briefing: string;
+    projectName: string;
+    projectPath?: string;
+    projectId?: string;
+  }): PlannedTask[] | null {
+    const { briefing, projectName } = params;
+    if (!briefing || typeof briefing !== 'string') return null;
+
+    const lower = briefing.toLowerCase();
+
+    // 1. Cenário Especializado A: Sistema de Automação WhatsApp + Cakto + Baileys + SQLite WAL
+    const isWhatsAppCaktoFunnel =
+      (lower.includes('baileys') || lower.includes('@whiskeysockets/baileys') || lower.includes('whatsapp')) &&
+      (lower.includes('cakto') || lower.includes('funil') || lower.includes('pix recovery') || lower.includes('upsell')) &&
+      (lower.includes('sqlite') || lower.includes('better-sqlite3'));
+
+    if (isWhatsAppCaktoFunnel) {
+      Logger.info(`[HierarchicalOrchestrationService] Decompondo briefing em 6 etapas modulares para Automação WhatsApp Cakto Baileys SQLite WAL (${projectName}).`);
+
+      const t1: PlannedTask = {
+        code: 'TK-1',
+        title: 'Configuração Base, Variáveis de Ambiente e Catálogo de Produtos',
+        description: 'Configurar ambiente TypeScript Strict, package.json com dependências rigorosas (@whiskeysockets/baileys, better-sqlite3, fastify ou express, pino, dotenv), tsconfig.json, validação estrita de variáveis de ambiente em src/config/env.ts (porta HTTP, CAKTO_WEBHOOK_SECRET, telefone para Pairing Code, diretórios /data/auth_info, /data/database, /data/media) e catálogo declarativo de produtos/ofertas Cakto em src/config/catalog.ts (MAIN, UPSELL_1, UPSELL_2, DOWNSELL com mídias locais, delays e links de checkout).',
+        milestone: 'M1 - Configuração & Catálogo',
+        orderIndex: 1,
+        dependencies: [],
+        criteria: [
+          'package.json e tsconfig.json configurados com strict mode e dependências do Baileys e better-sqlite3',
+          'src/config/env.ts carregando e validando todas as variáveis obrigatórias com fail-fast',
+          'src/config/catalog.ts mapeando produtos MAIN, UPSELL_1, UPSELL_2 e DOWNSELL com links e mídias',
+          'Arquivo .env.example provisionado documentando todas as variáveis'
+        ],
+        verificationCommand: 'npx tsc --noEmit',
+        doneWhen: 'Arquivos de configuração e catálogo criados e TypeScript compilando com código 0.',
+        expectedFiles: ['package.json', 'tsconfig.json', 'src/config/env.ts', 'src/config/catalog.ts', '.env.example'],
+        expectedScopeFiles: ['package.json', 'tsconfig.json', 'src/config/env.ts', 'src/config/catalog.ts', '.env.example']
+      };
+
+      const t2: PlannedTask = {
+        code: 'TK-2',
+        title: 'Camada de Banco de Dados SQLite em Modo WAL, Schema DDL e Repositórios Transacionais',
+        description: 'Inicializar better-sqlite3 em src/database/connection.ts ativando obrigatoriamente PRAGMA journal_mode = WAL e PRAGMA synchronous = NORMAL. Criar schema DDL completo em src/database/schema.sql com tabelas customers (id, phone, jid, name, email, current_state, created_at, updated_at), orders (id, transaction_id, customer_id, product_id, offer_id, event_type, status, paid_at, raw_payload) com constraint UNIQUE(transaction_id, event_type) para idempotência estrita, message_queue (id, customer_id, phone, jid, message_type, content, media_path, scheduled_at, status, attempts, last_error) com índices para scheduled_at e status. Implementar em src/database/repositories.ts repositórios transacionais atômicos com queries preparadas.',
+        milestone: 'M2 - Banco SQLite WAL & Repositórios',
+        orderIndex: 2,
+        dependencies: ['TK-1'],
+        criteria: [
+          'Conexão better-sqlite3 configurada em src/database/connection.ts com modo WAL ativado',
+          'Schema SQL em src/database/schema.sql com tabelas customers, orders, message_queue e índices otimizados',
+          'Constraint UNIQUE(transaction_id, event_type) garantindo idempotência estrita de webhooks',
+          'Repositórios transacionais em src/database/repositories.ts com métodos de inserção, busca e agendamento'
+        ],
+        verificationCommand: 'npx tsc --noEmit',
+        doneWhen: 'Camada SQLite WAL e repositórios transacionais implementados e compilando sem erros.',
+        expectedFiles: ['src/database/connection.ts', 'src/database/repositories.ts', 'src/database/schema.sql'],
+        expectedScopeFiles: ['src/database/connection.ts', 'src/database/repositories.ts', 'src/database/schema.sql']
+      };
+
+      const t3: PlannedTask = {
+        code: 'TK-3',
+        title: 'Motor WhatsApp Baileys, JID Resolver do 9º Dígito e Dispatcher com Simulação Humana e PTT',
+        description: 'Implementar ciclo de vida completo da conexão Baileys em src/whatsapp/socket.ts utilizando useMultiFileAuthState armazenando chaves em /data/auth_info, suporte a Pairing Code no terminal para conexão sem QR code, reconexão automática resiliente e escuta de connection.update e messages.upsert (fromMe: false). Implementar em src/whatsapp/dispatcher.ts o JID Resolver via sock.onWhatsApp(phone) para normalização do 9º dígito brasileiro (salvando JID real Meta no banco), simulação de presença humana (composing por 2.5s-5s antes de texto, recording por 4s-7s antes de áudio) e envio de áudios nativos no formato .ogg com codec Opus e ptt: true.',
+        milestone: 'M3 - Motor WhatsApp Baileys',
+        orderIndex: 3,
+        dependencies: ['TK-1', 'TK-2'],
+        criteria: [
+          'Gerenciador de conexão Baileys em src/whatsapp/socket.ts com auth state em /data/auth_info e pairing code',
+          'Resolver do 9º dígito sanitizando telefone (DDI 55) e consultando sock.onWhatsApp() antes do primeiro envio',
+          'Dispatcher em src/whatsapp/dispatcher.ts com presença humana (composing/recording) e envio de áudios PTT nativos',
+          'Ouvinte de mensagens recebidas (messages.upsert) direcionando para a máquina de estados'
+        ],
+        verificationCommand: 'npx tsc --noEmit',
+        doneWhen: 'Conexão Baileys, JID resolver e dispatcher de mensagens implementados com tipagem estrita.',
+        expectedFiles: ['src/whatsapp/socket.ts', 'src/whatsapp/dispatcher.ts'],
+        expectedScopeFiles: ['src/whatsapp/socket.ts', 'src/whatsapp/dispatcher.ts']
+      };
+
+      const t4: PlannedTask = {
+        code: 'TK-4',
+        title: 'Servidor HTTP de Webhooks Cakto, Validação de Secret e Adapters de Normalização',
+        description: 'Implementar servidor HTTP Fastify ou Express em src/webhooks/server.ts expondo endpoint POST /webhook/cakto respondendo 200 OK imediato (< 100ms) para evitar timeouts da plataforma Cakto. Validar assinatura/secret via header ou query param (CAKTO_WEBHOOK_SECRET). Implementar em src/webhooks/adapters.ts adapters para normalização dos payloads da Cakto (purchase_approved, pix_generated, boleto_generated), extraindo customer (telefone sanitizado, nome, email), dados do pedido (transaction_id, produto, oferta, código Pix) e registrando a transação no SQLite com garantia de idempotência estrita.',
+        milestone: 'M4 - Webhooks Cakto & Ingestão',
+        orderIndex: 4,
+        dependencies: ['TK-1', 'TK-2'],
+        criteria: [
+          'Servidor HTTP em src/webhooks/server.ts ouvindo POST /webhook/cakto e respondendo 200 OK imediatamente',
+          'Validação segura do CAKTO_WEBHOOK_SECRET rejeitando requisições não autorizadas',
+          'Adapters em src/webhooks/adapters.ts normalizando payloads da Cakto para DTOs internos limpos',
+          'Bloqueio de eventos duplicados através da constraint de unicidade no SQLite'
+        ],
+        verificationCommand: 'npx tsc --noEmit',
+        doneWhen: 'Servidor de webhooks Cakto e adapters implementados com resposta rápida e idempotência.',
+        expectedFiles: ['src/webhooks/server.ts', 'src/webhooks/adapters.ts'],
+        expectedScopeFiles: ['src/webhooks/server.ts', 'src/webhooks/adapters.ts']
+      };
+
+      const t5: PlannedTask = {
+        code: 'TK-5',
+        title: 'Máquina de Estados Híbrida do Funil de Vendas e Recuperação por Micro-Comprometimento',
+        description: 'Implementar em src/engine/state-machine.ts a máquina de estados híbrida do funil integrando gatilhos temporais e conversacionais: 1. Pix Gerado: agenda PIX_RECOVERY para now + 7min com Pix Copia e Cola; 2. Compra MAIN Aprovada: cancela recuperação Pix, agenda DELIVERY_MAIN imediato com micro-comprometimento no último balão ("Conseguiu abrir o material? Me responde SIM"), atualiza estado para DELIVERED_MAIN e agenda PITCH_UPSELL_1 para now + 15min; 3. Gatilho de Micro-comprometimento (resposta no WhatsApp): se cliente em DELIVERED_MAIN responder, antecipa PITCH_UPSELL_1 para imediato (now); 4. Compra UPSELL_1: cancela downsell, entrega imediata e agenda UPSELL_2; 5. Downsell por tempo: caso UPSELL_1 não seja comprado, agenda PITCH_DOWNSELL_1 com oferta alternativa.',
+        milestone: 'M5 - Máquina de Estados do Funil',
+        orderIndex: 5,
+        dependencies: ['TK-2', 'TK-3', 'TK-4'],
+        criteria: [
+          'Máquina de estados gerenciando transições: PIX_PENDING, DELIVERED_MAIN, PITCH_UPSELL_1, DELIVERED_UPSELL_1, PITCH_UPSELL_2, DOWNSELL',
+          'Cancelamento automático de jobs de recuperação Pix pendentes quando a compra principal for aprovada',
+          'Antecipação imediata do pitch de Upsell 1 quando o cliente responde ao micro-comprometimento no WhatsApp',
+          'Agendamento automático de follow-ups e pitches de Downsell com cálculo correto de delays'
+        ],
+        verificationCommand: 'npx tsc --noEmit',
+        doneWhen: 'Máquina de estados híbrida implementada e validada com regras de micro-comprometimento e funil.',
+        expectedFiles: ['src/engine/state-machine.ts'],
+        expectedScopeFiles: ['src/engine/state-machine.ts']
+      };
+
+      const t6: PlannedTask = {
+        code: 'TK-6',
+        title: 'Worker de Fila Anti-Banimento com Spintax, Entrypoint Unificado e Infraestrutura GCP VPS',
+        description: 'Implementar o worker de fila em src/engine/worker.ts com concorrência controlada (fila indiana estrita, 1 job por vez, loop a cada 5 segundos). Integrar motor de Spintax ({Olá|Oi|Fala}, {{first_name}}) para unicidade de hash de mensagens na Meta e delays elásticos aleatórios (jitter entre 3s e 6s entre mensagens do mesmo pacote). Criar o entrypoint principal src/index.ts orquestrando inicialização do banco, Baileys, servidor HTTP e worker com encerramento gracioso (SIGINT/SIGTERM). Provisionar arquivos de produção para VPS Ubuntu Google Cloud: Caddyfile (Reverse Proxy Auto-HTTPS), PM2 ecosystem.config.js (auto-restart resiliente) e script setup.sh de provisionamento de VPS.',
+        milestone: 'M6 - Worker Anti-Ban & Infraestrutura',
+        orderIndex: 6,
+        dependencies: ['TK-1', 'TK-2', 'TK-3', 'TK-4', 'TK-5'],
+        criteria: [
+          'Worker em src/engine/worker.ts consumindo a message_queue em fila indiana com 1 envio por vez',
+          'Motor Spintax variando mensagens e aplicando delays elásticos anti-bloqueio',
+          'Entrypoint src/index.ts iniciando todos os módulos de forma coordenada com graceful shutdown',
+          'Arquivos de deploy para GCP VPS provisionados: ecosystem.config.js, Caddyfile e setup.sh'
+        ],
+        verificationCommand: 'npx tsc --noEmit',
+        doneWhen: 'Worker anti-ban, entrypoint unificado e arquivos de infraestrutura GCP criados e validados.',
+        expectedFiles: ['src/engine/worker.ts', 'src/index.ts', 'ecosystem.config.js', 'Caddyfile', 'setup.sh'],
+        expectedScopeFiles: ['src/engine/worker.ts', 'src/index.ts', 'ecosystem.config.js', 'Caddyfile', 'setup.sh']
+      };
+
+      return [t1, t2, t3, t4, t5, t6];
+    }
+
+    // 2. Cenário Arquitetural Genérico com Múltiplos Módulos e Arquivos /src/
+    const srcMatches = briefing.match(/(?:\/src\/|src\/)[a-zA-Z0-9_\-\./]+\.(?:ts|js|tsx|jsx|sql|json)/gi) || [];
+    const uniqueFiles = Array.from(new Set(srcMatches.map(f => f.replace(/^\//, ''))));
+
+    if (uniqueFiles.length >= 3) {
+      Logger.info(`[HierarchicalOrchestrationService] Decompondo briefing arquitetural genérico com ${uniqueFiles.length} arquivos mapeados.`);
+
+      // Agrupa os arquivos por módulos lógicos
+      const configFiles = uniqueFiles.filter(f => /config|env|catalog|types|constants/i.test(f));
+      const dbFiles = uniqueFiles.filter(f => /database|db|schema|repositor|model|entity|entities/i.test(f));
+      const coreFiles = uniqueFiles.filter(f => /core|service|whatsapp|socket|bot|client/i.test(f));
+      const apiFiles = uniqueFiles.filter(f => /webhook|api|server|route|controller|adapter/i.test(f));
+      const engineFiles = uniqueFiles.filter(f => /engine|workflow|machine|logic|domain/i.test(f));
+      const workerFiles = uniqueFiles.filter(f => /worker|queue|cron|index|main|app/i.test(f));
+
+      const tasks: PlannedTask[] = [];
+      let order = 1;
+
+      // Etapa 1: Configuração e Tipos
+      const stage1Files = Array.from(new Set(['package.json', 'tsconfig.json', '.env.example', ...configFiles]));
+      tasks.push({
+        code: `TK-${order}`,
+        title: `Configuração Base, Dependências e Módulo de Configuração de ${projectName}`,
+        description: `Configurar package.json com scripts e dependências de produção, tsconfig.json com strict mode e implementar módulos de configuração (${configFiles.join(', ') || 'src/config/env.ts'}).`,
+        milestone: 'M1 - Scaffolding & Configuração',
+        orderIndex: order++,
+        dependencies: [],
+        criteria: [
+          'package.json e tsconfig.json configurados com strict mode',
+          'Módulos de configuração e variáveis de ambiente implementados com validação',
+          'Compilação inicial do TypeScript sem erros'
+        ],
+        verificationCommand: 'npx tsc --noEmit',
+        doneWhen: 'Arquivos de configuração provisionados e TypeScript compilando com código 0.',
+        expectedFiles: stage1Files,
+        expectedScopeFiles: stage1Files
+      });
+
+      // Etapa 2: Banco de Dados e Schemas
+      if (dbFiles.length > 0 || lower.includes('database') || lower.includes('sqlite') || lower.includes('banco')) {
+        const stage2Files = dbFiles.length > 0 ? dbFiles : ['src/database/connection.ts', 'src/database/schema.sql'];
+        tasks.push({
+          code: `TK-${order}`,
+          title: `Modelagem de Banco de Dados, Schemas DDL e Camada de Persistência de ${projectName}`,
+          description: `Implementar conexão de banco de dados, schemas DDL e repositórios de dados para os arquivos: ${stage2Files.join(', ')}.`,
+          milestone: 'M2 - Persistência & Schemas',
+          orderIndex: order++,
+          dependencies: [`TK-${order - 2}`],
+          criteria: [
+            'Conexão com banco de dados configurada com integridade referencial',
+            'Schemas relacionais e repositórios com queries preparadas implementados',
+            'Compilação de tipos de dados sem divergências'
+          ],
+          verificationCommand: 'npx tsc --noEmit',
+          doneWhen: 'Camada de dados e schemas relacionais implementados com sucesso.',
+          expectedFiles: stage2Files,
+          expectedScopeFiles: stage2Files
+        });
+      }
+
+      // Etapa 3: Módulo Core / Serviços de Domínio
+      if (coreFiles.length > 0) {
+        tasks.push({
+          code: `TK-${order}`,
+          title: `Implementação dos Serviços Centrais e Motores de Domínio de ${projectName}`,
+          description: `Implementar serviços de comunicação e motores principais nos arquivos: ${coreFiles.join(', ')}.`,
+          milestone: 'M3 - Motores & Serviços Centrais',
+          orderIndex: order++,
+          dependencies: [`TK-${order - 2}`],
+          criteria: [
+            'Serviços centrais de comunicação e domínio implementados',
+            'Tratamento de conexões, eventos e ciclo de vida de instâncias',
+            'Tipagem estrita e ausência de erros de build'
+          ],
+          verificationCommand: 'npx tsc --noEmit',
+          doneWhen: 'Serviços centrais e motores de domínio implementados e verificados.',
+          expectedFiles: coreFiles,
+          expectedScopeFiles: coreFiles
+        });
+      }
+
+      // Etapa 4: Servidor HTTP, Rotas e Webhooks
+      if (apiFiles.length > 0 || lower.includes('webhook') || lower.includes('api') || lower.includes('rota')) {
+        const stage4Files = apiFiles.length > 0 ? apiFiles : ['src/server.ts', 'src/routes.ts'];
+        tasks.push({
+          code: `TK-${order}`,
+          title: `Servidor HTTP, Endpoints de API e Webhooks com Validação de ${projectName}`,
+          description: `Implementar servidor HTTP, roteamento, validação de payload e adapters de ingestão nos arquivos: ${stage4Files.join(', ')}.`,
+          milestone: 'M4 - API & Ingestão',
+          orderIndex: order++,
+          dependencies: [`TK-${order - 2}`],
+          criteria: [
+            'Servidor HTTP e endpoints de recebimento configurados com resposta rápida',
+            'Validação de dados de entrada e adapters de normalização implementados',
+            'Idempotência e tratamento seguro de erros de rota'
+          ],
+          verificationCommand: 'npx tsc --noEmit',
+          doneWhen: 'Endpoints HTTP e webhooks implementados com sucesso.',
+          expectedFiles: stage4Files,
+          expectedScopeFiles: stage4Files
+        });
+      }
+
+      // Etapa 5: Máquina de Estados / Lógica de Negócio
+      if (engineFiles.length > 0 || lower.includes('engine') || lower.includes('funil') || lower.includes('state')) {
+        const stage5Files = engineFiles.length > 0 ? engineFiles : ['src/engine/state-machine.ts'];
+        tasks.push({
+          code: `TK-${order}`,
+          title: `Máquina de Estados e Orquestração do Fluxo de Negócio de ${projectName}`,
+          description: `Implementar a máquina de estados, regras de negócio e transições de fluxo nos arquivos: ${stage5Files.join(', ')}.`,
+          milestone: 'M5 - Fluxo de Negócio & Estados',
+          orderIndex: order++,
+          dependencies: tasks.map(t => t.code || ''),
+          criteria: [
+            'Regras de transição de estado e orquestração de negócios implementadas',
+            'Cancelamento de estados obsoletos e agendamento de novas etapas',
+            'Integridade com a camada de persistência'
+          ],
+          verificationCommand: 'npx tsc --noEmit',
+          doneWhen: 'Máquina de estados e regras de negócio implementadas e tipadas.',
+          expectedFiles: stage5Files,
+          expectedScopeFiles: stage5Files
+        });
+      }
+
+      // Etapa 6: Workers em Background, Entrypoint e Infraestrutura
+      const deployFiles = ['ecosystem.config.js', 'Caddyfile', 'Dockerfile', 'setup.sh'].filter(f => lower.includes(f.toLowerCase()));
+      const stage6Files = Array.from(new Set([...(workerFiles.length > 0 ? workerFiles : ['src/index.ts']), ...deployFiles]));
+      tasks.push({
+        code: `TK-${order}`,
+        title: `Workers em Segundo Plano, Entrypoint Unificado e Arquivos de Infraestrutura de ${projectName}`,
+        description: `Implementar workers assíncronos, loop de processamento, ponto de entrada do sistema e arquivos de infraestrutura nos arquivos: ${stage6Files.join(', ')}.`,
+        milestone: 'M6 - Workers & Produção',
+        orderIndex: order++,
+        dependencies: tasks.map(t => t.code || ''),
+        criteria: [
+          'Worker de fila e processamento assíncrono implementado com intervalos seguros',
+          'Entrypoint unificado coordenando inicialização e shutdown de todos os módulos',
+          'Arquivos de deploy e infraestrutura provisionados'
+        ],
+        verificationCommand: 'npx tsc --noEmit',
+        doneWhen: 'Workers, entrypoint e infraestrutura implementados e prontos para produção.',
+        expectedFiles: stage6Files,
+        expectedScopeFiles: stage6Files
+      });
+
+      return tasks;
+    }
+
+    return null;
   }
 
   /**
@@ -5243,16 +5834,76 @@ export class HierarchicalOrchestrationService {
    * Domain Logic, APIs, UI/Views, and Testing/Verification), each with atomic microtasks (>15 total),
    * explicit file scopes, acceptance criteria, normalized verification commands, and chained cycle-free DAG.
    */
-  static generateMultiPassPlannedTasks(params: {
-    briefing: string;
-    projectPath: string;
-    projectName?: string;
-    projectId?: string;
-    requirements?: string[];
-  }): PlannedTask[] {
-    const originalDescription = (params.briefing || '').trim();
-    const structuredReqs = this.extractStructuredRequirements(originalDescription, params.requirements);
-    const complexity = this.analyzeProjectComplexity(originalDescription, params.requirements);
+  static generateMultiPassPlannedTasks(
+    paramsOrBriefing: {
+      briefing: string;
+      projectPath: string;
+      projectName?: string;
+      projectId?: string;
+      requirements?: string[];
+    } | string,
+    legacyProjectName?: string,
+    legacyProjectPath?: string,
+    legacyRequirements?: string[]
+  ): PlannedTask[] {
+    let originalDescription: string;
+    let projectPath: string = '';
+    let projectName: string | undefined;
+    let projectId: string | undefined;
+    let requirements: string[] | undefined;
+
+    if (typeof paramsOrBriefing === 'string') {
+      originalDescription = (paramsOrBriefing || '').trim();
+      projectName = legacyProjectName;
+      projectPath = legacyProjectPath || '';
+      requirements = legacyRequirements;
+    } else {
+      originalDescription = (paramsOrBriefing.briefing || '').trim();
+      projectPath = paramsOrBriefing.projectPath || '';
+      projectName = paramsOrBriefing.projectName;
+      projectId = paramsOrBriefing.projectId;
+      requirements = paramsOrBriefing.requirements;
+    }
+
+    const params = {
+      briefing: originalDescription,
+      projectPath,
+      projectName,
+      projectId,
+      requirements
+    };
+
+    // PILAR 2: Validação estrita de modo cirúrgico vs decomposição arquitetural
+    const hasCode = projectPath ? DeltaFeatureEngine.hasImplementedCode(projectPath, projectId) : false;
+    const isArchitectural = DeltaFeatureEngine.isArchitecturalBriefing(originalDescription);
+    const isSurgical = !isArchitectural && hasCode && DeltaFeatureEngine.isSurgicalOrBugfixPrompt(originalDescription, projectPath, projectId);
+
+    if (isSurgical) {
+      Logger.info(`[HierarchicalOrchestrationService] Modo cirúrgico ativado para "${projectName || 'projeto'}". Gerando plano enxuto (1 tarefa).`);
+      return DeltaFeatureEngine.planSurgicalIteration({
+        briefing: originalDescription,
+        projectPath,
+        projectName,
+        projectId
+      });
+    }
+
+    // PILAR 2.5: Decomposição arquitetural fiel ao prompt do usuário (5 a 8 etapas coesas mapeadas do briefing)
+    if (isArchitectural) {
+      Logger.info(`[HierarchicalOrchestrationService] Briefing arquitetural/modular detectado para "${projectName || 'projeto'}". Decompondo em etapas modulares fiéis ao prompt...`);
+      const architecturalPlan = HierarchicalOrchestrationService.decomposeArchitecturalBriefing({
+        briefing: originalDescription,
+        projectName: projectName || 'Projeto',
+        projectPath,
+        projectId
+      });
+      if (architecturalPlan && architecturalPlan.length >= 3) {
+        return architecturalPlan;
+      }
+    }
+
+    const structuredReqs = this.extractStructuredRequirements(originalDescription, requirements);
+    const complexity = this.analyzeProjectComplexity(originalDescription, requirements);
 
     const reqMapByCategory: Record<string, string[]> = {};
     for (const r of structuredReqs) {
@@ -5391,14 +6042,16 @@ export class HierarchicalOrchestrationService {
     }
 
     const pName = params.projectName || 'SaaS';
+    const capabilities = resolveProjectCapabilities(params.projectId || params.projectPath, originalDescription);
+    const projectProfile = resolveProjectProfileMode(params.projectId || params.projectPath, originalDescription);
     const briefingExtraction = MarketDiscoveryService.extractBriefingEntitiesAndRules(originalDescription);
     const domainBlueprint = ProjectLivingSpecService.resolveDomainBlueprint(originalDescription);
-    const hasExplicitBilling = briefingExtraction.hasExplicitBilling;
+    const hasExplicitBilling = capabilities.payments && briefingExtraction.hasExplicitBilling;
     const hasExplicitKanban = briefingExtraction.hasExplicitKanban;
 
     // 1. Extração dinâmica de Fases enumeradas no briefing do usuário (Fase 1, Fase 2, etc.)
     const extractedPhases = HierarchicalOrchestrationService.extractPhasesFromBriefing(originalDescription);
-    const dynamicPhaseBlueprints = extractedPhases.length >= 3
+    const dynamicPhaseBlueprints = extractedPhases.length >= 2
       ? HierarchicalOrchestrationService.buildBlueprintsFromPhases(extractedPhases, pName, briefingExtraction)
       : null;
 
@@ -5444,11 +6097,13 @@ export class HierarchicalOrchestrationService {
       },
       {
         code: 'GT-2',
-        title: 'Modelagem Relacional SQLite Completa & Migrations Idempotentes',
+        title: capabilities.database
+          ? 'Modelagem Relacional SQLite Completa & Migrations Idempotentes'
+          : 'Armazenamento e Camada de Estado em Memória / JSON Leve',
         stageCode: 'ET-2.1',
-        stageTitle: 'Modelagem Relacional e Schemas',
+        stageTitle: capabilities.database ? 'Modelagem Relacional e Schemas' : 'Persistência Leve em Memória/JSON',
         reqCats: ['persistence'],
-        microtasks: [
+        microtasks: capabilities.database ? [
           {
             subCode: '2.1',
             title: `Modelar schemas relacionais de banco de dados e migrations das entidades de domínio de ${pName}`,
@@ -5463,10 +6118,14 @@ export class HierarchicalOrchestrationService {
             subCode: '2.2',
             title: hasExplicitBilling
               ? `Modelar schemas de suporte SaaS: team_members, api_keys, webhooks e notifications de ${pName}`
-              : `Modelar schemas de suporte: coleções de domínio, presets de busca, api_keys e webhooks de ${pName}`,
+              : capabilities.advancedSaas
+                ? `Modelar schemas de suporte: coleções de domínio, presets de busca, api_keys e webhooks de ${pName}`
+                : `Modelar schemas de suporte: coleções de domínio e presets de busca de ${pName}`,
             desc: hasExplicitBilling
               ? 'Implementar tabelas relacionais de infraestrutura comercial cobrindo membros da equipe, chaves de API, webhooks e notificações.'
-              : `Implementar tabelas relacionais de suporte analítico cobrindo coleções salvas, presets de filtros rápidos do domínio (${domainBlueprint.domainName}), chaves de API e webhooks.`,
+              : capabilities.advancedSaas
+                ? `Implementar tabelas relacionais de suporte analítico cobrindo coleções salvas, presets de filtros rápidos do domínio (${domainBlueprint.domainName}), chaves de API e webhooks.`
+                : `Implementar tabelas relacionais de suporte analítico cobrindo coleções salvas e presets de filtros rápidos do domínio (${domainBlueprint.domainName}).`,
             files: hasExplicitBilling
               ? ['src/db/saasSchema.sql', 'src/db/saasModels.ts']
               : ['src/db/supportSchema.sql', 'src/db/supportModels.ts'],
@@ -5475,10 +6134,15 @@ export class HierarchicalOrchestrationService {
                   'Tabelas team_members, api_keys, webhooks e notifications criadas com chaves primárias tipadas',
                   'Constraints de integridade e índices para consultas por chave e workspace'
                 ]
-              : [
-                  'Tabelas de coleções salvas, presets de pesquisa e configurações analíticas criadas com integridade relacional',
-                  'Constraints de integridade e índices para consultas rápidas por tag, data e workspace'
-                ]
+              : capabilities.advancedSaas
+                ? [
+                    'Tabelas de coleções salvas, presets de pesquisa e configurações analíticas criadas com integridade relacional',
+                    'Constraints de integridade e índices para consultas rápidas por tag, data e workspace'
+                  ]
+                : [
+                    'Tabelas de coleções salvas e presets de pesquisa criadas com integridade relacional',
+                    'Constraints de integridade e índices para consultas rápidas por tag e data'
+                  ]
           },
           {
             subCode: '2.3',
@@ -5500,15 +6164,28 @@ export class HierarchicalOrchestrationService {
               'Tratamento preventivo de colisões de chave e constraints relacionais'
             ]
           }
+        ] : [
+          {
+            subCode: '2.1',
+            title: `Modelar entidades e estruturas de dados em memória / JSON de ${pName}`,
+            desc: 'Criar interfaces TypeScript e repositório simples em memória ou arquivo JSON para persistência leve sem banco relacional.',
+            files: ['src/state/store.ts', 'src/state/types.ts'],
+            criteria: [
+              'Estruturas de dados tipadas e operações CRUD em memória/JSON',
+              'Validação de integridade sem dependência de SQLite'
+            ]
+          }
         ]
       },
       {
         code: 'GT-3',
-        title: 'Smart Demo Seeding Denso (seedIfEmpty com 30 a 50 Registros)',
+        title: capabilities.demoSeed
+          ? 'Smart Demo Seeding Denso (seedIfEmpty com 30 a 50 Registros)'
+          : 'Fixtures de Teste e Inicialização em Estado Limpo',
         stageCode: 'ET-3.1',
-        stageTitle: 'Seeding Denso e Fixtures',
+        stageTitle: capabilities.demoSeed ? 'Seeding Denso e Fixtures' : 'Estado Limpo e Fixtures Determinísticas',
         reqCats: ['persistence'],
-        microtasks: [
+        microtasks: capabilities.demoSeed ? [
           {
             subCode: '3.1',
             title: `Implementar seeder de entidades centrais com relacionamentos e dados realistas de ${pName}`,
@@ -5548,6 +6225,27 @@ export class HierarchicalOrchestrationService {
             criteria: [
               'seedIfEmpty() popula entre 30 e 50 registros interconectados no primeiro boot',
               'Execução subsequente detecta dados existentes e não duplica registros'
+            ]
+          }
+        ] : [
+          {
+            subCode: '3.1',
+            title: `Implementar fixtures determinísticas para testes automatizados de ${pName}`,
+            desc: 'Criar fixtures puras e isoladas para testes de unidade e integração sem poluir ambiente real.',
+            files: ['test/fixtures/domainFixtures.ts'],
+            criteria: [
+              'Fixtures tipadas e determinísticas para execução segura de testes',
+              'Isolamento total de fixtures sem injeção de dados falsos em produção'
+            ]
+          },
+          {
+            subCode: '3.2',
+            title: `Configurar inicialização segura do servidor em estado limpo de ${pName}`,
+            desc: 'Garantir que a aplicação inicialize em estado limpo, pronta para receber dados reais do usuário sem mock data forçado.',
+            files: ['src/server.ts'],
+            criteria: [
+              'Aplicação inicia sem erros com estado vazio/limpo',
+              'Tratamento adequado de empty states na interface e rotas'
             ]
           }
         ]
@@ -5681,9 +6379,11 @@ export class HierarchicalOrchestrationService {
       },
       {
         code: 'GT-6',
-        title: 'Endpoints de Ecossistema SaaS, Billing, Webhooks e Audit Trail',
+        title: capabilities.advancedSaas
+          ? 'Endpoints de Ecossistema SaaS, Billing, Webhooks e Audit Trail'
+          : 'Endpoints de Domínio, Analytics e Healthcheck',
         stageCode: 'ET-6.1',
-        stageTitle: 'APIs de Ecossistema SaaS',
+        stageTitle: capabilities.advancedSaas ? 'APIs de Ecossistema SaaS' : 'APIs de Domínio e Analytics',
         reqCats: ['authentication', 'security', 'api_contracts'],
         microtasks: [
           {
@@ -5717,46 +6417,48 @@ export class HierarchicalOrchestrationService {
                   'Respostas formatadas em JSON com paginação e integridade referencial'
                 ]
           },
-          {
-            subCode: '6.3',
-            title: `Implementar endpoints de gestão de API Keys mascaradas (/api/api-keys) de ${pName}`,
-            desc: 'Construir rotas para listar, criar com máscara de visualização única e revogar chaves de integração.',
-            files: ['src/controllers/apiKeyController.ts', 'src/routes/apiKeyRoutes.ts'],
-            criteria: [
-              'Criação de API Keys seguras com hash no banco e exibição da chave completa apenas no momento da criação',
-              'Revogação imediata de credenciais de acesso'
-            ]
-          },
-          {
-            subCode: '6.4',
-            title: `Implementar dispatcher e playground de Webhooks (/api/webhooks, /api/webhooks/test) de ${pName}`,
-            desc: 'Construir gerenciador de URLs de webhook e endpoint de teste com simulação de despacho e retorno HTTP.',
-            files: ['src/services/webhookDispatcher.ts', 'src/routes/webhookRoutes.ts'],
-            criteria: [
-              'CRUD de configurações de webhooks por evento',
-              'Endpoint /api/webhooks/test despachando payload real de teste e retornando status da resposta'
-            ]
-          },
-          {
-            subCode: '6.5',
-            title: `Implementar endpoints de gestão de equipe RBAC (/api/team) e trilha global (/api/audit-logs) de ${pName}`,
-            desc: 'Expor membros do workspace com papéis (Admin, Manager, Viewer) e endpoint paginado de audit_logs.',
-            files: ['src/controllers/teamController.ts', 'src/routes/auditRoutes.ts'],
-            criteria: [
-              'Gestão de equipe com atribuição de permissões por papel',
-              'GET /api/audit-logs com paginação, filtros por entidade e timeline de eventos'
-            ]
-          },
-          {
-            subCode: '6.6',
-            title: `Implementar endpoint de especificação do catálogo da documentação (/api/docs-spec) de ${pName}`,
-            desc: 'Disponibilizar especificação OpenAPI/REST interativa estruturada para alimentar a aba de documentação /docs.',
-            files: ['src/controllers/docsController.ts', 'src/routes/docsRoutes.ts'],
-            criteria: [
-              'GET /api/docs-spec retornando catálogo estruturado de todos os endpoints REST',
-              'Metadados completos com parâmetros, corpos de exemplo e respostas'
-            ]
-          }
+          ...(capabilities.advancedSaas ? [
+            {
+              subCode: '6.3',
+              title: `Implementar endpoints de gestão de API Keys mascaradas (/api/api-keys) de ${pName}`,
+              desc: 'Construir rotas para listar, criar com máscara de visualização única e revogar chaves de integração.',
+              files: ['src/controllers/apiKeyController.ts', 'src/routes/apiKeyRoutes.ts'],
+              criteria: [
+                'Criação de API Keys seguras com hash no banco e exibição da chave completa apenas no momento da criação',
+                'Revogação imediata de credenciais de acesso'
+              ]
+            },
+            {
+              subCode: '6.4',
+              title: `Implementar dispatcher e playground de Webhooks (/api/webhooks, /api/webhooks/test) de ${pName}`,
+              desc: 'Construir gerenciador de URLs de webhook e endpoint de teste com simulação de despacho e retorno HTTP.',
+              files: ['src/services/webhookDispatcher.ts', 'src/routes/webhookRoutes.ts'],
+              criteria: [
+                'CRUD de configurações de webhooks por evento',
+                'Endpoint /api/webhooks/test despachando payload real de teste e retornando status da resposta'
+              ]
+            },
+            {
+              subCode: '6.5',
+              title: `Implementar endpoints de gestão de equipe RBAC (/api/team) e trilha global (/api/audit-logs) de ${pName}`,
+              desc: 'Expor membros do workspace com papéis (Admin, Manager, Viewer) e endpoint paginado de audit_logs.',
+              files: ['src/controllers/teamController.ts', 'src/routes/auditRoutes.ts'],
+              criteria: [
+                'Gestão de equipe com atribuição de permissões por papel',
+                'GET /api/audit-logs com paginação, filtros por entidade e timeline de eventos'
+              ]
+            },
+            {
+              subCode: '6.6',
+              title: `Implementar endpoint de especificação do catálogo da documentação (/api/docs-spec) de ${pName}`,
+              desc: 'Disponibilizar especificação OpenAPI/REST interativa estruturada para alimentar a aba de documentação /docs.',
+              files: ['src/controllers/docsController.ts', 'src/routes/docsRoutes.ts'],
+              criteria: [
+                'GET /api/docs-spec retornando catálogo estruturado de todos os endpoints REST',
+                'Metadados completos com parâmetros, corpos de exemplo e respostas'
+              ]
+            }
+          ] : [])
         ]
       },
       {
@@ -5911,9 +6613,15 @@ export class HierarchicalOrchestrationService {
         code: 'GT-10',
         title: hasExplicitBilling
           ? 'Central de Billing, Planos (Usage Meters, QR Code PIX) & Gestão de Equipe (RBAC)'
-          : 'Comparador Analítico, Simulador Preditivo de Score & Gestão de Equipe (RBAC)',
+          : capabilities.advancedSaas
+            ? 'Comparador Analítico, Simulador Preditivo de Score & Gestão de Equipe (RBAC)'
+            : 'Comparador Analítico, Simulador Preditivo de Score e Preferências da Interface',
         stageCode: 'ET-10.1',
-        stageTitle: hasExplicitBilling ? 'Billing, Planos e Equipe RBAC' : 'Comparador, Simulador e Equipe RBAC',
+        stageTitle: hasExplicitBilling
+          ? 'Billing, Planos e Equipe RBAC'
+          : capabilities.advancedSaas
+            ? 'Comparador, Simulador e Equipe RBAC'
+            : 'Comparador, Simulador e Preferências',
         reqCats: ['authentication', 'reports'],
         microtasks: [
           {
@@ -5954,16 +6662,18 @@ export class HierarchicalOrchestrationService {
                   'Exibição gráfica ou em pílulas dos resultados da simulação com indicação de confiança'
                 ]
           },
-          {
-            subCode: '10.3',
-            title: `Implementar secção de membros da equipe com perfis RBAC (Admin, Manager, Viewer) e convites de ${pName}`,
-            desc: 'Construir interface de gerenciamento de membros com controle de permissões por perfil e formulário de convite.',
-            files: ['public/index.html', 'public/app.js'],
-            criteria: [
-              'Listagem de membros com avatares, status de convite e seletor de papel RBAC',
-              'Ações de alteração de papel e revogação de acesso integradas à API'
-            ]
-          },
+          ...(capabilities.advancedSaas ? [
+            {
+              subCode: '10.3',
+              title: `Implementar secção de membros da equipe com perfis RBAC (Admin, Manager, Viewer) e convites de ${pName}`,
+              desc: 'Construir interface de gerenciamento de membros com controle de permissões por perfil e formulário de convite.',
+              files: ['public/index.html', 'public/app.js'],
+              criteria: [
+                'Listagem de membros com avatares, status de convite e seletor de papel RBAC',
+                'Ações de alteração de papel e revogação de acesso integradas à API'
+              ]
+            }
+          ] : []),
           {
             subCode: '10.4',
             title: `Implementar configurações de Workspace e preferências de notificação/tema de ${pName}`,
@@ -5976,55 +6686,57 @@ export class HierarchicalOrchestrationService {
           }
         ]
       },
-      {
-        code: 'GT-11',
-        title: 'Portal de Documentação Técnica Embutido (/docs) & Developer Hub',
-        stageCode: 'ET-11.1',
-        stageTitle: 'Documentação /docs e Developer Hub',
-        reqCats: ['api_contracts'],
-        microtasks: [
-          {
-            subCode: '11.1',
-            title: `Construir secção /docs com Guia Quickstart, visão de arquitetura e catálogo REST de ${pName}`,
-            desc: 'Implementar aba de documentação técnica integrada acessível diretamente no SaaS com navegação por tópicos.',
-            files: ['public/index.html', 'public/app.js', 'public/style.css'],
-            criteria: [
-              'Aba de navegação dedicada [data-tab="docs"] com Guia Quickstart e visão de arquitetura',
-              'Catálogo interativo de rotas da API com métodos HTTP, rotas e descrições detalhadas'
-            ]
-          },
-          {
-            subCode: '11.2',
-            title: `Implementar snippets copiáveis em 1 clique para curl e fetch nos endpoints do catálogo de ${pName}`,
-            desc: 'Gerar blocos de código com comandos curl e requisições fetch dinamicamente parametrizadas com botão de cópia.',
-            files: ['public/index.html', 'public/app.js', 'public/style.css'],
-            criteria: [
-              'Blocos de código com realce de sintaxe contendo exemplos funcionais de curl e fetch()',
-              'Botão de copiar código em 1 clique com feedback visual de confirmação'
-            ]
-          },
-          {
-            subCode: '11.3',
-            title: `Implementar gerenciador de Chaves de API no Developer Hub com criação e revogação de ${pName}`,
-            desc: 'Construir secção para geração de chaves de API com máscara de visualização segura e botão de revogação imediata.',
-            files: ['public/index.html', 'public/app.js'],
-            criteria: [
-              'Criação de novas chaves de API com cópia segura e aviso de visualização única',
-              'Tabela de chaves ativas com prefixo visível, data de criação e ação de revogação'
-            ]
-          },
-          {
-            subCode: '11.4',
-            title: `Implementar Webhooks Playground interativo com configuração de URL e disparo de testes de ${pName}`,
-            desc: 'Desenvolver simulador de webhooks permitindo testar o disparo de eventos contra endpoints externos ou locais.',
-            files: ['public/index.html', 'public/app.js', 'public/style.css'],
-            criteria: [
-              'Interface para cadastrar URL de destino e selecionar evento a ser simulado',
-              'Botão de disparo de teste consumindo /api/webhooks/test e exibindo painel de resposta HTTP'
-            ]
-          }
-        ]
-      },
+      ...(capabilities.advancedSaas ? [
+        {
+          code: 'GT-11',
+          title: 'Portal de Documentação Técnica Embutido (/docs) & Developer Hub',
+          stageCode: 'ET-11.1',
+          stageTitle: 'Documentação /docs e Developer Hub',
+          reqCats: ['api_contracts'],
+          microtasks: [
+            {
+              subCode: '11.1',
+              title: `Construir secção /docs com Guia Quickstart, visão de arquitetura e catálogo REST de ${pName}`,
+              desc: 'Implementar aba de documentação técnica integrada acessível diretamente no SaaS com navegação por tópicos.',
+              files: ['public/index.html', 'public/app.js', 'public/style.css'],
+              criteria: [
+                'Aba de navegação dedicada [data-tab="docs"] com Guia Quickstart e visão de arquitetura',
+                'Catálogo interativo de rotas da API com métodos HTTP, rotas e descrições detalhadas'
+              ]
+            },
+            {
+              subCode: '11.2',
+              title: `Implementar snippets copiáveis em 1 clique para curl e fetch nos endpoints do catálogo de ${pName}`,
+              desc: 'Gerar blocos de código com comandos curl e requisições fetch dinamicamente parametrizadas com botão de cópia.',
+              files: ['public/index.html', 'public/app.js', 'public/style.css'],
+              criteria: [
+                'Blocos de código com realce de sintaxe contendo exemplos funcionais de curl e fetch()',
+                'Botão de copiar código em 1 clique com feedback visual de confirmação'
+              ]
+            },
+            {
+              subCode: '11.3',
+              title: `Implementar gerenciador de Chaves de API no Developer Hub com criação e revogação de ${pName}`,
+              desc: 'Construir secção para geração de chaves de API com máscara de visualização segura e botão de revogação imediata.',
+              files: ['public/index.html', 'public/app.js'],
+              criteria: [
+                'Criação de novas chaves de API com cópia segura e aviso de visualização única',
+                'Tabela de chaves ativas com prefixo visível, data de criação e ação de revogação'
+              ]
+            },
+            {
+              subCode: '11.4',
+              title: `Implementar Webhooks Playground interativo com configuração de URL e disparo de testes de ${pName}`,
+              desc: 'Desenvolver simulador de webhooks permitindo testar o disparo de eventos contra endpoints externos ou locais.',
+              files: ['public/index.html', 'public/app.js', 'public/style.css'],
+              criteria: [
+                'Interface para cadastrar URL de destino e selecionar evento a ser simulado',
+                'Botão de disparo de teste consumindo /api/webhooks/test e exibindo painel de resposta HTTP'
+              ]
+            }
+          ]
+        }
+      ] : []),
       {
         code: 'GT-12',
         title: 'Suíte Exaustiva de Testes, E2E User Journey & Homologação AppSec',
@@ -6058,7 +6770,9 @@ export class HierarchicalOrchestrationService {
             desc: 'Construir teste E2E validando fluxo da casca da aplicação até relatórios com verificação de persistência após reload.',
             files: ['test/e2e/workflow.test.ts', 'test/e2e/storePersistence.test.ts'],
             criteria: [
-              'Jornada completa do usuário validada ponta a ponta (login/shell -> criação -> dashboard -> faturamento)',
+              (capabilities.auth || capabilities.payments)
+                ? 'Jornada completa do usuário validada ponta a ponta (login/shell -> criação -> dashboard -> faturamento)'
+                : 'Jornada completa do usuário validada ponta a ponta (shell da aplicação -> criação/consulta -> visualização analítica)',
               'Persistência reativa do estado comprovada sem regressões'
             ]
           },
@@ -6313,9 +7027,38 @@ export class HierarchicalOrchestrationService {
       }
     ];
 
-    const majorBlueprints = dynamicPhaseBlueprints && dynamicPhaseBlueprints.length >= 3
+    // PROIBIDO GERAR PLANOS DE 36 ETAPAS ESTÁTICAS:
+    // Se o usuário não definiu fases explícitas ("Fase 1", "Fase 2"), gera plano dinâmico e direto baseado na instrução real
+    const cleanObjective = originalDescription.split('\n')[0].replace(/^#+\s*/, '').trim() || `Implementação de ${pName}`;
+    const dynamicDirectBlueprint = [
+      {
+        code: 'GT-1',
+        title: `Implementação: ${cleanObjective.slice(0, 60)}`,
+        stageCode: 'ET-1.1',
+        stageTitle: 'Implementação Direta',
+        reqCats: ['general'],
+        microtasks: [
+          {
+            subCode: '1.1',
+            title: `Implementar: ${cleanObjective.slice(0, 50)}`,
+            desc: originalDescription.slice(0, 400),
+            files: ['server.js', 'public/app.js'],
+            criteria: ['Funcionalidade implementada conforme especificado']
+          },
+          {
+            subCode: '1.2',
+            title: `Validar: ${cleanObjective.slice(0, 50)}`,
+            desc: `Testar e validar a implementação de: ${cleanObjective.slice(0, 50)}`,
+            files: ['test/validation.test.js'],
+            criteria: ['Testes e verificação executados com sucesso']
+          }
+        ]
+      }
+    ];
+
+    const majorBlueprints = dynamicPhaseBlueprints && dynamicPhaseBlueprints.length >= 2
       ? dynamicPhaseBlueprints
-      : (isSaaS ? saasEncyclopediaBlueprints : standardBlueprints);
+      : (isSaaS ? saasEncyclopediaBlueprints : dynamicDirectBlueprint);
 
     const plannedTasks: PlannedTask[] = [];
     let globalOrder = 1;

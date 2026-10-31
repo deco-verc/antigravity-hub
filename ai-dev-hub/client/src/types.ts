@@ -1,3 +1,29 @@
+export type ProjectProfileMode = 'local_personal' | 'commercial_saas' | 'custom';
+
+export interface ProjectCapabilities {
+  database: boolean;      // Persistência SQLite / Banco de Dados
+  auth: boolean;          // Login, Cadastro, Sessão, Supabase Auth / Turnstile
+  payments: boolean;      // Checkout PIX, PushinPay, Planos de Assinatura, Billing
+  advancedSaas: boolean;  // Multi-tenant/Equipe RBAC, API Keys, Webhooks Playground, /docs, Audit Trail comercial
+  demoSeed: boolean;      // Popular dados fictícios de exemplo no boot (seedIfEmpty)
+}
+
+export const DEFAULT_CAPABILITIES_LOCAL_PERSONAL: ProjectCapabilities = {
+  database: true,
+  auth: false,
+  payments: false,
+  advancedSaas: false,
+  demoSeed: false
+};
+
+export const DEFAULT_CAPABILITIES_COMMERCIAL_SAAS: ProjectCapabilities = {
+  database: true,
+  auth: true,
+  payments: true,
+  advancedSaas: true,
+  demoSeed: true
+};
+
 export interface Project {
   id: string;
   name: string;
@@ -18,6 +44,10 @@ export interface Project {
   active_account_profile_id?: string;
   selected_model?: string;
   reasoning_level?: string;
+  project_profile?: ProjectProfileMode;
+  projectProfile?: ProjectProfileMode;
+  capabilities_json?: string;
+  capabilities?: ProjectCapabilities;
 }
 
 export interface ProjectMemory {
@@ -79,6 +109,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   created_at: string;
+  agent_role?: 'supervisor' | 'worker' | 'reviewer' | string;
   metadata?: string;
 }
 
@@ -1226,6 +1257,17 @@ export interface PreviewStatus {
   error?: string;
 }
 
+export interface RuntimeLogsResponse {
+  projectId: string;
+  running: boolean;
+  pid?: number;
+  port?: number;
+  url?: string;
+  logs: string[];
+  lastFatalError?: string;
+  exitCode?: number | null;
+}
+
 export type EnvKeyCategory =
   | 'PAYMENTS'
   | 'DATABASE_AUTH'
@@ -1344,6 +1386,24 @@ export interface MetaChatAttachment {
   isImage?: boolean;
 }
 
+export interface MetaChatTimelineStep {
+  step: string;
+  status: 'done' | 'running' | 'failed';
+  duration_ms: number;
+}
+
+export interface MetaChatDetailedFile {
+  path: string;
+  type: 'modified' | 'created' | 'deleted';
+}
+
+export interface MetaChatImpactSummary {
+  modified: number;
+  created: number;
+  deleted: number;
+  total: number;
+}
+
 export interface MetaChatMessageItem {
   id: string;
   thread_id?: string;
@@ -1380,6 +1440,15 @@ export interface MetaChatMessageItem {
     }>;
     executedSteps?: MetaChatLiveStep[];
     pipelineTasks?: MetaChatPipelineTask[];
+    execution_timeline?: MetaChatTimelineStep[];
+    active_stage?: {
+      code: string;
+      title: string;
+    };
+    impact_summary?: MetaChatImpactSummary;
+    files_detailed?: MetaChatDetailedFile[];
+    rolled_back?: boolean;
+    duration_sec?: number;
     [key: string]: any;
   } | null;
   created_at: string;
@@ -1414,9 +1483,24 @@ export interface MetaChatRecompileResult {
   synced?: boolean;
 }
 
+export interface MetaChatActiveTurnStatus {
+  isRunning: boolean;
+  executingThreadId?: string | null;
+  startedAt?: string;
+  elapsedSeconds: number;
+  currentStage?: {
+    code: string;
+    title: string;
+  };
+  steps: MetaChatTimelineStep[];
+  threadId?: string;
+  pipelineTasks?: MetaChatPipelineTask[];
+}
+
 export interface MetaChatLiveStatus {
   isRunning: boolean;
   isExecuting?: boolean;
+  executingThreadId?: string | null;
   phase: string;
   currentPhase?: string;
   activeAccount?: string;
@@ -1426,6 +1510,7 @@ export interface MetaChatLiveStatus {
   elapsedSeconds?: number;
   lastStep?: string;
   cancelRequested?: boolean;
+  activeTurnStatus?: MetaChatActiveTurnStatus;
 }
 
 export interface MetaChatAutopilotStatus {

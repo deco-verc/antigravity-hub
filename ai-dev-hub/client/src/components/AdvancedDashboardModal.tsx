@@ -324,7 +324,7 @@ export const AdvancedDashboardModal: React.FC<AdvancedDashboardModalProps> = ({
                 </div>
                 <p className="text-xs text-slate-300 leading-relaxed">
                   {isRunning && 'O sistema está executando ativamente tarefas no projeto com um Worker operacional.'}
-                  {isPlanning && 'O Supervisor está organizando o plano de tarefas e analisando dependências.'}
+                  {isPlanning && 'O Supervisor está analisando a arquitetura do projeto e estruturando as tarefas de desenvolvimento.'}
                   {isWaitingApproval && 'A execução está pausada aguardando sua autorização expressa para uma ação crítica.'}
                   {isWaitingResource && 'A execução está aguardando um recurso externo ou serviço local ficar disponível.'}
                   {isBlocked && 'A execução foi interrompida porque um critério de aceitação ou dependência não foi satisfeito.'}

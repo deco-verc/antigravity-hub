@@ -235,6 +235,74 @@ server.listen(port, '127.0.0.1', () => console.log('Listening on port ' + port))
 
       await ProjectOperationsService.stopPreview(projectId);
     });
+
+    it('should start a project with experimental node flags and keep server alive beyond 3 seconds', async () => {
+      const projectId = `test-flags-app-${Date.now()}`;
+      const appDir = path.join(tempTestDir, 'flags-app');
+      fs.mkdirSync(appDir, { recursive: true });
+
+      fs.writeFileSync(
+        path.join(appDir, 'package.json'),
+        JSON.stringify({
+          name: 'flags-app',
+          type: 'module',
+          scripts: { start: 'node --no-warnings server.js' }
+        })
+      );
+
+      fs.writeFileSync(
+        path.join(appDir, 'server.js'),
+        `import http from 'node:http';
+const port = Number(process.env.PORT) || 4190;
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ status: 'ok', port }));
+});
+server.listen(port, '0.0.0.0', () => {
+  console.log('Flags app running on ' + port);
+});
+setInterval(() => {}, 60000);
+`
+      );
+
+      const status = await ProjectOperationsService.startPreview(projectId, appDir, { timeoutMs: 12000 });
+      assert.strictEqual(status.running, true);
+      assert.ok(status.url);
+
+      const res = await fetch(status.url);
+      assert.strictEqual(res.status, 200);
+
+      // Verify that after 3.5 seconds it is STILL alive and running
+      await new Promise((r) => setTimeout(r, 3500));
+      const statusAfter = ProjectOperationsService.getPreviewStatus(projectId);
+      assert.strictEqual(statusAfter.running, true);
+      assert.strictEqual(statusAfter.port, status.port);
+
+      await ProjectOperationsService.stopPreview(projectId);
+    });
+
+    it('should start ViralSearch preview directly and verify it stays alive and responds to /api/health', async () => {
+      const viralSearchDir = 'C:\\IA\\Projetos\\ViralSearch';
+      if (!fs.existsSync(viralSearchDir)) return;
+
+      const projectId = `viral-search-preview-${Date.now()}`;
+      const status = await ProjectOperationsService.startPreview(projectId, viralSearchDir, { port: 4100, timeoutMs: 15000 });
+      assert.strictEqual(status.running, true);
+      assert.strictEqual(status.port, 4100);
+
+      const res = await fetch(`http://127.0.0.1:4100/api/health`);
+      assert.strictEqual(res.status, 200);
+      const data = await res.json() as any;
+      assert.strictEqual(data.status, 'ok');
+      assert.strictEqual(data.project, 'ViralSearch');
+
+      // Stay alive beyond 3.5 seconds
+      await new Promise((r) => setTimeout(r, 3500));
+      const statusAfter = ProjectOperationsService.getPreviewStatus(projectId);
+      assert.strictEqual(statusAfter.running, true);
+
+      await ProjectOperationsService.stopPreview(projectId);
+    });
   });
 
   describe('2. DOCSIMP .env Studio (Categorization & Mock vs Live Classification)', () => {

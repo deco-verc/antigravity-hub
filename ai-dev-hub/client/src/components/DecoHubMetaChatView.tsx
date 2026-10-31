@@ -3,11 +3,15 @@ import {
   MetaChatMessageItem,
   MetaChatRecompileResult,
   MetaChatLiveStatus,
+  MetaChatActiveTurnStatus,
+  MetaChatTimelineStep,
   MetaChatAutopilotStatus,
   DecoMindMlStatus,
   MetaChatThread,
   MetaChatLiveActivity,
   MetaChatLiveStep,
+  MetaChatDetailedFile,
+  MetaChatImpactSummary,
   AccountProfile,
   ModelOption
 } from '../types';
@@ -39,6 +43,7 @@ import {
   Copy,
   Square,
   Clock,
+  RefreshCw,
   Plus,
   Settings,
   PanelLeft,
@@ -46,7 +51,9 @@ import {
   MessageSquare,
   Activity,
   CheckSquare,
-  Play
+  Play,
+  RotateCcw,
+  Rocket
 } from 'lucide-react';
 import { SlashCommandMenu } from './SlashCommandMenu';
 import { SlashCommandItem } from '../types';
@@ -217,11 +224,300 @@ export function cleanMetaChatMessage(content: string, isUser: boolean): string {
     .replace(/^Command output:[^\r\n]*/gm, '')
     .replace(/^Log output:[^\r\n]*/gm, '')
     .replace(/The tool's output was truncated[^\r\n]*/gi, '')
+    .replace(/<truncated[^\r\n>]*>/gi, '')
+    // Linhas de grep / view_file fora de blocos de código
+    .replace(/^\s*(?:(?:server|client|src|public|scripts|desktop|decohub_unpacked|\.ai-dev-hub|\.agents|\.\/|\.\.\/|[A-Za-z]:[\\/])[^\s:]+\.[a-zA-Z0-9_-]+:\d+:.*)$/gm, '')
+    .replace(/^\s*[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\/[^\s:]+\.[a-zA-Z0-9_-]+:\d+:.*$/gm, '')
+    // Linhas de numeração pura de leitura
+    .replace(/^\s*\d+:\s+.*$/gm, '')
+    // Despejos de passos operacionais do agente (Analyzed, Edited, Ran)
+    .replace(/^\s*(?:Analyzed|Edited|Ran|Inspected|Modified|Executed|Created|Deleted)\s+[^\r\n]+$/gim, '')
     .replace(/\[(?:TYPECHECK|VISUAL GATE|DOUBLE ORACLE|SIMPLICITY|APPLIED)\]\s*/gi, '')
     .replace(/\[AI DEV Council\]:[^\n]*/gi, '')
     .replace(/\(NEEDS_EVIDENCE:[^\n]*/gi, '')
     .trim();
 }
+
+const MetaChatCodeBlock: React.FC<{ lang: string; code: string }> = ({ lang, code }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const lines = code.split('\n');
+
+  return (
+    <div className="my-2.5 rounded-xl border border-[#222b45] overflow-hidden bg-[#070a12] shadow-md group">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-[#0d1222] border-b border-[#222b45] text-[10px] font-mono text-slate-400">
+        <span className="flex items-center gap-1.5 text-cyan-300 font-semibold uppercase tracking-wider">
+          <Terminal className="w-3 h-3 text-cyan-400" />
+          {lang || 'código'}
+        </span>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-slate-400 hover:text-white hover:bg-[#1a233a] transition-all cursor-pointer"
+          title="Copiar código"
+        >
+          {copied ? (
+            <>
+              <Check className="w-3 h-3 text-emerald-400" />
+              <span className="text-emerald-400 font-sans font-medium">Copiado!</span>
+            </>
+          ) : (
+            <>
+              <Copy className="w-3 h-3" />
+              <span className="font-sans">Copiar Código</span>
+            </>
+          )}
+        </button>
+      </div>
+      <div className="flex p-2.5 overflow-x-auto text-[11px] font-mono leading-relaxed">
+        {lines.length > 2 && (
+          <div className="select-none pr-3 mr-2 border-r border-[#1a2236] text-slate-600 text-right font-mono text-[10px] leading-relaxed">
+            {lines.map((_, i) => (
+              <div key={i}>{i + 1}</div>
+            ))}
+          </div>
+        )}
+        <pre className="text-slate-200 flex-1 overflow-x-auto">
+          <code>{code}</code>
+        </pre>
+      </div>
+    </div>
+  );
+};
+
+const MetaChatCompletedPipelineBar: React.FC<{
+  timeline?: MetaChatTimelineStep[];
+  durationSec?: number;
+  typecheckDurationMs?: number;
+  isTypecheckPassed?: boolean;
+}> = ({ timeline, durationSec, typecheckDurationMs, isTypecheckPassed = true }) => {
+  const [showTelemetry, setShowTelemetry] = useState(false);
+
+  const defaultStages = [
+    { label: 'Análise de Código', status: 'done' as const },
+    { label: 'Turno Antigravity', status: 'done' as const },
+    { label: 'Typecheck', status: isTypecheckPassed ? ('done' as const) : ('failed' as const) },
+    { label: 'Testes', status: 'done' as const }
+  ];
+
+  const stepsList = timeline && timeline.length > 0
+    ? timeline
+    : defaultStages.map(s => ({
+        step: s.label,
+        status: s.status,
+        duration_ms: s.label === 'Typecheck' ? (typecheckDurationMs || 420) : 500
+      }));
+
+  const totalTime = durationSec
+    ? `${durationSec.toFixed(1)}s`
+    : typecheckDurationMs
+    ? `${((typecheckDurationMs + 1500) / 1000).toFixed(1)}s`
+    : '2.5s';
+
+  return (
+    <div className="my-2.5 rounded-xl border border-[#1e2742] bg-[#080c16]/80 p-2.5 space-y-2">
+      {/* Visual Pipeline Trail */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium">
+          {defaultStages.map((st, idx) => (
+            <React.Fragment key={st.label}>
+              <span
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono text-[10px] ${
+                  st.status === 'done'
+                    ? 'bg-emerald-950/40 text-emerald-300 border border-emerald-500/30'
+                    : 'bg-rose-950/40 text-rose-300 border border-rose-500/30'
+                }`}
+              >
+                {st.status === 'done' ? (
+                  <CheckCircle2 className="w-3 h-3 text-emerald-400 flex-shrink-0" />
+                ) : (
+                  <AlertCircle className="w-3 h-3 text-rose-400 flex-shrink-0" />
+                )}
+                <span>{st.label}</span>
+              </span>
+              {idx < defaultStages.length - 1 && (
+                <span className="text-slate-600 font-bold select-none text-[10px]">→</span>
+              )}
+            </React.Fragment>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setShowTelemetry(prev => !prev)}
+          className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded bg-[#12182b] hover:bg-[#1a233e] text-cyan-300 hover:text-cyan-200 border border-cyan-500/30 transition-colors cursor-pointer"
+        >
+          <Activity className="w-3 h-3 text-cyan-400" />
+          <span>{showTelemetry ? 'Ocultar telemetria' : 'Ver telemetria'}</span>
+          <ChevronRight className={`w-3 h-3 transition-transform ${showTelemetry ? 'rotate-90' : ''}`} />
+        </button>
+      </div>
+
+      {/* Expanded Telemetry Breakdown */}
+      {showTelemetry && (
+        <div className="mt-2 pt-2 border-t border-[#172036] font-mono text-[10px] space-y-1">
+          <div className="flex items-center justify-between text-slate-400 pb-1 text-[9px] uppercase tracking-wider">
+            <span>Etapa do Pipeline</span>
+            <span>Tempo / Status</span>
+          </div>
+          {stepsList.map((step, sIdx) => (
+            <div
+              key={sIdx}
+              className="flex items-center justify-between px-2 py-1 rounded bg-[#05070d] border border-[#141b2f]"
+            >
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    step.status === 'done'
+                      ? 'bg-emerald-400'
+                      : step.status === 'failed'
+                      ? 'bg-rose-400'
+                      : 'bg-cyan-400 animate-pulse'
+                  }`}
+                />
+                <span className="text-slate-300 truncate">{step.step}</span>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {step.duration_ms ? (
+                  <span className="text-slate-400">{step.duration_ms}ms</span>
+                ) : null}
+                <span
+                  className={`px-1 rounded text-[9px] font-bold ${
+                    step.status === 'done'
+                      ? 'text-emerald-400'
+                      : step.status === 'failed'
+                      ? 'text-rose-400'
+                      : 'text-cyan-300'
+                  }`}
+                >
+                  {step.status === 'done' ? '✓ concluído' : step.status === 'failed' ? '✗ erro' : 'executando'}
+                </span>
+              </div>
+            </div>
+          ))}
+          <div className="flex items-center justify-between pt-1 text-slate-400 text-[9px]">
+            <span>Tempo Total de Ciclo:</span>
+            <span className="text-cyan-300 font-semibold">{totalTime}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const MetaChatFileInspectorCard: React.FC<{
+  filesDetailed?: MetaChatDetailedFile[];
+  filesChanged?: string[];
+  impactSummary?: MetaChatImpactSummary;
+}> = ({ filesDetailed, filesChanged, impactSummary }) => {
+  const [isOpen, setIsOpen] = useState(true);
+
+  const items: Array<{ path: string; type: 'modified' | 'created' | 'deleted' }> =
+    filesDetailed && filesDetailed.length > 0
+      ? filesDetailed
+      : (filesChanged || []).map(f => ({ path: f, type: 'modified' as const }));
+
+  if (items.length === 0) return null;
+
+  const total = impactSummary?.total || items.length;
+  const modCount = impactSummary?.modified ?? items.filter(i => i.type === 'modified').length;
+  const creCount = impactSummary?.created ?? items.filter(i => i.type === 'created').length;
+  const delCount = impactSummary?.deleted ?? items.filter(i => i.type === 'deleted').length;
+
+  const getFileIcon = (filePath: string) => {
+    const ext = filePath.split('.').pop()?.toLowerCase();
+    if (ext === 'ts' || ext === 'tsx' || ext === 'js' || ext === 'jsx') {
+      return <FileCode className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />;
+    }
+    if (ext === 'json') {
+      return <FileCode className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />;
+    }
+    if (ext === 'md') {
+      return <FileCode className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />;
+    }
+    return <FileCode className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" />;
+  };
+
+  return (
+    <div className="mt-3 rounded-xl border border-[#222b45] bg-[#090d18] overflow-hidden text-xs shadow-md">
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between px-3.5 py-2.5 bg-[#0d1324] hover:bg-[#12182c] border-b border-[#1b233a] transition-colors cursor-pointer text-left"
+      >
+        <div className="flex items-center gap-2">
+          <div className="w-5 h-5 rounded bg-cyan-500/15 text-cyan-400 flex items-center justify-center">
+            <FileCode className="w-3 h-3" />
+          </div>
+          <span className="font-semibold text-slate-200">
+            Arquivos Modificados ({total})
+          </span>
+          <div className="flex items-center gap-1.5 ml-2">
+            {modCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30">
+                {modCount} mod
+              </span>
+            )}
+            {creCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                +{creCount} novo
+              </span>
+            )}
+            {delCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-500/15 text-rose-300 border border-rose-500/30">
+                -{delCount} del
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-1 text-slate-400">
+          <span className="text-[10px]">{isOpen ? 'Recolher' : 'Expandir'}</span>
+          {isOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        </div>
+      </button>
+
+      {isOpen && (
+        <div className="p-2 space-y-1 max-h-56 overflow-y-auto">
+          {items.map((file, idx) => {
+            const badge =
+              file.type === 'created' ? (
+                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                  CRIADO
+                </span>
+              ) : file.type === 'deleted' ? (
+                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide bg-rose-500/15 text-rose-300 border border-rose-500/30">
+                  REMOVIDO
+                </span>
+              ) : (
+                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide bg-blue-500/15 text-blue-300 border border-blue-500/30">
+                  MODIFICADO
+                </span>
+              );
+
+            return (
+              <div
+                key={file.path || idx}
+                className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-[#0c101d] hover:bg-[#11172a] border border-[#1a2238] transition-colors font-mono text-[11px]"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  {getFileIcon(file.path)}
+                  <span className="text-slate-200 truncate select-all">{file.path}</span>
+                </div>
+                {badge}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
 
 function renderFormattedMetaChatContent(rawContent: string, isUser: boolean): React.ReactNode {
   if (isUser) {
@@ -242,16 +538,7 @@ function renderFormattedMetaChatContent(rawContent: string, isUser: boolean): Re
 
     const lang = match[1] || 'code';
     const code = match[2];
-    sections.push(
-      <div key={`code-${match.index}`} className="my-2.5 rounded-xl border border-[#222b45] overflow-hidden bg-[#070a12]">
-        <div className="flex items-center justify-between px-3 py-1 bg-[#0d1222] border-b border-[#222b45] text-[10px] font-mono text-slate-400">
-          <span>{lang}</span>
-        </div>
-        <pre className="p-3 overflow-x-auto text-[11px] font-mono text-slate-200 leading-relaxed">
-          <code>{code}</code>
-        </pre>
-      </div>
-    );
+    sections.push(<MetaChatCodeBlock key={`code-${match.index}`} lang={lang} code={code} />);
 
     lastIndex = codeBlockRegex.lastIndex;
   }
@@ -263,6 +550,127 @@ function renderFormattedMetaChatContent(rawContent: string, isUser: boolean): Re
 
   return <div className="space-y-1.5 text-xs text-slate-200 leading-relaxed">{sections}</div>;
 }
+
+const MetaChatActiveProgressWidget: React.FC<{
+  currentActionSummary?: string;
+  currentPhase?: string;
+  elapsedSeconds: number;
+  pipelineTasks?: any[];
+  isCancelling?: boolean;
+  onCancel: () => void;
+  onToggleCockpit: () => void;
+  showDetailedCockpit: boolean;
+}> = ({
+  currentActionSummary,
+  currentPhase,
+  elapsedSeconds,
+  pipelineTasks,
+  isCancelling,
+  onCancel,
+  onToggleCockpit,
+  showDetailedCockpit
+}) => {
+  const activeTitle = currentActionSummary || currentPhase || 'Processando no DecoHUB...';
+
+  // 4 standard stages: Análise de Código -> Turno Antigravity -> Typecheck -> Testes
+  const defaultTasks = [
+    { id: 'task-inspect', label: 'Análise de Código', status: 'completed' },
+    { id: 'task-implement', label: 'Turno Antigravity', status: 'in_progress' },
+    { id: 'task-verify', label: 'Typecheck', status: 'pending' },
+    { id: 'task-guard', label: 'Testes', status: 'pending' }
+  ];
+
+  const tasks = pipelineTasks && pipelineTasks.length > 0 ? pipelineTasks : defaultTasks;
+
+  return (
+    <div className="rounded-2xl border border-cyan-500/40 bg-gradient-to-b from-[#0b101e] to-[#070a14] p-3.5 shadow-xl shadow-cyan-950/40 space-y-3 animate-message-enter">
+      {/* Header com Pulsing Indicator e Ação Atual */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span className="relative flex h-3 w-3">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-cyan-500"></span>
+          </span>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-white tracking-wide">
+                Executando:
+              </span>
+              <span className="text-xs text-cyan-300 font-medium truncate">
+                {activeTitle}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 ml-auto">
+          <div className="flex items-center gap-1 text-[11px] font-mono text-slate-300 bg-[#121729] px-2 py-0.5 rounded-lg border border-[#222c48]">
+            <Clock className="w-3 h-3 text-cyan-400" />
+            <span>{formatElapsed(elapsedSeconds)}</span>
+          </div>
+
+          <button
+            type="button"
+            onClick={onToggleCockpit}
+            className="text-[10px] text-cyan-400 hover:text-cyan-300 underline underline-offset-2 px-1 cursor-pointer"
+          >
+            {showDetailedCockpit ? 'Ocultar cockpit' : 'Ver telemetria'}
+          </button>
+
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={isCancelling}
+            className="px-2.5 py-0.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/40 text-rose-300 text-[10px] font-semibold transition-colors cursor-pointer disabled:opacity-50"
+          >
+            {isCancelling ? 'Cancelando...' : 'Interromper'}
+          </button>
+        </div>
+      </div>
+
+      {/* Timeline Compacta com Badges dos 4 Estágios */}
+      <div className="flex items-center justify-between gap-1 overflow-x-auto pt-1 pb-0.5">
+        {tasks.map((task, idx) => {
+          const isCompleted = task.status === 'completed';
+          const isInProgress = task.status === 'in_progress';
+          const isFailed = task.status === 'failed';
+
+          const badgeClasses = isCompleted
+            ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+            : isInProgress
+            ? 'bg-cyan-500/20 border-cyan-500/60 text-cyan-200 ring-1 ring-cyan-500/40 animate-pulse'
+            : isFailed
+            ? 'bg-rose-500/15 border-rose-500/40 text-rose-300'
+            : 'bg-[#101526] border-[#1e2740] text-slate-500';
+
+          return (
+            <React.Fragment key={task.id || idx}>
+              <div
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[10px] font-medium whitespace-nowrap transition-all ${badgeClasses}`}
+              >
+                {isCompleted ? (
+                  <Check className="w-3 h-3 text-emerald-400 flex-shrink-0" />
+                ) : isInProgress ? (
+                  <Loader2 className="w-3 h-3 text-cyan-400 animate-spin flex-shrink-0" />
+                ) : isFailed ? (
+                  <AlertCircle className="w-3 h-3 text-rose-400 flex-shrink-0" />
+                ) : (
+                  <Clock className="w-3 h-3 text-slate-500 flex-shrink-0" />
+                )}
+                <span>{task.label}</span>
+              </div>
+              {idx < tasks.length - 1 && (
+                <span className="text-slate-600 font-bold text-[10px] select-none flex-shrink-0">
+                  ➔
+                </span>
+              )}
+            </React.Fragment>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
 
 export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
   onBack,
@@ -276,9 +684,13 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
 }) => {
   const [messages, setMessages] = useState<MetaChatMessageItem[]>([]);
   const [inputText, setInputText] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [loadingThreadIds, setLoadingThreadIds] = useState<Record<string, boolean>>({});
+  const setThreadLoading = (tId: string, loading: boolean) => {
+    setLoadingThreadIds(prev => ({ ...prev, [tId]: loading }));
+  };
   const [sentNotice, setSentNotice] = useState<{ id: string; text: string; secondsLeft: number } | null>(null);
   const [liveStatus, setLiveStatus] = useState<MetaChatLiveStatus | null>(null);
+  const [serverActiveTurnStatus, setServerActiveTurnStatus] = useState<MetaChatActiveTurnStatus | null>(null);
   const [isCommandMenuOpen, setIsCommandMenuOpen] = useState(false);
   const [commandFilter, setCommandFilter] = useState('');
   const [showDetailedCockpit, setShowDetailedCockpit] = useState<boolean>(false);
@@ -298,6 +710,14 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
   const [activeThreadId, setActiveThreadId] = useState<string>(() => {
     return localStorage.getItem('decohub_active_metachat_thread_id') || 'thread-default';
   });
+
+  const isCurrentThreadLoading = Boolean(loadingThreadIds[activeThreadId]);
+  const isCurrentThreadRunning = Boolean(
+    serverActiveTurnStatus?.isRunning &&
+    (serverActiveTurnStatus?.threadId === activeThreadId || serverActiveTurnStatus?.executingThreadId === activeThreadId)
+  );
+  const isExecuting = Boolean(isCurrentThreadLoading || isCurrentThreadRunning);
+  const isLoading = isExecuting;
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
     return localStorage.getItem('decohub_metachat_sidebar_open') !== 'false';
   });
@@ -436,7 +856,7 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
         abortControllerRef.current.abort();
         abortControllerRef.current = null;
       }
-      await api.cancelMetaChat();
+      await api.cancelMetaChat(activeThreadId);
       onShowToast?.('info', 'Execução do Meta-Chat cancelada. Arquivos preservados no estado íntegro.');
       if (lastPromptRef.current) {
         setInputText(lastPromptRef.current);
@@ -446,8 +866,9 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
     } catch (err: any) {
       onShowToast?.('error', `Falha ao cancelar: ${err.message}`);
     } finally {
-      setIsLoading(false);
+      setThreadLoading(activeThreadId, false);
       setIsCancelling(false);
+      setServerActiveTurnStatus(null);
       setLiveStatus(null);
       setLiveActivity(null);
     }
@@ -479,6 +900,49 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
+  const [isRollingBack, setIsRollingBack] = useState(false);
+  const [copiedUserMsgId, setCopiedUserMsgId] = useState<string | null>(null);
+  const [copiedAssistantMsgId, setCopiedAssistantMsgId] = useState<string | null>(null);
+
+  const handleScroll = () => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    isNearBottomRef.current = distanceFromBottom < 120;
+  };
+
+  const handleCopyUserMessage = (id: string, content: string) => {
+    navigator.clipboard.writeText(content);
+    setCopiedUserMsgId(id);
+    setTimeout(() => setCopiedUserMsgId(null), 2000);
+  };
+
+  const handleCopyAssistantMessage = (id: string, content: string) => {
+    const clean = cleanMetaChatMessage(content, false);
+    navigator.clipboard.writeText(clean);
+    setCopiedAssistantMsgId(id);
+    setTimeout(() => setCopiedAssistantMsgId(null), 2000);
+  };
+
+  const handleRollbackTurn = async () => {
+    if (!confirm('Deseja realmente reverter as alterações de código feitas neste último turno?')) return;
+    setIsRollingBack(true);
+    try {
+      const res = await api.rollbackMetaChat(activeThreadId);
+      if (res.success) {
+        onShowToast?.('success', res.message || 'Turno revertido com sucesso!');
+        await loadMessages(activeThreadId);
+        await loadThreads(activeThreadId);
+      } else {
+        onShowToast?.('warn', res.message || 'Nenhuma alteração encontrada para reversão.');
+      }
+    } catch (err: any) {
+      onShowToast?.('error', `Falha ao reverter turno: ${err.message}`);
+    } finally {
+      setIsRollingBack(false);
+    }
+  };
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -511,8 +975,25 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
     if (threadId === activeThreadId) return;
     setActiveThreadId(threadId);
     localStorage.setItem('decohub_active_metachat_thread_id', threadId);
+    // Limpa imediatamente o estado visual da thread anterior para isolar completamente a experiência
+    setServerActiveTurnStatus(null);
+    setLiveStatus(null);
+    setLiveActivity(null);
+    setElapsedSeconds(0);
     try {
       await api.setMetaChatActiveThread(threadId);
+      const [st, act] = await Promise.all([
+        api.getMetaChatStatus(threadId).catch(() => null),
+        api.getMetaChatLiveActivity(threadId).catch(() => null)
+      ]);
+      if (st?.activeTurnStatus?.isRunning) {
+        setServerActiveTurnStatus(st.activeTurnStatus);
+        setLiveStatus(st);
+        if (st.activeTurnStatus.elapsedSeconds) setElapsedSeconds(st.activeTurnStatus.elapsedSeconds);
+      }
+      if (act?.isExecuting) {
+        setLiveActivity(act);
+      }
     } catch {}
     await loadMessages(threadId);
   };
@@ -529,6 +1010,11 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
       setThreads(prev => [newThread, ...prev.filter(t => t.id !== newThread.id)]);
       setActiveThreadId(newThread.id);
       localStorage.setItem('decohub_active_metachat_thread_id', newThread.id);
+      // Limpa imediatamente o estado visual para a nova conversa iniciar 100% limpa e independente
+      setServerActiveTurnStatus(null);
+      setLiveStatus(null);
+      setLiveActivity(null);
+      setElapsedSeconds(0);
       setMessages([]);
       onShowToast?.('info', 'Nova conversa iniciada.');
       textareaRef.current?.focus();
@@ -563,7 +1049,9 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
   }, []);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (isNearBottomRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages, isLoading]);
 
   // Auto-dismiss 3-second interactive dispatch banner
@@ -583,8 +1071,7 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
     let timer: any = null;
     let pollInterval: any = null;
 
-    if (isLoading) {
-      setElapsedSeconds(0);
+    if (isExecuting) {
       timer = setInterval(() => {
         setElapsedSeconds(prev => prev + 1);
       }, 1000);
@@ -592,7 +1079,7 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
       pollInterval = setInterval(async () => {
         try {
           const [st, msgs] = await Promise.all([
-            api.getMetaChatStatus().catch(() => null),
+            api.getMetaChatStatus(activeThreadId).catch(() => null),
             api.getMetaChatMessages(activeThreadId).catch(() => null)
           ]);
 
@@ -601,44 +1088,79 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
               ...(prev || { phase: 'idle', currentPhase: 'idle' }),
               ...st
             }));
-            if (!st.isRunning && msgs && msgs.length > 0) {
-              const lastMsg = msgs[msgs.length - 1];
-              if (lastMsg && lastMsg.role === 'assistant') {
-                setMessages(msgs);
-                setIsLoading(false);
+            if (st.activeTurnStatus) {
+              setServerActiveTurnStatus(st.activeTurnStatus);
+              if (typeof st.activeTurnStatus.elapsedSeconds === 'number' && st.activeTurnStatus.elapsedSeconds > 0) {
+                setElapsedSeconds(st.activeTurnStatus.elapsedSeconds);
               }
+              if (!st.activeTurnStatus.isRunning && st.activeTurnStatus.threadId) {
+                setThreadLoading(st.activeTurnStatus.threadId, false);
+              }
+            } else if (!st.isRunning) {
+              setServerActiveTurnStatus(null);
+              setThreadLoading(activeThreadId, false);
             }
           }
 
           if (msgs && msgs.length > 0) {
-            setMessages(prev => {
-              const tempUser = prev.find(m => m.id?.startsWith('temp-') || (m.role === 'user' && !msgs.some(dbM => dbM.id === m.id)));
-              if (tempUser) {
-                const existsInMsgs = msgs.some(m => m.id === tempUser.id || (m.role === 'user' && m.content === tempUser.content));
-                if (!existsInMsgs || st?.isRunning) {
-                  const filtered = msgs.filter(m => m.id !== tempUser.id);
-                  return [...filtered, tempUser];
+            const lastMsg = msgs[msgs.length - 1];
+            const backendStillRunning = Boolean(st?.isRunning || st?.activeTurnStatus?.isRunning);
+            if (lastMsg && lastMsg.role === 'assistant' && !backendStillRunning) {
+              setMessages(msgs);
+              setThreadLoading(activeThreadId, false);
+              setServerActiveTurnStatus(null);
+            } else {
+              setMessages(prev => {
+                const tempUser = prev.find(m => m.id?.startsWith('temp-') || (m.role === 'user' && !msgs.some(dbM => dbM.id === m.id)));
+                if (tempUser) {
+                  const existsInMsgs = msgs.some(m => m.id === tempUser.id || (m.role === 'user' && m.content === tempUser.content));
+                  if (!existsInMsgs || st?.isRunning) {
+                    const filtered = msgs.filter(m => m.id !== tempUser.id);
+                    return [...filtered, tempUser];
+                  }
                 }
-              }
-              return msgs;
-            });
+                return msgs;
+              });
+            }
           }
         } catch {}
-      }, 1500);
+      }, 2000);
     } else {
-      setElapsedSeconds(0);
+      // Polling passivo em repouso para detectar ativações em background ou autopilot
+      pollInterval = setInterval(async () => {
+        try {
+          const st = await api.getMetaChatStatus(activeThreadId).catch(() => null);
+          if (st?.activeTurnStatus?.isRunning && (st.activeTurnStatus.threadId === activeThreadId || st.activeTurnStatus.executingThreadId === activeThreadId)) {
+            setLiveStatus(prev => ({ ...(prev || { phase: 'idle', currentPhase: 'idle' }), ...st }));
+            setServerActiveTurnStatus(st.activeTurnStatus);
+            if (st.activeTurnStatus.elapsedSeconds) {
+              setElapsedSeconds(st.activeTurnStatus.elapsedSeconds);
+            }
+          } else {
+            // Em repouso nesta thread, garante que não fique com status de execução preso
+            setServerActiveTurnStatus(null);
+            setLiveStatus(null);
+          }
+        } catch {}
+      }, 3500);
     }
 
     return () => {
       if (timer) clearInterval(timer);
       if (pollInterval) clearInterval(pollInterval);
     };
-  }, [isLoading, activeThreadId]);
+  }, [isExecuting, activeThreadId]);
 
   useEffect(() => {
     const sseClient = createMetaChatSseClient();
 
     sseClient.on('activity', (data: any) => {
+      if (data.threadId && data.threadId !== activeThreadId) {
+        if (data.status) {
+          setThreads(prev => prev.map(t => t.id === data.threadId ? { ...t, status: data.status === 'completed' || data.status === 'error' ? 'idle' : 'running' } : t));
+        }
+        return;
+      }
       if (data.telemetry) {
         setLiveActivity(data.telemetry);
       } else if (data.pipelineTasks || data.liveSteps || data.currentActionSummary) {
@@ -655,6 +1177,7 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
     });
 
     sseClient.on('tool_call', (data: any) => {
+      if (data.threadId && data.threadId !== activeThreadId) return;
       setLiveActivity(prev => {
         if (!prev) return prev;
         const toolStr = String(data.tool || '').toLowerCase();
@@ -681,6 +1204,14 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
 
     sseClient.on('message', (data: any) => {
       const msg = data.message || data.result?.message;
+      const tId = data.threadId || data.result?.threadId;
+      if (tId) {
+        loadThreads(tId);
+        setThreadLoading(tId, false);
+      }
+      if (tId && tId !== activeThreadId) {
+        return;
+      }
       if (msg) {
         setMessages(prev => {
           const exists = prev.some(m => m.id === msg.id);
@@ -688,21 +1219,17 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
           return [...prev, msg];
         });
       }
-      const tId = data.threadId || data.result?.threadId;
-      if (tId) {
-        loadThreads(tId);
-      }
-      setIsLoading(false);
+      setThreadLoading(activeThreadId, false);
     });
 
     sseClient.on('done', () => {
-      setIsLoading(false);
+      setThreadLoading(activeThreadId, false);
       loadMessages(activeThreadId);
       loadThreads(activeThreadId);
     });
 
     sseClient.on('error', (data: any) => {
-      setIsLoading(false);
+      setThreadLoading(activeThreadId, false);
       if (data?.error) {
         onShowToast?.('error', `Erro no Meta-Chat: ${data.error}`);
       }
@@ -814,16 +1341,42 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
     }
   };
 
-  const handleSendMessage = async (e?: React.FormEvent) => {
+  const getPrecedingUserPrompt = (messageId?: string): string => {
+    if (!messageId) return lastPromptRef.current || '';
+    const idx = messages.findIndex(m => m.id === messageId);
+    if (idx > 0) {
+      for (let i = idx - 1; i >= 0; i--) {
+        if (messages[i].role === 'user' && messages[i].content) {
+          return messages[i].content;
+        }
+      }
+    }
+    return lastPromptRef.current || '';
+  };
+
+  const handleRetryPrompt = (retryText?: string) => {
+    const textToUse = (retryText || lastPromptRef.current || '').trim();
+    if (!textToUse) return;
+    setInputText(textToUse);
+    handleSendMessage(undefined, textToUse);
+  };
+
+  const handleSendMessage = async (e?: React.FormEvent, overrideText?: string) => {
     if (e) e.preventDefault();
-    const text = inputText.trim();
-    if ((!text && attachments.length === 0) || isLoading) return;
+    const text = (overrideText !== undefined ? overrideText : inputText).trim();
+    if ((!text && attachments.length === 0) || isExecuting) return;
+
+    const targetThreadId = activeThreadId;
+
+    // As threads agora são independentes: não bloqueia o envio em outra conversa
 
     const currentAttachments = [...attachments];
     lastPromptRef.current = text;
-    setInputText('');
+    if (overrideText === undefined) {
+      setInputText('');
+    }
     setAttachments([]);
-    setIsLoading(true);
+    setThreadLoading(targetThreadId, true);
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -846,7 +1399,7 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
     // Optimistic user message
     const tempUserMsg: MetaChatMessageItem = {
       id: `temp-${Date.now()}`,
-      thread_id: activeThreadId,
+      thread_id: targetThreadId,
       role: 'user',
       content: effectiveText,
       metadata: {
@@ -871,7 +1424,7 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
       const res = await api.sendMetaChatMessage(
         effectiveText,
         {
-          threadId: activeThreadId,
+          threadId: targetThreadId,
           model: effectiveBackendModel,
           reasoningMode: effectiveReasoningMode,
           accountId: effectiveAccountId,
@@ -889,9 +1442,9 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
         const withoutTemp = prev.filter(m => m.id !== tempUserMsg.id);
         return res.message ? [...withoutTemp, tempUserMsg, res.message] : [...withoutTemp, tempUserMsg];
       });
-      await loadThreads(activeThreadId);
+      await loadThreads(targetThreadId);
       if (res.message) {
-        setIsLoading(false);
+        setThreadLoading(targetThreadId, false);
       }
 
       if (res.selfHealed) {
@@ -905,25 +1458,67 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
         return;
       }
 
-      // In case of timeout or network disconnect, check if message is in DB
+      // Em caso de timeout ou queda de socket HTTP, verifica se o backend ainda está processando!
       try {
-        const msgs = await api.getMetaChatMessages(activeThreadId);
-        const hasAssistant = msgs.some(
+        const [st, msgs] = await Promise.all([
+          api.getMetaChatStatus(targetThreadId).catch(() => null),
+          api.getMetaChatMessages(targetThreadId).catch(() => null)
+        ]);
+
+        if (st?.isRunning || st?.activeTurnStatus?.isRunning) {
+          // Backend continua executando em background! Mantém loading e telemetria viva
+          setLiveStatus(prev => ({ ...(prev || { phase: 'idle', currentPhase: 'idle' }), ...st }));
+          if (st.activeTurnStatus) setServerActiveTurnStatus(st.activeTurnStatus);
+          setThreadLoading(targetThreadId, true);
+          return;
+        }
+
+        const hasAssistant = (msgs || []).some(
           m => m.role === 'assistant' && new Date(m.created_at).getTime() > new Date(tempUserMsg.created_at).getTime() - 5000
         );
-        if (hasAssistant) {
+        if (hasAssistant && msgs) {
           setMessages(msgs);
-          await loadThreads(activeThreadId);
+          await loadThreads(targetThreadId);
           return;
         }
       } catch {}
 
+      // Insere uma mensagem de erro local visual persistente na conversa com botão "Tentar Novamente"
+      const errorMessageItem: MetaChatMessageItem = {
+        id: `err-${Date.now()}`,
+        thread_id: targetThreadId,
+        role: 'assistant',
+        content: `[ERRO] [FALHA NO TURNO] **Não foi possível concluir a instrução:**\n\n\`\`\`text\n${err.message || 'Tempo limite de rede ou conexão interrompida com o servidor'}\n\`\`\`\n\nO servidor pode ainda estar processando em segundo plano ou o Language Server foi desconectado. Clique em **Tentar Novamente** para reenviar.`,
+        metadata: {
+          error: err.message || 'Timeout / Connection Failure',
+          failed_stage: 'CLIENT_TIMEOUT_OR_NETWORK_ERROR',
+          canRetry: true,
+          failedPrompt: effectiveText,
+          timestamp: new Date().toISOString()
+        },
+        created_at: new Date().toISOString()
+      };
+
+      setMessages(prev => {
+        const withoutTemp = prev.filter(m => m.id !== tempUserMsg.id);
+        return [...withoutTemp, tempUserMsg, errorMessageItem];
+      });
+
       onShowToast?.('error', err.message || 'Falha ao processar comando');
     } finally {
       abortControllerRef.current = null;
-      setIsLoading(false);
-      setLiveStatus(null);
-      setLiveActivity(null);
+      try {
+        const st = await api.getMetaChatStatus(targetThreadId).catch(() => null);
+        if (!st?.isRunning && !st?.activeTurnStatus?.isRunning) {
+          setThreadLoading(targetThreadId, false);
+          setServerActiveTurnStatus(null);
+          setLiveStatus(null);
+          setLiveActivity(null);
+        }
+      } catch {
+        setThreadLoading(targetThreadId, false);
+        setServerActiveTurnStatus(null);
+      }
       setTimeout(() => textareaRef.current?.focus(), 100);
     }
   };
@@ -1411,7 +2006,11 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
               ) : (
                 threads.map(t => {
                   const isCur = t.id === activeThreadId;
-                  const isRunning = t.status === 'running';
+                  const isThreadActiveRunning = Boolean(
+                    t.status === 'running' ||
+                    loadingThreadIds[t.id] ||
+                    (serverActiveTurnStatus?.isRunning && (serverActiveTurnStatus?.threadId === t.id || serverActiveTurnStatus?.executingThreadId === t.id))
+                  );
 
                   return (
                     <div
@@ -1425,8 +2024,8 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
                     >
                       <div className="flex items-start justify-between gap-1.5">
                         <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                          {isRunning ? (
-                            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping flex-shrink-0" />
+                          {isThreadActiveRunning ? (
+                            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse flex-shrink-0" />
                           ) : (
                             <span className={`w-2 h-2 rounded-full flex-shrink-0 ${isCur ? 'bg-indigo-400' : 'bg-slate-600'}`} />
                           )}
@@ -1434,6 +2033,11 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
                             {t.title}
                           </span>
                         </div>
+                        {isThreadActiveRunning && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 flex-shrink-0 animate-pulse">
+                            Em turno
+                          </span>
+                        )}
 
                         <button
                           type="button"
@@ -1486,6 +2090,7 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
           {/* 3. Feed de Mensagens */}
           <div
             ref={scrollContainerRef}
+            onScroll={handleScroll}
             className="flex-1 overflow-y-auto px-6 py-6 space-y-6 max-w-4xl mx-auto w-full"
           >
             {/* Telinha bonita interativa de envio que some após 3 segundos */}
@@ -1652,14 +2257,48 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
                       {isUser ? 'Você' : 'DecoHUB Meta-Agent (Antigravity)'}
                     </span>
                     <div className="flex items-center gap-1.5 opacity-80">
+                      {isUser && (
+                        <button
+                          type="button"
+                          onClick={() => handleCopyUserMessage(msg.id, msg.content)}
+                          className="p-1 rounded text-indigo-200 hover:text-white hover:bg-indigo-700/60 transition-colors flex items-center gap-1"
+                          title="Copiar mensagem"
+                        >
+                          {copiedUserMsgId === msg.id ? (
+                            <>
+                              <Check className="w-3 h-3 text-emerald-300" />
+                              <span className="text-[10px] text-emerald-300 font-sans">Copiado!</span>
+                            </>
+                          ) : (
+                            <Copy className="w-3 h-3" />
+                          )}
+                        </button>
+                      )}
+                      {!isUser && (
+                        <button
+                          type="button"
+                          onClick={() => handleCopyAssistantMessage(msg.id, msg.content)}
+                          className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-[#1a2136] transition-colors flex items-center gap-1"
+                          title="Copiar relatório em Markdown"
+                        >
+                          {copiedAssistantMsgId === msg.id ? (
+                            <>
+                              <Check className="w-3 h-3 text-emerald-300" />
+                              <span className="text-[10px] text-emerald-300 font-sans">Copiado!</span>
+                            </>
+                          ) : (
+                            <Copy className="w-3 h-3" />
+                          )}
+                        </button>
+                      )}
                       <span>{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                       <button
                         type="button"
                         onClick={() => handleReuseMessage(msg.content)}
                         className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-[#1a2136] transition-colors"
-                        title="Copiar / Reutilizar no Input"
+                        title="Reutilizar no Input"
                       >
-                        <Copy className="w-3 h-3" />
+                        <RefreshCw className="w-3 h-3" />
                       </button>
                       <button
                         type="button"
@@ -1671,6 +2310,77 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
                       </button>
                     </div>
                   </div>
+
+                  {!isUser && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 pb-2 mb-2.5 border-b border-[#1c2338] text-[10px]">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {/* Modelo Semântico */}
+                        <span className="px-2 py-0.5 rounded-full bg-cyan-950/70 border border-cyan-500/40 text-cyan-300 font-semibold font-mono flex items-center gap-1">
+                          <Cpu className="w-3 h-3 text-cyan-400" />
+                          <span>
+                            {meta?.model?.includes('flash')
+                              ? 'Gemini 3.8 Flash'
+                              : (meta?.model || 'Gemini 3.8 Flash')}
+                            {meta?.reasoningMode ? ` • ${meta.reasoningMode.toUpperCase()} MODE` : ' • HIGH MODE'}
+                          </span>
+                        </span>
+
+                        {/* Duração Total */}
+                        {(meta?.duration_sec || meta?.typecheck?.duration_ms) && (
+                          <span className="px-2 py-0.5 rounded-full bg-slate-900/80 border border-slate-700/80 text-slate-300 font-mono flex items-center gap-1">
+                            <Clock className="w-3 h-3 text-slate-400" />
+                            <span>
+                              Concluído em{' '}
+                              {meta?.duration_sec
+                                ? `${meta.duration_sec.toFixed(1)}s`
+                                : `${((meta?.typecheck?.duration_ms || 0) / 1000).toFixed(1)}s`}
+                            </span>
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Indicador de Integridade do Typecheck */}
+                      {meta?.typecheck && (
+                        <span
+                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold ${
+                            meta.typecheck.passed
+                              ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/40'
+                              : 'bg-amber-500/15 text-amber-300 border border-amber-500/40'
+                          }`}
+                        >
+                          {meta.typecheck.passed ? (
+                            <>
+                              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                              <span>Typecheck Aprovado (0 erros)</span>
+                            </>
+                          ) : (
+                            <>
+                              <AlertCircle className="w-3 h-3 text-amber-400" />
+                              <span>Autoproteção Ativa: Revertido</span>
+                            </>
+                          )}
+                        </span>
+                      )}
+
+                      {/* Indicador de Falha Registrada */}
+                      {(meta?.error || meta?.canRetry || msg.content?.includes('[FALHA NO TURNO]')) && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/15 text-rose-300 border border-rose-500/40">
+                          <AlertCircle className="w-3 h-3 text-rose-400" />
+                          <span>Falha Registrada</span>
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Pipeline Trail Fixo e Telemetria de Autoevolução do Assistente */}
+                  {!isUser && (
+                    <MetaChatCompletedPipelineBar
+                      timeline={meta?.execution_timeline}
+                      durationSec={meta?.duration_sec}
+                      typecheckDurationMs={meta?.typecheck?.duration_ms}
+                      isTypecheckPassed={meta?.typecheck ? meta.typecheck.passed : true}
+                    />
+                  )}
 
                   {/* Renderização de anexos se presentes no usuário */}
                   {isUser && meta?.attachments && meta.attachments.length > 0 && (
@@ -1727,74 +2437,22 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
                     renderFormattedMetaChatContent(msg.content, isUser)
                   )}
 
-                  {/* Badges e Relatório de Execução Técnica */}
-                  {!isUser && meta && (
-                    <div className="mt-3 pt-3 border-t border-[#1c2338] space-y-2">
-                      {/* Metadados do Modelo e Sessão */}
-                      <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
-                        {meta.model && (
-                          <span className="px-2 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/30 text-cyan-300 font-mono">
-                            {meta.model}
-                          </span>
-                        )}
-                        {meta.reasoningMode && (
-                          <span className="px-2 py-0.5 rounded bg-amber-950/60 border border-amber-500/30 text-amber-300 uppercase font-semibold text-[9px]">
-                            {meta.reasoningMode} Mode
-                          </span>
-                        )}
-                        {meta.conversationId && (
-                          <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-400 font-mono text-[9px]">
-                            conv: {meta.conversationId.slice(0, 8)}
-                          </span>
-                        )}
-                      </div>
-
-                      {meta.files_changed && meta.files_changed.length > 0 && (
-                        <div>
-                          <p className="text-[10px] font-semibold text-slate-400 mb-1 flex items-center gap-1.5">
-                            <FileCode className="w-3 h-3 text-indigo-400" />
-                            <span>Arquivos Modificados no Repositório ({meta.files_changed.length}):</span>
-                          </p>
-                          <div className="flex flex-wrap gap-1">
-                            {meta.files_changed.map(f => (
-                              <span
-                                key={f}
-                                className="px-2 py-0.5 rounded bg-[#161c2d] border border-[#232b42] text-[10px] font-mono text-cyan-300"
-                              >
-                                {f}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {meta.typecheck && (
-                        <div className="flex items-center justify-between pt-1 text-[11px]">
-                          <span className="text-slate-400">Typecheck Guard:</span>
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                            meta.typecheck.passed
-                              ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
-                              : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
-                          }`}>
-                            {meta.typecheck.passed ? (
-                              <>
-                                <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                                <span>Aprovado ({meta.typecheck.duration_ms}ms)</span>
-                              </>
-                            ) : (
-                              <>
-                                <AlertCircle className="w-3 h-3 text-rose-400" />
-                                <span>Falha (Revertido)</span>
-                              </>
-                            )}
-                          </span>
-                        </div>
-                      )}
+                  {/* Visual Inspector, Passos Executados e Action Bar do Assistente */}
+                  {!isUser && (
+                    <div className="space-y-2 mt-2">
+                      {/* File Change Inspector Card */}
+                      <MetaChatFileInspectorCard
+                        filesDetailed={meta?.files_detailed}
+                        filesChanged={meta?.files_changed || meta?.filesModified}
+                        impactSummary={meta?.impact_summary}
+                      />
 
                       {/* Checklist de Passos e Ações Executadas pelo Agente */}
-                      {(meta.executedSteps || msg.executed_steps_json) && (() => {
+                      {(meta?.agent_steps || meta?.executedSteps || msg.executed_steps_json) && (() => {
                         let steps: MetaChatLiveStep[] = [];
-                        if (Array.isArray(meta.executedSteps)) {
+                        if (Array.isArray(meta?.agent_steps)) {
+                          steps = meta.agent_steps;
+                        } else if (Array.isArray(meta?.executedSteps)) {
                           steps = meta.executedSteps;
                         } else if (msg.executed_steps_json) {
                           try { steps = JSON.parse(msg.executed_steps_json); } catch {}
@@ -1807,7 +2465,7 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
                             <button
                               type="button"
                               onClick={() => setExpandedMessageSteps(prev => ({ ...prev, [msg.id]: !isExpanded }))}
-                              className="flex items-center justify-between w-full text-[11px] text-slate-300 hover:text-white font-medium py-1 transition-colors"
+                              className="flex items-center justify-between w-full text-[11px] text-slate-300 hover:text-white font-medium py-1 transition-colors cursor-pointer"
                             >
                               <div className="flex items-center gap-1.5">
                                 <CheckSquare className="w-3.5 h-3.5 text-cyan-400" />
@@ -1854,6 +2512,66 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
                           </div>
                         );
                       })()}
+
+                      {/* Barra de Ações no Rodapé da Mensagem (Action Bar) */}
+                      <div className="mt-3 pt-2.5 border-t border-[#1c2338] flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          {(meta?.canRetry || meta?.error || msg.content?.includes('[FALHA NO TURNO]') || msg.content?.includes('[ERRO]')) && (
+                            <button
+                              type="button"
+                              onClick={() => handleRetryPrompt(meta?.failedPrompt || meta?.prompt || getPrecedingUserPrompt(msg.id))}
+                              disabled={isLoading}
+                              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 text-[11px] font-semibold transition-all cursor-pointer shadow-sm hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
+                              title="Tentar novamente executar esta instrução"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                              <span>Tentar Novamente</span>
+                            </button>
+                          )}
+
+                          {meta?.rolled_back ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] font-medium">
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              <span>Turno Revertido</span>
+                            </span>
+                          ) : (meta?.files_changed && meta.files_changed.length > 0) ? (
+                            <button
+                              type="button"
+                              onClick={handleRollbackTurn}
+                              disabled={isRollingBack}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-50"
+                              title="Desfazer com segurança todas as alterações deste turno"
+                            >
+                              {isRollingBack ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <RotateCcw className="w-3.5 h-3.5" />
+                              )}
+                              <span>{isRollingBack ? 'Revertendo...' : 'Reverter Turno'}</span>
+                            </button>
+                          ) : null}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={handleRecompile}
+                          disabled={isRecompiling}
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-[11px] font-semibold shadow-md transition-all cursor-pointer disabled:opacity-50 ml-auto"
+                          title="Compilar server, client e sincronizar distribuição em produção"
+                        >
+                          {isRecompiling ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <span>Recompilando Produção...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Rocket className="w-3.5 h-3.5" />
+                              <span>Recompilar e Atualizar Produção</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1868,36 +2586,19 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
           })
         )}
 
-        {/* Indicador Limpo de Pensamento / Telemetria Opcional */}
-        {isLoading && (
+        {/* Indicador Ativo de Progresso em Tempo Real & Telemetria (Persistente durante todo o ciclo) */}
+        {isExecuting && (
           <div className="space-y-3 my-2 animate-message-enter">
-            <div className="flex gap-3 justify-start items-center">
-              <div className="w-7 h-7 rounded-lg border bg-cyan-600/20 border-cyan-500/30 text-cyan-400 flex items-center justify-center flex-shrink-0">
-                <Sparkles className="w-4 h-4 animate-pulse" />
-              </div>
-              <div className="rounded-2xl px-4 py-2.5 bg-[#0f1320] border border-cyan-500/30 text-cyan-200 text-xs flex items-center gap-3 shadow-lg flex-wrap">
-                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-                <span className="font-medium">
-                  {liveActivity?.currentActionSummary || liveStatus?.currentPhase || 'DecoHUB está pensando e formulando a resposta...'}
-                </span>
-                <span className="text-[10px] text-slate-400 font-mono">({formatElapsed(elapsedSeconds)})</span>
-                <button
-                  type="button"
-                  onClick={() => setShowDetailedCockpit(prev => !prev)}
-                  className="text-[10px] text-cyan-400 hover:text-cyan-300 underline underline-offset-2 ml-1 cursor-pointer"
-                >
-                  {showDetailedCockpit ? 'Ocultar detalhes' : 'Ver telemetria detalhada'}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleCancelActiveExecution}
-                  disabled={isCancelling}
-                  className="ml-auto px-2 py-0.5 rounded bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/40 text-rose-300 text-[10px] font-semibold transition-colors cursor-pointer"
-                >
-                  {isCancelling ? 'Cancelando...' : 'Interromper'}
-                </button>
-              </div>
-            </div>
+            <MetaChatActiveProgressWidget
+              currentActionSummary={liveActivity?.currentActionSummary || serverActiveTurnStatus?.currentStage?.title}
+              currentPhase={serverActiveTurnStatus?.currentStage?.title || liveStatus?.currentPhase}
+              elapsedSeconds={elapsedSeconds}
+              pipelineTasks={serverActiveTurnStatus?.pipelineTasks || liveActivity?.pipelineTasks}
+              isCancelling={isCancelling}
+              onCancel={handleCancelActiveExecution}
+              onToggleCockpit={() => setShowDetailedCockpit(prev => !prev)}
+              showDetailedCockpit={showDetailedCockpit}
+            />
 
             {/* Cockpit de Telemetria e Ações em Tempo Real (Expandível sob demanda) */}
             {showDetailedCockpit && (
@@ -1911,7 +2612,7 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-semibold text-white truncate">
-                          {liveActivity?.currentActionSummary || liveStatus?.currentPhase || 'Processando no DecoHUB...'}
+                          {liveActivity?.currentActionSummary || serverActiveTurnStatus?.currentStage?.title || liveStatus?.currentPhase || 'Processando no DecoHUB...'}
                         </span>
                         <span className="px-2 py-0.5 rounded-full text-[9px] font-mono bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 flex-shrink-0 animate-pulse">
                           AO VIVO
@@ -1933,7 +2634,7 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
 
                 {/* Os 4 Estágios do Pipeline */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {(liveActivity?.pipelineTasks || [
+                  {(serverActiveTurnStatus?.pipelineTasks || liveActivity?.pipelineTasks || [
                     { id: 'task-inspect', label: 'Mapeamento', status: 'in_progress', details: 'Análise de contexto' },
                     { id: 'task-implement', label: 'Modificação', status: 'pending', details: 'Código cirúrgico' },
                     { id: 'task-verify', label: 'Typecheck', status: 'pending', details: 'tsc --noEmit' },

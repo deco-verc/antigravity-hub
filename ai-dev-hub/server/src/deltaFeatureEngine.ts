@@ -43,6 +43,212 @@ export class DeltaFeatureEngine {
   }
 
   /**
+   * Verifica se o projeto já possui código implementado em src/, public/ ou na raiz do projeto.
+   */
+  static hasImplementedCode(projectPath?: string, projectId?: string): boolean {
+    if (!projectPath) return false;
+    const resolvedPath = path.resolve(projectPath);
+    if (!fs.existsSync(resolvedPath)) return false;
+
+    const srcDir = path.join(resolvedPath, 'src');
+    const publicDir = path.join(resolvedPath, 'public');
+
+    let srcFilesCount = 0;
+    if (fs.existsSync(srcDir) && fs.statSync(srcDir).isDirectory()) {
+      try {
+        const files = fs.readdirSync(srcDir, { recursive: true });
+        srcFilesCount = files.filter(f => /\.(js|ts|jsx|tsx|mjs|cjs)$/i.test(String(f))).length;
+      } catch {}
+    }
+
+    let publicFilesCount = 0;
+    if (fs.existsSync(publicDir) && fs.statSync(publicDir).isDirectory()) {
+      try {
+        const pubEntries = fs.readdirSync(publicDir, { recursive: true });
+        publicFilesCount = pubEntries.filter(f => /\.(html|js|css|json|svg)$/i.test(String(f))).length;
+      } catch {}
+    }
+
+    let rootFilesCount = 0;
+    try {
+      const rootEntries = fs.readdirSync(resolvedPath);
+      rootFilesCount = rootEntries.filter(f => /\.(js|ts|jsx|tsx|mjs|cjs)$/i.test(String(f))).length;
+    } catch {}
+
+    return srcFilesCount > 0 || publicFilesCount > 0 || rootFilesCount > 0;
+  }
+
+  /**
+   * Identifica se a instrução do usuário é uma especificação arquitetural extensa ou estruturada
+   * que requer decomposição em etapas modulares pelo Supervisor (e NUNCA intervenção cirúrgica de 1 etapa).
+   */
+  static isArchitecturalBriefing(text: string): boolean {
+    if (!text || typeof text !== 'string') return false;
+    const trimmed = text.trim();
+
+    // Se tiver mais de 800 caracteres, é uma especificação detalhada de construção/arquitetura
+    if (trimmed.length >= 800) return true;
+
+    // Seções explícitas de arquitetura e blueprint
+    const hasRoleOrObjective = /#\s*(?:ROLE|OBJECTIVE|OBJETIVO)/i.test(trimmed);
+    const hasStackSection = /(?:#+\s*(?:\d+\.\s*)?STACK|STACK\s+OBRIGAT[ÓO]RIA|TECH\s*STACK)/i.test(trimmed);
+    const hasBlueprintSection = /(?:#+\s*(?:\d+\.\s*)?BLUEPRINT|DIRET[ÓO]RIOS\s+E\s+ARQUIVOS|ÁRVORE\s+MODULAR|ESTRUTURA\s+DE\s+PASTAS)/i.test(trimmed);
+    const hasModulesSection = /(?:#+\s*(?:\d+\.\s*)?ESPECIFICA[ÇC][ÃA]O|M[ÓO]DULOS\s+DO\s+SISTEMA)/i.test(trimmed);
+    const hasNumberedPhases = /^(?:##?\s*(?:ETAPA|FASE|PROJETO:)|OBJETIVO DO PRODUTO:)/im.test(trimmed);
+
+    // Menções explícitas a múltiplos caminhos de código em /src/
+    const srcPaths = trimmed.match(/(?:\/src\/|src\/)[a-zA-Z0-9_\-\./]+\.(?:ts|js|tsx|jsx)/gi);
+    const hasMultipleSrcFiles = Boolean(srcPaths && srcPaths.length >= 2);
+
+    const tsMatches = trimmed.match(/[a-zA-Z0-9_\-]+\.(?:ts|js|tsx|jsx)\b/g);
+    const hasMultipleTsFiles = Boolean(tsMatches && tsMatches.length >= 3);
+
+    return Boolean(
+      hasRoleOrObjective ||
+      hasStackSection ||
+      hasBlueprintSection ||
+      hasModulesSection ||
+      hasNumberedPhases ||
+      hasMultipleSrcFiles ||
+      hasMultipleTsFiles
+    );
+  }
+
+  /**
+   * Identifica se a instrução do usuário é estritamente um pedido de bugfix, correção
+   * ou ajuste cirúrgico pontual de app já existente.
+   *
+   * Regra Estrita:
+   * (a) O projeto JÁ deve possuir código implementado em src/, public/ ou raiz; E
+   * (b) A mensagem deve ser curta (< 800 caracteres) e pedir explicitamente conserto/ajuste.
+   * Se for especificação arquitetural, JAMAIS retorna true!
+   */
+  static isSurgicalOrBugfixPrompt(text: string, projectPath?: string, projectId?: string): boolean {
+    if (!text || typeof text !== 'string') return false;
+    const trimmed = text.trim();
+
+    // Bloqueio categórico: especificações arquiteturais extensas ou estruturadas
+    if (trimmed.length >= 800 || this.isArchitecturalBriefing(trimmed)) {
+      return false;
+    }
+
+    // Se o caminho do projeto foi informado e não há código prévio, não pode ser cirúrgico
+    if (projectPath && !this.hasImplementedCode(projectPath, projectId)) {
+      return false;
+    }
+
+    const lower = trimmed.toLowerCase();
+
+    // Verbos e termos explícitos de conserto/ajuste pontual
+    const explicitFixRegex = /(?:não faz nada|nao faz nada|não funciona|nao funciona|quando clico|clicar|ao clicar|botão|botao|corrija|corrigir|consertar|conserte|ajuste|ajustar|melhore|melhorar|exclua|excluir|apagar|apague|limpar|limpe|zerar|resetar|erro|falha|bug|crash|quebrou|travado|parou|não carrega|nao carrega|500 internal|404 not found|console|logs?)/i;
+
+    // Ajuste contextual específico de banco ou api
+    const contextualFixRegex = /(?:erro|falha|bug|problema|ajustar|consertar|corrigir|limpar|resetar)\s+(?:no\s+|na\s+|de\s+|do\s+)?(?:banco|database|sqlite|\.db|api|rota|endpoint)/i;
+
+    return explicitFixRegex.test(lower) || contextualFixRegex.test(lower);
+  }
+
+  /**
+   * Gera um plano cirúrgico enxuto de 1 a no máximo 3 tarefas diretas focadas no bugfix/ajuste,
+   * injetando automaticamente os logs da porta aberta, inventário de arquivos e variáveis do .env.
+   */
+  static planSurgicalIteration(params: {
+    briefing?: string;
+    userInstruction?: string;
+    projectPath: string;
+    projectName?: string;
+    projectId?: string;
+    runtimeLogs?: string[];
+  }): PlannedTask[] {
+    const briefing = (params.briefing || params.userInstruction || '').trim();
+    const projectPath = path.resolve(params.projectPath);
+    const pName = params.projectName || path.basename(projectPath);
+
+    Logger.info(`[DeltaFeatureEngine] Gerando plano SURGICAL_ITERATION (1 tarefa direta) para "${pName}"...`);
+
+    // 1. Ler logs recentes da porta se disponíveis
+    let portLogs = params.runtimeLogs || [];
+    if (portLogs.length === 0) {
+      const logFile = path.join(projectPath, '.ai-dev-hub', 'logs', 'port-runtime.log');
+      if (fs.existsSync(logFile)) {
+        try {
+          portLogs = fs.readFileSync(logFile, 'utf-8').trim().split('\n').filter(Boolean).slice(-100);
+        } catch {}
+      }
+    }
+    const portLogsContext = portLogs.length > 0
+      ? `\n\n### Logs Reais da Porta Aberta do Aplicativo:\n\`\`\`text\n${portLogs.slice(-40).join('\n')}\n\`\`\``
+      : '';
+
+    // 2. Coletar nomes de chaves de ambiente presentes no .env
+    const envKeysPresent: string[] = [];
+    const envFile = path.join(projectPath, '.env');
+    if (fs.existsSync(envFile)) {
+      try {
+        const envContent = fs.readFileSync(envFile, 'utf-8');
+        for (const line of envContent.split('\n')) {
+          const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=/);
+          if (match) envKeysPresent.push(match[1]);
+        }
+      } catch {}
+    }
+    const envContext = envKeysPresent.length > 0
+      ? `\n- **Chaves de Ambiente no .env:** ${envKeysPresent.join(', ')}`
+      : '';
+
+    // 3. Inventário de arquivos em src/ e public/
+    const listFiles = (sub: string) => {
+      const d = path.join(projectPath, sub);
+      if (!fs.existsSync(d)) return [];
+      try {
+        return fs.readdirSync(d, { recursive: true }).map(String).filter(f => /\.(ts|js|tsx|jsx|html|css|json)$/i.test(f)).map(f => `${sub}/${f}`);
+      } catch {
+        return [];
+      }
+    };
+    const srcFiles = listFiles('src');
+    const pubFiles = listFiles('public');
+    const allFiles = [...srcFiles, ...pubFiles];
+    const fileInventoryContext = allFiles.length > 0
+      ? `\n- **Arquivos do Projeto:** ${allFiles.slice(0, 15).join(', ')}${allFiles.length > 15 ? ` (+${allFiles.length - 15} arquivos)` : ''}`
+      : '';
+
+    const wantsResetDb = /(?:exclua|excluir|apagar|apague|limpar|limpe|zerar|resetar).*(?:banco|database|sqlite|\.db)/i.test(briefing);
+
+    const taskTitle = `Intervenção Cirúrgica: Diagnosticar e Corrigir — ${briefing.length > 60 ? briefing.slice(0, 57) + '...' : briefing}`;
+
+    const taskDescription =
+      `Instrução cirúrgica direta enviada pelo usuário no projeto ${pName}:\n` +
+      `"${briefing}"\n\n` +
+      `**Contexto e Evidências do Ambiente:**${fileInventoryContext}${envContext}${portLogsContext}\n\n` +
+      `**Plano de Execução Focado (Zero Replanejamento):**\n` +
+      `1. Analise os arquivos reais da aplicação em \`src/\` e \`public/\`, localizando a causa-raiz exata da falha ou do comportamento inesperado.\n` +
+      (wantsResetDb ? `2. Como solicitado, certifique-se de que a estrutura/schema do SQLite seja recriada limpa e sem dados corrompidos.\n` : `2. Preserve a base de dados existente e faça alterações aditivas seguras.\n`) +
+      `3. Corrija o backend e o frontend de ponta a ponta: forneça feedback visual imediato no botão/interface (loading spinner, erro detalhado caso a API Key falhe) e garanta que as rotas da API leiam as chaves do .env e gravem os dados com consistência.\n` +
+      `4. Assegure que a suíte de testes e o build continuem executando com exit code 0.`;
+
+    const task1: PlannedTask = {
+      title: taskTitle,
+      description: taskDescription,
+      milestone: 'Intervenção Cirúrgica',
+      orderIndex: 1,
+      dependencies: [],
+      criteria: [
+        'Diagnóstico e correção da falha/solicitação reportada pelo desenvolvedor',
+        'Frontend com feedback visual de carregamento e exibição de erro real quando ocorrer falha',
+        'Backend integrando corretamente as variáveis de ambiente e persistindo dados limpos',
+        'Testes e build compilando com código 0'
+      ],
+      verificationCommand: 'npm test',
+      doneWhen: 'Comportamento reportado corrigido e validado com sucesso.',
+      expectedFiles: ['src/', 'public/'],
+      expectedScopeFiles: ['src/', 'public/']
+    };
+
+    return [task1];
+  }
+
+  /**
    * Identifica se um projeto já possui estrutura de código prévia ou run concluído,
    * caracterizando o modo de evolução cirúrgica (DELTA_EVOLUTION) em vez de greenfield (INITIAL_PLAN).
    */

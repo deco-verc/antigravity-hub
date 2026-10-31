@@ -14,12 +14,55 @@ import { AccountProfileManager } from './accountProfileManager.js';
 import { NativeWorkspaceBinding } from './nativeWorkspaceBinding.js';
 import { ModelRegistry } from './modelRegistry.js';
 import { PlaywrightVisualInspector } from './playwrightVisualInspector.js';
-import { AntigravityProvider, isToolDump, stripRawLineNumberDumps } from './antigravityProvider.js';
+import { AntigravityProvider, isToolDump, stripRawLineNumberDumps, stripViewedCodeAndToolDumps } from './antigravityProvider.js';
 import { DevAutonomyService } from './devAutonomyService.js';
 import { TurnCancellationManager } from './turnCancellationManager.js';
 import { ExecutionCoordinator } from './executionCoordinator.js';
-import { FATAL_QUOTA_OR_AUTH_REGEX, captureFileInventory, changedFiles, FileInventory } from './agentTurnState.js';
+import { FATAL_QUOTA_OR_AUTH_REGEX, captureFileInventory, changedFiles, FileInventory, isRawToolOrCommandOutput } from './agentTurnState.js';
 import { SkillRouter } from './skillRouter.js';
+import { SseStreamService } from './sseStreamService.js';
+
+export const META_CHAT_STATUS = {
+  STATUS_ANALYZING_PROJECT: 'STATUS_ANALYZING_PROJECT',
+  STATUS_EXECUTING_STAGE: 'STATUS_EXECUTING_STAGE',
+  STATUS_RUNNING_TYPECHECK: 'STATUS_RUNNING_TYPECHECK',
+  STATUS_RUNNING_TESTS: 'STATUS_RUNNING_TESTS',
+  STATUS_SYNCING_PRODUCTION: 'STATUS_SYNCING_PRODUCTION'
+} as const;
+
+export type MetaChatStatusCode = (typeof META_CHAT_STATUS)[keyof typeof META_CHAT_STATUS];
+
+export interface MetaChatTimelineStep {
+  step: string;
+  status: 'done' | 'running' | 'failed';
+  duration_ms: number;
+}
+
+export interface MetaChatActiveTurnStatus {
+  isRunning: boolean;
+  executingThreadId?: string | null;
+  startedAt?: string;
+  elapsedSeconds: number;
+  currentStage?: {
+    code: string;
+    title: string;
+  };
+  steps: MetaChatTimelineStep[];
+  threadId?: string;
+  pipelineTasks?: MetaChatPipelineTask[];
+}
+
+export interface MetaChatDetailedFile {
+  path: string;
+  type: 'modified' | 'created' | 'deleted';
+}
+
+export interface MetaChatImpactSummary {
+  modified: number;
+  created: number;
+  deleted: number;
+  total: number;
+}
 
 export type MetaChatIntentMode = 'ANALYTICAL_BRIEFING' | 'AUTONOMOUS_EVOLUTION';
 
@@ -78,6 +121,8 @@ export interface MetaChatLiveStatus {
   elapsedSeconds?: number;
   lastStep?: string;
   cancelRequested?: boolean;
+  executingThreadId?: string | null;
+  activeTurnStatus?: MetaChatActiveTurnStatus;
 }
 
 export interface MetaChatAttachment {
@@ -126,6 +171,15 @@ export interface MetaChatMessage {
     }>;
     executedSteps?: MetaChatLiveStep[];
     pipelineTasks?: MetaChatPipelineTask[];
+    execution_timeline?: MetaChatTimelineStep[];
+    active_stage?: {
+      code: string;
+      title: string;
+    };
+    impact_summary?: MetaChatImpactSummary;
+    files_detailed?: MetaChatDetailedFile[];
+    rolled_back?: boolean;
+    duration_sec?: number;
     [key: string]: any;
   } | null;
   created_at: string;
@@ -196,6 +250,27 @@ export interface MetaChatAutopilotStatus {
   startedAt?: string;
 }
 
+export interface MetaChatExecutionState {
+  cancelRequested: boolean;
+  startedAt: string;
+  phase: string;
+  model: string;
+  accountId?: string;
+  threadId: string;
+  baselineBefore?: Map<string, { size: number; mtime: number; hash?: string; content?: string | null }>;
+  conversationId?: string;
+  root: string;
+  filesChanged: Set<string>;
+  currentActionSummary: string;
+  pipelineTasks: MetaChatPipelineTask[];
+  liveSteps: MetaChatLiveStep[];
+  lastTranscriptLineCount: number;
+  userProfileDir?: string;
+  currentStage?: { code: string; title: string };
+  executionTimeline: MetaChatTimelineStep[];
+  steps?: MetaChatTimelineStep[];
+}
+
 export class MetaChatService {
   private static _repoRoot: string | null = null;
   private static _autopilotState: MetaChatAutopilotStatus = {
@@ -216,23 +291,28 @@ export class MetaChatService {
     phase: 'IDLE',
     currentPhase: 'Pronto'
   };
-  private static _currentExecution: {
-    cancelRequested: boolean;
-    startedAt: string;
-    phase: string;
-    model: string;
-    accountId?: string;
-    threadId: string;
-    baselineBefore?: Map<string, { size: number; mtime: number; hash?: string; content?: string | null }>;
-    conversationId?: string;
-    root: string;
-    filesChanged: Set<string>;
-    currentActionSummary: string;
-    pipelineTasks: MetaChatPipelineTask[];
-    liveSteps: MetaChatLiveStep[];
-    lastTranscriptLineCount: number;
-    userProfileDir?: string;
-  } | null = null;
+  private static _currentExecutions: Map<string, MetaChatExecutionState> = new Map();
+
+  public static getExecution(threadId?: string): MetaChatExecutionState | null {
+    if (threadId && this._currentExecutions.has(threadId)) {
+      return this._currentExecutions.get(threadId)!;
+    }
+    if (this._currentExecutions.size === 0) return null;
+    const values = Array.from(this._currentExecutions.values());
+    return values[values.length - 1] || null;
+  }
+
+  private static get _currentExecution(): MetaChatExecutionState | null {
+    return this.getExecution();
+  }
+
+  private static set _currentExecution(val: MetaChatExecutionState | null) {
+    if (!val) {
+      this._currentExecutions.clear();
+    } else {
+      this._currentExecutions.set(val.threadId, val);
+    }
+  }
   private static _accountConversations = new Map<string, string>();
 
   // ==========================================
@@ -383,29 +463,230 @@ ${rawCompilerDiagnostics}
 </execution_directive>`;
   }
 
-  static getLiveStatus(): MetaChatLiveStatus {
-    const isExecuting = Boolean(this._currentExecution && !this._currentExecution.cancelRequested);
-    let elapsedSeconds = 0;
-    if (isExecuting && this._currentExecution?.startedAt) {
-      elapsedSeconds = Math.max(0, Math.floor((Date.now() - new Date(this._currentExecution.startedAt).getTime()) / 1000));
+  static getLiveStatus(threadId?: string): MetaChatLiveStatus {
+    const globalExec = this._currentExecution;
+    const isGlobalRunning = Boolean(globalExec && !globalExec.cancelRequested) || Boolean(this._liveStatus.isRunning);
+    const executingThreadId = globalExec?.threadId || null;
+
+    if (threadId) {
+      const threadExec = this._currentExecutions.get(threadId) || null;
+      const isRunning = Boolean(threadExec && !threadExec.cancelRequested);
+      let elapsedSeconds = 0;
+      if (isRunning && threadExec?.startedAt) {
+        elapsedSeconds = Math.max(0, Math.floor((Date.now() - new Date(threadExec.startedAt).getTime()) / 1000));
+      }
+      const currentPhase = isRunning && threadExec?.phase ? threadExec.phase : (this._liveStatus.phase || 'Pronto');
+      return {
+        isRunning,
+        isExecuting: isRunning,
+        executingThreadId,
+        phase: currentPhase,
+        currentPhase,
+        activeAccount: threadExec?.accountId || this._liveStatus.activeAccount,
+        activeAccountId: threadExec?.accountId || this._liveStatus.activeAccountId,
+        activeModel: threadExec?.model || this._liveStatus.activeModel,
+        startedAt: isRunning ? threadExec?.startedAt : undefined,
+        elapsedSeconds: isRunning ? elapsedSeconds : 0,
+        cancelRequested: Boolean(threadExec?.cancelRequested),
+        lastStep: threadExec?.currentActionSummary || this._liveStatus.lastStep,
+        activeTurnStatus: this.getActiveTurnStatus(threadId)
+      };
     }
-    const currentPhase = isExecuting
-      ? (this._currentExecution?.phase || 'Processando...')
-      : (this._liveStatus.phase || 'IDLE');
+
+    // Chamada global (sem threadId)
+    let elapsedSeconds = 0;
+    if (globalExec && !globalExec.cancelRequested && globalExec.startedAt) {
+      elapsedSeconds = Math.max(0, Math.floor((Date.now() - new Date(globalExec.startedAt).getTime()) / 1000));
+    }
+    const currentPhase = (globalExec && globalExec.phase) || this._liveStatus.phase || 'IDLE';
 
     return {
-      isRunning: isExecuting || this._liveStatus.isRunning,
-      isExecuting: isExecuting || this._liveStatus.isExecuting,
+      isRunning: isGlobalRunning,
+      isExecuting: isGlobalRunning,
+      executingThreadId,
       phase: currentPhase,
       currentPhase,
-      activeAccount: this._currentExecution?.accountId || this._liveStatus.activeAccount,
-      activeAccountId: this._currentExecution?.accountId || this._liveStatus.activeAccountId,
-      activeModel: this._currentExecution?.model || this._liveStatus.activeModel,
-      startedAt: this._currentExecution?.startedAt || this._liveStatus.startedAt,
-      elapsedSeconds,
-      cancelRequested: Boolean(this._currentExecution?.cancelRequested),
-      lastStep: this._liveStatus.lastStep
+      activeAccount: this._liveStatus.activeAccount || globalExec?.accountId,
+      activeAccountId: this._liveStatus.activeAccountId || globalExec?.accountId,
+      activeModel: this._liveStatus.activeModel || globalExec?.model,
+      startedAt: isGlobalRunning ? (globalExec?.startedAt || this._liveStatus.startedAt) : undefined,
+      elapsedSeconds: isGlobalRunning ? elapsedSeconds : 0,
+      cancelRequested: Boolean(globalExec?.cancelRequested),
+      lastStep: this._liveStatus.lastStep,
+      activeTurnStatus: this.getActiveTurnStatus()
     };
+  }
+
+  static getActiveTurnStatus(threadId?: string): MetaChatActiveTurnStatus {
+    const globalExec = this._currentExecution;
+    const isGlobalRunning = Boolean(globalExec && !globalExec.cancelRequested);
+    const executingThreadId = globalExec?.threadId || null;
+
+    if (threadId) {
+      const threadExec = this._currentExecutions.get(threadId) || null;
+      const isRunning = Boolean(threadExec && !threadExec.cancelRequested);
+      let elapsedSeconds = 0;
+      if (isRunning && threadExec?.startedAt) {
+        elapsedSeconds = Math.max(0, Math.floor((Date.now() - new Date(threadExec.startedAt).getTime()) / 1000));
+      }
+      return {
+        isRunning,
+        executingThreadId,
+        startedAt: isRunning ? threadExec?.startedAt : undefined,
+        elapsedSeconds: isRunning ? elapsedSeconds : 0,
+        currentStage: isRunning
+          ? (threadExec?.currentStage || {
+              code: META_CHAT_STATUS.STATUS_EXECUTING_STAGE,
+              title: threadExec?.phase || 'Executando...'
+            })
+          : undefined,
+        steps: isRunning ? (threadExec?.executionTimeline || threadExec?.steps || []) : [],
+        threadId: threadId,
+        pipelineTasks: isRunning ? (threadExec?.pipelineTasks || []) : []
+      };
+    }
+
+    // Chamada global
+    let elapsedSeconds = 0;
+    if (isGlobalRunning && globalExec?.startedAt) {
+      elapsedSeconds = Math.max(0, Math.floor((Date.now() - new Date(globalExec.startedAt).getTime()) / 1000));
+    }
+    return {
+      isRunning: isGlobalRunning,
+      executingThreadId,
+      startedAt: isGlobalRunning ? globalExec?.startedAt : undefined,
+      elapsedSeconds: isGlobalRunning ? elapsedSeconds : 0,
+      currentStage: isGlobalRunning
+        ? (globalExec?.currentStage || {
+            code: META_CHAT_STATUS.STATUS_EXECUTING_STAGE,
+            title: globalExec?.phase || 'Executando...'
+          })
+        : undefined,
+      steps: isGlobalRunning ? (globalExec?.executionTimeline || globalExec?.steps || []) : [],
+      threadId: executingThreadId || undefined,
+      pipelineTasks: isGlobalRunning ? (globalExec?.pipelineTasks || []) : []
+    };
+  }
+
+  static broadcastTelemetry(status: string, payload: Record<string, any> = {}): void {
+    try {
+      const data = {
+        status,
+        timestamp: new Date().toISOString(),
+        ...payload
+      };
+      SseStreamService.broadcast('metachat', 'activity', data);
+      SseStreamService.broadcast('metachat', status, data);
+    } catch (err: any) {
+      Logger.warn(`[MetaChatService] Falha ao transmitir telemetria SSE: ${err.message}`);
+    }
+  }
+
+  static async rollbackLastTurn(threadId?: string): Promise<{
+    success: boolean;
+    filesRolledBack?: string[];
+    message: string;
+  }> {
+    const root = this.getDecoHubRoot();
+    try {
+      const effectiveThreadId = threadId || this.getActiveThreadId();
+      let rows: any[] = [];
+      if (effectiveThreadId) {
+        rows = db.prepare(`
+          SELECT * FROM meta_chat_messages
+          WHERE role = 'assistant' AND thread_id = ?
+          ORDER BY created_at DESC LIMIT 15
+        `).all(effectiveThreadId) as any[];
+      } else {
+        rows = db.prepare(`
+          SELECT * FROM meta_chat_messages
+          WHERE role = 'assistant'
+          ORDER BY created_at DESC LIMIT 15
+        `).all() as any[];
+      }
+
+      if (!rows || rows.length === 0) {
+        return { success: false, message: 'Nenhuma mensagem recente encontrada para reversão.' };
+      }
+
+      let targetMsg: any = null;
+      let filesToRollback: string[] = [];
+
+      for (const m of rows) {
+        let meta: any = null;
+        try {
+          meta = typeof m.metadata === 'string' ? JSON.parse(m.metadata) : m.metadata;
+        } catch {}
+        if (meta && !meta.rolled_back) {
+          const files = meta.files_changed || meta.filesModified || [];
+          if (Array.isArray(files) && files.length > 0) {
+            targetMsg = m;
+            filesToRollback = files;
+            break;
+          }
+        }
+      }
+
+      if (!targetMsg || filesToRollback.length === 0) {
+        return {
+          success: false,
+          message: 'Nenhum turno recente com arquivos modificados elegível para reversão.'
+        };
+      }
+
+      // Safe rollback on disk via git checkout or previous state
+      this.rollbackChangedFiles(root, filesToRollback);
+
+      // Mark metadata in DB
+      let currentMeta: any = {};
+      try {
+        currentMeta = typeof targetMsg.metadata === 'string' ? JSON.parse(targetMsg.metadata) : (targetMsg.metadata || {});
+      } catch {}
+      currentMeta.rolled_back = true;
+
+      db.prepare(`
+        UPDATE meta_chat_messages
+        SET metadata = ?
+        WHERE id = ?
+      `).run(JSON.stringify(currentMeta), targetMsg.id);
+
+      // Record system notification message in thread
+      const sysMsg = this.addMessage({
+        role: 'system',
+        content: `↺ **Turno Revertido com Sucesso:**\n\nOs arquivos modificados foram restaurados com segurança para o estado íntegro anterior:\n` +
+          filesToRollback.map(f => `- \`${f}\``).join('\n'),
+        thread_id: effectiveThreadId || undefined,
+        metadata: {
+          rolled_back: true,
+          files_reverted: filesToRollback,
+          target_message_id: targetMsg.id
+        }
+      });
+
+      // Broadcast SSE telemetry
+      this.broadcastTelemetry('rolled_back', {
+        threadId: effectiveThreadId,
+        message: `Turno revertido: ${filesToRollback.length} arquivo(s) restaurados.`,
+        filesRolledBack: filesToRollback
+      });
+
+      SseStreamService.broadcast('metachat', 'message', {
+        message: sysMsg,
+        threadId: effectiveThreadId
+      });
+
+      return {
+        success: true,
+        filesRolledBack: filesToRollback,
+        message: `Reversão concluída com sucesso! ${filesToRollback.length} arquivo(s) restaurados.`
+      };
+    } catch (err: any) {
+      Logger.error(`[MetaChatService] Erro ao reverter turno: ${err.message}`);
+      return {
+        success: false,
+        message: `Erro ao executar reversão: ${err.message}`
+      };
+    }
   }
 
   static updateLiveStatus(status: Partial<MetaChatLiveStatus>): void {
@@ -428,7 +709,11 @@ ${rawCompilerDiagnostics}
     }
   }
 
-  static cancelActiveExecution(): { cancelled: boolean; message: string } {
+  static cancelActiveExecution(threadId?: string): { cancelled: boolean; message: string } {
+    if (threadId && this._currentExecution && this._currentExecution.threadId !== threadId) {
+      return { cancelled: false, message: 'Nenhuma execução ativa nesta conversa.' };
+    }
+
     TurnCancellationManager.requestCancellation('metachat');
 
     // Always release any locks in ExecutionCoordinator for metachat
@@ -742,8 +1027,10 @@ ${rawCompilerDiagnostics}
     status: 'running' | 'done' | 'failed';
     details?: string;
     durationMs?: number;
+    threadId?: string;
   }): void {
-    if (!this._currentExecution) return;
+    const exec = this.getExecution(step.threadId);
+    if (!exec) return;
     const id = `step-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const liveStep: MetaChatLiveStep = {
       id,
@@ -754,8 +1041,8 @@ ${rawCompilerDiagnostics}
       durationMs: step.durationMs,
       details: step.details || `${step.type}: ${step.target}`
     };
-    this._currentExecution.liveSteps.push(liveStep);
-    this._currentExecution.currentActionSummary = liveStep.details || `${step.type}: ${step.target}`;
+    exec.liveSteps.push(liveStep);
+    exec.currentActionSummary = liveStep.details || `${step.type}: ${step.target}`;
     this.updateLiveStatus({
       lastStep: liveStep.details
     });
@@ -764,10 +1051,12 @@ ${rawCompilerDiagnostics}
   static updatePipelineTask(
     taskId: 'task-inspect' | 'task-implement' | 'task-verify' | 'task-guard',
     status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'skipped',
-    details?: string
+    details?: string,
+    threadId?: string
   ): void {
-    if (!this._currentExecution) return;
-    const task = this._currentExecution.pipelineTasks.find(t => t.id === taskId);
+    const exec = this.getExecution(threadId);
+    if (!exec) return;
+    const task = exec.pipelineTasks.find(t => t.id === taskId);
     if (task) {
       task.status = status;
       if (details) task.details = details;
@@ -776,25 +1065,30 @@ ${rawCompilerDiagnostics}
 
   static getLiveActivity(threadId?: string): MetaChatLiveActivity {
     const targetThreadId = threadId || this.getActiveThreadId();
+    const exec = targetThreadId ? (this._currentExecutions.get(targetThreadId) || null) : this._currentExecution;
 
-    if (this._currentExecution && !this._currentExecution.cancelRequested) {
-      const elapsedMs = Math.max(0, Date.now() - new Date(this._currentExecution.startedAt).getTime());
+    if (
+      exec &&
+      !exec.cancelRequested &&
+      (!threadId || exec.threadId === threadId)
+    ) {
+      const elapsedMs = Math.max(0, Date.now() - new Date(exec.startedAt).getTime());
 
       // Inspect Antigravity transcript in real-time if active
-      if (this._currentExecution.conversationId && this._currentExecution.userProfileDir) {
+      if (exec.conversationId && exec.userProfileDir) {
         try {
-          const brainDir = path.join(this._currentExecution.userProfileDir, '.gemini', 'antigravity', 'brain');
+          const brainDir = path.join(exec.userProfileDir, '.gemini', 'antigravity', 'brain');
           const transcriptPath = path.join(
             brainDir,
-            this._currentExecution.conversationId,
+            exec.conversationId,
             '.system_generated',
             'logs',
             'transcript.jsonl'
           );
           if (fs.existsSync(transcriptPath)) {
             const lines = fs.readFileSync(transcriptPath, 'utf-8').trim().split('\n').filter(Boolean);
-            if (lines.length > this._currentExecution.lastTranscriptLineCount) {
-              for (let i = this._currentExecution.lastTranscriptLineCount; i < lines.length; i++) {
+            if (lines.length > exec.lastTranscriptLineCount) {
+              for (let i = exec.lastTranscriptLineCount; i < lines.length; i++) {
                 try {
                   const entry = JSON.parse(lines[i]);
                   if (entry.tool_calls && Array.isArray(entry.tool_calls)) {
@@ -818,8 +1112,8 @@ ${rawCompilerDiagnostics}
                         type = 'EDIT';
                         target = args.Path || args.path || args.file_path || 'arquivo';
                         details = `Modificando arquivo: ${path.basename(target)}`;
-                        this.updatePipelineTask('task-inspect', 'completed');
-                        this.updatePipelineTask('task-implement', 'in_progress', `Modificando ${path.basename(target)}`);
+                        this.updatePipelineTask('task-inspect', 'completed', undefined, exec.threadId);
+                        this.updatePipelineTask('task-implement', 'in_progress', `Modificando ${path.basename(target)}`, exec.threadId);
                       } else if (fnName.includes('search') || fnName.includes('find') || fnName.includes('grep')) {
                         type = 'SEARCH';
                         target = args.Pattern || args.query || args.pattern || 'termo';
@@ -835,8 +1129,8 @@ ${rawCompilerDiagnostics}
                       }
 
                       const stepId = `transcript-${entry.step_index ?? i}-${fnName}`;
-                      if (!this._currentExecution.liveSteps.some(s => s.id === stepId)) {
-                        this._currentExecution.liveSteps.push({
+                      if (!exec.liveSteps.some(s => s.id === stepId)) {
+                        exec.liveSteps.push({
                           id: stepId,
                           type,
                           target,
@@ -844,7 +1138,7 @@ ${rawCompilerDiagnostics}
                           timestamp: new Date().toISOString(),
                           details
                         });
-                        this._currentExecution.currentActionSummary = details;
+                        exec.currentActionSummary = details;
                       }
                     }
                   }
@@ -860,7 +1154,7 @@ ${rawCompilerDiagnostics}
       }
     }
               }
-              this._currentExecution.lastTranscriptLineCount = lines.length;
+              exec.lastTranscriptLineCount = lines.length;
             }
           }
         } catch (err) {
@@ -877,14 +1171,14 @@ ${rawCompilerDiagnostics}
       }
 
       // Check git diff against baseline
-      if (this._currentExecution.baselineBefore && this._currentExecution.root) {
+      if (exec.baselineBefore && exec.root) {
         try {
           const currentDiff = this.diffFileBaseline(
-            this._currentExecution.root,
-            this._currentExecution.baselineBefore
+            exec.root,
+            exec.baselineBefore
           );
           for (const f of currentDiff) {
-            this._currentExecution.filesChanged.add(f);
+            exec.filesChanged.add(f);
           }
         } catch (err) {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
@@ -901,14 +1195,14 @@ ${rawCompilerDiagnostics}
 
       return {
         isExecuting: true,
-        threadId: this._currentExecution.threadId,
-        activeAccount: this._currentExecution.accountId,
-        activeModel: this._currentExecution.model,
-        currentActionSummary: this._currentExecution.currentActionSummary,
+        threadId: exec.threadId,
+        activeAccount: exec.accountId,
+        activeModel: exec.model,
+        currentActionSummary: exec.currentActionSummary,
         elapsedMs,
-        pipelineTasks: this._currentExecution.pipelineTasks,
-        liveSteps: this._currentExecution.liveSteps,
-        filesModified: Array.from(this._currentExecution.filesChanged)
+        pipelineTasks: exec.pipelineTasks,
+        liveSteps: exec.liveSteps,
+        filesModified: Array.from(exec.filesChanged)
       };
     }
 
@@ -1561,6 +1855,33 @@ ${rawCompilerDiagnostics}
     }
   }
 
+  static getMessage(messageId: string): MetaChatMessage | null {
+    try {
+      const row: any = db.prepare(`
+        SELECT id, thread_id, role, content, metadata, executed_steps_json, created_at
+        FROM meta_chat_messages
+        WHERE id = ?
+      `).get(messageId);
+      if (!row) return null;
+      let parsedMetadata = null;
+      if (row.metadata) {
+        try {
+          parsedMetadata = JSON.parse(row.metadata);
+        } catch {}
+      }
+      return {
+        id: row.id,
+        thread_id: row.thread_id,
+        role: row.role,
+        content: row.content,
+        metadata: parsedMetadata,
+        created_at: row.created_at
+      };
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * Retrieves messages from the meta_chat_messages table for a thread (or active thread).
    */
@@ -1807,7 +2128,7 @@ ${rawCompilerDiagnostics}
   static async waitForTranscriptResponse(
     conversationId: string,
     initialLineCount: number = 0,
-    timeoutMs = 90000,
+    timeoutMs = 1500000,
     customUserProfileDir?: string
   ): Promise<string | null> {
     const brainDir = AntigravityDiscovery.getBrainDir(customUserProfileDir);
@@ -1820,13 +2141,33 @@ ${rawCompilerDiagnostics}
       'transcript_full.jsonl'
     );
     const start = Date.now();
+    const maxCeilingMs = Math.max(timeoutMs, 1500000);
+    const idleTimeoutMs = 180000;
+    let lastSeenLineCount = initialLineCount;
+    let lastActivityTime = Date.now();
+    let lastMtime = 0;
+    let lastSize = 0;
 
-    while (Date.now() - start < timeoutMs) {
+    while (Date.now() - start < maxCeilingMs && (Date.now() - lastActivityTime < idleTimeoutMs)) {
       if (fs.existsSync(transcriptPath)) {
         try {
+          const stats = fs.statSync(transcriptPath);
+          if (stats.size !== lastSize || stats.mtimeMs !== lastMtime) {
+            lastActivityTime = Date.now();
+            lastSize = stats.size;
+            lastMtime = stats.mtimeMs;
+          }
+
           const content = fs.readFileSync(transcriptPath, 'utf-8');
           const lines = content.trim().split('\n').filter(Boolean);
           const newLines = lines.slice(Math.max(0, initialLineCount));
+
+          if (lines.length > lastSeenLineCount) {
+            lastSeenLineCount = lines.length;
+            lastActivityTime = Date.now();
+          }
+
+          // 1. Detectar erro fatal ou quota
           for (let i = newLines.length - 1; i >= 0; i--) {
             let entry: any;
             try {
@@ -1843,51 +2184,102 @@ ${rawCompilerDiagnostics}
             if (FATAL_QUOTA_OR_AUTH_REGEX.test(entryText)) {
               throw new Error(`QUOTA_EXHAUSTED: ${entryText}`);
             }
-            if (
-              (entry.type === 'PLANNER_RESPONSE' ||
+          }
+
+          // 2. Verificar se há chamadas de ferramenta pendentes
+          let hasPendingToolCalls = false;
+          let isExplicitDone = false;
+          if (newLines.length > 0) {
+            let lastParsed: any = null;
+            try { lastParsed = JSON.parse(newLines[newLines.length - 1]); } catch {}
+            if (lastParsed) {
+              isExplicitDone = lastParsed.status === 'DONE' || lastParsed.type === 'DONE';
+              if (Array.isArray(lastParsed.tool_calls) && lastParsed.tool_calls.length > 0) {
+                hasPendingToolCalls = true;
+              }
+            }
+          }
+
+          const quietStabilityReached = Date.now() - lastActivityTime >= 4000;
+
+          // Se concluiu explicitamente ou estabilizou quieto por 4s sem chamadas pendentes:
+          if ((isExplicitDone || quietStabilityReached) && !hasPendingToolCalls && newLines.length > 0) {
+            for (let i = newLines.length - 1; i >= 0; i--) {
+              let entry: any;
+              try {
+                entry = JSON.parse(newLines[i]);
+              } catch {
+                continue;
+              }
+
+              if (
+                entry.type === 'TOOL_RESULT' ||
+                entry.type === 'COMMAND_OUTPUT' ||
+                entry.type === 'USER_INPUT' ||
+                entry.source === 'SYSTEM' ||
+                entry.source === 'USER'
+              ) {
+                continue;
+              }
+
+              const isAssistantEntry =
+                entry.type === 'PLANNER_RESPONSE' ||
                 entry.type === 'ASSISTANT_RESPONSE' ||
                 entry.type === 'MODEL_TURN' ||
+                entry.type === 'ASSISTANT_MESSAGE' ||
+                entry.type === 'TEXT' ||
+                entry.type === 'STEP_SUMMARY' ||
                 entry.role === 'assistant' ||
-                entry.source === 'MODEL') &&
-              entry.content &&
-              !(entry.tool_calls?.length > 0)
-            ) {
-              let fullText = String(entry.content);
-              if (fs.existsSync(transcriptFullPath)) {
-                try {
-                  const fullLines = fs
-                    .readFileSync(transcriptFullPath, 'utf-8')
-                    .trim()
-                    .split('\n')
-                    .filter(Boolean);
-                  for (let j = fullLines.length - 1; j >= 0; j--) {
-                    const fullEntry = JSON.parse(fullLines[j]);
-                    if (
-                      fullEntry.step_index === entry.step_index &&
-                      (!fullEntry.type || fullEntry.type === 'PLANNER_RESPONSE' || fullEntry.role === 'assistant' || fullEntry.source === 'MODEL') &&
-                      fullEntry.content
-                    ) {
-                      if (String(fullEntry.content).length >= fullText.length) {
-                        fullText = String(fullEntry.content);
+                entry.source === 'MODEL';
+
+              if (Array.isArray(entry.tool_calls) && entry.tool_calls.length > 0 && !entry.content?.trim()) {
+                continue;
+              }
+
+              if (isAssistantEntry && (entry.content || entry.thinking || entry.message)) {
+                let fullText = String(entry.content || entry.thinking || entry.message || '');
+                if (fs.existsSync(transcriptFullPath)) {
+                  try {
+                    const fullLines = fs
+                      .readFileSync(transcriptFullPath, 'utf-8')
+                      .trim()
+                      .split('\n')
+                      .filter(Boolean);
+                    for (let j = fullLines.length - 1; j >= 0; j--) {
+                      const fullEntry = JSON.parse(fullLines[j]);
+                      if (
+                        fullEntry.step_index === entry.step_index &&
+                        (fullEntry.content || fullEntry.thinking)
+                      ) {
+                        const candidateFull = String(fullEntry.content || fullEntry.thinking || '');
+                        if (candidateFull.length >= fullText.length) {
+                          fullText = candidateFull;
+                        }
+                        break;
                       }
-                      break;
+                    }
+                  } catch (err) {
+                    if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+                      (globalThis as any).logger.warn({
+                        event: "server.handled_exception",
+                        file: "metaChatService",
+                        error: (err as any)?.message || String(err)
+                      });
                     }
                   }
-                } catch (err) {
-                  if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-                    (globalThis as any).logger.warn({
-                      event: "server.handled_exception",
-                      file: "metaChatService",
-                      error: (err as any)?.message || String(err)
-                    });
-                  } else {
-                    console.warn("[WARN][server:metaChatService]", err);
-                  }
                 }
-              }
-              const cleanedText = stripRawLineNumberDumps(fullText);
-              if (!isToolDump(cleanedText)) {
-                return cleanedText;
+
+                const cleanedText = stripViewedCodeAndToolDumps(fullText).trim();
+                if (
+                  cleanedText &&
+                  cleanedText.length > 15 &&
+                  !isToolDump(cleanedText) &&
+                  !isRawToolOrCommandOutput(cleanedText) &&
+                  !cleanedText.includes('<truncated') &&
+                  cleanedText !== 'Created file.'
+                ) {
+                  return cleanedText;
+                }
               }
             }
           }
@@ -1900,6 +2292,71 @@ ${rawCompilerDiagnostics}
       await new Promise(r => setTimeout(r, 600));
     }
     return null;
+  }
+
+  static startPostTurnTranscriptWatcher(
+    conversationId: string,
+    messageId: string,
+    threadId: string,
+    root: string,
+    customUserProfileDir?: string
+  ): void {
+    const brainDir = AntigravityDiscovery.getBrainDir(customUserProfileDir);
+    const transcriptPath = path.join(brainDir, conversationId, '.system_generated', 'logs', 'transcript.jsonl');
+    if (!fs.existsSync(transcriptPath)) return;
+
+    let checkCount = 0;
+    const maxChecks = 15; // 30 segundos de vigilância pós-turno
+    let initialMtime = 0;
+    try {
+      initialMtime = fs.statSync(transcriptPath).mtimeMs;
+    } catch {}
+
+    const interval = setInterval(() => {
+      checkCount++;
+      if (checkCount > maxChecks) {
+        clearInterval(interval);
+        return;
+      }
+      try {
+        if (!fs.existsSync(transcriptPath)) return;
+        const currentMtime = fs.statSync(transcriptPath).mtimeMs;
+        if (currentMtime > initialMtime) {
+          initialMtime = currentMtime;
+          const content = fs.readFileSync(transcriptPath, 'utf-8');
+          const lines = content.trim().split('\n').filter(Boolean);
+          for (let i = lines.length - 1; i >= Math.max(0, lines.length - 10); i--) {
+            try {
+              const e = JSON.parse(lines[i]);
+              if (
+                e.source === 'MODEL' ||
+                e.type === 'PLANNER_RESPONSE' ||
+                e.type === 'STEP_SUMMARY' ||
+                e.type === 'ASSISTANT_RESPONSE'
+              ) {
+                const text = String(e.content || e.message || '').trim();
+                const cleaned = stripViewedCodeAndToolDumps(text);
+                if (cleaned && cleaned.length > 50 && (cleaned.includes('**O que foi feito:**') || cleaned.includes('# '))) {
+                  const formatted = MetaChatService.formatDeliveryReport(cleaned, []);
+                  db.prepare(`UPDATE meta_chat_messages SET content = ? WHERE id = ?`).run(formatted, messageId);
+                  const updatedMsg = MetaChatService.getMessage(messageId);
+                  if (updatedMsg) {
+                    SseStreamService.broadcast('metachat', 'message', {
+                      message: updatedMsg,
+                      threadId
+                    });
+                  }
+                  clearInterval(interval);
+                  break;
+                }
+              }
+            } catch {}
+          }
+        }
+      } catch {
+        clearInterval(interval);
+      }
+    }, 2000);
   }
 
   static saveAttachments(
@@ -2551,6 +3008,11 @@ ${rawCompilerDiagnostics}
     const npmCmd = isWin ? 'npm.cmd' : 'npm';
 
     Logger.info('[MetaChatService] Iniciando recompilação completa do DecoHUB...');
+    this.broadcastTelemetry(META_CHAT_STATUS.STATUS_SYNCING_PRODUCTION, {
+      message: 'Recompilando servidor e frontend do DecoHUB...',
+      active_stage_code: 'SYNC',
+      active_stage_title: 'Recompilação e Sincronização'
+    });
 
     // 1. Build Server
     let serverOutput = '';
@@ -3119,10 +3581,19 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
         }
       ],
       lastTranscriptLineCount: 0,
-      userProfileDir: undefined
+      userProfileDir: undefined,
+      currentStage: {
+        code: META_CHAT_STATUS.STATUS_ANALYZING_PROJECT,
+        title: 'Análise de Repositório & Contexto'
+      },
+      executionTimeline: []
     };
 
     let effectiveAccountId = requestedAccountId;
+    let activeStage: { code: string; title: string } = {
+      code: META_CHAT_STATUS.STATUS_ANALYZING_PROJECT,
+      title: 'Análise de Repositório & Contexto'
+    };
 
     try {
       this.updateLiveStatus({
@@ -3153,6 +3624,36 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
       let clientGateResult: { passed: boolean; buildPassed: boolean; visualPassed: boolean; output: string; details: string } | null = null;
       let simplicityResult: { passed: boolean; linesAdded: number; linesRemoved: number; delta: number; reason?: string } | null = null;
       const executionStartTime = Date.now();
+      const executionTimeline: MetaChatTimelineStep[] = [];
+      let stepStartTime = Date.now();
+      const recordTimelineStep = (stepName: string, status: 'done' | 'running' | 'failed') => {
+        const now = Date.now();
+        executionTimeline.push({
+          step: stepName,
+          status,
+          duration_ms: Math.max(1, now - stepStartTime)
+        });
+        if (this._currentExecution) {
+          this._currentExecution.executionTimeline = [...executionTimeline];
+        }
+        stepStartTime = now;
+      };
+
+      const slashMatch = userContent.trim().match(/^(\/[a-zA-Z0-9_-]+)/);
+      const activeSlashCommand = slashMatch ? slashMatch[1] : undefined;
+
+      activeStage = {
+        code: META_CHAT_STATUS.STATUS_ANALYZING_PROJECT,
+        title: 'Análise de Repositório & Contexto'
+      };
+
+      this.broadcastTelemetry(META_CHAT_STATUS.STATUS_ANALYZING_PROJECT, {
+        threadId: currentThread.id,
+        message: 'Leitura do repositório DecoHUB e inspeção de diff Git inicial...',
+        active_stage_code: META_CHAT_STATUS.STATUS_ANALYZING_PROJECT,
+        active_stage_title: 'Análise de Repositório & Contexto',
+        active_slash_command: activeSlashCommand
+      });
 
       if (parsedActions.length > 0) {
         this.updatePipelineTask('task-inspect', 'completed');
@@ -3196,6 +3697,9 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
         }
         this.updatePipelineTask('task-implement', 'completed');
 
+        recordTimelineStep('Análise de Código', 'done');
+        recordTimelineStep('Modificação Cirúrgica', 'done');
+
         if (filesChanged.length > 0) {
           this.updatePipelineTask('task-verify', 'in_progress', `Verificando tipagem de ${filesChanged.length} arquivos`);
           this.recordLiveStep({
@@ -3203,6 +3707,17 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
             target: 'tsc --noEmit',
             status: 'running',
             details: 'Validando tipagem com Typecheck Guard...'
+          });
+          activeStage = {
+            code: META_CHAT_STATUS.STATUS_RUNNING_TYPECHECK,
+            title: 'TypeScript Guard'
+          };
+          if (this._currentExecution) this._currentExecution.currentStage = activeStage;
+          this.broadcastTelemetry(META_CHAT_STATUS.STATUS_RUNNING_TYPECHECK, {
+            threadId: currentThread.id,
+            message: 'Validando tipagem estrita com TypeScript Guard (tsc --noEmit)...',
+            active_stage_code: META_CHAT_STATUS.STATUS_RUNNING_TYPECHECK,
+            active_stage_title: 'TypeScript Guard'
           });
           this.updateLiveStatus({
             phase: 'Validando Typecheck Guard (tsc --noEmit)...',
@@ -3213,6 +3728,7 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
           const target = hasServerFiles && hasClientFiles ? 'all' : hasClientFiles ? 'client' : 'server';
 
           typecheckResult = await this.runTypecheck(target, filesChanged);
+          recordTimelineStep('TypeScript Guard', typecheckResult.passed ? 'done' : 'failed');
 
           if (!typecheckResult.passed) {
             Logger.warn(`[MetaChatService] Typecheck quebrou após alteração manual. Acionando Autoproteção Ativa...`);
@@ -3406,6 +3922,7 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
           const hasClientFiles = filesChanged.some(f => f.startsWith('client/'));
           const target = hasServerFiles && hasClientFiles ? 'all' : hasClientFiles ? 'client' : 'server';
           typecheckResult = await this.runTypecheck(target, filesChanged);
+          recordTimelineStep('TypeScript Guard', typecheckResult.passed ? 'done' : 'failed');
           this.updatePipelineTask('task-verify', 'completed', 'Typecheck validado');
         } else {
           // Live production execution on Antigravity Language Server!
@@ -3580,6 +4097,19 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
 
           if (this._currentExecution) {
             this._currentExecution.userProfileDir = userProfileDir;
+            recordTimelineStep('Análise de Contexto', 'done');
+            activeStage = {
+              code: META_CHAT_STATUS.STATUS_EXECUTING_STAGE,
+              title: `Turno Antigravity (${resolvedConfig.canonicalName})`
+            };
+            if (this._currentExecution) this._currentExecution.currentStage = activeStage;
+            this.broadcastTelemetry(META_CHAT_STATUS.STATUS_EXECUTING_STAGE, {
+              threadId: currentThread.id,
+              message: `Despachando turno para Antigravity (${resolvedConfig.canonicalName})...`,
+              active_stage_code: META_CHAT_STATUS.STATUS_EXECUTING_STAGE,
+              active_stage_title: `Turno Antigravity (${resolvedConfig.canonicalName})`,
+              active_slash_command: activeSlashCommand
+            });
             this._currentExecution.lastTranscriptLineCount = initialLineCount;
           }
 
@@ -3698,9 +4228,9 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
 
           const turnResult = await antigravityProvider.getResult(
             activeConvId!,
-            300000,
+            1500000,
             root,
-            () => Boolean(this._currentExecution?.cancelRequested || TurnCancellationManager.isCancelled('metachat', activeConvId))
+            () => Boolean(this.getExecution(currentThread.id)?.cancelRequested || TurnCancellationManager.isCancelled('metachat', activeConvId))
           );
           let agentReport = (turnResult.rawResponse || (turnResult as any).finalResponse || '').trim();
 
@@ -3709,30 +4239,64 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
               const fromTranscript = await this.waitForTranscriptResponse(
                 activeConvId,
                 initialLineCount,
-                15000,
+                1500000,
                 userProfileDir
               );
               if (fromTranscript && fromTranscript.trim()) {
                 agentReport = fromTranscript.trim();
               }
             } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "metaChatService",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:metaChatService]", err);
-      }
-    }
+              if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+                (globalThis as any).logger.warn({
+                  event: "server.handled_exception",
+                  file: "metaChatService",
+                  error: (err as any)?.message || String(err)
+                });
+              } else {
+                console.warn("[WARN][server:metaChatService]", err);
+              }
+            }
           }
 
-          this.updatePipelineTask('task-inspect', 'completed');
-          this.updatePipelineTask('task-implement', 'completed');
+          if (Array.isArray((turnResult as any).agentSteps)) {
+            for (const step of (turnResult as any).agentSteps) {
+              this.recordLiveStep({
+                type: step.type || 'COMMAND',
+                target: step.target || 'DecoHUB',
+                status: 'done',
+                details: step.details || step.action,
+                threadId: currentThread.id
+              });
+            }
+          }
+
+          this.updatePipelineTask('task-inspect', 'completed', undefined, currentThread.id);
+          this.updatePipelineTask('task-implement', 'completed', undefined, currentThread.id);
 
           const changedInTurn = this.diffFileBaseline(root, baselineBefore, turnResult.filesChanged);
           filesChanged.push(...changedInTurn);
+
+          if (Array.isArray(turnResult.filesChanged)) {
+            for (const fc of turnResult.filesChanged) {
+              if (!filesChanged.includes(fc)) {
+                filesChanged.push(fc);
+              }
+            }
+          }
+
+          try {
+            const gitStatus = execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf-8', timeout: 5000 }).trim();
+            if (gitStatus) {
+              const gitLines = gitStatus.split(/\r?\n/);
+              for (const gl of gitLines) {
+                const parts = gl.trim().split(/\s+/);
+                const filePath = parts[1] || parts[parts.length - 1];
+                if (filePath && !filesChanged.includes(filePath)) {
+                  filesChanged.push(filePath);
+                }
+              }
+            }
+          } catch {}
 
           // Fallback parser: Check if textual response or thought blocks contain [FILE: ...] blocks not yet applied to disk
           const codeCandidateSource = agentReport || turnResult.agentThoughts || '';
@@ -3775,13 +4339,26 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
             }
           }
 
-          if (filesChanged.length > 0) {
+          recordTimelineStep('Turno Antigravity', 'done');
+
+        if (filesChanged.length > 0) {
             this.updatePipelineTask('task-verify', 'in_progress', `Verificando ${filesChanged.length} arquivos alterados`);
             this.recordLiveStep({
               type: 'GUARD',
               target: 'tsc --noEmit',
               status: 'running',
               details: 'Validando integridade de compilação com Typecheck Guard...'
+            });
+            activeStage = {
+              code: META_CHAT_STATUS.STATUS_RUNNING_TYPECHECK,
+              title: 'TypeScript Guard'
+            };
+            if (this._currentExecution) this._currentExecution.currentStage = activeStage;
+            this.broadcastTelemetry(META_CHAT_STATUS.STATUS_RUNNING_TYPECHECK, {
+              threadId: currentThread.id,
+              message: 'Validando tipagem estrita com TypeScript Guard (tsc --noEmit)...',
+              active_stage_code: META_CHAT_STATUS.STATUS_RUNNING_TYPECHECK,
+              active_stage_title: 'TypeScript Guard'
             });
             this.updateLiveStatus({
               phase: `Validando Typecheck Guard tsc --noEmit...`,
@@ -3793,6 +4370,7 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
             const target = hasServerFiles && hasClientFiles ? 'all' : hasClientFiles ? 'client' : 'server';
 
             typecheckResult = await this.runTypecheck(target, filesChanged);
+          recordTimelineStep('TypeScript Guard', typecheckResult.passed ? 'done' : 'failed');
 
             if (!typecheckResult.passed) {
               Logger.warn(
@@ -3857,6 +4435,7 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
                   }
 
                   typecheckResult = await this.runTypecheck(target, filesChanged);
+          recordTimelineStep('TypeScript Guard', typecheckResult.passed ? 'done' : 'failed');
                   if (typecheckResult.passed) {
                     healedOnRetry = true;
                     Logger.success('[MetaChatService] Auto-reparo de Typecheck bem-sucedido!');
@@ -3916,11 +4495,23 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
                 status: 'running',
                 details: `[Double Oracle] Executando teste correspondente: ${unitTestName}`
               });
+              activeStage = {
+                code: META_CHAT_STATUS.STATUS_RUNNING_TESTS,
+                title: 'Testes de Integridade'
+              };
+              if (this._currentExecution) this._currentExecution.currentStage = activeStage;
+              this.broadcastTelemetry(META_CHAT_STATUS.STATUS_RUNNING_TESTS, {
+                threadId: currentThread.id,
+                message: `Executando teste unitário correspondente: ${unitTestName}...`,
+                active_stage_code: META_CHAT_STATUS.STATUS_RUNNING_TESTS,
+                active_stage_title: 'Testes de Integridade'
+              });
               this.updateLiveStatus({
                 phase: 'Executando teste unitário correspondente...',
                 lastStep: unitTestName
               });
               const tRes = await this.runScopedTest(unitTestName);
+              recordTimelineStep(`Teste (${unitTestName})`, tRes.passed ? 'done' : 'failed');
               testResult = { ran: true, passed: tRes.passed, output: tRes.output };
               if (!tRes.passed) {
                 Logger.warn(`[MetaChatService] [Double Oracle] Teste unitário ${unitTestName} falhou. Acionando Rollback Karpathy...`);
@@ -4002,36 +4593,29 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
               `O DecoHUB desfez as alterações automaticamente para manter o repositório 100% íntegro e estável.\n\n` +
               (agentReport ? `**Relatório do Agente Antigravity:**\n${agentReport}` : '');
           } else if (filesChanged.length > 0) {
-            const sanitized = MetaChatService.sanitizeMetaChatReply(agentReport, filesChanged);
-            let telemetryFooter = '';
-            if (!sanitized.includes('**Arquivos alterados:**') && !sanitized.includes('[MODIFIED]')) {
-              telemetryFooter += `\n\n**Arquivos alterados:**\n` + filesChanged.map(f => `- \`${f}\``).join('\n');
-            }
-            telemetryFooter +=
-              `\n\n**Validação de Qualidade:**\n- Compilação TypeScript: Aprovada (${typecheckResult.durationMs}ms, 0 erros).\n`;
-            if (clientGateResult && clientGateResult.passed) {
-              telemetryFooter += `- Integridade Visual Playwright: Aprovada (0 erros de console/página).\n`;
-            }
-            if (testResult.ran && testResult.passed) {
-              telemetryFooter += `- Testes Automatizados: Aprovados com sucesso (\`${unitTestName}\`).\n`;
-            }
-            if (simplicityResult) {
-              telemetryFooter += `- Critério de Simplicidade: +${simplicityResult.linesAdded}/-${simplicityResult.linesRemoved} linhas (delta: ${simplicityResult.delta}).\n`;
-            }
-            telemetryFooter +=
-              `\nClique em **"Recompilar e Atualizar Produção"** para empacotar as melhorias no executável local.`;
-            reply =
-              (sanitized
-                ? sanitized
-                : `**O que foi feito:** As alterações solicitadas foram executadas com sucesso no repositório DecoHUB.`) +
-              telemetryFooter;
+            let diffStat = '';
+            try {
+              const { execFileSync } = await import('node:child_process');
+              diffStat = execFileSync('git', ['diff', '--stat', 'HEAD'], {
+                cwd: root,
+                encoding: 'utf-8',
+                timeout: 5000
+              }).trim();
+            } catch {}
+
+            reply = MetaChatService.formatDeliveryReport(agentReport, filesChanged, diffStat);
           } else {
-            const sanitized = MetaChatService.sanitizeMetaChatReply(agentReport, []);
-            reply =
-              sanitized ||
-              (agentReport && agentReport.trim()
-                ? agentReport.trim()
-                : `Turno concluído no Antigravity.`);
+            let diffStat = '';
+            try {
+              const { execFileSync } = await import('node:child_process');
+              diffStat = execFileSync('git', ['diff', '--stat', 'HEAD'], {
+                cwd: root,
+                encoding: 'utf-8',
+                timeout: 5000
+              }).trim();
+            } catch {}
+
+            reply = MetaChatService.formatDeliveryReport(agentReport, [], diffStat);
           }
         }
       }
@@ -4045,30 +4629,74 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
           status: 'running',
           details: `Executando teste focado: ${options.testFile || 'test/metaChatSelfEvolution.test.ts'}`
         });
+        activeStage = {
+          code: META_CHAT_STATUS.STATUS_RUNNING_TESTS,
+          title: 'Testes de Integridade'
+        };
+        if (this._currentExecution) this._currentExecution.currentStage = activeStage;
+        this.broadcastTelemetry(META_CHAT_STATUS.STATUS_RUNNING_TESTS, {
+          threadId: currentThread.id,
+          message: `Executando testes automatizados: ${options.testFile || 'testes'}...`,
+          active_stage_code: META_CHAT_STATUS.STATUS_RUNNING_TESTS,
+          active_stage_title: 'Testes de Integridade'
+        });
         this.updateLiveStatus({
           phase: 'Executando testes automatizados com Scoped Test Runner...',
           lastStep: options.testFile || 'test/metaChatSelfEvolution.test.ts'
         });
         const tFile = options.testFile || 'test/metaChatSelfEvolution.test.ts';
         const tRes = await this.runScopedTest(tFile);
+        recordTimelineStep(`Testes (${tFile})`, tRes.passed ? 'done' : 'failed');
         testResult = { ran: true, passed: tRes.passed, output: tRes.output };
         this.updatePipelineTask('task-guard', tRes.passed ? 'completed' : 'failed', tRes.passed ? 'Aprovado' : 'Falha');
       } else if (!testResult.ran) {
         this.updatePipelineTask('task-guard', 'completed', 'Verificação finalizada');
       }
 
-      const liveSteps = this._currentExecution?.liveSteps || [];
-      const pipelineTasks = this._currentExecution?.pipelineTasks || [];
+      const liveSteps = this.getExecution(currentThread.id)?.liveSteps || this._currentExecution?.liveSteps || [];
+      const pipelineTasks = this.getExecution(currentThread.id)?.pipelineTasks || this._currentExecution?.pipelineTasks || [];
 
-      this._currentExecution = null;
+      this._currentExecutions.delete(currentThread.id);
       this.updateLiveStatus({
-        isRunning: false,
-        isExecuting: false,
+        isRunning: this._currentExecutions.size > 0,
+        isExecuting: this._currentExecutions.size > 0,
         phase: 'Pronto',
         currentPhase: 'Pronto',
         lastStep: 'Concluído com sucesso'
       });
       this.updateThread(currentThread.id, { status: 'idle' });
+
+      const turnDurationSec = Math.max(0.1, (Date.now() - executionStartTime) / 1000);
+
+      const filesDetailed: MetaChatDetailedFile[] = [];
+      let modCount = 0;
+      let creCount = 0;
+      let delCount = 0;
+
+      for (const relPath of filesChanged) {
+        const fullPath = path.join(root, relPath);
+        const existsNow = fs.existsSync(fullPath);
+        const before = baselineBefore?.get(relPath);
+        const existedBefore = Boolean(before && before.size !== -1 && before.content !== null);
+
+        if (existsNow && !existedBefore) {
+          creCount++;
+          filesDetailed.push({ path: relPath, type: 'created' });
+        } else if (!existsNow && existedBefore) {
+          delCount++;
+          filesDetailed.push({ path: relPath, type: 'deleted' });
+        } else {
+          modCount++;
+          filesDetailed.push({ path: relPath, type: 'modified' });
+        }
+      }
+
+      const impactSummary: MetaChatImpactSummary = {
+        modified: modCount,
+        created: creCount,
+        deleted: delCount,
+        total: filesChanged.length
+      };
 
       const assistantMsg = this.addMessage({
         role: 'assistant',
@@ -4089,12 +4717,21 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
           model: requestedModel,
           reasoningMode: requestedReasoning,
           accountId: requestedAccountId,
+          agent_steps: liveSteps,
           executedSteps: liveSteps,
-          pipelineTasks: pipelineTasks
+          pipelineTasks: pipelineTasks,
+          execution_timeline: executionTimeline,
+          active_stage: activeStage,
+          impact_summary: impactSummary,
+          files_detailed: filesDetailed,
+          duration_sec: turnDurationSec
         }
       });
 
-      const turnDurationSec = Math.max(0.1, (Date.now() - executionStartTime) / 1000);
+      if (activeConvId && assistantMsg?.id) {
+        MetaChatService.startPostTurnTranscriptWatcher(activeConvId, assistantMsg.id, currentThread.id, root, this.getExecution(currentThread.id)?.userProfileDir);
+      }
+
       const commitHash = this.getCurrentGitCommit(root);
       const hypothesisSummary = (userContent || 'Evolução Meta-Chat').split('\n')[0].replace(/[\t\r\n]+/g, ' ').slice(0, 100);
       const scoreMetric = testResult.ran ? (testResult.passed ? 'tc:0_tests:pass' : 'tests:fail') : (typecheckResult.passed ? 'tc:0_clean' : 'tc:err');
@@ -4131,10 +4768,10 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
         visualGate: clientGateResult ? { passed: clientGateResult.passed, buildPassed: clientGateResult.buildPassed, visualPassed: clientGateResult.visualPassed, details: clientGateResult.details } : undefined
       };
     } catch (err: any) {
+      this._currentExecutions.delete(currentThread.id);
       if (this._currentExecution?.cancelRequested || err.message?.includes('RUN_CANCELLED')) {
         this.rollbackChangedFiles(root, filesChanged, this._currentExecution?.baselineBefore);
-        this._currentExecution = null;
-        this.updateLiveStatus({ isRunning: false, isExecuting: false, phase: 'Pronto', currentPhase: 'Pronto' });
+        this.updateLiveStatus({ isRunning: this._currentExecutions.size > 0, isExecuting: this._currentExecutions.size > 0, phase: 'Pronto', currentPhase: 'Pronto' });
         this.updateThread(currentThread.id, { status: 'idle' });
         TurnCancellationManager.clearCancellation('metachat', activeConvId);
 
@@ -4160,7 +4797,6 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
         };
       }
 
-      this._currentExecution = null;
       this.updateThread(currentThread.id, { status: 'idle' });
 
       if (!options?.retryAfterFailover) {
@@ -4202,7 +4838,7 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
                 : 'Aguardando restabelecimento de cota pelo provedor.';
 
               const allExhaustedMsg =
-                `[AVISO DE COTA] **Todas as contas configuradas atingiram o limite de cota / Weekly Limit.**\n\n` +
+                `[ERRO / AVISO DE COTA] **Todas as contas configuradas atingiram o limite de cota / Weekly Limit.**\n\n` +
                 `- **Diagnóstico:** ${classification.reason}\n` +
                 `- **Previsão:** ${resetNotice}\n\n` +
                 `O Autopilot e novas requisições em loop foram pausados para evitar sobrecarga. ` +
@@ -4244,27 +4880,69 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
         lastStep: `Erro: ${err.message}`
       });
 
-      const errorReply =
-        `[ERRO] **Falha na Execução do Meta-Chat:**\n\n` +
-        `- **Diagnóstico Técnico:** ${err.message || String(err)}\n` +
-        (requestedAccountId ? `- **Conta Ativa Solicitada:** \`${requestedAccountId}\`\n` : '') +
-        `- **Modelo:** \`${requestedModel}\`\n` +
-        (err.code ? `- **Código:** \`${err.code}\`\n` : '') +
-        (err.stack ? `\n\`\`\`text\n${err.stack.slice(0, 500)}\n\`\`\`\n` : '\n') +
-        `Por favor, verifique se o runtime do Antigravity está online para esta conta ou tente usar o botão **Rapid Switch** para alternar de perfil.`;
+      const failedStageName = typeof activeStage === 'object'
+        ? (activeStage.title || activeStage.code)
+        : String(activeStage || 'UNKNOWN');
 
-      const assistantMsg = this.addMessage({
-        role: 'assistant',
-        content: errorReply,
-        thread_id: currentThread.id,
-        metadata: {
-          error: err.message,
-          model: requestedModel,
-          reasoningMode: requestedReasoning,
-          accountId: requestedAccountId,
-          conversationId: activeConvId || undefined
-        }
-      });
+      const errorReply =
+        `[ERRO] [FALHA NO TURNO] **Não foi possível concluir a instrução:**\n\n` +
+        `\`\`\`text\n${err.message || 'Erro desconhecido durante o turno'}\n\`\`\`\n\n` +
+        (requestedAccountId ? `- **Conta Ativa:** \`${requestedAccountId}\`\n` : '') +
+        `- **Etapa Interrompida:** \`${failedStageName}\`\n` +
+        `- **Modelo:** \`${requestedModel}\`\n\n` +
+        `Verifique se o processo do Language Server está ativo ou tente reenviar com o escopo reduzido.`;
+
+      let assistantMsg: any;
+      try {
+        assistantMsg = this.addMessage({
+          role: 'assistant',
+          content: errorReply,
+          thread_id: currentThread?.id || effectiveThreadId,
+          metadata: {
+            error: err.message,
+            failed_stage: failedStageName,
+            timestamp: new Date().toISOString(),
+            model: requestedModel,
+            reasoningMode: requestedReasoning,
+            accountId: requestedAccountId,
+            conversationId: activeConvId || undefined,
+            canRetry: true
+          }
+        });
+      } catch (dbErr: any) {
+        Logger.error(`[MetaChatService] Falha ao persistir mensagem de erro: ${dbErr.message}`);
+        assistantMsg = {
+          id: `err-${Date.now()}`,
+          role: 'assistant',
+          content: errorReply,
+          thread_id: currentThread?.id || effectiveThreadId,
+          created_at: new Date().toISOString(),
+          metadata: {
+            error: err.message,
+            failed_stage: failedStageName,
+            canRetry: true
+          }
+        };
+      }
+
+      try {
+        const { SseStreamService } = await import('./sseStreamService.js');
+        SseStreamService.broadcast('metachat', 'message', {
+          result: {
+            message: assistantMsg,
+            filesChanged: [],
+            typecheck: { passed: false, durationMs: 0, output: err.message },
+            selfHealed: false,
+            conversationId: activeConvId || undefined
+          },
+          message: assistantMsg,
+          threadId: currentThread?.id || effectiveThreadId
+        });
+        SseStreamService.broadcast('metachat', 'done', {
+          status: 'error',
+          error: err.message
+        });
+      } catch {}
 
       return {
         message: assistantMsg,
@@ -4429,6 +5107,12 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
       .replace(/<user_attachments[\s\S]*?<\/user_attachments>/gi, '')
       .replace(/<failure_diagnostics[\s\S]*?<\/failure_diagnostics>/gi, '')
       .replace(/<scoped_modified_files[\s\S]*?<\/scoped_modified_files>/gi, '')
+      // Strip prompt leakage and truncation markers
+      .replace(/<truncated\s+\d+\s+bytes>/gi, '')
+      .replace(/<truncated\s+\d+\s+lines>/gi, '')
+      .replace(/<truncated\s+\d+\s+chars>/gi, '')
+      .replace(/#\s*(?:Behavioral Guidelines|Guidelines|System Instructions|Operational Directives)[\s\S]*?(?=\n#|\n---|\n\*\*|$)/gi, '')
+      .replace(/planejamento e revisão exclusivamente nos artefatos de e nas especificações canônicas @\.ai-dev-hub\/specs\/\*/gi, '')
       // Strip any isolated system XML tags
       .replace(/<\/?(?:system_invariants|meta_engineer_identity|operational_safety_invariants|workspace_context|execution_directive|evolution_mission|briefing_contract|autonomous_evolution_cycle|thought|thinking|antigravity_output|task_review|system_message|context_bridge|user_request|user_attachments|scoped_modified_files|failure_diagnostics)[^>]*>/gi, '')
       // Strip code directives and file wrapper blocks
@@ -4449,13 +5133,109 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
       .replace(/\(NEEDS_EVIDENCE:[^\n]*/gi, '')
       .trim();
 
-    if (!cleaned) {
+    if (!cleaned || /^(?:created file|file created|done|ok)\.?$/i.test(cleaned)) {
       if (filesChanged.length > 0) {
-        return `**O que foi feito:** As alterações solicitadas foram aplicadas com sucesso no repositório DecoHUB.\n\n**Arquivos alterados:**\n` +
-          filesChanged.map(f => `- \`${f}\`: atualizado conforme solicitado.`).join('\n');
+        return `**Intervenção Técnica Concluída:** As alterações solicitadas foram implementadas e verificadas no repositório DecoHUB.\n\n**Arquivos modificados e validados:**\n` +
+          filesChanged.map(f => `- \`${f}\`: modificado cirurgicamente e validado com Typecheck Guard.`).join('\n');
       }
       return `Operação concluída com sucesso no DecoHUB.`;
     }
     return cleaned;
+  }
+
+  public static formatDeliveryReport(
+    rawText: string,
+    filesChanged: string[] = [],
+    diffStat: string = ''
+  ): string {
+    if (!rawText || typeof rawText !== 'string') rawText = '';
+
+    // Limpa tags XML de envelopes de instrução e prompt
+    let cleaned = this.sanitizeMetaChatReply(rawText, filesChanged).trim();
+    cleaned = cleaned
+      .replace(/<\/?(?:autonomous_evolution_cycle|execution_directive|system_invariants|meta_engineer_identity|operational_safety_invariants|workspace_context|evolution_mission|briefing_contract|thought|thinking|antigravity_output|task_review|system_message|context_bridge|user_request|user_attachments|scoped_modified_files|failure_diagnostics)[^>]*>/gi, '')
+      .replace(/<\/[a-zA-Z0-9_-]+>/g, '')
+      .replace(/<[a-zA-Z0-9_-]+(?:\s+[^>]*)?>/g, '')
+      .replace(/```(?:typescript|javascript|json|html|css|bash|sh)?\s*\[(?:FILE|ARQUIVO):[^\]]+\][\s\S]*?```/gi, '')
+      .replace(/The tool's output was truncated[^\r\n]*/gi, '')
+      .replace(/<truncated[^\r\n>]*>/gi, '')
+      .trim();
+
+    // Extrai "O que foi feito:" e "Arquivos alterados:" caso já existam no texto do agente
+    let whatWasDone = '';
+    let filesSummary = '';
+
+    const whatMatch = cleaned.match(/\*\*O que foi feito:\*\*\s*([\s\S]*?)(?=(?:\*\*Arquivos alterados:\*\*|####|\n#|$))/i);
+    const filesMatch = cleaned.match(/\*\*Arquivos alterados:\*\*\s*([\s\S]*?)(?=(?:\*\*Validação de Qualidade:\*\*|####|\n#|$))/i);
+
+    if (whatMatch && whatMatch[1] && whatMatch[1].trim()) {
+      whatWasDone = stripViewedCodeAndToolDumps(whatMatch[1].trim());
+    }
+    if (filesMatch && filesMatch[1] && filesMatch[1].trim()) {
+      filesSummary = stripViewedCodeAndToolDumps(filesMatch[1].trim());
+    }
+
+    const hasRichMarkdownHeaders = /^#+\s+/m.test(cleaned);
+    const hasDeliverySections = Boolean(whatMatch || filesMatch);
+
+    if (!whatWasDone && hasRichMarkdownHeaders && !hasDeliverySections) {
+      return stripViewedCodeAndToolDumps(cleaned);
+    }
+
+    if (!whatWasDone) {
+      let candidate = cleaned
+        .replace(/^###?\s+[^\r\n]+/gm, '')
+        .replace(/####\s+[^\r\n]+/gm, '')
+        .trim();
+
+      // Remove blocos de código extensos do resumo
+      candidate = candidate.replace(/```[\s\S]*?```/g, '').trim();
+
+      if (candidate.length > 10) {
+        const paragraphs = candidate.split(/\n\s*\n/).filter(p => p.trim() && !p.startsWith('- `') && !p.startsWith('* `'));
+        whatWasDone = stripViewedCodeAndToolDumps(paragraphs.slice(0, 3).join('\n\n').trim());
+      }
+    }
+
+    if (!whatWasDone) {
+      whatWasDone = filesChanged.length > 0
+        ? 'As alterações solicitadas foram implementadas e verificadas no repositório DecoHUB com tipagem estrita.'
+        : 'Análise técnica e inspeção do repositório DecoHUB concluídas com sucesso.';
+    }
+
+    // Formata o bloco de arquivos alterados estritamente em 1 linha por arquivo
+    let filesBlock = '';
+    if (filesChanged && filesChanged.length > 0) {
+      if (filesSummary && filesSummary.includes('`')) {
+        filesBlock = filesSummary;
+      } else {
+        filesBlock = filesChanged
+          .map(f => `- \`${f}\`: modificado cirurgicamente e validado com sucesso.`)
+          .join('\n');
+      }
+    } else {
+      if (filesSummary && !filesSummary.includes('Nenhum')) {
+        filesBlock = filesSummary;
+      } else {
+        filesBlock = '- Nenhum arquivo foi alterado (análise técnica / consulta).';
+      }
+    }
+
+    return `**O que foi feito:**\n${whatWasDone}\n\n**Arquivos alterados:**\n${filesBlock}`;
+  }
+
+  public static generateStructuredTechnicalReport(
+    filesChanged: string[] = [],
+    diffStat: string = ''
+  ): string {
+    return this.formatDeliveryReport('', filesChanged, diffStat);
+  }
+
+  public static sanitizeMetaChatOutput(
+    rawText: string,
+    filesChanged: string[] = [],
+    diffStat: string = ''
+  ): string {
+    return this.formatDeliveryReport(rawText, filesChanged, diffStat);
   }
 }

@@ -81,6 +81,19 @@ const server = app.listen(Number(PORT), HOST, () => {
   // Start Autonomous Runner persistent background engine
   AutonomousRunnerService.start();
 
+  // Reconcile and resume any orphaned autonomous runs on startup (Checkpoint Resumption)
+  import('./autonomousManager.js').then(({ AutonomousManager }) => {
+    AutonomousManager.reconcileAndResumeOrphanedRuns().then((result) => {
+      if (result.reconciledRuns > 0) {
+        Logger.success(
+          `[AI DEV HUB] Resiliência: ${result.reconciledRuns} run(s) órfão(s) recuperados com sucesso (${result.tasksCompletedByFiles} tarefas concluídas no disco, ${result.tasksResetToPending} resetadas para pendente).`
+        );
+      }
+    }).catch((err: any) => {
+      Logger.warn(`[AI DEV HUB] Aviso na reconciliação de runs órfãos no startup: ${err.message}`);
+    });
+  }).catch(() => {});
+
   // Reconcile any orphaned command executions on startup
   import('./commandExecutionEngine.js').then(({ CommandExecutionEngine }) => {
     const recovered = CommandExecutionEngine.reconcileOrphanedExecutions();

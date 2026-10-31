@@ -9,7 +9,18 @@ import { RunControl } from './runControl.js';
 import { NativeExecutionPolicy } from './nativeExecutionPolicy.js';
 import { NativeWorkspaceBinding } from './nativeWorkspaceBinding.js';
 import { normalizeRuntimePath } from './runtimeProfileSelector.js';
-import { db, DB_PATH, deleteProjectCascading, purgeGhostTestProjectsFromProductionDb } from './db.js';
+import {
+  db,
+  DB_PATH,
+  deleteProjectCascading,
+  purgeGhostTestProjectsFromProductionDb,
+  resolveProjectCapabilities,
+  resolveProjectProfileMode,
+  DEFAULT_CAPABILITIES_LOCAL_PERSONAL,
+  DEFAULT_CAPABILITIES_COMMERCIAL_SAAS,
+  ProjectCapabilities,
+  ProjectProfileMode
+} from './db.js';
 import { MemoryManager } from './memoryManager.js';
 import { GitManager, GitInfo } from './gitManager.js';
 import { ProjectAnalyzer } from './analyzer.js';
@@ -20,6 +31,8 @@ import { Logger } from './logger.js';
 import { McpCore } from './mcpCore.js';
 import { AutonomousManager } from './autonomousManager.js';
 import { AutonomousRunnerService } from './autonomousRunnerService.js';
+import { DeltaFeatureEngine } from './deltaFeatureEngine.js';
+import { AgentBrainCouncilService } from './agentBrainCouncilService.js';
 import { GitHubMcpClient } from './githubMcpClient.js';
 import { WorkerRegistry } from './workerRegistry.js';
 import { AccountProfileManager } from './accountProfileManager.js';
@@ -758,6 +771,16 @@ apiRouter.post('/autonomous/runs/:id/resume', async (req, res) => {
   }
 });
 
+apiRouter.post('/autonomous/runs/reconcile-orphaned', async (req, res) => {
+  try {
+    const { projectId } = req.body || {};
+    const result = await AutonomousManager.reconcileAndResumeOrphanedRuns(projectId);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 apiRouter.post('/autonomous/runs/force-unlock', async (req, res) => {
   try {
     const { runId, projectId } = req.body || {};
@@ -1287,8 +1310,13 @@ apiRouter.get('/projects', (req, res) => {
       } catch {
         isAvailableOnDisk = false;
       }
+      const capabilities = resolveProjectCapabilities(p);
+      const projectProfile = resolveProjectProfileMode(p);
       return {
         ...p,
+        project_profile: projectProfile,
+        projectProfile,
+        capabilities,
         isAvailableOnDisk
       };
     });
@@ -1335,12 +1363,34 @@ apiRouter.post('/projects', async (req, res) => {
       reasoningLevel,
       githubAction,
       githubRepo,
-      githubToken
+      githubToken,
+      projectProfile,
+      project_profile,
+      capabilities,
+      capabilities_json
     } = req.body || {};
 
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Nome do projeto é obrigatório.' });
     }
+
+    const effectiveProfile: ProjectProfileMode =
+      projectProfile ||
+      project_profile ||
+      (capabilities?.payments || capabilities?.auth ? 'commercial_saas' : 'local_personal');
+
+    const defaultCaps = effectiveProfile === 'commercial_saas'
+      ? DEFAULT_CAPABILITIES_COMMERCIAL_SAAS
+      : DEFAULT_CAPABILITIES_LOCAL_PERSONAL;
+
+    const finalCaps: ProjectCapabilities = {
+      ...defaultCaps,
+      ...(typeof capabilities === 'object' && capabilities ? capabilities : {})
+    };
+
+    const finalCapabilitiesJson = typeof capabilities_json === 'string' && capabilities_json.trim()
+      ? capabilities_json
+      : JSON.stringify(finalCaps);
 
     if (!folderPath || !folderPath.trim()) {
       const slug = name.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'novo-projeto';
@@ -1376,9 +1426,11 @@ apiRouter.post('/projects', async (req, res) => {
 
       db.prepare(`
         UPDATE projects
-        SET name = ?, active_account_profile_id = ?, selected_model = ?, reasoning_level = ?, updated_at = ?
+        SET name = ?, active_account_profile_id = ?, selected_model = ?, reasoning_level = ?,
+            project_profile = COALESCE(?, project_profile), capabilities_json = COALESCE(?, capabilities_json),
+            updated_at = ?
         WHERE id = ?
-      `).run(name.trim(), effectiveProfileId, normalizedModel, normalizedReasoning, nowIso, existing.id);
+      `).run(name.trim(), effectiveProfileId, normalizedModel, normalizedReasoning, effectiveProfile, finalCapabilitiesJson, nowIso, existing.id);
 
       try {
         ModelRegistry.setPreference({
@@ -1392,9 +1444,14 @@ apiRouter.post('/projects', async (req, res) => {
         Logger.warn(`[POST /projects] Aviso ao atualizar preferência de modelo: ${e.message}`);
       }
 
-      const updatedProject = db.prepare('SELECT * FROM projects WHERE id = ?').get(existing.id);
+      const updatedProject: any = db.prepare('SELECT * FROM projects WHERE id = ?').get(existing.id);
       Logger.info(`[POST /projects] Projeto já registrado reutilizado com idempotência amigável: ${name.trim()} (${existing.id})`);
-      return res.status(200).json(updatedProject);
+      return res.status(200).json({
+        ...updatedProject,
+        project_profile: resolveProjectProfileMode(updatedProject),
+        projectProfile: resolveProjectProfileMode(updatedProject),
+        capabilities: resolveProjectCapabilities(updatedProject)
+      });
     }
 
     const id = crypto.randomUUID();
@@ -1421,8 +1478,12 @@ apiRouter.post('/projects', async (req, res) => {
 
     // 2. Insert into DB
     db.prepare(`
-      INSERT INTO projects (id, name, path, objective, description, stack, status, is_trusted, full_dev_autonomy, active_account_profile_id, selected_model, reasoning_level, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO projects (
+        id, name, path, objective, description, stack, status, is_trusted, full_dev_autonomy,
+        active_account_profile_id, selected_model, reasoning_level, project_profile, capabilities_json,
+        created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       name.trim(),
@@ -1435,6 +1496,8 @@ apiRouter.post('/projects', async (req, res) => {
       effectiveProfileId,
       normalizedModel,
       normalizedReasoning,
+      effectiveProfile,
+      finalCapabilitiesJson,
       nowIso,
       nowIso
     );
@@ -1456,10 +1519,15 @@ apiRouter.post('/projects', async (req, res) => {
     }
 
     Logger.success(`Projeto cadastrado no Hub: ${name} (${val.resolvedPath})`);
-    const createdProject = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
+    const createdProject: any = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
 
     // Send immediate response to unlock client UI instantly (< 20ms)
-    res.status(201).json(createdProject);
+    res.status(201).json({
+      ...createdProject,
+      project_profile: effectiveProfile,
+      projectProfile: effectiveProfile,
+      capabilities: finalCaps
+    });
 
     // 3. Asynchronous background secondary/heavy operations (Git init, Checkpoint, Git remote, Binding)
     // Executado exclusivamente em background via setImmediate para garantir flush instantâneo (< 10ms) ao cliente HTTP
@@ -1650,8 +1718,14 @@ apiRouter.get('/projects/:id', (req, res) => {
 
     const lastSession: any = db.prepare('SELECT * FROM sessions WHERE project_id = ? ORDER BY session_number DESC LIMIT 1').get(id);
 
+    const capabilities = resolveProjectCapabilities(project);
+    const projectProfile = resolveProjectProfileMode(project);
+
     res.json({
       ...project,
+      project_profile: projectProfile,
+      projectProfile,
+      capabilities,
       isAvailableOnDisk,
       diskWarning: !isAvailableOnDisk ? `A pasta deste projeto não foi encontrada no disco: "${project.path}"` : null,
       memory,
@@ -1805,11 +1879,34 @@ apiRouter.post('/projects/:id/github/sync', async (req, res) => {
 apiRouter.put('/projects/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, objective, description, stack, status, is_trusted, full_dev_autonomy, active_account_profile_id, selected_model, reasoning_level } = req.body || {};
+    const {
+      name,
+      objective,
+      description,
+      stack,
+      status,
+      is_trusted,
+      full_dev_autonomy,
+      active_account_profile_id,
+      selected_model,
+      reasoning_level,
+      projectProfile,
+      project_profile,
+      capabilities,
+      capabilities_json
+    } = req.body || {};
     const nowIso = new Date().toISOString();
 
     const isTrustedVal = is_trusted !== undefined ? (is_trusted ? 1 : 0) : null;
     const fullAutonomyVal = full_dev_autonomy !== undefined ? (full_dev_autonomy ? 1 : 0) : null;
+
+    const effectiveProfile = projectProfile || project_profile || null;
+    let effectiveCapsJson: string | null = null;
+    if (typeof capabilities_json === 'string' && capabilities_json.trim()) {
+      effectiveCapsJson = capabilities_json;
+    } else if (capabilities && typeof capabilities === 'object') {
+      effectiveCapsJson = JSON.stringify(capabilities);
+    }
 
     db.prepare(`
       UPDATE projects
@@ -1823,9 +1920,26 @@ apiRouter.put('/projects/:id', async (req, res) => {
           active_account_profile_id = COALESCE(?, active_account_profile_id),
           selected_model = COALESCE(?, selected_model),
           reasoning_level = COALESCE(?, reasoning_level),
+          project_profile = COALESCE(?, project_profile),
+          capabilities_json = COALESCE(?, capabilities_json),
           updated_at = ?
       WHERE id = ?
-    `).run(name, objective, description, stack, status, isTrustedVal, fullAutonomyVal, active_account_profile_id || null, selected_model || null, reasoning_level || null, nowIso, id);
+    `).run(
+      name,
+      objective,
+      description,
+      stack,
+      status,
+      isTrustedVal,
+      fullAutonomyVal,
+      active_account_profile_id || null,
+      selected_model || null,
+      reasoning_level || null,
+      effectiveProfile,
+      effectiveCapsJson,
+      nowIso,
+      id
+    );
 
     if (active_account_profile_id) {
       try {
@@ -1849,8 +1963,15 @@ apiRouter.put('/projects/:id', async (req, res) => {
       }
     }
 
-    const updated = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
-    res.json(updated);
+    const updated: any = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
+    const resolvedCaps = resolveProjectCapabilities(updated);
+    const resolvedProfile = resolveProjectProfileMode(updated);
+    res.json({
+      ...updated,
+      project_profile: resolvedProfile,
+      projectProfile: resolvedProfile,
+      capabilities: resolvedCaps
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -2422,7 +2543,7 @@ apiRouter.get('/projects/:id/lsp/references', async (req, res) => {
 apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res) => {
   try {
     const id = String(req.params.id);
-    const { content, role = 'user', requestId } = req.body || {};
+    const { content, role = 'user', requestId, planFirst, approvePendingPlan } = req.body || {};
     if (typeof content !== 'string' || !content.trim()) return res.status(400).json({ error: 'Mensagem vazia ou inválida' });
     if (role !== 'user') return res.status(400).json({ error: 'O chat aceita somente instruções do usuário.' });
 
@@ -2506,6 +2627,7 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
       let autonomousRun: any = null;
       let execution: any = { status: 'stored' };
       let intentResult: any = null;
+      let customMetadata: any = {};
       const trimmed = content.trim().toLowerCase();
 
       // Universal Slash Command Interception (/frontend, /image, /rea, /karpathy, /style, /ux, /pentest, etc.)
@@ -2578,6 +2700,87 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
       const activeExistingRun = AutonomousManager.getActiveRunForProject(id);
       autonomousRun = activeExistingRun;
 
+      const pendingPlan = ProjectChatService.getPendingPlan(project.path);
+      const isPlanApproval = Boolean(approvePendingPlan) || (
+        Boolean(pendingPlan) &&
+        /^(aprovar|iniciar|pode construir|executar plano|aprovo|aprovado|confirmar plano|bora|pode rodar|começar|iniciar execução)[.!]?$/i.test(trimmed)
+      );
+
+      const isPlanAdjustment = Boolean(pendingPlan) && !isPlanApproval && (
+        /^(ajuste|ajustar|alterar|mudar|trocar|adicionar|remova|adicione|retire)\b/i.test(trimmed) ||
+        trimmed.includes('ajustar plano') ||
+        trimmed.includes('adicionar etapa')
+      );
+
+      const wantsInteractivePlan = !isPlanApproval && !isPlanAdjustment && (
+        Boolean(planFirst) || (
+          req.body?.planFirst !== false &&
+          !activeExistingRun &&
+          (content.trim().length > 250 || /^(?:##?\s*(?:ETAPA|Fase|PROJETO:)|OBJETIVO DO PRODUTO:)/i.test(content.trim()))
+        )
+      );
+
+      if (isPlanApproval && pendingPlan) {
+        if (activeExistingRun) {
+          const { RunControl } = await import('./runControl.js');
+          RunControl.clear(activeExistingRun.id);
+          TurnCancellationManager.clearProjectCancellations(id);
+          db.prepare(`
+            UPDATE autonomous_runs
+            SET status = 'completed', end_time = COALESCE(end_time, ?), next_action = 'Finalizado para iniciar plano aprovado', updated_at = ?
+            WHERE id = ?
+          `).run(nowIso, nowIso, activeExistingRun.id);
+          db.prepare("UPDATE worker_leases SET status = 'released' WHERE run_id = ? AND status = 'active'").run(activeExistingRun.id);
+        }
+
+        autonomousRun = await AutonomousManager.createRun({
+          projectId: id,
+          name: `Execução Aprovada: ${project.name}`,
+          objective: pendingPlan.briefing || content,
+          briefing: pendingPlan.briefing || content,
+          autonomyMode: 'autonomous',
+          forceNew: true,
+          plannedTasks: pendingPlan.proposedTasks
+        });
+
+        setTimeout(() => {
+          AutonomousRunnerService.schedulerTick().catch(() => {});
+        }, 100);
+
+        ProjectChatService.clearPendingPlan(project.path);
+
+        replyContent = `**Plano Aprovado!** Inicializando a esteira de desenvolvimento autônomo com as **${pendingPlan.proposedTasks.length} etapas aprovadas** no Antigravity para o projeto **${project.name}**.\n\nAcompanhe a execução em tempo real pelo terminal e painel de tarefas.`;
+        execution = { status: 'started' };
+        customMetadata = { agentRole: 'supervisor', planApproved: true };
+      } else if (isPlanAdjustment && pendingPlan) {
+        const adjusted = await ProjectChatService.adjustPendingPlan({
+          projectId: id,
+          projectPath: project.path,
+          projectName: project.name,
+          adjustment: content
+        });
+        replyContent = adjusted.replyContent;
+        execution = { status: 'planned', pendingPlan: true };
+        customMetadata = {
+          agentRole: 'supervisor',
+          pendingPlan: adjusted.pendingPlan,
+          interactivePlanning: true
+        };
+      } else if (wantsInteractivePlan && !activeExistingRun) {
+        const proposal = await ProjectChatService.generateInteractivePlanProposal({
+          projectId: id,
+          projectPath: project.path,
+          projectName: project.name,
+          briefing: content
+        });
+        replyContent = proposal.replyContent;
+        execution = { status: 'planned', pendingPlan: true };
+        customMetadata = {
+          agentRole: 'supervisor',
+          pendingPlan: proposal.pendingPlan,
+          interactivePlanning: true
+        };
+      } else {
       const forceNew = Boolean(req.body?.forceNew);
       const isContinue = !forceNew && (
         intentResult.subType === 'CONTINUE_COMMAND' ||
@@ -2585,20 +2788,36 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
         /^(continuar|retomar|desbloquear|aprovar|resolver|tentar novamente)[.!]?$/i.test(trimmed)
       );
 
-      if (!forceNew && !isContinue && (intentResult.intent === 'CONVERSATION' || intentResult.intent === 'STATE_QUERY' || intentResult.intent === 'AMBIGUOUS')) {
-        const chatRes = await ProjectChatService.handleConversationalMessageAsync({
+      const isAutonomousDirect = req.body?.planFirst === false || Boolean(req.body?.directBuild) || Boolean(req.body?.forceAutonomous);
+      const hasAgentTarget = !isAutonomousDirect && (Boolean(req.body?.agent && req.body.agent !== 'council') || /@(supervisor|worker|reviewer)\b/i.test(content));
+      const isSurgicalPrompt = !isAutonomousDirect && DeltaFeatureEngine.isSurgicalOrBugfixPrompt(content, project.path, project.id);
+      const isConversational = !isAutonomousDirect && (intentResult.intent === 'CONVERSATION' || intentResult.intent === 'STATE_QUERY' || intentResult.intent === 'AMBIGUOUS');
+
+      if (!forceNew && !isContinue && (hasAgentTarget || isSurgicalPrompt || isConversational)) {
+        // CÉREBRO MULTI-AGENTE CONVERSACIONAL REAL (Supervisor, Worker e Reviewer Live)
+        const councilResult = await AgentBrainCouncilService.handleUserMessage({
           projectId: id,
+          projectPath: project.path,
           content,
-          intentResult
+          agent: req.body?.agent,
+          requestId
         });
-        replyContent = chatRes.replyContent;
-        execution = {
-          status: 'answered',
-          intent: intentResult.intent,
-          subType: intentResult.subType,
-          confidence: intentResult.confidence,
-          source: chatRes.source
+
+        const response = {
+          userMessage: userMessagePayload,
+          assistantReply: councilResult.primaryReply,
+          councilMessages: councilResult.allReplies,
+          autonomousRun: null,
+          execution: {
+            status: 'answered',
+            agent: councilResult.targetAgent,
+            actions: councilResult.actionsExecuted
+          },
+          classification: intentResult || null,
+          actionTaken: 'answered'
         };
+        if (requestId) ChatSubmission.complete(id, requestId, response);
+        return response;
       } else if (isContinue) {
         if (activeExistingRun) {
           const pendingApproval: any = db.prepare("SELECT id FROM autonomous_approvals WHERE run_id = ? AND status = 'pending' LIMIT 1").get(activeExistingRun.id);
@@ -2657,10 +2876,12 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
             : null;
           const completedCount = Number(taskCounts?.completed || 0);
 
+          const isSurgicalPrompt = DeltaFeatureEngine.isSurgicalOrBugfixPrompt(content, project.path, project.id);
           const isRunStalledOrBlocked = activeExistingRun && (
             ['blocked', 'error', 'paused', 'waiting_resource', 'waiting_approval'].includes(activeExistingRun.status) ||
             (!activeExistingRun.tasks || activeExistingRun.tasks.length === 0) ||
-            (completedCount === 0 && ['stopped', 'waiting_for_worker', 'planning', 'waiting_approval'].includes(activeExistingRun.status)) ||
+            (completedCount === 0 && ['stopped', 'waiting_for_worker', 'planning', 'waiting_approval', 'running'].includes(activeExistingRun.status)) ||
+            (completedCount === 0 && isSurgicalPrompt) ||
             (isFullProjectPrompt && completedCount === 0)
           );
           const isRunBusy = !isRunStalledOrBlocked && activeExistingRun && ['running', 'building', 'testing', 'reviewing', 'planning', 'waiting_for_worker'].includes(activeExistingRun.status) && Boolean(activeExistingRun.tasks?.length);
@@ -2714,9 +2935,8 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
               });
             }, 100);
             execution = { status: 'started' };
-            replyContent = autonomousRun?.status === 'planning'
-              ? 'Estou organizando o novo trabalho em etapas e conectando ao agente de desenvolvimento. O planejamento inicial está em andamento.'
-              : `Estou organizando o novo trabalho em etapas e verificando as dependências. Criei um novo plano com ${autonomousRun?.tasks?.length || 0} etapas estruturadas para atender ao seu objetivo.`;
+            replyContent = await ProjectOperationsService.generateInitialDiagnosticMessage(id, project.path, content, autonomousRun);
+            customMetadata = { agentRole: 'supervisor', type: 'autonomous_start' };
           } else if (activeExistingRun && explicitReplan) {
             const cleanReq = content.trim().replace(/^(replanejar|novo requisito|alterar requisito|defeito):/i, '').trim() || content.trim();
             const replanType = /^defeito:/i.test(content.trim())
@@ -2785,9 +3005,8 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
               });
             }, 100);
             execution = { status: 'started' };
-            replyContent = autonomousRun?.status === 'planning'
-              ? 'Estou organizando o trabalho em etapas e conectando ao agente de desenvolvimento. O planejamento inicial está em andamento.'
-              : `Estou organizando o trabalho em etapas e verificando as dependências. Criei um plano com ${autonomousRun?.tasks?.length || 0} etapas estruturadas para atender ao seu objetivo.`;
+            replyContent = await ProjectOperationsService.generateInitialDiagnosticMessage(id, project.path, content, autonomousRun);
+            customMetadata = { agentRole: 'supervisor', type: 'autonomous_start' };
           }
         } catch (runErr: any) {
           Logger.warn(`[Routes] Não foi possível iniciar Autonomous Run via chat: ${runErr.message}`);
@@ -2795,6 +3014,7 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
           execution = { status: 'blocked', reason: runErr.message, component: 'Supervisor', occurredAt: new Date().toISOString(), action: 'Resolva a causa indicada e clique em Continuar para retomar este Run.' };
           replyContent = `A execução não pôde iniciar porque: ${runErr.message}. Nenhuma etapa foi iniciada. Consulte o diagnóstico ou tente novamente.`;
         }
+      }
       }
     }
 
@@ -2805,7 +3025,7 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
     const replyId = crypto.randomUUID();
     const replyTime = new Date().toISOString();
 
-    const replyMetadata = JSON.stringify({agentRole:'system',execution,runId:autonomousRun?.id || null});
+    const replyMetadata = JSON.stringify({agentRole: customMetadata.agentRole || 'system', execution, runId: autonomousRun?.id || null, ...customMetadata});
     db.prepare(`
       INSERT INTO messages (id, project_id, role, content, created_at, metadata)
       VALUES (?, ?, 'assistant', ?, ?, ?)
@@ -4440,7 +4660,7 @@ apiRouter.get('/desktop/diagnostics', (req, res) => {
     const memUsage = process.memoryUsage();
 
     res.json({
-      desktopVersion: '1.0.0',
+      desktopVersion: '1.0.9',
       stableBaseline: stable,
       backend: {
         port: process.env.PORT || 3001,
@@ -4506,6 +4726,41 @@ apiRouter.post('/projects/:id/preview/stop', async (req, res) => {
     const { id } = req.params;
     const stopped = await ProjectOperationsService.stopPreview(id);
     res.json({ success: stopped, message: stopped ? 'Preview encerrado com sucesso' : 'Nenhum preview em execução' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.get('/projects/:id/runtime-logs', (req, res) => {
+  try {
+    const { id } = req.params;
+    const limit = Number(req.query.limit) || 200;
+    const project: any = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
+    const logs = ProjectOperationsService.getRuntimeLogs(id, project?.path, limit);
+    res.json(logs);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.post('/projects/:id/runtime-logs/clear', (req, res) => {
+  try {
+    const { id } = req.params;
+    const project: any = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
+    ProjectOperationsService.clearRuntimeLogs(id, project?.path);
+    res.json({ success: true, message: 'Logs da porta limpos com sucesso.' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.post('/projects/:id/reset-db', (req, res) => {
+  try {
+    const { id } = req.params;
+    const project: any = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
+    if (!project) return res.status(404).json({ error: 'Projeto não encontrado' });
+    const result = ProjectOperationsService.resetProjectDatabase(id, project.path);
+    res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -4595,10 +4850,15 @@ apiRouter.get('/skills/slash-commands', (req, res) => {
 // META-CHAT (AUTO-EVOLUÇÃO & MODIFICAÇÃO DO DECOHUB)
 // -------------------------------------------------------------
 
-apiRouter.get('/metachat/status', (_req, res) => {
+apiRouter.get('/metachat/status', (req, res) => {
   try {
-    const status = MetaChatService.getLiveStatus();
-    res.json(status);
+    const threadId = (req.query.threadId as string) || undefined;
+    const status = MetaChatService.getLiveStatus(threadId);
+    const activeTurnStatus = MetaChatService.getActiveTurnStatus(threadId);
+    res.json({
+      ...status,
+      activeTurnStatus
+    });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -4672,6 +4932,11 @@ apiRouter.get('/metachat/threads/:threadId/messages', (req, res) => {
     const { threadId } = req.params;
     const limit = parseInt(req.query.limit as string, 10) || 500;
     const messages = MetaChatService.getMessages(threadId, limit);
+    const activeTurn = MetaChatService.getActiveTurnStatus(threadId);
+    res.setHeader('X-MetaChat-Is-Running', String(activeTurn.isRunning));
+    if (req.query.withStatus === 'true') {
+      return res.json({ messages, activeTurnStatus: activeTurn });
+    }
     res.json(messages);
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
@@ -4701,9 +4966,10 @@ apiRouter.delete('/metachat/threads/:threadId', (req, res) => {
   }
 });
 
-apiRouter.post('/metachat/cancel', (_req, res) => {
+apiRouter.post('/metachat/cancel', (req, res) => {
   try {
-    const result = MetaChatService.cancelActiveExecution();
+    const threadId = req.body?.threadId || (req.query.threadId as string) || undefined;
+    const result = MetaChatService.cancelActiveExecution(threadId);
     res.json(result);
   } catch (err: any) {
     Logger.error(`[Routes] Erro ao cancelar execução no Meta-Chat: ${err.message}`);
@@ -4729,6 +4995,11 @@ apiRouter.get('/metachat/messages', (req, res) => {
     const threadId = (req.query.threadId as string) || undefined;
     const limit = parseInt(req.query.limit as string, 10) || 500;
     const messages = MetaChatService.getMessages(threadId, limit);
+    const activeTurn = MetaChatService.getActiveTurnStatus(threadId);
+    res.setHeader('X-MetaChat-Is-Running', String(activeTurn.isRunning));
+    if (req.query.withStatus === 'true') {
+      return res.json({ messages, activeTurnStatus: activeTurn });
+    }
     res.json(messages);
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
@@ -4815,6 +5086,27 @@ apiRouter.post('/metachat/chat', async (req, res) => {
             status: 'completed'
           });
         } catch (bgErr: any) {
+          Logger.error(`[Routes] Erro em background no Meta-Chat: ${bgErr.message}`);
+          try {
+            const fallbackMsg = MetaChatService.addMessage({
+              role: 'assistant',
+              content: `[FALHA NO TURNO] **Não foi possível concluir a instrução:**\n\n\`\`\`text\n${bgErr.message || 'Erro desconhecido durante o turno em segundo plano'}\n\`\`\`\n\nVerifique se o processo do Language Server está ativo ou tente reenviar com o escopo reduzido.`,
+              thread_id: threadId,
+              metadata: {
+                error: bgErr.message,
+                failed_stage: 'BACKGROUND_TURN_FAILED',
+                canRetry: true,
+                timestamp: new Date().toISOString()
+              }
+            });
+            SseStreamService.broadcast('metachat', 'message', {
+              turnId,
+              message: fallbackMsg,
+              threadId
+            });
+          } catch (e: any) {
+            Logger.error(`[Routes] Erro ao gravar mensagem de fallback no Meta-Chat: ${e.message}`);
+          }
           SseStreamService.broadcast('metachat', 'error', {
             turnId,
             error: bgErr.message
@@ -4845,6 +5137,26 @@ apiRouter.post('/metachat/chat', async (req, res) => {
     res.json(result);
   } catch (err: any) {
     Logger.error(`[Routes] Erro no Meta-Chat: ${err.message}`);
+    try {
+      const threadId = (req.body?.threadId || req.query?.threadId) as string | undefined;
+      const fallbackMsg = MetaChatService.addMessage({
+        role: 'assistant',
+        content: `[FALHA NO TURNO] **Não foi possível concluir a instrução:**\n\n\`\`\`text\n${err.message || 'Erro desconhecido durante o turno'}\n\`\`\`\n\nVerifique se o processo do Language Server está ativo ou tente reenviar com o escopo reduzido.`,
+        thread_id: threadId,
+        metadata: {
+          error: err.message,
+          failed_stage: 'REQUEST_TURN_FAILED',
+          canRetry: true,
+          timestamp: new Date().toISOString()
+        }
+      });
+      SseStreamService.broadcast('metachat', 'message', {
+        message: fallbackMsg,
+        threadId
+      });
+    } catch (e: any) {
+      Logger.error(`[Routes] Erro ao gravar mensagem de fallback síncrona no Meta-Chat: ${e.message}`);
+    }
     const isSecurity = err.message?.includes('SECURITY_SCOPE_VIOLATION');
     const isNotFound = err.message?.includes('não encontrado') || err.message?.includes('not found');
     const isBadRequest = err.message?.includes('inválid') || err.message?.includes('obrigatório');
@@ -4872,6 +5184,17 @@ apiRouter.post('/metachat/recompile', async (req, res) => {
     res.json(result);
   } catch (err: any) {
     Logger.error(`[Routes] Erro ao recompilar DecoHUB via Meta-Chat: ${err.message}`);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+apiRouter.post('/metachat/rollback', async (req, res) => {
+  try {
+    const threadId = (req.body?.threadId || req.query?.threadId) as string | undefined;
+    const result = await MetaChatService.rollbackLastTurn(threadId);
+    res.json(result);
+  } catch (err: any) {
+    Logger.error(`[Routes] Erro ao reverter turno no Meta-Chat: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
   }
 });

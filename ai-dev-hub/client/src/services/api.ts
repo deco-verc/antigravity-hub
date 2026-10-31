@@ -1,5 +1,7 @@
 import {
   Project,
+  ProjectProfileMode,
+  ProjectCapabilities,
   FullProjectDetails,
   ProjectMemory,
   AnalysisResult,
@@ -43,6 +45,7 @@ import {
   ObservabilityHealthReport,
   ObservabilityEventsResponse,
   PreviewStatus,
+  RuntimeLogsResponse,
   ProjectEnvStudioData,
   HomologationEvidenceData,
   MetaChatThread,
@@ -89,6 +92,8 @@ export const api = {
     githubAction?: 'none' | 'create_private' | 'link_existing';
     githubRepo?: string;
     githubToken?: string;
+    projectProfile?: ProjectProfileMode;
+    capabilities?: Partial<ProjectCapabilities>;
   }): Promise<Project> {
     const desktopAPI = typeof window !== 'undefined' ? (window as any).desktopAPI : undefined;
 
@@ -294,14 +299,22 @@ export const api = {
     return res.json();
   },
 
-  async sendMessage(id: string, content: string, requestId: string = crypto.randomUUID(), options?: { signal?: AbortSignal; forceNew?: boolean; stream?: boolean }): Promise<{ userMessage: ChatMessage; assistantReply?: ChatMessage; autonomousRun?: AutonomousRun; execution?: { status: 'stored' | 'started' | 'queued' | 'blocked'; reason?: string; runStatus?: string }; turnId?: string; status?: string }> {
+  async sendMessage(id: string, content: string, requestId: string = crypto.randomUUID(), options?: { signal?: AbortSignal; forceNew?: boolean; stream?: boolean; planFirst?: boolean; approvePendingPlan?: boolean; agent?: 'council' | 'supervisor' | 'worker' | 'reviewer' }): Promise<{ userMessage: ChatMessage; assistantReply?: ChatMessage; councilMessages?: ChatMessage[]; autonomousRun?: AutonomousRun; execution?: { status: 'stored' | 'started' | 'queued' | 'blocked' | 'planned' | 'answered'; reason?: string; runStatus?: string; agent?: string }; turnId?: string; status?: string }> {
     const res = await fetch(`${API_BASE}/projects/${id}/messages`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-Stream-Mode': 'sse'
       },
-      body: JSON.stringify({ content, requestId, forceNew: options?.forceNew, stream: true }),
+      body: JSON.stringify({
+        content,
+        requestId,
+        forceNew: options?.forceNew,
+        stream: true,
+        planFirst: options?.planFirst,
+        approvePendingPlan: options?.approvePendingPlan,
+        agent: options?.agent
+      }),
       signal: options?.signal
     });
     if (!res.ok) {
@@ -486,6 +499,24 @@ export const api = {
   async resumeAutonomousRun(id: string): Promise<AutonomousRun> {
     const res = await fetch(`${API_BASE}/autonomous/runs/${id}/resume`, { method: 'POST' });
     if (!res.ok) { const data = await res.json(); throw new Error(data.error || 'Falha ao retomar build autônomo'); }
+    return res.json();
+  },
+
+  async reconcileOrphanedAutonomousRuns(projectId?: string): Promise<{
+    reconciledRuns: number;
+    resumedRunIds: string[];
+    tasksCompletedByFiles: number;
+    tasksResetToPending: number;
+  }> {
+    const res = await fetch(`${API_BASE}/autonomous/runs/reconcile-orphaned`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId })
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Falha ao recuperar runs órfãos');
+    }
     return res.json();
   },
 
@@ -1434,6 +1465,31 @@ export const api = {
     return res.json();
   },
 
+  async getProjectRuntimeLogs(id: string, limit: number = 200): Promise<RuntimeLogsResponse> {
+    const res = await fetch(`${API_BASE}/projects/${id}/runtime-logs?limit=${limit}`);
+    if (!res.ok) throw new Error('Falha ao obter logs da porta em tempo real');
+    return res.json();
+  },
+
+  async clearProjectRuntimeLogs(id: string): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`${API_BASE}/projects/${id}/runtime-logs/clear`, {
+      method: 'POST'
+    });
+    if (!res.ok) throw new Error('Falha ao limpar logs da porta');
+    return res.json();
+  },
+
+  async resetProjectDatabase(id: string): Promise<{ success: boolean; deletedFiles: string[]; count: number; message: string }> {
+    const res = await fetch(`${API_BASE}/projects/${id}/reset-db`, {
+      method: 'POST'
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Falha ao resetar banco do projeto' }));
+      throw new Error(err.error || 'Falha ao resetar banco do projeto');
+    }
+    return res.json();
+  },
+
   async getEnvKeys(id: string): Promise<ProjectEnvStudioData> {
     const res = await fetch(`${API_BASE}/projects/${id}/env-keys`);
     if (!res.ok) throw new Error('Falha ao carregar chaves de ambiente');
@@ -1468,8 +1524,11 @@ export const api = {
     return `${base}/projects/${id}/evidence-file/${encodeURIComponent(cleanFilename)}?t=${t}`;
   },
 
-  async getMetaChatStatus(): Promise<MetaChatLiveStatus> {
-    const res = await fetch(`${API_BASE}/metachat/status`);
+  async getMetaChatStatus(threadId?: string): Promise<MetaChatLiveStatus> {
+    const url = threadId
+      ? `${API_BASE}/metachat/status?threadId=${encodeURIComponent(threadId)}`
+      : `${API_BASE}/metachat/status`;
+    const res = await fetch(url);
     if (!res.ok) throw new Error('Falha ao obter status do Meta-Chat');
     return res.json();
   },
@@ -1574,24 +1633,49 @@ export const api = {
     },
     fetchOptions?: { signal?: AbortSignal }
   ): Promise<MetaChatResponseData> {
-    const res = await fetch(`${API_BASE}/metachat/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Stream-Mode': 'sse'
-      },
-      body: JSON.stringify({ message, stream: true, ...options }),
-      signal: fetchOptions?.signal
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Falha ao enviar mensagem ao Meta-Chat' }));
-      throw new Error(err.error || 'Falha ao enviar mensagem ao Meta-Chat');
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort(new Error('TIMEOUT_EXCEEDED: A requisição ao Meta-Chat excedeu o tempo limite máximo de 25 minutos.'));
+    }, 1_500_000);
+
+    if (fetchOptions?.signal) {
+      if (fetchOptions.signal.aborted) {
+        clearTimeout(timeoutId);
+        controller.abort(fetchOptions.signal.reason);
+      } else {
+        fetchOptions.signal.addEventListener('abort', () => {
+          clearTimeout(timeoutId);
+          controller.abort(fetchOptions.signal?.reason);
+        }, { once: true });
+      }
     }
-    return res.json();
+
+    try {
+      const res = await fetch(`${API_BASE}/metachat/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Stream-Mode': 'sse'
+        },
+        body: JSON.stringify({ message, stream: true, ...options }),
+        signal: controller.signal
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Falha ao enviar mensagem ao Meta-Chat' }));
+        throw new Error(err.error || 'Falha ao enviar mensagem ao Meta-Chat');
+      }
+      return res.json();
+    } finally {
+      clearTimeout(timeoutId);
+    }
   },
 
-  async cancelMetaChat(): Promise<{ cancelled: boolean; message: string }> {
-    const res = await fetch(`${API_BASE}/metachat/cancel`, { method: 'POST' });
+  async cancelMetaChat(threadId?: string): Promise<{ cancelled: boolean; message: string }> {
+    const res = await fetch(`${API_BASE}/metachat/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(threadId ? { threadId } : {})
+    });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Falha ao cancelar execução do Meta-Chat' }));
       throw new Error(err.error || 'Falha ao cancelar execução do Meta-Chat');
@@ -1623,6 +1707,19 @@ export const api = {
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Falha ao recompilar DecoHUB' }));
       throw new Error(err.error || 'Falha ao recompilar DecoHUB');
+    }
+    return res.json();
+  },
+
+  async rollbackMetaChat(threadId?: string): Promise<{ success: boolean; filesRolledBack?: string[]; message?: string }> {
+    const res = await fetch(`${API_BASE}/metachat/rollback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ threadId })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Falha ao reverter turno no Meta-Chat' }));
+      throw new Error(err.error || 'Falha ao reverter turno no Meta-Chat');
     }
     return res.json();
   },

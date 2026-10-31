@@ -354,11 +354,30 @@ export const DecoHubCurrentActivityWidget: React.FC<DecoHubCurrentActivityWidget
     return 'Aguardando objetivo ou solicitação no chat.';
   };
 
-  // Clean error message without technical noise
+  // Clean error message without technical noise or prompt leakage
   const cleanReason = run?.last_error
     ? run.last_error
+        .replace(/The following is a <SYSTEM_MESSAGE>[\s\S]*?content=/gi, '')
+        .replace(/<SYSTEM_MESSAGE>[\s\S]*?<\/SYSTEM_MESSAGE>/gi, '')
+        .replace(/\[Message\]\s+timestamp=[^\n]*\s+sender=[^\n]*\s+priority=[^\n]*\s+content=/gi, '')
+        .replace(/=== CAMADA [A-Z]:[^\n]*===/gi, '')
+        .replace(/=== DIRETIVA DE [^\n]*===/gi, '')
+        .replace(/<thought[\s\S]*?<\/thought>/gi, '')
+        .replace(/<thinking[\s\S]*?<\/thinking>/gi, '')
+        .replace(/<system_invariants[\s\S]*?<\/system_invariants>/gi, '')
+        .replace(/<meta_engineer_identity[\s\S]*?<\/meta_engineer_identity>/gi, '')
+        .replace(/<operational_safety_invariants[\s\S]*?<\/operational_safety_invariants>/gi, '')
+        .replace(/<workspace_context[\s\S]*?<\/workspace_context>/gi, '')
+        .replace(/<execution_directive[^>]*>[\s\S]*?<\/execution_directive>/gi, '')
+        .replace(/<evolution_mission[\s\S]*?<\/evolution_mission>/gi, '')
+        .replace(/<briefing_contract[\s\S]*?<\/briefing_contract>/gi, '')
+        .replace(/<autonomous_evolution_cycle[\s\S]*?<\/autonomous_evolution_cycle>/gi, '')
+        .replace(/<\/?(?:system_invariants|meta_engineer_identity|operational_safety_invariants|workspace_context|execution_directive|evolution_mission|briefing_contract|autonomous_evolution_cycle|thought|thinking|antigravity_output|task_review|system_message|context_bridge|user_request|user_attachments|scoped_modified_files|failure_diagnostics)[^>]*>/gi, '')
         .replace(/\[AI DEV Council\]:[^\n]*/gi, '')
         .replace(/\(NEEDS_EVIDENCE:[^\n]*/gi, '')
+        .replace(/^Created At:\s+[^\r\n]+/gm, '')
+        .replace(/^Completed At:\s+[^\r\n]+/gm, '')
+        .replace(/Showing lines \d+-\d+ of \d+[^\r\n]*/gm, '')
         .trim()
     : null;
 
@@ -423,7 +442,7 @@ export const DecoHubCurrentActivityWidget: React.FC<DecoHubCurrentActivityWidget
                   <span>Pausar</span>
                 </button>
               )}
-              {(isPaused || isBlocked || isError) && onContinueOrResume && (
+              {(isPaused || isBlocked || isError || isWaitingResource) && onContinueOrResume && (
                 <button
                   type="button"
                   onClick={onContinueOrResume}

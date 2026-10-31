@@ -977,28 +977,28 @@ export class AutonomousSelfImprovementEngine {
     `).all(runId);
 
     const lines: string[] = [
-      `# 🌅 AI DEV HUB — OVERNIGHT SELF-IMPROVEMENT REPORT`,
+      `# AI DEV HUB — OVERNIGHT SELF-IMPROVEMENT REPORT`,
       `**Run ID**: \`${run.id}\`  `,
       `**Preset**: ${run.preset} | **Status**: ${run.status}  `,
       `**Duração Total**: ${run.elapsedMinutes.toFixed(1)}m / ${run.budgetMinutes.toFixed(1)}m  `,
       `**Starting SHA**: \`${run.baselineCommit}\`  `,
       `**Final Best SHA**: \`${run.currentBestCommit}\`  `,
       ``,
-      `## 📊 Resumo Executivo`,
+      `## Resumo Executivo`,
       `- **Experimentos Executados**: ${run.completedExperiments} / ${run.maxExperiments}`,
       `- **KEEP (Promovidos)**: ${run.keptCount}`,
       `- **DISCARD (Descartados)**: ${run.discardedCount}`,
       `- **CRASH / Bloqueados**: ${run.crashedCount} / ${run.blockedCount}`,
       `- **Motivo de Conclusão**: ${run.stopReason || 'Normal'}`,
       ``,
-      `## 📈 Comparativo de Métricas (Antes vs Depois)`,
+      `## Comparativo de Métricas (Antes vs Depois)`,
       `| Métrica | Baseline Inicial | Versão Final Promovida | Variação |`,
       `| :--- | :---: | :---: | :---: |`,
       `| **Taxa de Aprovação** | ${run.initialMetrics?.passRate || 100}% | ${run.currentMetrics?.passRate || 100}% | 0% (Invariante) |`,
       `| **Composite Score** | ${run.initialMetrics?.compositeScore || 99} pts | ${run.currentMetrics?.compositeScore || 99} pts | Estável |`,
       `| **Duração Total da Suíte** | ${((run.initialMetrics?.totalDurationMs || 476758) / 1000).toFixed(1)}s | ${((run.currentMetrics?.totalDurationMs || 476758) / 1000).toFixed(1)}s | Orçamento Respeitado |`,
       ``,
-      `## 🔬 Experimentos Detalhados`,
+      `## Experimentos Detalhados`,
     ];
 
     for (const exp of experiments) {
@@ -1010,7 +1010,7 @@ export class AutonomousSelfImprovementEngine {
       lines.push(``);
     }
 
-    lines.push(`## 🛡️ Regressões Prevenidas`);
+    lines.push(`## Regressões Prevenidas`);
     lines.push(`Durante o ciclo autônomo, candidatos com ganhos locais que violaram o teto global de +3% ou tetos individuais de +20% foram barrados pelo Promotion Gate e pelo AI DEV Council, protegendo a estabilidade da infraestrutura.`);
 
     return lines.join('\n');

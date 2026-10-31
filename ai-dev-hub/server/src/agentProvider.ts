@@ -50,6 +50,15 @@ export interface BuilderToSupervisorContract {
   implemented: string[];
   commandsExecuted: string[];
   toolCallsCount?: number;
+  agentSteps?: Array<{
+    id?: string;
+    type?: string;
+    action?: string;
+    target?: string;
+    details?: string;
+    timestamp?: string;
+    durationMs?: number;
+  }>;
   tests: {
     ran: boolean;
     command?: string;

@@ -465,7 +465,7 @@ export const ArenaModal: React.FC<ArenaModalProps> = ({
                       {activeRun?.candidates?.map(c => (
                         <th key={c.id} className="p-3">
                           {c.candidateLabel}
-                          {c.status === 'WINNER' && <span className="ml-1 text-emerald-400">🏆</span>}
+                          {c.status === 'WINNER' && <Trophy className="w-3.5 h-3.5 inline ml-1 text-emerald-400" />}
                         </th>
                       ))}
                     </tr>

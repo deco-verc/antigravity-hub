@@ -3772,14 +3772,18 @@ O simulador de pentest Red Team executará asserções contra todas as mutaçõe
       Logger.warn(`[ProjectLivingSpecService] Falha não bloqueante em DesignSkillService: ${err.message}`);
     }
 
+    const { resolveProjectCapabilities, resolveProjectProfileMode } = await import('./db.js');
+    const capabilities = resolveProjectCapabilities(input.projectId || resolvedProjectPath, briefing);
+    const projectProfile = resolveProjectProfileMode(input.projectId || resolvedProjectPath, briefing);
+
     try {
-      await ReaSaaSMasterService.provisionReaBlueprintForProject(resolvedProjectPath, briefing);
+      await ReaSaaSMasterService.provisionReaBlueprintForProject(resolvedProjectPath, briefing, undefined, capabilities, projectProfile);
     } catch (err: any) {
       Logger.warn(`[ProjectLivingSpecService] Falha não bloqueante em ReaSaaSMasterService: ${err.message}`);
     }
 
     try {
-      await DocSimpService.resolveDocsForBriefing(briefing, resolvedProjectPath);
+      await DocSimpService.resolveDocsForBriefing(briefing, resolvedProjectPath, capabilities, projectProfile);
     } catch (err: any) {
       Logger.warn(`[ProjectLivingSpecService] Falha não bloqueante em DocSimpService: ${err.message}`);
     }

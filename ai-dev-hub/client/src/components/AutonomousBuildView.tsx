@@ -396,11 +396,17 @@ export const AutonomousBuildView: React.FC<AutonomousBuildViewProps> = ({
                       ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
                       : activeRun.status === 'waiting_approval'
                       ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 animate-pulse'
+                      : activeRun.status === 'waiting_resource'
+                      ? 'bg-amber-500/15 text-amber-200 border-amber-500/40 animate-pulse'
                       : activeRun.status === 'completed'
                       ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
                       : 'bg-[#181b28] text-slate-400 border-[#2e344e]'
                   }`}>
-                    {activeRun.status === 'waiting_approval' ? 'Aprovação Pendente' : activeRun.status}
+                    {activeRun.status === 'waiting_approval'
+                      ? 'Aprovação Pendente'
+                      : activeRun.status === 'waiting_resource'
+                      ? 'Aguardando Reconexão'
+                      : activeRun.status}
                   </span>
                 )}
               </h2>
@@ -444,6 +450,17 @@ export const AutonomousBuildView: React.FC<AutonomousBuildViewProps> = ({
                 {isLooping ? <Pause className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}
                 <span>{isLooping ? 'PAUSAR LOOP' : 'INICIAR LOOP CONTÍNUO'}</span>
               </button>
+
+              {activeRun.status === 'waiting_resource' && (
+                <button
+                  onClick={handlePauseResume}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-sm transition-all animate-pulse"
+                  title="Retomar a esteira a partir da próxima tarefa pendente"
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>RETOMAR ESTEIRA</span>
+                </button>
+              )}
 
               <button
                 onClick={handlePauseResume}
@@ -944,9 +961,9 @@ export const AutonomousBuildView: React.FC<AutonomousBuildViewProps> = ({
                 onChange={e => setReplanChangeType(e.target.value as any)}
                 className="bg-[#121520] border border-[#202638] rounded-lg px-3 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-indigo-500"
               >
-                <option value="NEW_FEATURE">➕ Nova Funcionalidade (NEW_FEATURE)</option>
-                <option value="REQUIREMENT_CHANGE">🔄 Alterar Requisito (REQUIREMENT_CHANGE)</option>
-                <option value="DEFECT_FIX">🛠️ Corrigir Defeito (DEFECT_FIX)</option>
+                <option value="NEW_FEATURE">Nova Funcionalidade (NEW_FEATURE)</option>
+                <option value="REQUIREMENT_CHANGE">Alterar Requisito (REQUIREMENT_CHANGE)</option>
+                <option value="DEFECT_FIX">Corrigir Defeito (DEFECT_FIX)</option>
               </select>
 
               <input
@@ -1054,8 +1071,9 @@ export const AutonomousBuildView: React.FC<AutonomousBuildViewProps> = ({
                           </div>
                           <p className="text-xs text-[#7e87aa] pl-6">{major.objective}</p>
                           {major.blockingReason && (
-                            <p className="text-[11px] text-amber-300 pl-6 font-mono">
-                              ⚠️ Bloqueio / Pendência: {major.blockingReason}
+                            <p className="text-[11px] text-amber-300 pl-6 font-mono flex items-center gap-1.5">
+                              <AlertTriangle className="w-3 h-3 text-amber-400 flex-shrink-0" />
+                              <span>Bloqueio / Pendência: {major.blockingReason}</span>
                             </p>
                           )}
                         </div>
@@ -1574,9 +1592,10 @@ export const AutonomousBuildView: React.FC<AutonomousBuildViewProps> = ({
                 <button
                   type="button"
                   onClick={handleApplyOvernightPreset}
-                  className="px-3 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-semibold transition-colors"
+                  className="px-3 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-semibold transition-colors flex items-center gap-1.5"
                 >
-                  ⚡ Preset: Overnight Build
+                  <Zap className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Preset: Overnight Build</span>
                 </button>
                 <button onClick={() => setIsNewModalOpen(false)} className="text-[#7e87aa] hover:text-white text-xs font-mono">
                   ✕

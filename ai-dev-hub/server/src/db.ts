@@ -129,6 +129,173 @@ export function resolveProjectOperationalDataDir(projectId: string, baseDataDir:
   return dir;
 }
 
+export type ProjectProfileMode = 'local_personal' | 'commercial_saas' | 'custom';
+
+export interface ProjectCapabilities {
+  database: boolean;      // Persistência SQLite / Banco de Dados
+  auth: boolean;          // Login, Cadastro, Sessão, Supabase Auth / Turnstile
+  payments: boolean;      // Checkout PIX, PushinPay, Planos de Assinatura, Billing
+  advancedSaas: boolean;  // Multi-tenant/Equipe RBAC, API Keys, Webhooks Playground, /docs, Audit Trail comercial
+  demoSeed: boolean;      // Popular dados fictícios de exemplo no boot (seedIfEmpty)
+}
+
+export const DEFAULT_CAPABILITIES_LOCAL_PERSONAL: ProjectCapabilities = {
+  database: true,
+  auth: false,
+  payments: false,
+  advancedSaas: false,
+  demoSeed: false
+};
+
+export const DEFAULT_CAPABILITIES_COMMERCIAL_SAAS: ProjectCapabilities = {
+  database: true,
+  auth: true,
+  payments: true,
+  advancedSaas: true,
+  demoSeed: true
+};
+
+export function resolveProjectCapabilities(projectOrId?: any, briefing?: string): ProjectCapabilities {
+  if (projectOrId && typeof projectOrId === 'object') {
+    if (projectOrId.capabilities && typeof projectOrId.capabilities === 'object') {
+      return {
+        database: projectOrId.capabilities.database ?? true,
+        auth: Boolean(projectOrId.capabilities.auth),
+        payments: Boolean(projectOrId.capabilities.payments),
+        advancedSaas: Boolean(projectOrId.capabilities.advancedSaas),
+        demoSeed: Boolean(projectOrId.capabilities.demoSeed)
+      };
+    }
+    if (typeof projectOrId.capabilities_json === 'string' && projectOrId.capabilities_json.trim()) {
+      try {
+        const parsed = JSON.parse(projectOrId.capabilities_json);
+        return {
+          database: parsed.database ?? true,
+          auth: Boolean(parsed.auth),
+          payments: Boolean(parsed.payments),
+          advancedSaas: Boolean(parsed.advancedSaas),
+          demoSeed: Boolean(parsed.demoSeed)
+        };
+      } catch {}
+    }
+    if (projectOrId.project_profile === 'commercial_saas' || projectOrId.projectProfile === 'commercial_saas') {
+      return { ...DEFAULT_CAPABILITIES_COMMERCIAL_SAAS };
+    }
+    if (projectOrId.project_profile === 'local_personal' || projectOrId.projectProfile === 'local_personal') {
+      return { ...DEFAULT_CAPABILITIES_LOCAL_PERSONAL };
+    }
+    if (projectOrId.id || projectOrId.path) {
+      return resolveProjectCapabilities(projectOrId.id || projectOrId.path, briefing);
+    }
+  }
+
+  if (typeof projectOrId === 'string' && projectOrId.trim()) {
+    try {
+      const row: any = db.prepare('SELECT project_profile, capabilities_json FROM projects WHERE id = ? OR path = ?').get(projectOrId.trim(), projectOrId.trim());
+      if (row) {
+        if (row.capabilities_json) {
+          try {
+            const parsed = JSON.parse(row.capabilities_json);
+            return {
+              database: parsed.database ?? true,
+              auth: Boolean(parsed.auth),
+              payments: Boolean(parsed.payments),
+              advancedSaas: Boolean(parsed.advancedSaas),
+              demoSeed: Boolean(parsed.demoSeed)
+            };
+          } catch {}
+        }
+        if (row.project_profile === 'commercial_saas') {
+          return { ...DEFAULT_CAPABILITIES_COMMERCIAL_SAAS };
+        }
+        if (row.project_profile === 'local_personal') {
+          return { ...DEFAULT_CAPABILITIES_LOCAL_PERSONAL };
+        }
+      }
+    } catch {}
+  }
+
+  // Fallback de compatibilidade para testes ou briefs explícitos
+  if (briefing && typeof briefing === 'string') {
+    const text = briefing.toLowerCase();
+    const explicitSaaS = /\b(saas|saas master|7 pilares|8 pilares|billing|faturamento|assinatura|planos|pix|pushinpay|multi-tenant|rbac|webhooks playground)\b/i.test(text);
+    if (explicitSaaS) {
+      return { ...DEFAULT_CAPABILITIES_COMMERCIAL_SAAS };
+    }
+  }
+
+  return { ...DEFAULT_CAPABILITIES_LOCAL_PERSONAL };
+}
+
+export function resolveProjectProfileMode(projectOrId?: any, briefing?: string): ProjectProfileMode {
+  if (projectOrId && typeof projectOrId === 'object') {
+    if (projectOrId.project_profile === 'commercial_saas' || projectOrId.projectProfile === 'commercial_saas') return 'commercial_saas';
+    if (projectOrId.project_profile === 'custom' || projectOrId.projectProfile === 'custom') return 'custom';
+    if (projectOrId.project_profile === 'local_personal' || projectOrId.projectProfile === 'local_personal') return 'local_personal';
+    if (projectOrId.id || projectOrId.path) {
+      return resolveProjectProfileMode(projectOrId.id || projectOrId.path, briefing);
+    }
+  }
+  if (typeof projectOrId === 'string' && projectOrId.trim()) {
+    try {
+      const row: any = db.prepare('SELECT project_profile FROM projects WHERE id = ? OR path = ?').get(projectOrId.trim(), projectOrId.trim());
+      if (row?.project_profile) {
+        return row.project_profile as ProjectProfileMode;
+      }
+    } catch {}
+  }
+  if (briefing && typeof briefing === 'string') {
+    const text = briefing.toLowerCase();
+    if (/\b(saas|saas master|7 pilares|8 pilares|billing|faturamento|assinatura|planos|pix|pushinpay|multi-tenant|rbac|webhooks playground)\b/i.test(text)) {
+      return 'commercial_saas';
+    }
+  }
+  return 'local_personal';
+}
+
+export function formatCapabilitiesProfileBlock(
+  capabilities: ProjectCapabilities,
+  projectProfile: ProjectProfileMode = 'local_personal'
+): string {
+  const modeLabel =
+    projectProfile === 'local_personal'
+      ? 'USO PESSOAL / LOCAL'
+      : projectProfile === 'commercial_saas'
+        ? 'SAAS COMERCIAL'
+        : 'PERSONALIZADO';
+
+  const dbText = capabilities.database
+    ? 'SIM — implementar persistência real'
+    : 'NÃO — sem banco de dados relacional; usar memória/JSON simples se necessário';
+
+  const authText = capabilities.auth
+    ? 'SIM — implementar autenticação'
+    : 'NÃO — PROIBIDO criar tela de login, cadastro, senha, Supabase Auth ou Turnstile; o app deve abrir DIRETO na tela funcional principal!';
+
+  const payText = capabilities.payments
+    ? 'SIM — implementar cobrança/PIX'
+    : 'NÃO — PROIBIDO criar planos de assinatura, checkout PIX, PushinPay, faturas ou telas de billing!';
+
+  const advText = capabilities.advancedSaas
+    ? 'SIM'
+    : 'NÃO — PROIBIDO criar telas de gestão de equipe, API keys, webhooks playground ou abas decorativas não pedidas!';
+
+  const seedText = capabilities.demoSeed
+    ? 'SIM — popular exemplos no boot'
+    : 'NÃO — PROIBIDO inventar registros fictícios/mocks como se fossem resultados reais!';
+
+  return [
+    '=== PERFIL ARQUITETURAL ESCOLHIDO PELO USUÁRIO ===',
+    `- Modo do Projeto: ${modeLabel}`,
+    `- Banco de Dados (SQLite): ${dbText}`,
+    `- Login & Autenticação: ${authText}`,
+    `- Pagamentos & PIX: ${payText}`,
+    `- Recursos Avançados SaaS (RBAC, API Keys, Webhooks): ${advText}`,
+    `- Seed de Dados Fictícios (seedIfEmpty): ${seedText}`,
+    'REGRA INEGOCIÁVEL: Obedeça 100% às escolhas acima e construa EXCLUSIVAMENTE o que foi pedido no briefing do usuário!'
+  ].join('\n');
+}
+
 export const HUB_DATA_DIR = getHubDataDir();
 if (!fs.existsSync(HUB_DATA_DIR)) {
   fs.mkdirSync(HUB_DATA_DIR, { recursive: true });
@@ -1166,7 +1333,9 @@ export function initDatabase() {
     ['github_sync_status', 'TEXT DEFAULT "idle"'],
     ['github_last_synced_at', 'TEXT'],
     ['is_trusted', 'INTEGER DEFAULT 1'],
-    ['full_dev_autonomy', 'INTEGER DEFAULT 1']
+    ['full_dev_autonomy', 'INTEGER DEFAULT 1'],
+    ['project_profile', "TEXT DEFAULT 'local_personal'"],
+    ['capabilities_json', `TEXT DEFAULT '{"database":true,"auth":false,"payments":false,"advancedSaas":false,"demoSeed":false}'`]
   ]) {
     safeAddColumn(db, 'projects', col, colType);
   }
@@ -1327,6 +1496,7 @@ export function initDatabase() {
   }
 
   safeAddColumn(db, 'model_preferences', 'intelligence_level', "TEXT NOT NULL DEFAULT 'HIGH'");
+  safeAddColumn(db, 'messages', 'agent_role', 'TEXT');
   ensureDefensiveMigrations(db);
 
   if (!isRunningInTestEnvironment()) {
@@ -1820,6 +1990,8 @@ export function ensureDefensiveMigrations(targetDb: any = db): void {
     ['autonomous_tasks', 'review_result_json', 'TEXT'],
     ['autonomous_tasks', 'protected_evaluation_files_json', 'TEXT'],
     ['autonomous_tasks', 'lifecycle_state', "TEXT DEFAULT 'PLANNED'"],
+    ['projects', 'project_profile', "TEXT DEFAULT 'local_personal'"],
+    ['projects', 'capabilities_json', "TEXT DEFAULT '{\"database\":true,\"auth\":false,\"payments\":false,\"advancedSaas\":false,\"demoSeed\":false}'"],
     ['account_profiles', 'quota_resets_at', 'TEXT'],
     ['account_profiles', 'quota_exhausted_at', 'TEXT'],
     ['account_profiles', 'quota_message', 'TEXT'],
@@ -1838,6 +2010,7 @@ export function ensureDefensiveMigrations(targetDb: any = db): void {
     ['worker_leases', 'created_at', 'TEXT'],
     ['operational_lessons', 'updated_at', 'TEXT'],
     ['operational_lessons', 'created_at', 'TEXT'],
+    ['messages', 'agent_role', 'TEXT'],
     ['meta_chat_messages', 'thread_id', 'TEXT'],
     ['meta_chat_messages', 'executed_steps_json', 'TEXT'],
     ['meta_chat_messages', 'updated_at', 'TEXT'],
@@ -2007,6 +2180,44 @@ export function ensureDefensiveMigrations(targetDb: any = db): void {
         console.warn("[WARN][server:db]", err);
       }
     }
+
+  // Auto-sanitize corrupted chopped tasks (e.g. from legacy bullet splitter bug like "id: string", "pageId: string", "faça o GET para h")
+  try {
+    const hasTasks = Boolean(targetDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='autonomous_tasks'").get());
+    if (hasTasks) {
+      const corruptedTasks = targetDb.prepare(`
+        SELECT id, run_id FROM autonomous_tasks
+        WHERE title LIKE '%id: string%'
+           OR title LIKE '%pageId: string%'
+           OR title LIKE '%faça o GET para h%'
+      `).all() as Array<{ id: string; run_id: string }>;
+
+      if (corruptedTasks && corruptedTasks.length > 0) {
+        const corruptedRunIds = Array.from(new Set(corruptedTasks.map(t => t.run_id).filter(Boolean)));
+        for (const runId of corruptedRunIds) {
+          targetDb.prepare("DELETE FROM autonomous_tasks WHERE run_id = ?").run(runId);
+          try { targetDb.prepare("DELETE FROM autonomous_approvals WHERE run_id = ?").run(runId); } catch {}
+          try { targetDb.prepare("DELETE FROM autonomous_events WHERE run_id = ?").run(runId); } catch {}
+          try { targetDb.prepare("DELETE FROM worker_leases WHERE run_id = ?").run(runId); } catch {}
+          targetDb.prepare("DELETE FROM autonomous_runs WHERE id = ?").run(runId);
+        }
+        if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.info) {
+          (globalThis as any).logger.info({
+            event: "server.db_sanitized",
+            message: `[Database Sanitation] Purged ${corruptedTasks.length} corrupted tasks and ${corruptedRunIds.length} corrupted runs from legacy bullet chopping.`
+          });
+        }
+      }
+    }
+  } catch (err) {
+    if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+      (globalThis as any).logger.warn({
+        event: "server.handled_exception",
+        file: "db",
+        error: (err as any)?.message || String(err)
+      });
+    }
+  }
 }
 
 initDatabase();

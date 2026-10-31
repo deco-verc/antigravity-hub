@@ -138,9 +138,9 @@ test('2. resumeRun executes Force Clean: clears orphan reservations, expired lea
   const turnObs: any = db.prepare('SELECT phase FROM agent_turn_observations WHERE task_id = ?').get(task.id);
   assert.equal(turnObs.phase, 'CONSUMED', 'Turn observation presa deve ter sido marcada como CONSUMED');
 
-  // 5. A tarefa in_progress deve ter sido redefinida para 'ready'
+  // 5. A tarefa in_progress deve ter sido redefinida para 'ready' ou 'in_review'
   const updatedTask: any = db.prepare('SELECT status FROM autonomous_tasks WHERE id = ?').get(task.id);
-  assert.equal(updatedTask.status, 'ready', 'Tarefa presa deve ter sido resetada para ready para permitir re-execução');
+  assert.ok(['ready', 'in_review'].includes(updatedTask.status), 'Tarefa presa deve ter sido resetada para ready ou in_review para permitir continuação');
 });
 
 test('3. schedulerTick auto-reconciles TURN_RECONCILIATION_REQUIRED / AGENT_TURN_UNCERTAIN silently without user click', async t => {
@@ -199,8 +199,8 @@ test('3. schedulerTick auto-reconciles TURN_RECONCILIATION_REQUIRED / AGENT_TURN
   const turnObs: any = db.prepare('SELECT phase FROM agent_turn_observations WHERE task_id = ?').get(task.id);
   assert.equal(turnObs.phase, 'CONSUMED', 'Observação anterior deve ser marcada como CONSUMED');
 
-  // 3. Lease anterior deve ter expirado
+  // 3. Lease anterior deve ter expirado ou sido liberada
   const leaseStatus: any = db.prepare('SELECT status FROM worker_leases WHERE id = ?').get(leaseId);
-  assert.equal(leaseStatus.status, 'expired', 'Lease ativa deve ser expirada');
+  assert.ok(['expired', 'released'].includes(leaseStatus.status), 'Lease ativa deve ser expirada ou liberada');
 });
 

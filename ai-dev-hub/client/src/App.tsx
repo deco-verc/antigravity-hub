@@ -182,12 +182,12 @@ export const App: React.FC = () => {
         if (event.type === 'backend_crashed') {
           setRecoveryStatus({
             type: 'crashed',
-            message: '⚠️ Alerta Desktop: O processo backend foi interrompido. Auto-Recovery reiniciando o serviço...'
+            message: 'Alerta Desktop: O processo backend foi interrompido. Auto-Recovery reiniciando o serviço...'
           });
         } else if (event.type === 'backend_recovered') {
           setRecoveryStatus({
             type: 'recovered',
-            message: `✓ Auto-Recovery: Backend recuperado com sucesso e operacional na porta ${event.data?.port || 3001}.`
+            message: `Auto-Recovery: Backend recuperado com sucesso e operacional na porta ${event.data?.port || 3001}.`
           });
           setTimeout(() => setRecoveryStatus(null), 6000);
         }
@@ -383,7 +383,7 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleSendMessage = async (content: string, requestId?: string, options?: { signal?: AbortSignal }) => {
+  const handleSendMessage = async (content: string, requestId?: string, options?: { signal?: AbortSignal; planFirst?: boolean; approvePendingPlan?: boolean; agent?: 'council' | 'supervisor' | 'worker' | 'reviewer' }) => {
     if (!activeProjectId) return;
     setAgentStatus('working');
     const tempId = 'temp-' + (requestId || Date.now());
@@ -405,8 +405,16 @@ export const App: React.FC = () => {
         const toAdd: ChatMessage[] = [];
         if (res.userMessage && !ids.has(res.userMessage.id)) {
           toAdd.push(res.userMessage);
+          ids.add(res.userMessage.id);
         }
-        if (res.assistantReply && !ids.has(res.assistantReply.id)) {
+        if (res.councilMessages && res.councilMessages.length > 0) {
+          for (const msg of res.councilMessages) {
+            if (!ids.has(msg.id)) {
+              toAdd.push(msg);
+              ids.add(msg.id);
+            }
+          }
+        } else if (res.assistantReply && !ids.has(res.assistantReply.id)) {
           toAdd.push(res.assistantReply);
         }
         return [...withoutTemp, ...toAdd];
@@ -654,7 +662,7 @@ export const App: React.FC = () => {
             onReloadAccounts={loadAccounts}
           />
         ) : projectDetails ? (
-          <div key={activeProjectId || "no-project"} className="flex-1 flex flex-col h-full overflow-hidden">
+          <div key={activeProjectId || "no-project"} className="flex-1 flex flex-col h-full min-h-0 overflow-hidden">
             {/* Project Header */}
             <DecoHubHeader
               project={projectDetails}
@@ -695,7 +703,7 @@ export const App: React.FC = () => {
             />
 
             {/* Content Area */}
-            <div className="flex-1 flex flex-col h-full overflow-hidden">
+            <div className="flex-1 flex flex-col h-full min-h-0 overflow-hidden">
               {/* Clean Tab Switcher (Chat, Overview, Tasks, Files, Activity) */}
               <div className="px-8 bg-[#0a0d15] border-b border-[#1b2033] flex items-center justify-between flex-shrink-0">
                 <div className="flex items-center gap-1">
@@ -708,7 +716,7 @@ export const App: React.FC = () => {
                         : 'border-transparent text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    <span>💬 Chat</span>
+                    <span>Chat</span>
                     {messages.length > 0 && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#1b2033] text-indigo-300 font-mono">
                         {messages.length}
@@ -776,7 +784,7 @@ export const App: React.FC = () => {
                         : 'border-transparent text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    <span>🌐 Live Preview</span>
+                    <span>Live Preview</span>
                   </button>
 
                   <button
@@ -788,7 +796,7 @@ export const App: React.FC = () => {
                         : 'border-transparent text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    <span>🔀 Git Diff</span>
+                    <span>Git Diff</span>
                     {projectDetails.gitInfo?.statusSummary && projectDetails.gitInfo.statusSummary.total > 0 && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#1b2033] text-indigo-300 font-mono">
                         {projectDetails.gitInfo.statusSummary.total}
@@ -858,6 +866,16 @@ export const App: React.FC = () => {
                   {activeMainTab === 'preview' && (
                     <DecoHubLivePreviewView
                       project={projectDetails}
+                      onSendToChat={(errorText) => {
+                        setActiveMainTab('chat');
+                        setTimeout(() => {
+                          window.dispatchEvent(new CustomEvent('decohub-fill-chat-input', {
+                            detail: {
+                              text: `[ERRO NA PORTA DO APP] Detectei o seguinte erro na execução do aplicativo e preciso que você diagnostique e corrija:\n\n\`\`\`text\n${errorText}\n\`\`\``
+                            }
+                          }));
+                        }, 100);
+                      }}
                     />
                   )}
 

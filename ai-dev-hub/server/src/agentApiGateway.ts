@@ -206,6 +206,19 @@ export class AgentApiGateway {
   private static tryRefreshProfileConnectionEnv(cleanEnv: NodeJS.ProcessEnv, projectId?: string | null): void {
     if (this.isOfflineMode()) return;
     try {
+      const targetProfileId = this.resolveProfileIdForEnv(cleanEnv, projectId);
+      try {
+        const { RuntimeDaemonManager } = require('./runtimeDaemonManager.js');
+        const daemonRes = RuntimeDaemonManager.ensureSingleRuntimeRunningSync(targetProfileId, 4000);
+        if (daemonRes?.address && daemonRes?.csrfToken) {
+          cleanEnv.ANTIGRAVITY_LS_ADDRESS = daemonRes.address;
+          cleanEnv.ANTIGRAVITY_CSRF_TOKEN = daemonRes.csrfToken;
+          process.env.ANTIGRAVITY_LS_ADDRESS = daemonRes.address;
+          process.env.ANTIGRAVITY_CSRF_TOKEN = daemonRes.csrfToken;
+          return;
+        }
+      } catch {}
+
       const userProfileDir = cleanEnv.USERPROFILE;
       if (!userProfileDir) return;
       const rows: any[] = db.prepare('SELECT id, environment_path, display_name FROM account_profiles').all();
@@ -213,14 +226,14 @@ export class AgentApiGateway {
         r => r.environment_path && r.environment_path.toLowerCase() === userProfileDir.toLowerCase()
       );
       if (matched) {
-        // Lazy dynamic import not needed for sync call; use require/db or AccountProfileManager if loaded
-        // Attempt to re-discover running instance via AccountProfileManager if available on global scope
         const apm = getAccountProfileManager();
         if (apm && typeof apm.ensureProfileRuntimeRunningSync === 'function') {
           const instance = apm.ensureProfileRuntimeRunningSync(matched, 8000);
           if (instance?.address && instance?.csrfToken) {
             cleanEnv.ANTIGRAVITY_LS_ADDRESS = instance.address;
             cleanEnv.ANTIGRAVITY_CSRF_TOKEN = instance.csrfToken;
+            process.env.ANTIGRAVITY_LS_ADDRESS = instance.address;
+            process.env.ANTIGRAVITY_CSRF_TOKEN = instance.csrfToken;
           }
         }
       }
@@ -235,6 +248,53 @@ export class AgentApiGateway {
         console.warn("[WARN][server:agentApiGateway]", err);
       }
     }
+  }
+
+  /**
+   * Helper to detect connection refused, closed socket, or LS communication failure
+   */
+  static isConnectionFailure(error: any): boolean {
+    const errStr = (error?.stderr || error?.stdout || error?.message || String(error)).toLowerCase();
+    return (
+      errStr.includes('econnrefused') ||
+      errStr.includes('econnreset') ||
+      errStr.includes('epipe') ||
+      errStr.includes('socket hang up') ||
+      errStr.includes('closed socket') ||
+      errStr.includes('socket closed') ||
+      errStr.includes('connection refused') ||
+      errStr.includes('failed to connect') ||
+      errStr.includes('language server offline') ||
+      errStr.includes('language_server offline') ||
+      errStr.includes('channel is closed') ||
+      errStr.includes('transport is closing') ||
+      errStr.includes('actively refused') ||
+      errStr.includes('agentapi_unavailable') ||
+      errStr.includes('target machine actively refused')
+    );
+  }
+
+  /**
+   * Resolves the profile ID associated with current environment or project
+   */
+  private static resolveProfileIdForEnv(cleanEnv: NodeJS.ProcessEnv, projectId?: string | null): string | undefined {
+    if (projectId) {
+      try {
+        const apm = getAccountProfileManager();
+        const prof = apm.getActiveProfileForProject(projectId);
+        if (prof?.id) return prof.id;
+      } catch {}
+    }
+    if (cleanEnv.USERPROFILE) {
+      try {
+        const rows: any[] = db.prepare('SELECT id, environment_path FROM account_profiles').all();
+        const matched = rows.find(
+          r => r.environment_path && r.environment_path.toLowerCase() === cleanEnv.USERPROFILE!.toLowerCase()
+        );
+        if (matched?.id) return matched.id;
+      } catch {}
+    }
+    return undefined;
   }
 
   /**
@@ -679,6 +739,29 @@ export class AgentApiGateway {
           throw err;
         }
 
+        if (this.isConnectionFailure(err)) {
+          Logger.warn(
+            `[AgentApiGateway] Conexão recusada ou perdida com Language Server em new-conversation (${err.message}). Auto-iniciando processo em 2º plano via RuntimeDaemonManager...`
+          );
+          try {
+            const { RuntimeDaemonManager } = await import('./runtimeDaemonManager.js');
+            const targetProfileId = this.resolveProfileIdForEnv(cleanEnv, projectId);
+            const daemonRes = await RuntimeDaemonManager.ensureSingleRuntimeRunning(targetProfileId);
+            if (daemonRes?.address && daemonRes?.csrfToken) {
+              cleanEnv.ANTIGRAVITY_LS_ADDRESS = daemonRes.address;
+              cleanEnv.ANTIGRAVITY_CSRF_TOKEN = daemonRes.csrfToken;
+              process.env.ANTIGRAVITY_LS_ADDRESS = daemonRes.address;
+              process.env.ANTIGRAVITY_CSRF_TOKEN = daemonRes.csrfToken;
+              Logger.success(
+                `[AgentApiGateway] Language Server reativado em 2º plano em ${daemonRes.address}. Retentando new-conversation transparente...`
+              );
+              continue;
+            }
+          } catch (daemonErr: any) {
+            Logger.warn(`[AgentApiGateway] Falha ao auto-reativar Language Server em new-conversation: ${daemonErr.message}`);
+          }
+        }
+
         if (attempt < maxAttempts) {
           Logger.warn(
             `[AgentApiGateway] Tentativa ${attempt}/${maxAttempts} falhou para new-conversation (${err.message}). Retentando em 500ms...`
@@ -1083,6 +1166,29 @@ export class AgentApiGateway {
           err.message?.includes('AUTHORIZATION_GUARD')
         ) {
           throw err;
+        }
+
+        if (this.isConnectionFailure(err)) {
+          Logger.warn(
+            `[AgentApiGateway] Conexão recusada ou perdida com Language Server em send-message (${err.message}). Auto-iniciando processo em 2º plano via RuntimeDaemonManager...`
+          );
+          try {
+            const { RuntimeDaemonManager } = require('./runtimeDaemonManager.js');
+            const targetProfileId = this.resolveProfileIdForEnv(cleanEnv, options.projectId);
+            const daemonRes = RuntimeDaemonManager.ensureSingleRuntimeRunningSync(targetProfileId);
+            if (daemonRes?.address && daemonRes?.csrfToken) {
+              cleanEnv.ANTIGRAVITY_LS_ADDRESS = daemonRes.address;
+              cleanEnv.ANTIGRAVITY_CSRF_TOKEN = daemonRes.csrfToken;
+              process.env.ANTIGRAVITY_LS_ADDRESS = daemonRes.address;
+              process.env.ANTIGRAVITY_CSRF_TOKEN = daemonRes.csrfToken;
+              Logger.success(
+                `[AgentApiGateway] Language Server reativado em 2º plano em ${daemonRes.address}. Retentando send-message transparente...`
+              );
+              continue;
+            }
+          } catch (daemonErr: any) {
+            Logger.warn(`[AgentApiGateway] Falha ao auto-reativar Language Server em send-message: ${daemonErr.message}`);
+          }
         }
 
         if (attempt < maxAttempts) {

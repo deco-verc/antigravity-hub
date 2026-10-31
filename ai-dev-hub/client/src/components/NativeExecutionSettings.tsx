@@ -1,5 +1,6 @@
 import React, {useEffect,useState} from 'react';
 import {api} from '../services/api';
+import {CheckCircle2, AlertTriangle} from 'lucide-react';
 
 export function NativeExecutionSettings({projectId}:{projectId:string}) {
   const [mode,setMode]=useState<'restricted'|'permissive'>('restricted');
@@ -48,12 +49,14 @@ export function NativeExecutionSettings({projectId}:{projectId:string}) {
       <div className="flex items-center justify-between">
         <span className="text-xs text-slate-300 font-medium">Status do Vínculo Nativo:</span>
         {bindingInfo?.isBound ? (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-            ✓ Vinculado e Ativo
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+            <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+            <span>Vinculado e Ativo</span>
           </span>
         ) : (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-            ⚠ Vínculo Pendente
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+            <AlertTriangle className="w-3 h-3 text-amber-400" />
+            <span>Vínculo Pendente</span>
           </span>
         )}
       </div>

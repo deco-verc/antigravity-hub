@@ -521,7 +521,10 @@ export const DecoHubObservabilityView: React.FC<DecoHubObservabilityViewProps> =
                             {ev.error && (
                               <div className="bg-rose-950/20 border border-rose-900/30 rounded p-2 text-rose-300 space-y-1">
                                 <div className="font-bold flex items-center justify-between">
-                                  <span>🚨 {ev.error.name}: {ev.error.message}</span>
+                                  <span className="flex items-center gap-1.5">
+                                    <AlertTriangle className="w-3.5 h-3.5 text-rose-400 flex-shrink-0" />
+                                    <span>{ev.error.name}: {ev.error.message}</span>
+                                  </span>
                                   {ev.error.code && <span className="text-xs text-rose-400 font-mono">[{ev.error.code}]</span>}
                                 </div>
                                 {ev.error.stack && (
@@ -665,7 +668,10 @@ export const DecoHubObservabilityView: React.FC<DecoHubObservabilityViewProps> =
                           {/* Error block */}
                           {ev.error && (
                             <div className="mt-2 p-2 bg-rose-950/20 border border-rose-900/30 rounded text-rose-300 text-xs">
-                              <div className="font-bold">🚨 {ev.error.name}: {ev.error.message}</div>
+                              <div className="font-bold flex items-center gap-1.5">
+                                <AlertTriangle className="w-3.5 h-3.5 text-rose-400 flex-shrink-0" />
+                                <span>{ev.error.name}: {ev.error.message}</span>
+                              </div>
                               {ev.error.stack && (
                                 <pre className="text-[10px] text-rose-400/80 overflow-x-auto whitespace-pre-wrap mt-1">
                                   {ev.error.stack}

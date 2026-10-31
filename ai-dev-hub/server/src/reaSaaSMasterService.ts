@@ -8,6 +8,7 @@ import { execSync } from 'node:child_process';
 import { Logger } from './logger.js';
 import { AgentApiGateway } from './agentApiGateway.js';
 import { DocSimpService } from './docSimpService.js';
+import { ProjectCapabilities, ProjectProfileMode, resolveProjectCapabilities, resolveProjectProfileMode } from './db.js';
 
 export interface SaaSMasterPillar {
   id: number;
@@ -306,6 +307,8 @@ export class ReaSaaSMasterService {
     targetOrBriefing: string;
     projectPath?: string;
     slug?: string;
+    capabilities?: Partial<ProjectCapabilities>;
+    projectProfile?: ProjectProfileMode;
   }): Promise<ReaAnalysisResult> {
     const slug = params.slug || this.generateSlug(params.targetOrBriefing);
     const blueprintsDir = this.getReaBlueprintsDir();
@@ -424,7 +427,12 @@ export class ReaSaaSMasterService {
       }
     }
 
-    const directive = this.buildSaaSMasterArchitectureDirective(params.targetOrBriefing, copiedToProject || cacheFile);
+    const directive = this.buildSaaSMasterArchitectureDirective(
+      params.targetOrBriefing,
+      copiedToProject || cacheFile,
+      params.capabilities,
+      params.projectProfile
+    );
 
     return {
       slug,
@@ -442,13 +450,17 @@ export class ReaSaaSMasterService {
   static async provisionReaBlueprintForProject(
     projectPath: string,
     briefing?: string,
-    targetReference?: string
+    targetReference?: string,
+    capabilities?: Partial<ProjectCapabilities>,
+    projectProfile?: ProjectProfileMode
   ): Promise<{ blueprintPath: string; directive: string; fullContent: string }> {
     const effectiveTarget = targetReference || briefing || 'enterprise-saas';
     const result = await this.analyzeTargetOrReference({
       targetOrBriefing: effectiveTarget,
       projectPath,
-      slug: this.generateSlug(targetReference || briefing || 'saas_master')
+      slug: this.generateSlug(targetReference || briefing || 'saas_master'),
+      capabilities,
+      projectProfile
     });
 
     return {
@@ -460,9 +472,19 @@ export class ReaSaaSMasterService {
 
   /**
    * Generates a high-density architectural synthesis (~1.400 characters)
-   * that strictly enforces the 8 Pillars of SaaS Master without overflowing CLI limits (< 1.800 chars).
+   * that strictly enforces the active pillars respecting user-selected capabilities.
    */
-  static buildSaaSMasterArchitectureDirective(briefing?: string, blueprintPath?: string): string {
+  static buildSaaSMasterArchitectureDirective(
+    briefing?: string,
+    blueprintPath?: string,
+    capabilities?: Partial<ProjectCapabilities>,
+    projectProfile?: ProjectProfileMode
+  ): string {
+    const caps = capabilities
+      ? resolveProjectCapabilities({ capabilities }, briefing)
+      : resolveProjectCapabilities(blueprintPath || briefing, briefing);
+    const profile = projectProfile || resolveProjectProfileMode(blueprintPath || briefing, briefing);
+
     const normPath = (blueprintPath || '').replace(/\\/g, '/');
     const relPath = normPath.includes('.ai-dev-hub/')
       ? `.ai-dev-hub/${path.basename(normPath)}`
@@ -470,36 +492,97 @@ export class ReaSaaSMasterService {
         ? path.basename(blueprintPath)
         : '.ai-dev-hub/rea-blueprint.md';
 
-    return [
+    const isLocalOrMinimal = profile === 'local_personal' || (!caps.payments && !caps.advancedSaas && !caps.auth);
+
+    if (isLocalOrMinimal) {
+      const pillars: string[] = [
+        `=== DIRETRIZ ARQUITETURAL: USO PESSOAL / FERRAMENTA LOCAL ===`,
+        `Construa uma aplicação focada, ágil, direta ao ponto e com UI limpa e moderna (${relPath}).`,
+        `PROIBIDO criar telas de login/autenticação, planos de assinatura, checkout PIX ou telas de equipe/SaaS.`,
+        `Pilares Mandatórios para Uso Local:`,
+        `1. APP SHELL ENTERPRISE: Navegação semântica em abas (role="tab" e data-tab="<secao>"), interface responsiva e atalhos de teclado rápidos.`,
+        `2. SLIDE-OVER DETAIL DRAWERS: Clicar em registros abre Drawer lateral detalhado com sub-abas (Detalhes, Edição Inline e Notas) sem trocar de tela e com Optimistic UI.`,
+        `3. DATA GRID EFICIENTE, FILTROS & EXPORTAÇÃO: Busca debounce, filtros por categoria/status, ordenação de colunas e exportação CSV formatada RFC-4180.`,
+        `4. VISUALIZAÇÃO DE DADOS & KPIS: Cards com métricas consolidadas tabulares (tabular-nums) e gráficos visuais limpos representando o domínio.`
+      ];
+
+      if (caps.payments) {
+        pillars.push(`5. BILLING CENTER & PIX: Assinatura com planos, medidores de consumo, fatura com QR Code PIX e recibo.`);
+      }
+
+      if (caps.advancedSaas) {
+        pillars.push(`6. PORTAL /docs & DEVELOPER HUB: Aba /docs com Quickstart, catálogo REST com snippets curl/fetch, API Keys e Webhooks Playground.`);
+        pillars.push(`7. RBAC DE EQUIPE & AUDIT TRAIL: Membros da equipe (Admin/Manager/Viewer), preferências e trilha /api/audit-logs.`);
+      }
+
+      if (caps.demoSeed) {
+        pillars.push(`8. REACTIVE CLIENT STORE & SEED RICO: Client Store reativa com persistência F5 e seedIfEmpty() populando registros de exemplo no boot.`);
+      } else {
+        pillars.push(`8. REACTIVE CLIENT STORE & ESTADO LIMPO: Client Store reativa com persistência F5. PROIBIDO inventar registros falsos de seed; inicialize em estado limpo pronto para receber dados reais.`);
+      }
+
+      pillars.push(`=== FIM DA DIRETRIZ USO PESSOAL ===`);
+      return pillars.join('\n');
+    }
+
+    const saasPillars: string[] = [
       `=== DIRETRIZ MANDATÓRIA SAAS MASTER (ENGENHARIA REVERSA REA) ===`,
       `PROIBIÇÃO ESTRITA: Proibido gerar interfaces simples ou CRUDs rasos de poucas abas.`,
-      `Todo projeto Full-Stack deve implementar os 8 Pilares de Arquitetura SaaS Master (${relPath}):`,
+      `Todo projeto Full-Stack deve implementar os Pilares de Arquitetura SaaS Master (${relPath}):`,
       `1. APP SHELL ENTERPRISE: Sidebar colapsável com badges e botões role="tab"/data-tab (captura 01-Secao.png), Topbar com Workspace selector, Notificações e Command Palette (Ctrl+K).`,
       `2. SLIDE-OVER DETAIL DRAWERS: Clicar em registros abre Drawer lateral com abas (Detalhes, Edição Inline, Notas e Auditoria) sem trocar de tela e com Optimistic UI.`,
       `3. DATA GRID AVANÇADO, BULK ACTIONS & KANBAN: Busca debounce, filtros compostos, ordenação, ações em massa (Bulk Actions), alternância Tabela/Kanban e exportação CSV (RFC-4180).`,
-      `4. BI & ANALYTICS REAL: Cards KPI tabulares (tabular-nums), variação percentual (Δ%), sparklines e gráficos SVG interativos com tooltips e filtro de período (7d, 30d, 90d, 12m).`,
-      `5. BILLING CENTER & PIX: Assinatura com planos (Starter/Pro/Enterprise), medidores de consumo (Usage Meters), fatura com QR Code PIX e recibo.`,
-      `6. PORTAL /docs & DEVELOPER HUB: Aba /docs com Quickstart, catálogo REST com snippets curl/fetch em 1 clique, API Keys mascaradas e Webhooks Playground com disparo de teste.`,
-      `7. RBAC DE EQUIPE, WORKSPACE & AUDIT TRAIL NO BACKEND: Membros (Admin/Manager/Viewer), preferências, widget Onboarding Checklist e timeline global /api/audit-logs.`,
-      `8. REACTIVE CLIENT STORE & DENSIDADE DE SEED RICO: Client Store (Store + dispatch + subscribers) com persistência F5 e seedIfEmpty() com 30-50 registros realistas em todas as entidades.`,
-      `=== FIM DA DIRETRIZ SAAS MASTER ===`
-    ].join('\n');
+      `4. BI & ANALYTICS REAL: Cards KPI tabulares (tabular-nums), variação percentual (Δ%), sparklines e gráficos SVG interativos com tooltips e filtro de período (7d, 30d, 90d, 12m).`
+    ];
+
+    if (caps.payments) {
+      saasPillars.push(`5. BILLING CENTER & PIX: Assinatura com planos (Starter/Pro/Enterprise), medidores de consumo (Usage Meters), fatura com QR Code PIX e recibo.`);
+    }
+
+    if (caps.advancedSaas) {
+      saasPillars.push(`6. PORTAL /docs & DEVELOPER HUB: Aba /docs com Quickstart, catálogo REST com snippets curl/fetch em 1 clique, API Keys mascaradas e Webhooks Playground com disparo de teste.`);
+      saasPillars.push(`7. RBAC DE EQUIPE, WORKSPACE & AUDIT TRAIL NO BACKEND: Membros (Admin/Manager/Viewer), preferências, widget Onboarding Checklist e timeline global /api/audit-logs.`);
+    }
+
+    if (caps.demoSeed) {
+      saasPillars.push(`8. REACTIVE CLIENT STORE & DENSIDADE DE SEED RICO: Client Store (Store + dispatch + subscribers) com persistência F5 e seedIfEmpty() com 30-50 registros realistas em todas as entidades.`);
+    } else {
+      saasPillars.push(`8. REACTIVE CLIENT STORE & ESTADO LIMPO: Client Store (Store + dispatch + subscribers) com persistência F5. PROIBIDO inventar registros falsos de seed; inicialize em estado limpo pronto para receber dados reais.`);
+    }
+
+    saasPillars.push(`=== FIM DA DIRETRIZ SAAS MASTER ===` );
+    return saasPillars.join('\n');
   }
 
   /**
-   * Returns the explicit high-density UI and Domain microtasks required for SaaS Master projects.
+   * Returns the explicit high-density UI and Domain microtasks required for SaaS Master projects,
+   * filtered cleanly according to the project's selected capabilities.
    */
-  static getRequiredSaaSMasterMicrotasks(projectName?: string): Array<{
+  static getRequiredSaaSMasterMicrotasks(
+    projectName?: string,
+    capabilities?: Partial<ProjectCapabilities>
+  ): Array<{
     subCode: string;
+    code: string;
     title: string;
     desc: string;
     files: string[];
     criteria: string[];
   }> {
+    const caps = capabilities || { database: true, auth: true, payments: true, advancedSaas: true, demoSeed: true };
     const name = projectName || 'SaaS';
-    return [
+
+    const tasks: Array<{
+      subCode: string;
+      code: string;
+      title: string;
+      desc: string;
+      files: string[];
+      criteria: string[];
+    }> = [
       {
         subCode: 'UI-1',
+        code: 'UI-1',
         title: `Enterprise App Shell, Design System, Workspace Switcher, Notification Center & Command Palette (Ctrl+K) de ${name}`,
         desc: 'Construir App Shell com Sidebar colapsável contendo botões de navegação com role="tab" e data-tab="<secao>", Topbar com seletor de Workspace, central de notificações e Command Palette flutuante navegável por teclado acionada por atalho Ctrl+K / Cmd+K.',
         files: ['public/index.html', 'public/style.css', 'public/app.js'],
@@ -511,6 +594,7 @@ export class ReaSaaSMasterService {
       },
       {
         subCode: 'UI-2',
+        code: 'UI-2',
         title: `Dashboard Analítico BI Executivo com Gráficos SVG Multi-Série, KPIs Tabulares (Δ%) & Seletor de Período de ${name}`,
         desc: 'Implementar painel executivo com cards de KPIs calculando variação percentual (Δ%), sparklines e gráficos interativos em SVG puro multi-série com curvas, tooltips no hover e seletor temporal (7d, 30d, 90d, 12m).',
         files: ['public/index.html', 'public/app.js', 'public/style.css'],
@@ -522,6 +606,7 @@ export class ReaSaaSMasterService {
       },
       {
         subCode: 'UI-3',
+        code: 'UI-3',
         title: `Módulos de Domínio Core, Data Grids Avançados com Debounce, Filtros Compostos & Bulk Actions de ${name}`,
         desc: 'Construir visualização tabular avançada de entidades com busca com debounce, ordenação de colunas, filtros por status, paginação, seleção em lote (Bulk Actions) e exportação CSV em 1 clique.',
         files: ['public/index.html', 'public/app.js'],
@@ -533,6 +618,7 @@ export class ReaSaaSMasterService {
       },
       {
         subCode: 'UI-4',
+        code: 'UI-4',
         title: `Visão Kanban Interativa, Alternância Lista/Quadro & Gestão Visual de Workflow de ${name}`,
         desc: 'Implementar alternância dinâmica entre modo Tabela e visão Kanban com colunas por status, contadores de cards, filtros de fluxo e atualização de estado com feedback otimista.',
         files: ['public/index.html', 'public/app.js', 'public/style.css'],
@@ -544,6 +630,7 @@ export class ReaSaaSMasterService {
       },
       {
         subCode: 'UI-5',
+        code: 'UI-5',
         title: `Slide-Over Detail Drawers com Sub-Abas, Edição Inline & Histórico de Auditoria de ${name}`,
         desc: 'Implementar painel lateral deslizante (Drawer) abrindo ao clicar em registros com sub-abas (Detalhes, Edição Rápida Inline, Notas e Histórico de Auditoria) sem trocar de página.',
         files: ['public/index.html', 'public/app.js', 'public/style.css'],
@@ -555,6 +642,7 @@ export class ReaSaaSMasterService {
       },
       {
         subCode: 'UI-6',
+        code: 'UI-6',
         title: `Modais de Criação/Simulação Ricos, Formulários Reativos & Widget de Onboarding Checklist de ${name}`,
         desc: 'Implementar modais multifásicos com validação síncrona rigorosa, tratamento de erros amigável e widget interativo de Onboarding Checklist com progresso percentual e etapas guiadas.',
         files: ['public/index.html', 'public/app.js', 'public/style.css'],
@@ -563,9 +651,13 @@ export class ReaSaaSMasterService {
           'Widget de Onboarding Checklist com etapas configuráveis e cálculo percentual de progresso',
           'Feedback visual com notificações toast de sucesso e erro com auto-dismiss'
         ]
-      },
-      {
+      }
+    ];
+
+    if (caps.payments !== false) {
+      tasks.push({
         subCode: 'UI-7',
+        code: 'UI-7',
         title: `Billing Center, Comparador de Planos, Usage Progress Meters & Checkout/Recibo PIX com QR-Code de ${name}`,
         desc: 'Construir secção dedicada de Assinatura/Billing contendo comparador de planos (Starter, Pro, Enterprise), barras de consumo de cota (Usage Meters), modal de fatura com QR-Code PIX Copia-e-Cola e recibo.',
         files: ['public/index.html', 'public/app.js', 'public/style.css'],
@@ -574,9 +666,13 @@ export class ReaSaaSMasterService {
           'Barras de consumo de cota (Usage Progress Meters) indicando limites operacionais',
           'Fluxo de checkout com simulação de QR-Code PIX Copia-e-Cola e emissão de recibo detalhado'
         ]
-      },
-      {
+      });
+    }
+
+    if (caps.advancedSaas !== false) {
+      tasks.push({
         subCode: 'UI-8',
+        code: 'UI-8',
         title: `Developer Hub: Gerenciador de API Keys Mascaradas & Playground de Webhooks com Disparo Real de ${name}`,
         desc: 'Desenvolver secção do Desenvolvedor com criação, exibição mascarada e revogação de API Keys, e simulador/playground de Webhooks com configuração de URL e disparo de eventos de teste.',
         files: ['public/index.html', 'public/app.js', 'public/style.css'],
@@ -585,9 +681,11 @@ export class ReaSaaSMasterService {
           'Webhooks Playground com seletor de evento, input de endpoint e botão de disparo de teste',
           'Painel de resposta HTTP exibindo status code, headers e payload JSON retornado pelo teste'
         ]
-      },
-      {
+      });
+
+      tasks.push({
         subCode: 'UI-9',
+        code: 'UI-9',
         title: `Portal de Documentação Técnica Interativa (/docs) com Snippets Copiáveis (curl/fetch) & Guia Quickstart de ${name}`,
         desc: 'Construir secção/aba dedicada de documentação técnica integrada contendo Guia Quickstart, visão de arquitetura do sistema e catálogo interativo de rotas REST com snippets curl e fetch copiáveis em 1 clique.',
         files: ['public/index.html', 'public/app.js', 'public/style.css'],
@@ -596,18 +694,36 @@ export class ReaSaaSMasterService {
           'Catálogo de rotas REST com parâmetros, exemplos de payload e códigos de resposta HTTP',
           'Blocos de código com snippets curl e fetch gerados dinamicamente com botão de copiar em 1 clique'
         ]
-      },
-      {
-        subCode: 'UI-10',
-        title: `Configurações de Workspace, Gestão de Membros de Equipe (RBAC), Trilha Audit Trail & Integração Reativa E2E pós-F5 de ${name}`,
-        desc: 'Implementar gestão de membros e papéis RBAC (Admin, Manager, Viewer), preferências do Workspace, timeline global de audit_logs e validação da Reactive Client Store com persistência pós-reload F5.',
-        files: ['public/app.js', 'src/server.js', 'test/e2e/workflow.test.ts'],
-        criteria: [
+      });
+    }
+
+    const ui10Title = caps.advancedSaas !== false
+      ? `Configurações de Workspace, Gestão de Membros de Equipe (RBAC), Trilha Audit Trail & Integração Reativa E2E pós-F5 de ${name}`
+      : `Configurações de Workspace, Trilha Audit Trail & Integração Reativa E2E pós-F5 de ${name}`;
+    const ui10Desc = caps.advancedSaas !== false
+      ? 'Implementar gestão de membros e papéis RBAC (Admin, Manager, Viewer), preferências do Workspace, timeline global de audit_logs e validação da Reactive Client Store com persistência pós-reload F5.'
+      : 'Implementar preferências gerais do Workspace, timeline global de audit_logs e validação da Reactive Client Store com persistência pós-reload F5.';
+    const ui10Criteria = caps.advancedSaas !== false
+      ? [
           'Painel de membros da equipe com papéis RBAC e configurações gerais do Workspace',
           'Timeline global de atividades consumindo /api/audit-logs com filtros e paginação',
           'Reactive Client Store gerenciando estado sem duplicações e persistindo dados completamente após F5'
         ]
-      }
-    ];
+      : [
+          'Painel de configurações gerais do Workspace e preferências do usuário',
+          'Timeline global de atividades consumindo /api/audit-logs com filtros e paginação',
+          'Reactive Client Store gerenciando estado sem duplicações e persistindo dados completamente após F5'
+        ];
+
+    tasks.push({
+      subCode: 'UI-10',
+      code: 'UI-10',
+      title: ui10Title,
+      desc: ui10Desc,
+      files: ['public/app.js', 'src/server.js', 'test/e2e/workflow.test.ts'],
+      criteria: ui10Criteria
+    });
+
+    return tasks;
   }
 }

@@ -60,6 +60,7 @@ export interface AutonomousRunConfig {
   forceNew?: boolean;
   /** Internal durable handoff from a completed run, never a new model session. */
   continuationSourceRunId?: string;
+  plannedTasks?: any[];
   majorTasks?: HierarchicalMajorTaskInput[];
   requirements?: string[];
   successCriteria?: string[];
@@ -310,7 +311,11 @@ export class AutonomousManager {
     try {
       let plannedTasks: TaskDefinition[] | null = null;
 
-      const isSupervisorMocked = typeof GeminiSupervisorProvider.prototype.planTasks === 'function' &&
+      if (Array.isArray(config.plannedTasks) && config.plannedTasks.length > 0) {
+        plannedTasks = config.plannedTasks as any;
+      }
+
+      const isSupervisorMocked = !plannedTasks && typeof GeminiSupervisorProvider.prototype.planTasks === 'function' &&
         GeminiSupervisorProvider.prototype.planTasks !== defaultSupervisorPlanTasks;
 
       if (isSupervisorMocked) {
@@ -642,7 +647,24 @@ export class AutonomousManager {
     // 1.5. Detect if project is greenfield or an existing structured project (DELTA_EVOLUTION mode)
     const { DeltaFeatureEngine } = await import('./deltaFeatureEngine.js');
     const existingDetection = DeltaFeatureEngine.isExistingProject(project.path, project.id);
-    const supervisorPlanningMode = existingDetection.isExisting ? 'DELTA_EVOLUTION' : 'INITIAL_PLAN';
+    const hasCode = DeltaFeatureEngine.hasImplementedCode(project.path, project.id);
+    const isArchitectural = DeltaFeatureEngine.isArchitecturalBriefing(briefing);
+    const isSurgical = !isArchitectural && hasCode && DeltaFeatureEngine.isSurgicalOrBugfixPrompt(briefing, project.path, project.id);
+
+    // Se o usuário solicitou explicitamente limpeza/exclusão de banco de dados em um ajuste pontual (não em briefing de arquitetura)
+    if (!isArchitectural && /(?:exclua|excluir|apagar|apague|limpar|limpe|zerar|resetar).*(?:banco|database|sqlite|\.db)/i.test(briefing)) {
+      try {
+        const { ProjectOperationsService } = await import('./projectOperationsService.js');
+        ProjectOperationsService.resetProjectDatabase(project.id, project.path);
+        Logger.info(`[AutonomousManager] Limpeza prévia de banco solicitada pelo desenvolvedor no briefing.`);
+      } catch (dbErr: any) {
+        Logger.warn(`[AutonomousManager] Falha não impeditiva ao resetar banco do projeto: ${dbErr.message}`);
+      }
+    }
+
+    const supervisorPlanningMode = isSurgical
+      ? 'SURGICAL_ITERATION'
+      : (existingDetection.isExisting && hasCode && !isArchitectural ? 'DELTA_EVOLUTION' : 'INITIAL_PLAN');
 
     // FASE 23C: Onda 0 Executive Specifications & Chat Announcement
     const { ReaSaaSMasterService } = await import('./reaSaaSMasterService.js');
@@ -672,51 +694,64 @@ export class AutonomousManager {
     }
 
     if (existingDetection.isExisting) {
-      Logger.info(`[AutonomousManager] Projeto existente detectado para o Run [${runId.slice(0, 8)}] (${existingDetection.reason}). Ativando modo DELTA_EVOLUTION.`);
+      Logger.info(`[AutonomousManager] Projeto existente detectado para o Run [${runId.slice(0, 8)}] (${existingDetection.reason}). Modo: ${supervisorPlanningMode}.`);
       this.logEvent(
         runId,
         null,
         'supervisor',
         'DELTA_EVOLUTION_DETECTED',
-        `Projeto existente detectado: ${existingDetection.reason}. Ativando planejamento cirúrgico aditivo (DELTA_EVOLUTION).`,
+        `Projeto existente detectado: ${existingDetection.reason}. Modo de planejamento ativo: ${supervisorPlanningMode}.`,
         { completedRunCount: existingDetection.completedRunCount, reason: existingDetection.reason }
       );
     }
 
     const { HierarchicalOrchestrationService } = await import('./hierarchicalOrchestrationService.js');
     let plannedTasks: TaskDefinition[] = [];
+
     try {
-      const planPromise = supervisor.planTasks(briefing, {
-        id: project.id,
-        name: project.name,
-        path: project.path,
-        objective: config.objective || project.objective
-      }, {
-        mode: supervisorPlanningMode,
-        runId,
-        multiPass: supervisorPlanningMode === 'INITIAL_PLAN',
-        deepPlanning: supervisorPlanningMode === 'INITIAL_PLAN'
-      });
+      if (supervisorPlanningMode === 'SURGICAL_ITERATION') {
+        Logger.info(`[AutonomousManager] Intervenção cirúrgica ativada para "${project.name}". Gerando 1 tarefa direta sem replanejamento de 36 etapas.`);
+        plannedTasks = DeltaFeatureEngine.planSurgicalIteration({
+          briefing,
+          projectPath: project.path,
+          projectName: project.name,
+          projectId: project.id
+        }) as any;
+      } else {
+        try {
+          const planPromise = supervisor.planTasks(briefing, {
+            id: project.id,
+            name: project.name,
+            path: project.path,
+            objective: config.objective || project.objective
+          }, {
+            mode: supervisorPlanningMode,
+            runId,
+            multiPass: supervisorPlanningMode === 'INITIAL_PLAN',
+            deepPlanning: supervisorPlanningMode === 'INITIAL_PLAN'
+          });
 
-      const timeoutPromise = new Promise<TaskDefinition[]>((_, reject) => {
-        setTimeout(() => reject(new Error('SUPERVISOR_PLAN_TIMEOUT_5S')), 5000);
-      });
+          const timeoutPromise = new Promise<TaskDefinition[]>((_, reject) => {
+            setTimeout(() => reject(new Error('SUPERVISOR_PLAN_TIMEOUT_5S')), 5000);
+          });
 
-      plannedTasks = await Promise.race([planPromise, timeoutPromise]);
-    } catch (supErr: any) {
-      if (/RESOURCE_EXHAUSTED|code 429|Individual quota reached|QUOTA_EXHAUSTED/i.test(supErr.message)) {
-        if (profile?.id) {
-          AccountProfileManager.markQuotaExhausted(profile.id, supErr.message);
+          plannedTasks = await Promise.race([planPromise, timeoutPromise]);
+        } catch (supErr: any) {
+          if (/RESOURCE_EXHAUSTED|code 429|Individual quota reached|QUOTA_EXHAUSTED/i.test(supErr.message)) {
+            if (profile?.id) {
+              AccountProfileManager.markQuotaExhausted(profile.id, supErr.message);
+            }
+            throw supErr;
+          }
+          Logger.warn(`[AutonomousManager] Supervisor não concluiu planejamento em 5s ou falhou (${supErr.message}). Acionando fallback determinístico.`);
+          plannedTasks = HierarchicalOrchestrationService.generateMultiPassPlannedTasks({
+            briefing,
+            projectId: project.id,
+            projectName: project.name,
+            projectPath: project.path
+          }) as any;
         }
-        throw supErr;
       }
-      Logger.warn(`[AutonomousManager] Supervisor não concluiu planejamento em 5s ou falhou (${supErr.message}). Acionando fallback determinístico.`);
-      plannedTasks = HierarchicalOrchestrationService.generateMultiPassPlannedTasks({
-        briefing,
-        projectId: project.id,
-        projectName: project.name,
-        projectPath: project.path
-      }) as any;
     } finally {
       AutonomousRunnerService.releaseExecutionLock();
       ExecutionCoordinator.release('global-agent-execution', reservation);
@@ -2938,7 +2973,7 @@ export class AutonomousManager {
             const runRow: any = db.prepare('SELECT project_id FROM autonomous_runs WHERE id = ?').get(approval.run_id);
             if (runRow?.project_id) {
               import('./projectOperationsService.js').then(({ ProjectOperationsService }) => {
-                ProjectOperationsService.postCompletionVisualSummaryToChat(runRow.project_id, approval.run_id).catch((err) => {
+                ProjectOperationsService.postExecutionReportToProjectChat(runRow.project_id, approval.run_id, 'completed').catch((err) => {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({
           event: "server.handled_exception",
@@ -3187,11 +3222,40 @@ export class AutonomousManager {
         AND phase IN ('IN_FLIGHT', 'UNCERTAIN')
     `).run(runId);
 
-    // 5. Se houver tarefa presa em in_progress que não concluiu, repor para 'ready' para re-execução limpa
-    const inProgressTasks: any[] = db.prepare("SELECT id, title FROM autonomous_tasks WHERE run_id = ? AND status = 'in_progress'").all(runId);
+    // 5. Reconciliação inteligente de checkpoint: verificar arquivos físicos das tarefas em voo/claimed/running
+    const inProgressTasks: any[] = db.prepare(`
+      SELECT id, title, expected_files_json, retry_count
+      FROM autonomous_tasks
+      WHERE run_id = ? AND status IN ('in_progress', 'running', 'claimed', 'assigned')
+    `).all(runId);
     for (const ipt of inProgressTasks) {
-      db.prepare("UPDATE autonomous_tasks SET status = 'ready', lifecycle_state = 'READY', updated_at = ? WHERE id = ?").run(new Date().toISOString(), ipt.id);
-      this.logEvent(runId, ipt.id, 'system', 'TASK_RESET_ON_RESUME', `Tarefa "${ipt.title}" redefinida para READY após force-clean de retomada.`);
+      let expectedFiles: string[] = [];
+      try {
+        expectedFiles = typeof ipt.expected_files_json === 'string'
+          ? JSON.parse(ipt.expected_files_json)
+          : (Array.isArray(ipt.expected_files_json) ? ipt.expected_files_json : []);
+      } catch {}
+
+      let allFilesOnDisk = false;
+      if (run.project?.path && expectedFiles.length > 0) {
+        allFilesOnDisk = expectedFiles.every((file: string) => {
+          const fullPath = path.isAbsolute(file) ? file : path.join(run.project.path, file);
+          try {
+            return fs.existsSync(fullPath) && fs.statSync(fullPath).size > 0;
+          } catch {
+            return false;
+          }
+        });
+      }
+
+      if (allFilesOnDisk) {
+        db.prepare("UPDATE autonomous_tasks SET status = 'completed', lifecycle_state = 'COMPLETED', updated_at = ? WHERE id = ?").run(new Date().toISOString(), ipt.id);
+        this.logEvent(runId, ipt.id, 'system', 'TASK_COMPLETED_BY_CHECKPOINT_RECOVERY', `Tarefa "${ipt.title}" confirmada no disco e concluída no checkpoint.`);
+      } else {
+        const nextRetry = (ipt.retry_count || 0) + 1;
+        db.prepare("UPDATE autonomous_tasks SET status = 'pending', lifecycle_state = 'PENDING', retry_count = ?, updated_at = ? WHERE id = ?").run(nextRetry, new Date().toISOString(), ipt.id);
+        this.logEvent(runId, ipt.id, 'system', 'TASK_RESET_ON_RESUME', `Tarefa "${ipt.title}" resetada para PENDING com tentativa ${nextRetry} para retomar do ponto exato.`);
+      }
     }
 
     // 6. Limpar last_error de lease ou reconciliação técnica e destravar circuit breaker
@@ -3254,7 +3318,13 @@ export class AutonomousManager {
     if (!isOffline) {
       const { AntigravityDiscovery } = await import('./antigravityDiscovery.js');
       const discovery = AntigravityDiscovery.discover();
-      const runningInstance = AccountProfileManager.getRunningInstanceForProfile(profile.environment_path);
+      let runningInstance = AccountProfileManager.getRunningInstanceForProfile(profile.environment_path);
+      if (!runningInstance && discovery.available) {
+        try {
+          const { RuntimeDaemonManager } = await import('./runtimeDaemonManager.js');
+          runningInstance = await RuntimeDaemonManager.ensureSingleRuntimeRunning(profile.id, 8000);
+        } catch {}
+      }
       if (!discovery.available || !runningInstance) {
         const errorMsg = !discovery.available
           ? `AGENTAPI_UNAVAILABLE: ${discovery.errorMessage}`
@@ -3522,6 +3592,176 @@ export class AutonomousManager {
   }
 
   /**
+   * Checkpoint Resumption & Orphaned Run Reconciliation:
+   * Reconciles tasks and runs interrupted by process crashes or restarts:
+   * - Identifies runs in 'running' or 'waiting_resource' whose workers have stopped
+   * - Preserves completed tasks (proved by physical files or evidence)
+   * - For tasks stuck in 'running', 'in_progress', 'claimed', 'assigned':
+   *     checks expected_files_json on disk.
+   *     If present and non-empty, marks completed;
+   *     If missing, resets to pending with incremented retry count.
+   * - Automatically triggers resume from the next pending task without starting from scratch.
+   */
+  static async reconcileAndResumeOrphanedRuns(projectId?: string): Promise<{
+    reconciledRuns: number;
+    resumedRunIds: string[];
+    tasksCompletedByFiles: number;
+    tasksResetToPending: number;
+  }> {
+    const nowIso = new Date().toISOString();
+    let query = "SELECT * FROM autonomous_runs WHERE status IN ('running', 'waiting_resource', 'in_flight')";
+    const params: any[] = [];
+    if (projectId) {
+      query += " AND project_id = ?";
+      params.push(projectId);
+    }
+    query += " ORDER BY created_at DESC";
+
+    const candidateRuns: any[] = db.prepare(query).all(...params);
+    let reconciledRuns = 0;
+    const resumedRunIds: string[] = [];
+    let tasksCompletedByFiles = 0;
+    let tasksResetToPending = 0;
+
+    if (candidateRuns.length === 0) {
+      return { reconciledRuns: 0, resumedRunIds: [], tasksCompletedByFiles: 0, tasksResetToPending: 0 };
+    }
+
+    const { ExecutionCoordinator } = await import('./executionCoordinator.js');
+    const { WorkerRegistry } = await import('./workerRegistry.js');
+    ExecutionCoordinator.reconcileDeadReservations();
+
+    for (const run of candidateRuns) {
+      try {
+        // 1. Release active worker leases for this run
+        const activeLeases: any[] = db.prepare("SELECT id, worker_id FROM worker_leases WHERE run_id = ? AND status = 'active'").all(run.id);
+        for (const lease of activeLeases) {
+          WorkerRegistry.releaseLease(lease.id, lease.worker_id);
+          WorkerRegistry.updateWorkerStatus(lease.worker_id, 'READY', { current_run_id: null, current_task_id: null, current_issue_number: null });
+        }
+        db.prepare("UPDATE worker_leases SET status = 'expired', released_at = ? WHERE run_id = ? AND status = 'active'").run(nowIso, run.id);
+
+        // 2. Clear stale turn observations for this run
+        db.prepare(`
+          UPDATE agent_turn_observations
+          SET phase = 'CONSUMED'
+          WHERE task_id IN (SELECT id FROM autonomous_tasks WHERE run_id = ?)
+            AND phase IN ('IN_FLIGHT', 'UNCERTAIN')
+        `).run(run.id);
+
+        // 3. Resolve project path
+        const projectRow: any = db.prepare('SELECT id, path FROM projects WHERE id = ?').get(run.project_id);
+        const projectPath = projectRow?.path || '';
+
+        // 4. Inspect orphan tasks (running, in_progress, claimed, assigned)
+        const activeTasks: any[] = db.prepare(`
+          SELECT id, title, status, retry_count, expected_files_json
+          FROM autonomous_tasks
+          WHERE run_id = ? AND status IN ('running', 'in_progress', 'claimed', 'assigned')
+        `).all(run.id);
+
+        for (const task of activeTasks) {
+          let expectedFiles: string[] = [];
+          try {
+            expectedFiles = typeof task.expected_files_json === 'string'
+              ? JSON.parse(task.expected_files_json)
+              : (Array.isArray(task.expected_files_json) ? task.expected_files_json : []);
+          } catch {
+            expectedFiles = [];
+          }
+
+          let allFilesVerified = false;
+          if (projectPath && expectedFiles.length > 0) {
+            allFilesVerified = expectedFiles.every((file: string) => {
+              const fullPath = path.isAbsolute(file) ? file : path.join(projectPath, file);
+              try {
+                return fs.existsSync(fullPath) && fs.statSync(fullPath).size > 0;
+              } catch {
+                return false;
+              }
+            });
+          }
+
+          if (allFilesVerified) {
+            db.prepare(`
+              UPDATE autonomous_tasks
+              SET status = 'completed', lifecycle_state = 'COMPLETED', updated_at = ?
+              WHERE id = ?
+            `).run(nowIso, task.id);
+            this.logEvent(run.id, task.id, 'system', 'TASK_COMPLETED_BY_CHECKPOINT_RECOVERY', `Tarefa "${task.title}" validada fisicamente no disco e concluída no checkpoint.`);
+            tasksCompletedByFiles++;
+          } else {
+            const nextRetry = (task.retry_count || 0) + 1;
+            db.prepare(`
+              UPDATE autonomous_tasks
+              SET status = 'pending', lifecycle_state = 'PENDING', retry_count = ?, updated_at = ?
+              WHERE id = ?
+            `).run(nextRetry, nowIso, task.id);
+            this.logEvent(run.id, task.id, 'system', 'TASK_RESET_TO_PENDING_ON_RECOVERY', `Tarefa "${task.title}" redefinida para PENDING (tentativa ${nextRetry}) para continuação.`);
+            tasksResetToPending++;
+          }
+        }
+
+        // 5. Update next pending task with satisfied dependencies to 'ready'
+        const allTasks: any[] = db.prepare(`SELECT id, dependencies_json, status, order_index FROM autonomous_tasks WHERE run_id = ? ORDER BY order_index ASC`).all(run.id);
+        const completedIds = new Set(allTasks.filter(t => t.status === 'completed').map(t => t.id));
+        let readyPromoted = allTasks.some(t => t.status === 'ready' || t.status === 'in_progress');
+
+        if (!readyPromoted) {
+          for (const t of allTasks) {
+            if (t.status === 'pending') {
+              const deps: string[] = safeJsonParse(t.dependencies_json, []);
+              const satisfied = deps.every(d => completedIds.has(d));
+              if (satisfied) {
+                db.prepare("UPDATE autonomous_tasks SET status = 'ready', lifecycle_state = 'READY', updated_at = ? WHERE id = ?").run(nowIso, t.id);
+                readyPromoted = true;
+                break;
+              }
+            }
+          }
+        }
+
+        // 6. Resume run to 'running'
+        db.prepare(`
+          UPDATE autonomous_runs
+          SET status = 'running', last_error = NULL, next_action = 'Execução retomada automaticamente a partir do último checkpoint', updated_at = ?
+          WHERE id = ?
+        `).run(nowIso, run.id);
+        this.syncRunProgress(run.id);
+        this.logEvent(run.id, null, 'system', 'RUN_RESUMED_FROM_CHECKPOINT', 'Execução órfã recuperada com sucesso.');
+        resumedRunIds.push(run.id);
+        reconciledRuns++;
+
+        // 7. Auto-boot headless runtime in background if not offline
+        try {
+          const { RuntimeDaemonManager } = await import('./runtimeDaemonManager.js');
+          const { AccountProfileManager } = await import('./accountProfileManager.js');
+          const profile = AccountProfileManager.getActiveProfileForProject(run.project_id);
+          await RuntimeDaemonManager.ensureSingleRuntimeRunning(profile?.id, 8000);
+        } catch (bootErr: any) {
+          Logger.warn(`[AutonomousManager] Auto-boot de background para run órfão ${run.id}: ${bootErr.message}`);
+        }
+      } catch (runErr: any) {
+        Logger.warn(`[AutonomousManager] Erro ao reconciliar run órfão [${run.id}]: ${runErr.message}`);
+      }
+    }
+
+    if (resumedRunIds.length > 0) {
+      const { AutonomousRunnerService } = await import('./autonomousRunnerService.js');
+      setTimeout(() => {
+        AutonomousRunnerService.triggerTick().catch(() => {});
+      }, 50);
+    }
+
+    return {
+      reconciledRuns,
+      resumedRunIds,
+      tasksCompletedByFiles,
+      tasksResetToPending
+    };
+  }
+
+  /**
    * Hierarchical Orchestration Delegating Methods
    */
   static transitionTaskState(
@@ -3702,5 +3942,10 @@ ${pendingApprovals.map((a: any) => `* **[${a.risk_level.toUpperCase()}] ${a.titl
   public static async postCompletionVisualSummaryToChat(projectId: string, runId: string) {
     const { ProjectOperationsService } = await import('./projectOperationsService.js');
     return ProjectOperationsService.postCompletionVisualSummaryToChat(projectId, runId);
+  }
+
+  public static async postExecutionReportToProjectChat(projectId: string, runId: string, outcome: 'completed' | 'blocked' | 'error' = 'completed', errorMessage?: string) {
+    const { ProjectOperationsService } = await import('./projectOperationsService.js');
+    return ProjectOperationsService.postExecutionReportToProjectChat(projectId, runId, outcome, errorMessage);
   }
 }

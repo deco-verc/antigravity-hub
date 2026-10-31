@@ -11,6 +11,13 @@ import { Logger } from './logger.js';
 import { ProjectLivingSpecService, SpecTaskRole } from './projectLivingSpecService.js';
 import { AstSymbolIndexService } from './astSymbolIndexService.js';
 import { EngineeringContextService } from './engineeringContextService.js';
+import {
+  ProjectCapabilities,
+  ProjectProfileMode,
+  resolveProjectCapabilities,
+  resolveProjectProfileMode,
+  formatCapabilitiesProfileBlock
+} from './db.js';
 
 export type SupervisorMode =
   | 'INITIAL_PLAN'
@@ -93,7 +100,7 @@ export interface SupervisorPromptInput {
     verdict?: string;
     taskIsDone?: boolean;
     exitCode?: number | null;
-    notes?: string[];
+    notes?: string[] | string;
     summary?: any;
   }>;
   docSimpContextBlock?: string;
@@ -102,6 +109,8 @@ export interface SupervisorPromptInput {
   reaSaaSMasterContextBlock?: string;
   marketDiscoveryContextBlock?: string;
   livingSpecContextBlock?: string;
+  capabilities?: Partial<ProjectCapabilities>;
+  projectProfile?: ProjectProfileMode;
 }
 
 export interface WorkerPromptInput {
@@ -155,6 +164,8 @@ export interface WorkerPromptInput {
   dependencies?: string[];
   attemptNumber?: number;
   skillCategory?: string;
+  capabilities?: Partial<ProjectCapabilities>;
+  projectProfile?: ProjectProfileMode;
 }
 
 export interface ArchitecturalBlueprintPromptInput {
@@ -173,6 +184,8 @@ export interface ArchitecturalBlueprintPromptInput {
   reaSaaSMasterContextBlock?: string;
   marketDiscoveryContextBlock?: string;
   livingSpecContextBlock?: string;
+  capabilities?: Partial<ProjectCapabilities>;
+  projectProfile?: ProjectProfileMode;
 }
 
 export interface MajorTaskExpansionPromptInput {
@@ -202,6 +215,8 @@ export interface MajorTaskExpansionPromptInput {
   reaSaaSMasterContextBlock?: string;
   marketDiscoveryContextBlock?: string;
   livingSpecContextBlock?: string;
+  capabilities?: Partial<ProjectCapabilities>;
+  projectProfile?: ProjectProfileMode;
 }
 
 export class PromptArchitectureService {
@@ -244,9 +259,10 @@ export class PromptArchitectureService {
     `    6. ROTEAMENTO FULL-STACK & ENTREGA DE SPA (ROOT_ROUTE_INTEGRITY): Em qualquer projeto com interface web (public/index.html, SPA ou Frontend), reservar a rota raiz GET / exclusivamente para servir public/index.html (Content-Type: text/html; charset=utf-8) e ativos estáticos com fallback SPA (!req.url.startsWith('/api')). Alocar endpoints JSON de saúde estritamente em GET /api/health ou GET /api/status.`,
     `    7. RESERVA ESTRITA DE PORTA (PORT_GUARD): As portas 3001, 3000 e 5173 são exclusivas do DecoHUB. Exigir em todo projeto gerado o fallback padrão na faixa 4000–4999 (const PORT = Number(process.env.PORT) || 4000;) no código e no .env.example.`,
     `    8. SMART_DEMO_SEEDING (seedIfEmpty) & CLOUD_DEPLOY_PACK: Exigir rotina idempotente seedIfEmpty() na inicialização do banco populando 15 a 40 registros realistas na primeira abertura, além de Dockerfile de produção (Node 22 Alpine, PORT 4000-4999, HEALTHCHECK em /api/health e volume ./data) e .dockerignore.`,
-    `    9. CIRURGIA ADITIVA EM DELTA_EVOLUTION: Em projetos já existentes, planejar de 2 a 5 tarefas cirúrgicas preservando 100% das tabelas, dados e testes anteriores via migrações aditivas (CREATE TABLE IF NOT EXISTS).`,
+    `    9. CIRURGIA ADITIVA NO MODO DELTA_EVOLUTION: Em projetos já existentes, planejar de 2 a 5 tarefas cirúrgicas preservando 100% das tabelas, dados e testes anteriores via migrações aditivas (CREATE TABLE IF NOT EXISTS).`,
     `    10. ARQUITETURA SAAS MASTER & TOKENS REA (ATTIO, N8N, TALLY): Decompor interfaces SaaS nos 7 Pilares SaaS Master (App Shell com Command Palette Ctrl+K e abas [role="tab"][data-tab], Dashboard BI com KPIs Δ% e Gráficos SVG, Data Grids estilo Attio h-9 com tabular-nums/filtros/CSV, Slide-Over Detail Drawers com timeline de Audit Logs, Esteiras estilo n8n, Formulários/Checkout PIX estilo Tally max-w-[580px] e Reactive Client Store).`,
     `    11. CONTRATOS EXPLÍCITOS E COMUNICAÇÃO LIMPA: Especificar na description de cada tarefa os nomes exatos de tabelas/colunas SQLite e rotas REST. Adotar tom técnico estilo CLI corporativo (Linear/Vercel), zero emojis decorativos, zero eco da pergunta do usuário e foco direto em arquivos de código (.ts, .tsx, .js, .sql, .html, .css).`,
+    `    12. GRANULARIDADE COESA & FIDELIDADE AO BRIEFING (ANTI-BULLET-CHOPPING): Jamais picotar bullets individuais (- campo: string, - regra) em tarefas separadas. 1 Tarefa = 1 Módulo / Rota / Subseção Completa (6 a 8 tarefas no total para especificações estruturadas). Bullets pertencem à descrição e critérios da respectiva tarefa e devem ser preservados integralmente sem truncamento.`,
     `  </affirmative_operational_mandates>`,
     `  <epistemic_grounding_and_falsifiability>`,
     `    1. Basear todo planejamento e revisão exclusivamente nos artefatos de <workspace_context> e nas especificações canônicas @.ai-dev-hub/specs/*.`,
@@ -275,9 +291,10 @@ export class PromptArchitectureService {
     `    1. ROTEAMENTO FULL-STACK & SPA: Servir prioritariamente public/index.html (Content-Type: text/html; charset=utf-8) e ativos estáticos na rota raiz GET / com fallback SPA (!req.url.startsWith('/api')). Alocar healthchecks JSON estritamente em GET /api/health ou GET /api/status.`,
     `    2. RESERVA ESTRITA DE PORTA (PORT_GUARD): Utilizar obrigatoriamente porta na faixa 4000–4999 (const PORT = Number(process.env.PORT) || 4000;), mantendo 3001, 3000 e 5173 livres para o DecoHUB.`,
     `    3. BLINDAGEM APPSEC (RED TEAM GATE): (a) Validar Path Traversal com path.resolve(publicDir, '.' + reqPath).startsWith(publicDir) bloqueando '..' e dotfiles (.env, .git); (b) Utilizar exclusivamente queries SQLite parametrizadas (? ou :param) com PRAGMA journal_mode = WAL;; (c) Sanitizar dados dinâmicos no DOM com escapeHtml()/textContent contra XSS; (d) Rejeitar valores negativos ou NaN com HTTP 400; (e) Enviar header 'X-Content-Type-Options: nosniff' e jamais vazar segredos ou stack traces.`,
-    `    4. SMART_DEMO_SEEDING & CLOUD PACK: Garantir rotina idempotente seedIfEmpty() populando 15 a 30 registros realistas na inicialização do banco e manter Dockerfile limpo (Node 22 Alpine, PORT 4000-4999, HEALTHCHECK em /api/health) quando aplicável.`,
-    `    5. ARQUITETURA SAAS MASTER & TOKENS REA: Implementar os 7 Pilares SaaS Master com tokens CSS em :root, font-variant-numeric: tabular-nums, scrollbars finas (6px), ícones SVG Lucide inline (zero emojis nativos), abas com [role="tab"] e data-tab="<secao>", Reactive Client Store sincronizada via fetch() real (sobrevivendo a F5 / page.reload) e botões dinâmicos com data-action="<acao>", data-id="<id>" e Optimistic UI imediato.`,
-    `    6. BLOQUEIO EPISTÉMICO E COMUNICAÇÃO LIMPA: Reportar resultados em estilo CLI corporativo (Linear/Vercel), sem emojis decorativos e sem repetir o prompt do usuário, focando 100% nos arquivos de implementação e testes.`,
+    `    4. SMART_DEMO_SEEDING (seedIfEmpty) & CLOUD_DEPLOY_PACK: Garantir rotina idempotente seedIfEmpty() populando 15 a 30 registros realistas na inicialização do banco e manter Dockerfile limpo (Node 22 Alpine, PORT 4000-4999, HEALTHCHECK em /api/health) e .dockerignore quando aplicável.`,
+    `    5. PRESERVAÇÃO ESTRITA NO MODO DELTA_EVOLUTION: Em tarefas de evolução delta, preservar 100% dos arquivos, contratos e dados pré-existentes, realizando apenas acréscimos cirúrgicos e migrações aditivas (CREATE TABLE IF NOT EXISTS).`,
+    `    6. ARQUITETURA SAAS MASTER & TOKENS REA: Implementar os 7 Pilares SaaS Master com tokens CSS em :root, font-variant-numeric: tabular-nums, scrollbars finas (6px), ícones SVG Lucide inline (zero emojis nativos), abas com [role="tab"] e data-tab="<secao>", Reactive Client Store sincronizada via fetch() real (sobrevivendo a F5 / page.reload) e botões dinâmicos com data-action="<acao>", data-id="<id>" e Optimistic UI imediato.`,
+    `    7. BLOQUEIO EPISTÉMICO E COMUNICAÇÃO LIMPA: Reportar resultados em estilo CLI corporativo (Linear/Vercel), sem emojis decorativos e sem repetir o prompt do usuário, focando 100% nos arquivos de implementação e testes.`,
     `  </fullstack_appsec_and_antislop_invariants>`,
     `</system_invariants>`
   ].join('\n');
@@ -369,6 +386,12 @@ export class PromptArchitectureService {
     if (input.runId) sections.push(`    <run_id>${input.runId}</run_id>`);
     sections.push(`  </project_metadata>`);
 
+    const effectiveCaps = input.capabilities
+      ? resolveProjectCapabilities({ capabilities: input.capabilities }, input.briefing || input.projectObjective)
+      : resolveProjectCapabilities(input.projectId || input.projectPath, input.briefing || input.projectObjective);
+    const effectiveProfile = input.projectProfile || resolveProjectProfileMode(input.projectId || input.projectPath, input.briefing || input.projectObjective);
+    sections.push(`  <project_architectural_profile>\n${formatCapabilitiesProfileBlock(effectiveCaps, effectiveProfile)}\n  </project_architectural_profile>`);
+
     sections.push(`  <canonical_artifact_pointers>`);
     sections.push(`    - Especificação de Princípios e AppSec: @.ai-dev-hub/specs/PRINCIPIOS.md`);
     sections.push(`    - Especificação de Conteúdo e Seções: @.ai-dev-hub/specs/CONTEUDO.md`);
@@ -444,7 +467,18 @@ export class PromptArchitectureService {
         sections.push(`  <all_completed_tasks>\n${input.allCompletedTasks.map(t => `    - [CONCLUÍDO] ${t.title}`).join('\n')}\n  </all_completed_tasks>`);
       }
       if (input.finalReviewEvidence && input.finalReviewEvidence.length > 0) {
-        sections.push(`  <final_review_evidence>\n${input.finalReviewEvidence.map(e => `    - Tarefa: ${e.title || 'Microtarefa'} | Veredito: ${e.verdict || 'PASS'} | ExitCode: ${e.exitCode ?? 0}${e.notes?.length ? ` | Notas: ${e.notes.join('; ')}` : ''}`).join('\n')}\n  </final_review_evidence>`);
+        sections.push(`  <final_review_evidence>\n${input.finalReviewEvidence.map(e => {
+          let notesText = '';
+          const rawNotes = e.notes;
+          if (Array.isArray(rawNotes)) {
+            notesText = rawNotes.filter(Boolean).join('; ');
+          } else if (typeof rawNotes === 'string') {
+            notesText = rawNotes.trim();
+          } else if (rawNotes) {
+            notesText = String(rawNotes);
+          }
+          return `    - Tarefa: ${e.title || 'Microtarefa'} | Veredito: ${e.verdict || 'PASS'} | ExitCode: ${e.exitCode ?? 0}${notesText ? ` | Notas: ${notesText}` : ''}`;
+        }).join('\n')}\n  </final_review_evidence>`);
       }
     }
 
@@ -508,7 +542,7 @@ export class PromptArchitectureService {
           `      5. Ecossistema SaaS Enterprise: billing/planos com medidores de uso, portal de documentação (/docs com curl/fetch), Developer Hub (API Keys e Webhooks Playground), RBAC de equipe e trilha global /api/audit-logs.`,
           `      6. Interface com usuário (Decomposição Obrigatória em microtarefas progressivas cobrindo App Shell com abas [role="tab"]/data-tab, Command Palette Ctrl+K, BI com KPIs Δ%, Gráficos SVG, Data Grids estilo Attio h-9 com Bulk Actions, Visão Kanban, Drawers de 480px-520px e Checkout PIX estilo Tally).`,
           `      7. Suíte de testes E2E, User Journey e Homologação AppSec: testes automatizados verificando regras de domínio, rotas API, fallbacks DOCSIMP, sobrevivência ao F5 e blindagem contra XSS/SQLi/Path Traversal.`,
-          `    - ESCALA ORGÂNICA POR COMPLEXIDADE:`,
+          `    - DECOMPOSIÇÃO ORIENTADA POR COMPLEXIDADE / ESCALA ORGÂNICA:`,
           `      * Escopo simples (ajuste ou 1 função): 1 a 3 microtarefas atômicas.`,
           `      * Escopo intermediário (múltiplos módulos / CLI): 6 a 15 microtarefas organizadas em Grandes Tarefas e Etapas.`,
           `      * Sistema SaaS / Full-Stack Completo: 40 a 75+ microtarefas atômicas distribuídas entre 10 a 12 Grandes Tarefas (4 a 7 microtarefas por GT).`,
@@ -672,6 +706,12 @@ export class PromptArchitectureService {
       sections.push(`    NÍVEL DE RISCO DA TAREFA: ${input.riskLevel}`);
     }
     sections.push(`  </project_and_task_metadata>`);
+
+    const effectiveCaps = input.capabilities
+      ? resolveProjectCapabilities({ capabilities: input.capabilities }, input.projectObjective)
+      : resolveProjectCapabilities(input.projectId || input.projectPath, input.projectObjective);
+    const effectiveProfile = input.projectProfile || resolveProjectProfileMode(input.projectId || input.projectPath, input.projectObjective);
+    sections.push(`  <project_architectural_profile>\n${formatCapabilitiesProfileBlock(effectiveCaps, effectiveProfile)}\n  </project_architectural_profile>`);
 
     sections.push(`  <file_ownership_contract>`);
     sections.push(`    <owned_files_write>${(input.expectedScopeFiles || []).join(', ') || 'escopo estrito da tarefa no projeto'}</owned_files_write>`);
@@ -1007,6 +1047,13 @@ export class PromptArchitectureService {
     sections.push(`    ESTADO DO REPOSITÓRIO: ${input.isGreenfield !== false ? 'GREENFIELD (iniciado do zero, pasta vazia)' : 'REPOSITÓRIO EXISTENTE (com código legado)'}`);
     sections.push(`    OBJETIVO: ${input.projectObjective || input.briefing.slice(0, 300)}`);
     sections.push(`  </project_metadata>`);
+
+    const effectiveCaps = input.capabilities
+      ? resolveProjectCapabilities({ capabilities: input.capabilities }, input.briefing || input.projectObjective)
+      : resolveProjectCapabilities(input.projectId || input.projectPath, input.briefing || input.projectObjective);
+    const effectiveProfile = input.projectProfile || resolveProjectProfileMode(input.projectId || input.projectPath, input.briefing || input.projectObjective);
+    sections.push(`  <project_architectural_profile>\n${formatCapabilitiesProfileBlock(effectiveCaps, effectiveProfile)}\n  </project_architectural_profile>`);
+
     sections.push(`  <user_briefing>\n${input.briefing}\n  </user_briefing>`);
 
     const isLargeBriefing = (input.briefing || '').length > 5000;
@@ -1114,6 +1161,12 @@ export class PromptArchitectureService {
     sections.push(`    OBJETIVO GERAL: ${input.projectObjective || ''}`);
     sections.push(`  </project_metadata>`);
 
+    const effectiveCaps = input.capabilities
+      ? resolveProjectCapabilities({ capabilities: input.capabilities }, input.briefing || input.projectObjective)
+      : resolveProjectCapabilities(input.projectId || input.projectPath, input.briefing || input.projectObjective);
+    const effectiveProfile = input.projectProfile || resolveProjectProfileMode(input.projectId || input.projectPath, input.briefing || input.projectObjective);
+    sections.push(`  <project_architectural_profile>\n${formatCapabilitiesProfileBlock(effectiveCaps, effectiveProfile)}\n  </project_architectural_profile>`);
+
     if (input.briefing) {
       sections.push(`  <user_briefing>\n${input.briefing}\n  </user_briefing>`);
     }
@@ -1171,12 +1224,13 @@ export class PromptArchitectureService {
       `  </target_major_task>`,
       `  <atomic_expansion_rules>`,
       `    - Decompor esta Grande Tarefa em microtarefas cirúrgicas, semânticas e verificáveis pelo IndependentEvaluator.`,
+      `    - PROIBIÇÃO DE PICOTAR BULLETS: Itens de lista/bullet (- campo: tipo) em briefings de especificação NUNCA devem ser transformados em microtarefas isoladas. Bullets são critérios internos de uma única tarefa ou subseção coesa.`,
       `    - Agrupar arquivos de configuração (.gitignore, .env.example, Dockerfile, package.json, tsconfig.json) junto à tarefa de setup inicial; jamais criar microtarefa isolada para arquivos de metadados.`,
       `    - DECOMPOSIÇÃO RICA EM 2 FASES MACRO SEQUENCIAIS (BACKEND-FIRST -> PROGRESSIVE FRONTEND REFINEMENT):`,
       `      * SE GT-1 A GT-6 (MACRO FASE 1 - BACKEND, SCHEMAS, SEED, AUTH, PIX & TESTES): Foco estrito em lógica de servidor, infra Dual-Mode DOCSIMP (/api/system/integrations), modelagem SQLite WAL e seedIfEmpty() rico (30-40 registros), autenticação Supabase Auth (/api/auth/register, /api/auth/login, /api/auth/logout, /api/auth/me) com Cloudflare Turnstile (/api/auth/verify-turnstile), gateway PushinPay PIX (/api/billing/plans, /api/billing/checkout-pix, /api/webhooks/pushinpay) idempotente, motor de busca com filtros compostos, esteira estilo n8n com 3 pilares (Headline, Transcrição e Thumbnail) e bateria exaustiva de testes unitários, validação HTTP 400 e AppSec (SQLi, XSS, Path Traversal). Nenhuma tarefa visual de polimento de UI começa antes de 100% do backend estar aprovado em GT-6.`,
       `      * SE GT-7 (MACRO FASE 1 - FRONTEND SIMPLES FUNCIONAL): Construção de interface base limpa e 100% conectada via fetch() a todas as rotas do backend, provando integração ponta a ponta.`,
       `      * SE GT-8 A GT-12+ (MACRO FASE 2 - REFINAMENTO PROFUNDO DE FRONTEND COM TALLY, N8N, ATTIO & PLAYWRIGHT): Decompor em microtarefas de maestria visual: GT-8 (Cores & Tipografia com tokens :root e tabular-nums), GT-9 (Inputs, Busca / & Modais Zero-Fricção estilo Tally max-w-[580px] seguindo tally-form-block-ux_rea_blueprint.md), GT-10 (Data Grid estilo Attio h-9, filtros empilháveis, alternância Tabela/Cards e Slide-Over 480px-520px seguindo attio-crm-data-engine_rea_blueprint.md), GT-11 (Esteira Visual estilo n8n & Decompositor de 3 Pilares seguindo n8n-workflow-automation_rea_blueprint.md com responsividade Desktop 1440x900, Tablet 768x1024 e Mobile 390x844), GT-12 (Homologação Visual Playwright com persistência pós-F5, zero botões mortos, zero emojis e envio das Screenshots finais no Chat).`,
-      `    - POSSE EXCLUSIVA DE ARQUIVOS E ANTI-CONTEXT-ROT: Definir na description uma 'action' detalhada e manter expectedFiles disjuntos entre tarefas paralelas.`,
+      `    - PADRÃO GSD ATOMIC SPECIFICATION & ANTI-CONTEXT-ROT: Definir na description uma 'action' detalhada e manter expectedFiles sem colisão desnecessária (disjuntos entre tarefas paralelas).`,
       `    - Cada microtarefa deve conter: title (sem sufixos repetidos), description (contratos exatos de tabelas, rotas e tipos), majorTaskCode ("${input.majorTask.code}"), majorTaskTitle ("${input.majorTask.title}"), stageCode, stageTitle, requirementIds, expectedFiles (incluindo o teste em test/), allowedScope, criteria (2 a 4 critérios objetivos), verificationCommand (comando único simples compatível com controlledVerification.ts: "npm test", "npm run test", "node --test", "node --test <arquivo-relativo>", "tsc --noEmit"; proibido usar ";", "&&", "||", "|", "node -e" ou "node --check"), doneWhen e dependencies (a primeira microtarefa desta GT deve depender de "${input.lastMicrotaskOfPreviousMajor || input.priorMajorTaskLastMicrotaskCode || 'nenhuma'}").`,
       `  </atomic_expansion_rules>`,
       `  <output_contract>`,

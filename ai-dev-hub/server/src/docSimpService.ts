@@ -7,6 +7,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { Logger } from './logger.js';
+import {
+  ProjectCapabilities,
+  ProjectProfileMode,
+  resolveProjectCapabilities,
+  resolveProjectProfileMode
+} from './db.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -140,12 +146,18 @@ export class DocSimpService {
   /**
    * Matches terms and keywords in the briefing against the catalog aliases.
    */
-  static matchDocs(briefing: string, catalog: DocSimpCatalog): DocSimpEntry[] {
-    if (!briefing || !catalog?.documents?.length) return [];
+  static matchDocs(
+    briefing: string,
+    catalog?: DocSimpCatalog,
+    capabilities?: Partial<ProjectCapabilities>,
+    projectProfile?: ProjectProfileMode
+  ): DocSimpEntry[] {
+    const activeCatalog = catalog || this.getCatalog();
+    if (!briefing || !activeCatalog?.documents?.length) return [];
     const text = briefing.toLowerCase();
-    const matched: DocSimpEntry[] = [];
+    let matched: DocSimpEntry[] = [];
 
-    for (const doc of catalog.documents) {
+    for (const doc of activeCatalog.documents) {
       const isDirectMatch = (doc.aliases || []).some(alias => {
         const lowerAlias = alias.toLowerCase().trim();
         if (!lowerAlias) return false;
@@ -158,9 +170,26 @@ export class DocSimpService {
       }
     }
 
-    // Always include saas_standard if any integration was matched or SaaS terms are present
-    const saasDoc = catalog.documents.find(d => d.id === 'saas_standard');
-    if (saasDoc && !matched.some(m => m.id === 'saas_standard')) {
+    // REGRA DE OURO DAS CAPACIDADES:
+    // Se capabilities?.payments === false: NUNCA inclua docs de pushinpay / pix (a menos que o usuário tenha digitado explicitamente pushinpay no prompt).
+    if (capabilities?.payments === false && !/pushinpay/i.test(text)) {
+      matched = matched.filter(d => !/pushinpay|pix/i.test(d.id) && !/pushinpay/i.test(d.name || ''));
+    }
+
+    // Se capabilities?.auth === false: NUNCA inclua docs de supabase auth ou turnstile (a menos que o usuário tenha digitado explicitamente no prompt).
+    if (capabilities?.auth === false) {
+      if (!/supabase/i.test(text)) {
+        matched = matched.filter(d => !/supabase/i.test(d.id) && !/supabase/i.test(d.name || ''));
+      }
+      if (!/turnstile/i.test(text)) {
+        matched = matched.filter(d => !/turnstile/i.test(d.id) && !/turnstile/i.test(d.name || ''));
+      }
+    }
+
+    // REMOVA a injeção automática forçada de saas_standard quando project_profile === 'local_personal' ou quando payments === false && auth === false!
+    const isLocalPersonal = projectProfile === 'local_personal' || (capabilities?.payments === false && capabilities?.auth === false);
+    const saasDoc = activeCatalog.documents.find(d => d.id === 'saas_standard');
+    if (saasDoc && !matched.some(m => m.id === 'saas_standard') && !isLocalPersonal) {
       const hasIntegrationWords = /api|rest|service|serviço|webhook|auth|database|banco|pix|gateway|login|token|cache|storage|saas/i.test(text);
       if (matched.length > 0 || hasIntegrationWords) {
         matched.push(saasDoc);
@@ -364,12 +393,25 @@ export class DocSimpService {
   static async resolveDocsForBriefing(
     briefing: string,
     projectRoot?: string,
-    options?: { autoExtract?: boolean; docSimpDir?: string }
+    optionsOrCapabilities?: {
+      autoExtract?: boolean;
+      docSimpDir?: string;
+      capabilities?: Partial<ProjectCapabilities>;
+      projectProfile?: ProjectProfileMode;
+    } | Partial<ProjectCapabilities>,
+    projectProfileArg?: ProjectProfileMode
   ): Promise<DocSimpResolutionResult> {
+    const isOptionsObj = optionsOrCapabilities && !('database' in optionsOrCapabilities || 'auth' in optionsOrCapabilities || 'payments' in optionsOrCapabilities || 'advancedSaas' in optionsOrCapabilities || 'demoSeed' in optionsOrCapabilities) && ('autoExtract' in optionsOrCapabilities || 'docSimpDir' in optionsOrCapabilities || 'capabilities' in optionsOrCapabilities || 'projectProfile' in optionsOrCapabilities);
+    const options = isOptionsObj ? (optionsOrCapabilities as any) : undefined;
+    const directCaps = !isOptionsObj ? (optionsOrCapabilities as Partial<ProjectCapabilities> | undefined) : undefined;
+
     const docSimpDir = options?.docSimpDir || this.getDocSimpDir();
     const catalog = this.loadCatalog(docSimpDir);
 
-    const matchedDocs = this.matchDocs(briefing, catalog);
+    const capabilities = directCaps || options?.capabilities || (projectRoot ? resolveProjectCapabilities(projectRoot, briefing) : undefined);
+    const projectProfile = projectProfileArg || options?.projectProfile || (projectRoot ? resolveProjectProfileMode(projectRoot, briefing) : undefined);
+
+    const matchedDocs = this.matchDocs(briefing, catalog, capabilities, projectProfile);
     const extractedDocs: DocSimpEntry[] = [];
 
     // Check for uncached URLs in briefing if autoExtract is enabled

@@ -900,4 +900,145 @@ export const SHOULD_FAIL_NOT_ALLOWED = true;
     assert.ok(Array.isArray(messages));
     assert.ok(messages.length <= 500);
   });
+
+  it('30. formatDeliveryReport: Formatação Executiva Rigorosa sem Tags XML e sem Despejo de Código Bruto', () => {
+    const rawAgentOutput = `
+<autonomous_evolution_cycle>
+  <execution_directive>
+    <task_review>Iniciando análise</task_review>
+  </execution_directive>
+</autonomous_evolution_cycle>
+
+**O que foi feito:**
+Implementamos o isolamento estrito de turnos por thread no Meta-Chat e padronizamos o relatório de entrega executivo sem poluição de tags XML.
+
+**Arquivos alterados:**
+- \`server/src/metaChatService.ts\`: Implementação do formatDeliveryReport e escopo por threadId no getLiveStatus.
+- \`client/src/components/DecoHubMetaChatView.tsx\`: Sincronização reativa de loadingThreadIds e barra de input isolada.
+
+<truncated 980 bytes>
+Command exited with code 0.
+Showing lines 1-50 of 200
+[FILE: server/src/metaChatService.ts]
+code here
+[ENDFILE]
+</autonomous_evolution_cycle>
+</execution_directive>
+    `;
+
+    const report = MetaChatService.formatDeliveryReport(
+      rawAgentOutput,
+      ['server/src/metaChatService.ts', 'client/src/components/DecoHubMetaChatView.tsx'],
+      '2 files changed, 25 insertions(+), 10 deletions(-)'
+    );
+
+    // 1. Deve conter as duas seções obrigatórias
+    assert.ok(report.includes('**O que foi feito:**'), 'Deve conter **O que foi feito:**');
+    assert.ok(report.includes('**Arquivos alterados:**'), 'Deve conter **Arquivos alterados:**');
+
+    // 2. Não deve vazar tags XML do ciclo de execução
+    assert.ok(!report.includes('</autonomous_evolution_cycle>'), 'Não deve conter tags de fechamento XML');
+    assert.ok(!report.includes('</execution_directive>'), 'Não deve conter </execution_directive>');
+    assert.ok(!report.includes('<task_review>'), 'Não deve conter tags XML internas');
+
+    // 3. Não deve conter logs brutos de ferramentas ou diretivas de arquivo
+    assert.ok(!report.includes('Command exited with code 0'), 'Não deve conter saída bruta de comandos');
+    assert.ok(!report.includes('<truncated'), 'Não deve conter marcadores de truncamento');
+    assert.ok(!report.includes('[ENDFILE]'), 'Não deve conter diretivas brutas de arquivo');
+
+    // 4. Lista de arquivos alterados deve ser mantida
+    assert.ok(report.includes('server/src/metaChatService.ts'), 'Deve citar arquivo server alterado');
+    assert.ok(report.includes('client/src/components/DecoHubMetaChatView.tsx'), 'Deve citar arquivo client alterado');
+  });
+
+  it('31. Isolamento Estrito de Estado de Execução e Status Ativo por Thread', () => {
+    const threadA = MetaChatService.createThread({ title: 'Thread A - Em Execução' });
+    const threadB = MetaChatService.createThread({ title: 'Thread B - Ociosa' });
+
+    // Simula execução ativa na Thread A
+    (MetaChatService as any)._currentExecution = {
+      threadId: threadA.id,
+      phase: 'Executando turno...',
+      startedAt: new Date().toISOString(),
+      cancelRequested: false,
+      pipelineTasks: []
+    };
+
+    // 1. Consulta para a Thread A (deve retornar isRunning = true)
+    const statusA = MetaChatService.getActiveTurnStatus(threadA.id);
+    const liveA = MetaChatService.getLiveStatus(threadA.id);
+    assert.equal(statusA.isRunning, true, 'Thread A deve reportar execução ativa');
+    assert.equal(liveA.isRunning, true, 'Live status da Thread A deve reportar execução ativa');
+    assert.equal(statusA.executingThreadId, threadA.id);
+
+    // 2. Consulta para a Thread B (deve retornar isRunning = false)
+    const statusB = MetaChatService.getActiveTurnStatus(threadB.id);
+    const liveB = MetaChatService.getLiveStatus(threadB.id);
+    assert.equal(statusB.isRunning, false, 'Thread B deve estar ociosa mesmo com Thread A rodando');
+    assert.equal(liveB.isRunning, false, 'Live status da Thread B deve estar ocioso');
+    assert.equal(statusB.executingThreadId, threadA.id, 'Deve informar qual thread está executando no momento');
+
+    // 3. Cancelamento direcionado respeita threadId
+    const cancelOther = MetaChatService.cancelActiveExecution(threadB.id);
+    assert.equal(cancelOther.cancelled, false, 'Não deve cancelar se chamado com threadId incorreto');
+    assert.equal((MetaChatService as any)._currentExecution.cancelRequested, false);
+
+    const cancelCorrect = MetaChatService.cancelActiveExecution(threadA.id);
+    assert.equal(cancelCorrect.cancelled, true, 'Deve cancelar com sucesso na thread ativa');
+    assert.equal((MetaChatService as any)._currentExecution, null, 'Deve limpar _currentExecution após cancelamento');
+  });
+
+  it('32. stripViewedCodeAndToolDumps: Elimina vazamento de código de grep/view_file e ações em "O que foi feito"', async () => {
+    const { stripViewedCodeAndToolDumps } = await import('../src/antigravityProvider.js');
+
+    const dirtyText = [
+      '# Relatório de Entrega Técnica',
+      'server/src/projectOperationsService.ts:123: const server = express();',
+      'server/src/metaChatService.ts:456: function handleSomething() {',
+      'client/src/App.tsx:89: return <div className="p-4">',
+      '45: const x = 1;',
+      '46: const y = 2;',
+      'Analyzed server/src/metaChatService.ts',
+      'Edited server/src/metaChatService.ts',
+      'Ran npm test',
+      'The tool\'s output was truncated (1234 bytes)',
+      '<truncated 500 bytes>',
+      '**O que foi feito:**',
+      'Corrigimos a causa raiz do corte prematuro e implementamos o Activity Heartbeat.',
+      'server/src/foo.ts:99: const dummy = true;',
+      '**Arquivos alterados:**',
+      '- `server/src/metaChatService.ts`: implementação do Activity Heartbeat e limpeza estrita.'
+    ].join('\n');
+
+    const clean = stripViewedCodeAndToolDumps(dirtyText);
+
+    // 1. Não deve conter nenhuma linha no formato arquivo.ts:linha: código
+    assert.ok(!clean.includes('server/src/projectOperationsService.ts:123:'), 'Não deve conter linha de grep/view_file');
+    assert.ok(!clean.includes('server/src/metaChatService.ts:456:'), 'Não deve conter linha de grep/view_file');
+    assert.ok(!clean.includes('client/src/App.tsx:89:'), 'Não deve conter linha de grep/view_file');
+    assert.ok(!clean.includes('server/src/foo.ts:99:'), 'Não deve conter linha de grep em O que foi feito');
+
+    // 2. Não deve conter linhas numéricas puras
+    assert.ok(!clean.includes('45: const x = 1;'), 'Não deve conter linha numérica de dump');
+
+    // 3. Não deve conter ações do agente
+    assert.ok(!clean.includes('Analyzed server/src/metaChatService.ts'), 'Não deve conter Analyzed');
+    assert.ok(!clean.includes('Edited server/src/metaChatService.ts'), 'Não deve conter Edited');
+    assert.ok(!clean.includes('Ran npm test'), 'Não deve conter Ran');
+
+    // 4. Deve preservar títulos e explicações legítimas
+    assert.ok(clean.includes('# Relatório de Entrega Técnica'), 'Deve preservar título markdown');
+    assert.ok(clean.includes('Corrigimos a causa raiz do corte prematuro'), 'Deve preservar explicação legítima');
+    assert.ok(clean.includes('**Arquivos alterados:**'), 'Deve preservar seção de arquivos alterados');
+
+    // 5. Teste integrado com formatDeliveryReport
+    const formatted = MetaChatService.formatDeliveryReport(
+      dirtyText,
+      ['server/src/metaChatService.ts']
+    );
+    assert.ok(formatted.includes('**O que foi feito:**'), 'Deve formatar O que foi feito');
+    assert.ok(formatted.includes('Corrigimos a causa raiz do corte prematuro'), 'Deve conter o resumo limpo');
+    assert.ok(!formatted.includes('server/src/projectOperationsService.ts:123:'), 'Não deve vazar grep no relatório formatado');
+    assert.ok(!formatted.includes('Analyzed'), 'Não deve vazar ações no relatório formatado');
+  });
 });

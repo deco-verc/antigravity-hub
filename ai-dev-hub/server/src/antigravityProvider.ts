@@ -35,37 +35,83 @@ export const isToolDump = (txt: string): boolean => {
 };
 
 /**
- * Strips sequential raw numbered file dump lines (e.g. 5+ consecutive lines starting with '^\s*\d+:\s')
+ * Filtro Estrito Anti-Code-Dump:
+ * Remove estritamente linhas de grep/view_file (ex: server/src/foo.ts:123: const x = ...),
+ * numerações puras de leitura de arquivo (ex: 123: const x = ...),
+ * despejos de passos do agente (ex: Analyzed ..., Edited ..., Ran ...)
+ * e cabeçalhos brutos de ferramentas, preservando markdown, títulos (# / ##), blocos de código legítimos e resumos.
+ */
+export function stripViewedCodeAndToolDumps(text: string): string {
+  if (!text || typeof text !== 'string') return text || '';
+
+  const lines = text.split(/\r?\n/);
+  const result: string[] = [];
+  let inCodeBlock = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (/^```/.test(trimmed)) {
+      inCodeBlock = !inCodeBlock;
+      result.push(line);
+      continue;
+    }
+
+    if (inCodeBlock) {
+      if (/^\[(?:FILE|ARQUIVO|CRIAR|MODIFICAR):/i.test(trimmed) || /^\[ENDFILE\]/i.test(trimmed)) {
+        continue;
+      }
+      result.push(line);
+      continue;
+    }
+
+    // 1. Linhas de grep / view_file: formato arquivo.ts:linha: código
+    // Ex: server/src/projectOperationsService.ts:123: const server = ...
+    // Ex: client/src/App.tsx:45: return <div...
+    const isGrepOrViewLine =
+      /^\s*(?:(?:server|client|src|public|scripts|desktop|decohub_unpacked|\.ai-dev-hub|\.agents|\.\/|\.\.\/|[A-Za-z]:[\\/])[^\s:]+\.[a-zA-Z0-9_-]+:\d+:.*)$/.test(line) ||
+      /^\s*[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\/[^\s:]+\.[a-zA-Z0-9_-]+:\d+:.*$/.test(line);
+
+    if (isGrepOrViewLine) {
+      continue;
+    }
+
+    // 2. Linhas de dump de numeração pura de view_file / read_file
+    // Ex: 123: const a = 1; ou 45: return <div>
+    if (/^\s*\d+:\s+.*$/.test(line)) {
+      continue;
+    }
+
+    // 3. Despejos de passos operacionais do agente que pertencem aos agent_steps
+    // Ex: Analyzed server/src/index.ts ou Edited client/src/App.tsx ou Ran npm test
+    if (/^\s*(?:Analyzed|Edited|Ran|Inspected|Modified|Executed|Created|Deleted)\s+[^\r\n]+$/i.test(trimmed)) {
+      continue;
+    }
+
+    // 4. Artefatos de saída de execução de comando e ferramentas
+    if (/^(?:Created At|Completed At|Showing lines \d+-\d+ of \d+|Made \d+ replacements? in|Command exited with code|Command output:|Log output:|The tool's output was truncated|<truncated|\(NEEDS_EVIDENCE:)/i.test(trimmed)) {
+      continue;
+    }
+
+    // 5. Linhas soltas de diretiva de arquivo
+    if (/^\[(?:FILE|ARQUIVO|CRIAR|MODIFICAR):\s*[^\]]+\]/i.test(trimmed) || /^\[ENDFILE\]/i.test(trimmed)) {
+      continue;
+    }
+
+    result.push(line);
+  }
+
+  return result.join('\n').trim();
+}
+
+/**
+ * Strips sequential raw numbered file dump lines and viewed code
  * while preserving markdown blocks, explanations, headers, and code snippets.
  */
 export function stripRawLineNumberDumps(text: string): string {
   if (!text || typeof text !== 'string') return text;
-
-  const lines = text.split(/\r?\n/);
-  const result: string[] = [];
-  let streak: string[] = [];
-  const lineDumpRegex = /^\s*\d+:\s/;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (lineDumpRegex.test(line)) {
-      streak.push(line);
-    } else {
-      if (streak.length >= 5) {
-        streak = [];
-      } else if (streak.length > 0) {
-        result.push(...streak);
-        streak = [];
-      }
-      result.push(line);
-    }
-  }
-
-  if (streak.length > 0 && streak.length < 5) {
-    result.push(...streak);
-  }
-
-  return result.join('\n').trim();
+  return stripViewedCodeAndToolDumps(text);
 }
 
 export function getLanguageServerExe(): string {
@@ -585,9 +631,15 @@ export class AntigravityProvider implements AgentProvider {
   ): Promise<BuilderToSupervisorContract> {
     let transcriptPath = this.resolveTranscriptPath(sessionId);
     const startTime = Date.now();
+    const maxCeilingMs = Math.max(timeoutMs, 1500000); // Até 25 minutos de teto máximo de segurança
+    const idleTimeoutMs = 180000; // 3 minutos de inatividade absoluta no transcript
+    let lastActivityTime = Date.now();
+    let lastTranscriptSize = 0;
+    let lastTranscriptMtime = 0;
+    let lastEntriesCount = 0;
 
     Logger.info(
-      `[AntigravityProvider] Aguardando conclusão do agente ${sessionId.slice(0, 8)} (timeout: ${timeoutMs / 1000}s)...`
+      `[AntigravityProvider] Aguardando conclusão do agente ${sessionId.slice(0, 8)} (heartbeat ativo, teto máximo: ${maxCeilingMs / 1000}s)...`
     );
 
     const observation = AgentTurnState.get(sessionId);
@@ -606,6 +658,19 @@ export class AntigravityProvider implements AgentProvider {
         transcriptPath = this.resolveTranscriptPath(sessionId);
       }
 
+      // Monitora batimentos cardíacos de atividade real no transcript (Activity Heartbeat)
+      let hasNewActivity = false;
+      if (fs.existsSync(transcriptPath)) {
+        try {
+          const stats = fs.statSync(transcriptPath);
+          if (stats.size !== lastTranscriptSize || stats.mtimeMs !== lastTranscriptMtime) {
+            hasNewActivity = true;
+            lastTranscriptSize = stats.size;
+            lastTranscriptMtime = stats.mtimeMs;
+          }
+        } catch {}
+      }
+
       // Aguarda no mínimo 3 segundos iniciais após o envio para dar tempo do Antigravity processar e registrar o novo turno (ignorado em ambiente de teste ou offline)
       const elapsedMs = Date.now() - startTime;
       const isTestEnv = process.env.NODE_ENV === 'test' || Boolean(process.env.NODE_TEST_CONTEXT) || AgentApiGateway.isOfflineMode();
@@ -615,6 +680,17 @@ export class AntigravityProvider implements AgentProvider {
       }
 
       const progress = observeTranscript(transcriptPath, initialLineCount);
+      if (progress.entries.length > lastEntriesCount) {
+        hasNewActivity = true;
+        lastEntriesCount = progress.entries.length;
+      }
+      if (progress.pendingTools.length > 0) {
+        hasNewActivity = true;
+      }
+
+      if (hasNewActivity) {
+        lastActivityTime = Date.now();
+      }
 
       // Garante que o polling aguarde uma nova resposta do agente posterior à linha do USER_MESSAGE enviado naquele turno
       let hasUserMessage = false;
@@ -654,32 +730,19 @@ export class AntigravityProvider implements AgentProvider {
       }
       if (progress.state === 'COMPLETE' && entriesAfterUser.length > 0) {
         if (timeoutMs > 5000 && !isTestEnv) {
-          const lastOperational = entriesAfterUser.filter(e => e.type !== 'CHECKPOINT').at(-1);
-          const lastText = String(lastOperational?.content || lastOperational?.text || '');
-          const isBriefingFinal = /(?:###\s*3\.|###\s*4\.|Status Final|Matriz de Valida[çc][ãa]o|Briefing Executivo)/i.test(lastText);
-
-          if (isBriefingFinal) {
-            const prevEntryCount = progress.entries.length;
+          // Exige 4000ms de silêncio real (2 checagens consecutivas de 2000ms) sem novas ferramentas pendentes ou novas linhas
+          let quiet = true;
+          for (let check = 0; check < 2; check++) {
+            const prevCount = progress.entries.length;
             await new Promise(r => setTimeout(r, 2000));
             const recheck = observeTranscript(transcriptPath, initialLineCount);
-            if (recheck.state !== 'COMPLETE' || recheck.entries.length > prevEntryCount) {
-              continue;
+            if (recheck.state !== 'COMPLETE' || recheck.entries.length > prevCount || recheck.pendingTools.length > 0) {
+              quiet = false;
+              break;
             }
-          } else {
-            // Em modo HIGH ou raciocínio intermediário, executa 3 checagens consecutivas de 2500ms (7.5s de silêncio real)
-            let quiet = true;
-            for (let check = 0; check < 3; check++) {
-              const prevCount = progress.entries.length;
-              await new Promise(r => setTimeout(r, 2500));
-              const recheck = observeTranscript(transcriptPath, initialLineCount);
-              if (recheck.state !== 'COMPLETE' || recheck.entries.length > prevCount) {
-                quiet = false;
-                break;
-              }
-            }
-            if (!quiet) {
-              continue;
-            }
+          }
+          if (!quiet) {
+            continue;
           }
         }
         isComplete = true;
@@ -720,29 +783,19 @@ export class AntigravityProvider implements AgentProvider {
 
         if (isModelFinal) {
           if (timeoutMs > 5000 && !isTestEnv) {
-            const isBriefingFinal = /(?:###\s*3\.|###\s*4\.|Status Final|Matriz de Valida[çc][ãa]o|Briefing Executivo)/i.test(lastEntryText);
-
-            if (isBriefingFinal) {
-              const prevEntryCount = progress.entries.length;
+            // Exige 4000ms de estabilidade sem ferramentas pendentes
+            let quiet = true;
+            for (let check = 0; check < 2; check++) {
+              const prevCount = progress.entries.length;
               await new Promise(r => setTimeout(r, 2000));
               const recheck = observeTranscript(transcriptPath, initialLineCount);
-              if (recheck.state !== 'COMPLETE' || recheck.entries.length > prevEntryCount) {
-                continue;
+              if (recheck.state !== 'COMPLETE' || recheck.entries.length > prevCount || recheck.pendingTools.length > 0) {
+                quiet = false;
+                break;
               }
-            } else {
-              let quiet = true;
-              for (let check = 0; check < 3; check++) {
-                const prevCount = progress.entries.length;
-                await new Promise(r => setTimeout(r, 2500));
-                const recheck = observeTranscript(transcriptPath, initialLineCount);
-                if (recheck.state !== 'COMPLETE' || recheck.entries.length > prevCount) {
-                  quiet = false;
-                  break;
-                }
-              }
-              if (!quiet) {
-                continue;
-              }
+            }
+            if (!quiet) {
+              continue;
             }
           }
           isComplete = true;
@@ -750,9 +803,26 @@ export class AntigravityProvider implements AgentProvider {
         }
       }
 
-      if (Date.now() - startTime >= timeoutMs) break;
+      const totalElapsed = Date.now() - startTime;
+      const inactiveElapsed = Date.now() - lastActivityTime;
+
+      // Em testes unitários curtos (<10s), respeita o timeoutMs fornecido
+      const isShortTest = timeoutMs < 10000;
+      if (isShortTest) {
+        if (totalElapsed >= timeoutMs) break;
+      } else {
+        if (inactiveElapsed >= idleTimeoutMs && progress.pendingTools.length === 0) {
+          Logger.warn(`[AntigravityProvider] Inatividade de ${Math.round(inactiveElapsed / 1000)}s detectada no transcript para ${sessionId.slice(0, 8)}.`);
+          break;
+        }
+        if (totalElapsed >= maxCeilingMs) {
+          Logger.warn(`[AntigravityProvider] Teto máximo de segurança atingido (${Math.round(totalElapsed / 1000)}s) para ${sessionId.slice(0, 8)}.`);
+          break;
+        }
+      }
+
       await new Promise(r => setTimeout(r, Math.min(500, timeoutMs)));
-    } while (Date.now() - startTime < timeoutMs);
+    } while (true);
 
     if (!isComplete) {
       Logger.warn(`[AntigravityProvider] Timeout atingido ou execução ainda em andamento para ${sessionId.slice(0, 8)}.`);
@@ -799,6 +869,14 @@ export class AntigravityProvider implements AgentProvider {
   private parseTranscriptToReport(sessionId: string, projectPath?: string): BuilderToSupervisorContract {
     const transcriptPath = this.resolveTranscriptPath(sessionId);
     const filesChanged = new Set<string>();
+    const agentSteps: Array<{
+      id: string;
+      type: string;
+      action: string;
+      target: string;
+      details: string;
+      timestamp?: string;
+    }> = [];
     let toolCallsCount = 0;
     const commandsExecuted: string[] = [];
     const plannerNarrativeBlocks: string[] = [];
@@ -812,6 +890,8 @@ export class AntigravityProvider implements AgentProvider {
         filesChanged: [],
         implemented: [],
         commandsExecuted: [],
+        toolCallsCount: 0,
+        agentSteps: [],
         tests: { ran: false },
         buildStatus: 'Transcript não encontrado',
         problems: ['Transcript não gerado pelo agente'],
@@ -842,16 +922,16 @@ export class AntigravityProvider implements AgentProvider {
                 try {
                   args = JSON.parse(args);
                 } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "antigravityProvider",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:antigravityProvider]", err);
-      }
-    }
+                  if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+                    (globalThis as any).logger.warn({
+                      event: "server.handled_exception",
+                      file: "antigravityProvider",
+                      error: (err as any)?.message || String(err)
+                    });
+                  } else {
+                    console.warn("[WARN][server:antigravityProvider]", err);
+                  }
+                }
               }
 
               if (
@@ -866,12 +946,50 @@ export class AntigravityProvider implements AgentProvider {
                 const target =
                   args?.Path || args?.path || args?.TargetFile || args?.targetFile || args?.FilePath || args?.file_path;
                 if (typeof target === 'string' && target.trim()) {
-                  filesChanged.add(target.replace(/"/g, '').trim());
+                  const cleanedTarget = target.replace(/"/g, '').trim();
+                  filesChanged.add(cleanedTarget);
+                  agentSteps.push({
+                    id: `step-${toolCallsCount}`,
+                    type: 'EDIT',
+                    action: 'Edited',
+                    target: cleanedTarget,
+                    details: `Editou ${cleanedTarget}`
+                  });
                 }
+              } else if (call.name === 'read_file' || call.name === 'view_file') {
+                const target =
+                  args?.Path || args?.path || args?.TargetFile || args?.targetFile || args?.FilePath || args?.file_path;
+                if (typeof target === 'string' && target.trim()) {
+                  const cleanedTarget = target.replace(/"/g, '').trim();
+                  agentSteps.push({
+                    id: `step-${toolCallsCount}`,
+                    type: 'READ',
+                    action: 'Analyzed',
+                    target: cleanedTarget,
+                    details: `Analisou ${cleanedTarget}`
+                  });
+                }
+              } else if (call.name === 'grep_search' || call.name === 'file_search' || call.name === 'search') {
+                const query = args?.query || args?.Query || args?.pattern || 'código';
+                agentSteps.push({
+                  id: `step-${toolCallsCount}`,
+                  type: 'SEARCH',
+                  action: 'Searched',
+                  target: String(query),
+                  details: `Pesquisou "${query}"`
+                });
               } else if (call.name === 'run_command' || call.name === 'execute_command') {
                 const cmd = args?.CommandLine || args?.commandLine || args?.command || args?.cmd;
                 if (typeof cmd === 'string' && cmd.trim()) {
-                  commandsExecuted.push(cmd.replace(/"/g, '').trim());
+                  const cleanedCmd = cmd.replace(/"/g, '').trim();
+                  commandsExecuted.push(cleanedCmd);
+                  agentSteps.push({
+                    id: `step-${toolCallsCount}`,
+                    type: 'COMMAND',
+                    action: 'Ran',
+                    target: cleanedCmd,
+                    details: `Executou: ${cleanedCmd}`
+                  });
                 }
               }
             }
@@ -1054,6 +1172,7 @@ export class AntigravityProvider implements AgentProvider {
       status: isSuccess ? 'success' : 'failure',
       filesChanged: filesArray,
       toolCallsCount,
+      agentSteps,
       implemented: filesArray.length > 0 ? ['Implementação realizada pelo Antigravity Builder'] : [],
       commandsExecuted,
       tests: {

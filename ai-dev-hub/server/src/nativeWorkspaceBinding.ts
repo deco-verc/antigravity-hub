@@ -212,6 +212,8 @@ export class NativeWorkspaceBinding {
       const boundRow = db.prepare('SELECT native_project_id FROM native_workspace_bindings WHERE project_id = ?').get(projectId) as any;
       if (boundRow?.native_project_id && candidates.includes(boundRow.native_project_id)) {
         chosenCandidate = boundRow.native_project_id;
+      } else {
+        throw new Error('NATIVE_WORKSPACE_PROJECT_AMBIGUOUS');
       }
     }
 
@@ -308,22 +310,32 @@ export class NativeWorkspaceBinding {
         .prepare("SELECT 1 FROM autonomous_runs WHERE project_id=? AND status NOT IN ('completed','failed') LIMIT 1")
         .get(projectId);
       if (!hasActiveRun) {
-        NativeExecutionPolicy.configure(
-          projectId,
-          targetMode === 'permissive'
-            ? {
-                mode: 'permissive',
-                acknowledgement: {
-                  userConsent:
-                    options?.userConsent ||
-                    'Escolha explícita na criação do projeto: aceitar ALLOW/EAGER conforme preferência do usuário.',
-                  outsideAccessAllowed: true,
-                  automaticCommandsAllowed: true,
-                  noFilesystemIsolation: true
+        try {
+          NativeExecutionPolicy.configure(
+            projectId,
+            targetMode === 'permissive'
+              ? {
+                  mode: 'permissive',
+                  acknowledgement: {
+                    userConsent:
+                      options?.userConsent ||
+                      'Escolha explícita na criação do projeto: aceitar ALLOW/EAGER conforme preferência do usuário.',
+                    outsideAccessAllowed: true,
+                    automaticCommandsAllowed: true,
+                    noFilesystemIsolation: true
+                  }
                 }
-              }
-            : { mode: 'restricted' }
-        );
+              : { mode: 'restricted' }
+          );
+        } catch (polErr: any) {
+          if (polErr.message === 'NATIVE_EXECUTION_POLICY_ACTIVE_OR_AMBIGUOUS') {
+            Logger.warn(
+              `[NativeWorkspaceBinding] Trava de política ativa/ambígua detectada. Preservando configuração de forma defensiva.`
+            );
+          } else {
+            throw polErr;
+          }
+        }
       } else {
         const now = new Date().toISOString();
         const savedChoice =
@@ -768,10 +780,13 @@ export class NativeWorkspaceBinding {
       env?.ANTIGRAVITY_PROJECT_ID &&
       env.ANTIGRAVITY_PROJECT_ID !== record.nativeProjectId
     ) {
+      if (!caller || isOfflineExecution()) {
+        throw new Error('NATIVE_WORKSPACE_ENVIRONMENT_MISMATCH');
+      }
       Logger.warn(`[NativeWorkspaceBinding] Alinhando nativeProjectId (${record.nativeProjectId} -> ${env.ANTIGRAVITY_PROJECT_ID}) para projeto ${projectId}`);
       try {
-        db.prepare('UPDATE native_workspace_bindings SET native_project_id = ?, updated_at = ? WHERE project_id = ?')
-          .run(env.ANTIGRAVITY_PROJECT_ID, new Date().toISOString(), projectId);
+        db.prepare('UPDATE native_workspace_bindings SET native_project_id = ? WHERE project_id = ?')
+          .run(env.ANTIGRAVITY_PROJECT_ID, projectId);
         record.nativeProjectId = env.ANTIGRAVITY_PROJECT_ID;
       } catch (bindErr: any) {
         Logger.warn(`[NativeWorkspaceBinding] Erro ao alinhar nativeProjectId: ${bindErr.message}`);
@@ -782,6 +797,9 @@ export class NativeWorkspaceBinding {
       !env?.USERPROFILE ||
       normalizeRuntimePath(env.USERPROFILE) !== normalizeRuntimePath(record.userProfileDir)
     ) {
+      if (!caller || isOfflineExecution()) {
+        throw new Error('NATIVE_WORKSPACE_ENVIRONMENT_MISMATCH');
+      }
       if (env?.USERPROFILE) {
         try {
           const isOffline = isOfflineExecution();

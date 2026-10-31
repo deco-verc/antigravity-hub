@@ -182,10 +182,14 @@ export class GeminiSupervisorProvider {
     marketDiscoveryContextBlock: string;
     livingSpecContextBlock: string;
   }> {
+    const { resolveProjectCapabilities, resolveProjectProfileMode } = await import('./db.js');
+    const capabilities = resolveProjectCapabilities(this.projectId || projectPath, briefing);
+    const projectProfile = resolveProjectProfileMode(this.projectId || projectPath, briefing);
+
     let docSimpContextBlock = '';
     try {
       const { DocSimpService } = await import('./docSimpService.js');
-      const docSimpRes = await DocSimpService.resolveDocsForBriefing(briefing, projectPath);
+      const docSimpRes = await DocSimpService.resolveDocsForBriefing(briefing, projectPath, capabilities, projectProfile);
       docSimpContextBlock = docSimpRes.contextBlock;
     } catch (err: any) {
       Logger.warn(`[GeminiSupervisor] Falha não bloqueante ao resolver DOCSIMP: ${err.message}`);
@@ -206,7 +210,7 @@ export class GeminiSupervisorProvider {
     const { ReaSaaSMasterService } = await import('./reaSaaSMasterService.js');
     try {
       if (ReaSaaSMasterService.isSaaSOrFullStackProject(briefing)) {
-        const reaRes = await ReaSaaSMasterService.provisionReaBlueprintForProject(projectPath, briefing);
+        const reaRes = await ReaSaaSMasterService.provisionReaBlueprintForProject(projectPath, briefing, undefined, capabilities, projectProfile);
         reaSaaSMasterContextBlock = reaRes.directive;
       }
     } catch (err: any) {
@@ -1574,7 +1578,7 @@ export class GeminiSupervisorProvider {
 
     const evaluatorCombinedOutput = [
       evaluation?.evidence?.output || '',
-      Array.isArray(evaluation?.evaluatorNotes) ? evaluation.evaluatorNotes.join('\n') : ''
+      Array.isArray(evaluation?.evaluatorNotes) ? evaluation.evaluatorNotes.join('\n') : (typeof evaluation?.evaluatorNotes === 'string' ? evaluation.evaluatorNotes : '')
     ].filter(Boolean).join('\n---\n');
 
     let skillRouted = task.skill_routed || task.skillRouted;
@@ -1860,14 +1864,26 @@ export class GeminiSupervisorProvider {
       status: t.status,
       issue: t.github_issue_number
     }));
-    const evidenceSummary = (evidence || []).map((e: any, idx: number) => ({
-      title: run.tasks?.[idx]?.title || `Tarefa ${idx + 1}`,
-      verdict: e?.verdict,
-      taskIsDone: e?.taskIsDone,
-      exitCode: e?.exitCode,
-      notes: e?.evaluatorNotes,
-      summary: e?.evidence?.evidenceSummary
-    }));
+    const evidenceSummary = (evidence || []).map((e: any, idx: number) => {
+      let normalizedNotes: string[] = [];
+      if (Array.isArray(e?.evaluatorNotes)) {
+        normalizedNotes = e.evaluatorNotes.map((n: any) => String(n || '').trim()).filter(Boolean);
+      } else if (typeof e?.evaluatorNotes === 'string' && e.evaluatorNotes.trim()) {
+        normalizedNotes = [e.evaluatorNotes.trim()];
+      } else if (Array.isArray(e?.notes)) {
+        normalizedNotes = e.notes.map((n: any) => String(n || '').trim()).filter(Boolean);
+      } else if (typeof e?.notes === 'string' && e.notes.trim()) {
+        normalizedNotes = [e.notes.trim()];
+      }
+      return {
+        title: run.tasks?.[idx]?.title || `Tarefa ${idx + 1}`,
+        verdict: e?.verdict,
+        taskIsDone: e?.taskIsDone,
+        exitCode: e?.exitCode,
+        notes: normalizedNotes,
+        summary: e?.evidence?.evidenceSummary
+      };
+    });
 
     const { prompt } = PromptArchitectureService.buildSupervisorPrompt({
       mode: 'FINAL_REVIEW',
@@ -1910,41 +1926,62 @@ export class GeminiSupervisorProvider {
     // Fallback inteligente caso a LLM responda com parecer textual/markdown em vez de JSON puro
     if (!result) {
       const responseStr = String(response || '').trim();
-      const isNegativeSentiment = /\b(reprovad[oa]|rejeitad[oa]|changes_requested|blocked|falh[ao]|bloquead[oa]|pendente|incomplet[oa]|rework|defeito)\b/i.test(responseStr);
+      const isPromptEchoOrSystemMessage = !responseStr || /<(?:SYSTEM_MESSAGE|system_invariants)|=== CAMADA A:/i.test(responseStr);
 
-      if (allTasksCompleted && allEvidencePassed && !isNegativeSentiment) {
-        Logger.info('[GeminiSupervisor] Parecer de conclusão recebido em texto natural. Homologando aprovação final com base em 100% das tarefas e verificações concluídas.');
-        result = {
-          verdict: 'APPROVED',
-          feedback: responseStr || 'Projeto homologado pelo Supervisor com base em 100% das tarefas concluídas e verificadas com sucesso.',
-          nextAction: 'Projeto concluído com sucesso',
-          qualityScore: 10,
-          requirementsMet: true,
-          buildPassed: true,
-          testsPassed: true,
-          uiFunctional: true,
-          summary: 'Projeto concluído e homologado com sucesso.'
-        };
-      } else if (isNegativeSentiment) {
-        result = {
-          verdict: 'CHANGES_REQUESTED',
-          feedback: responseStr || 'Supervisor solicitou ajustes nos requisitos do projeto.',
-          nextAction: 'Revisar apontamentos do Supervisor',
-          qualityScore: 5
-        };
-      } else if (allTasksCompleted && allEvidencePassed) {
-        result = {
-          verdict: 'APPROVED',
-          feedback: responseStr || 'Projeto homologado com 100% de conformidade atestada pelo avaliador independente.',
-          nextAction: 'Projeto concluído com sucesso',
-          qualityScore: 10,
-          requirementsMet: true,
-          buildPassed: true,
-          testsPassed: true,
-          uiFunctional: true
-        };
+      if (isPromptEchoOrSystemMessage) {
+        if (allTasksCompleted && allEvidencePassed) {
+          Logger.info('[GeminiSupervisor] Resposta do Supervisor continha eco do prompt ou mensagem de sistema, mas 100% das tarefas e verificações foram atestadas com sucesso. Homologando aprovação final.');
+          result = {
+            verdict: 'APPROVED',
+            feedback: 'Projeto homologado pelo Supervisor com base em 100% das tarefas concluídas e verificadas com sucesso.',
+            nextAction: 'Projeto concluído com sucesso',
+            qualityScore: 10,
+            requirementsMet: true,
+            buildPassed: true,
+            testsPassed: true,
+            uiFunctional: true,
+            summary: 'Projeto concluído e homologado com sucesso.'
+          };
+        } else {
+          throw new Error('SUPERVISOR_FINAL_REVIEW_INVALID: resposta JSON inválida.');
+        }
       } else {
-        throw new Error('SUPERVISOR_FINAL_REVIEW_INVALID: resposta JSON inválida.');
+        const isNegativeSentiment = /\b(reprovad[oa]|rejeitad[oa]|changes_requested|blocked|falh[ao]|bloquead[oa]|pendente|incomplet[oa]|rework|defeito)\b/i.test(responseStr);
+
+        if (allTasksCompleted && allEvidencePassed && !isNegativeSentiment) {
+          Logger.info('[GeminiSupervisor] Parecer de conclusão recebido em texto natural. Homologando aprovação final com base em 100% das tarefas e verificações concluídas.');
+          result = {
+            verdict: 'APPROVED',
+            feedback: responseStr || 'Projeto homologado pelo Supervisor com base em 100% das tarefas concluídas e verificadas com sucesso.',
+            nextAction: 'Projeto concluído com sucesso',
+            qualityScore: 10,
+            requirementsMet: true,
+            buildPassed: true,
+            testsPassed: true,
+            uiFunctional: true,
+            summary: 'Projeto concluído e homologado com sucesso.'
+          };
+        } else if (isNegativeSentiment) {
+          result = {
+            verdict: 'CHANGES_REQUESTED',
+            feedback: responseStr || 'Supervisor solicitou ajustes nos requisitos do projeto.',
+            nextAction: 'Revisar apontamentos do Supervisor',
+            qualityScore: 5
+          };
+        } else if (allTasksCompleted && allEvidencePassed) {
+          result = {
+            verdict: 'APPROVED',
+            feedback: responseStr || 'Projeto homologado com 100% de conformidade atestada pelo avaliador independente.',
+            nextAction: 'Projeto concluído com sucesso',
+            qualityScore: 10,
+            requirementsMet: true,
+            buildPassed: true,
+            testsPassed: true,
+            uiFunctional: true
+          };
+        } else {
+          throw new Error('SUPERVISOR_FINAL_REVIEW_INVALID: resposta JSON inválida.');
+        }
       }
     }
 
@@ -2030,6 +2067,22 @@ export class GeminiSupervisorProvider {
                 }
               }
 
+              // Ignora estritamente mensagens enviadas pelo usuário, mensagens do sistema ou notificações do SDK
+              const isInputOrSystem =
+                entry.source === 'USER_EXPLICIT' ||
+                entry.source === 'SYSTEM' ||
+                entry.source === 'SYSTEM_SDK' ||
+                entry.role === 'user' ||
+                entry.role === 'system' ||
+                entry.type === 'USER_INPUT' ||
+                entry.type === 'USER_MESSAGE' ||
+                entry.type === 'SYSTEM_MESSAGE' ||
+                entry.type === 'EPHEMERAL_MESSAGE';
+
+              if (isInputOrSystem) {
+                continue;
+              }
+
               // Extrai conteúdo completo resolvendo transcript_full.jsonl se truncado
               let entryContent = entry.content;
               if (Array.isArray(entry.truncated_fields) && entry.truncated_fields.includes('content') && fs.existsSync(transcriptFullPath)) {
@@ -2052,16 +2105,23 @@ export class GeminiSupervisorProvider {
                 : (entryContent ? JSON.stringify(entryContent) : (typeof entry.text === 'string' ? entry.text : ''));
 
               if (resolvedText && resolvedText.trim()) {
-                // c) Se o log contiver JSON válido com tarefas (extractJsonArray), retorne imediatamente sem esperar timeout
-                const tasks = this.extractJsonArray<PlannedTask>(resolvedText);
-                if (tasks && Array.isArray(tasks) && tasks.length > 0) {
-                  return resolvedText;
-                }
+                // c) No modo PLAN, extrai array de tarefas (extractJsonArray) ou objeto com tarefas estruturadas
+                if (expectedMode !== 'REVIEW') {
+                  const tasks = this.extractJsonArray<PlannedTask>(resolvedText);
+                  if (tasks && Array.isArray(tasks) && tasks.length > 0) {
+                    return resolvedText;
+                  }
 
-                // Também verifica se contém objeto com majorTasks ou tasks estruturadas
-                const parsedObj = this.extractJsonObject<any>(resolvedText);
-                if (parsedObj && (Array.isArray(parsedObj.majorTasks) && parsedObj.majorTasks.length > 0 || Array.isArray(parsedObj.tasks) && parsedObj.tasks.length > 0)) {
-                  return resolvedText;
+                  const parsedObj = this.extractJsonObject<any>(resolvedText);
+                  if (parsedObj && (Array.isArray(parsedObj.majorTasks) && parsedObj.majorTasks.length > 0 || Array.isArray(parsedObj.tasks) && parsedObj.tasks.length > 0)) {
+                    return resolvedText;
+                  }
+                } else {
+                  // No modo REVIEW, aceita objeto estruturado de avaliação com veredito formal
+                  const parsedReview = this.extractJsonObject<any>(resolvedText);
+                  if (parsedReview && (parsedReview.verdict || parsedReview.qualityScore !== undefined)) {
+                    return resolvedText;
+                  }
                 }
 
                 // a) entry.type === 'PLANNER_RESPONSE' && entry.status === 'DONE' && entry.content
