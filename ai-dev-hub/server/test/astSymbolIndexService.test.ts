@@ -6,6 +6,7 @@ import os from 'node:os';
 import {
   AstSymbolIndexService
 } from '../src/astSymbolIndexService.js';
+import { DocSimpService } from '../src/docSimpService.js';
 import { PromptArchitectureService } from '../src/promptArchitectureService.js';
 import { db } from '../src/db.js';
 
@@ -165,5 +166,263 @@ describe('FASE 5: AstSymbolIndexService & Proteção Anti-Context-Rot', () => {
       filePaths: ['src/calculator.js']
     });
     assert.equal(calcs.length, 0, 'Símbolos do arquivo excluído devem ter sido removidos');
+  });
+
+  it('7. getSymbolMap: Extrai interfaces, tipos, métodos exportados e rotas com redução > 70% de tokens', () => {
+    // Código realista de serviço/controlador com muita implementação interna (loops, queries, validações)
+    const complexControllerCode = `
+import { Request, Response } from 'express';
+
+export interface UserAccount {
+  id: string;
+  email: string;
+  role: 'admin' | 'user';
+  createdAt: Date;
+}
+
+export interface PaymentInvoice {
+  invoiceId: string;
+  amountCents: number;
+  status: 'PENDING' | 'PAID' | 'FAILED';
+}
+
+export type TransactionState = 'INITIATED' | 'PROCESSING' | 'COMPLETED' | 'CANCELLED';
+export type AccountType = 'STANDARD' | 'ENTERPRISE';
+
+export async function processPayment(userId: string, amount: number): Promise<PaymentInvoice> {
+  // Lógica pesada de validação e processamento que NÃO deve poluir o contexto do Supervisor
+  if (amount <= 0) throw new Error('Valor inválido');
+  const rate = 0.025;
+  const tax = amount * rate;
+  const total = amount + tax;
+  console.log('Validando saldo bancário no banco de dados SQLite...');
+  for (let i = 0; i < 20; i++) {
+    const step = i * 5;
+  }
+  return { invoiceId: 'inv-123', amountCents: Math.round(total * 100), status: 'PAID' };
+}
+
+function validateTaxId(taxId: string): boolean {
+  if (!taxId || taxId.length !== 11) return false;
+  let sum = 0;
+  for (let i = 0; i < 9; i++) sum += parseInt(taxId.charAt(i)) * (10 - i);
+  let rev = 11 - (sum % 11);
+  if (rev === 10 || rev === 11) rev = 0;
+  if (rev !== parseInt(taxId.charAt(9))) return false;
+  sum = 0;
+  for (let i = 0; i < 10; i++) sum += parseInt(taxId.charAt(i)) * (11 - i);
+  rev = 11 - (sum % 11);
+  if (rev === 10 || rev === 11) rev = 0;
+  return rev === parseInt(taxId.charAt(10));
+}
+
+function calculateTieredFees(amountCents: number, accountType: AccountType): number {
+  if (accountType === 'ENTERPRISE') {
+    if (amountCents > 1000000) return Math.round(amountCents * 0.009);
+    if (amountCents > 100000) return Math.round(amountCents * 0.012);
+    return Math.round(amountCents * 0.015);
+  }
+  return Math.round(amountCents * 0.025);
+}
+
+function auditTransactionEntry(auditDb: any, txId: string, action: string, metadata: Record<string, any>): void {
+  const statement = 'INSERT INTO audit_logs (id, tx_id, action, metadata_json, created_at) VALUES (?, ?, ?, ?, ?)';
+  const now = new Date().toISOString();
+  console.log('Writing audit entry to SQLite:', txId, action, now);
+}
+
+function sanitizeCheckoutPayload(input: any): any {
+  return {
+    customerName: String(input?.customerName || '').trim().slice(0, 100),
+    email: String(input?.email || '').toLowerCase().trim(),
+    taxId: String(input?.taxId || '').replace(/\\D/g, ''),
+    items: Array.isArray(input?.items) ? input.items.map((it: any) => ({
+      sku: String(it.sku),
+      qty: Number(it.qty) || 1,
+      unitPrice: Number(it.unitPrice) || 0
+    })) : []
+  };
+}
+
+export function createInvoice(data: Partial<PaymentInvoice>): PaymentInvoice {
+  return {
+    invoiceId: data.invoiceId || 'inv-default',
+    amountCents: data.amountCents || 0,
+    status: data.status || 'PENDING'
+  };
+}
+
+export class CheckoutManager {
+  private apiKey: string;
+  constructor(key: string) { this.apiKey = key; }
+  public async executeCheckout(cartId: string): Promise<boolean> {
+    // 30 linhas de lógica de checkout
+    return true;
+  }
+}
+
+// Rotas HTTP registradas
+app.post('/api/checkout/pix', async (req: Request, res: Response) => {
+  const result = await processPayment(req.body.userId, req.body.amount);
+  res.json(result);
+});
+
+app.get('/api/checkout/:id', (req: Request, res: Response) => {
+  res.json({ id: req.params.id, status: 'PAID' });
+});
+
+router.delete('/api/orders/:id', (req: Request, res: Response) => {
+  res.status(204).end();
+});
+`;
+
+    const controllerPath = path.join(srcDir, 'checkoutController.ts');
+    fs.writeFileSync(controllerPath, complexControllerCode);
+
+    const map = AstSymbolIndexService.getSymbolMap(controllerPath);
+
+    // 1. Verificações de interfaces e tipos
+    assert.ok(map.interfaces.length >= 2, 'Deve extrair ao menos 2 interfaces');
+    assert.ok(map.interfaces.some(i => i.includes('UserAccount')));
+    assert.ok(map.interfaces.some(i => i.includes('PaymentInvoice')));
+    assert.ok(map.types.length >= 2, 'Deve extrair ao menos 2 types');
+    assert.ok(map.types.some(t => t.includes('TransactionState')));
+
+    // 2. Verificações de métodos exportados
+    assert.ok(map.exportedMethods.some(m => m.includes('processPayment')));
+    assert.ok(map.exportedMethods.some(m => m.includes('createInvoice')));
+    assert.ok(map.exportedMethods.some(m => m.includes('CheckoutManager')));
+
+    // 3. Verificações de rotas
+    assert.ok(map.routes.some(r => r.includes('POST /api/checkout/pix')));
+    assert.ok(map.routes.some(r => r.includes('GET /api/checkout/:id')));
+    assert.ok(map.routes.some(r => r.includes('DELETE /api/orders/:id')));
+
+    // 4. Critério Mandatório: Redução de tokens > 70%
+    assert.ok(
+      map.reductionPercentage >= 70,
+      `Redução esperada >= 70%, obtida: ${map.reductionPercentage}% (${map.compactBytes}B vs ${map.originalBytes}B)`
+    );
+
+    // 5. Formatação estruturada não deve vazar código imperativo interno
+    assert.ok(!map.formattedSummary.includes('Lógica pesada'));
+    assert.ok(!map.formattedSummary.includes('console.log'));
+    assert.ok(map.formattedSummary.includes('#### [AST SYMBOL MAP]'));
+  });
+
+  it('8. DocSimpService.getKnowledge: Extrai cirurgicamente regras e contratos para PushinPay, Supabase, BullMQ e Prisma', () => {
+    // 1. PushinPay / Pix
+    const pushinKnowledge = DocSimpService.getKnowledge('pushinpay');
+    assert.ok(pushinKnowledge.includes('DOCSIMP KNOWLEDGE: PushinPay'));
+    assert.ok(pushinKnowledge.includes('PUSHINPAY_API_KEY'));
+    assert.ok(pushinKnowledge.includes('pix') || pushinKnowledge.includes('qr_code') || pushinKnowledge.includes('Pix'));
+    assert.ok(!pushinKnowledge.includes('Was this section helpful?'));
+    assert.ok(!pushinKnowledge.includes('## Indice'));
+
+    // 2. Supabase
+    const supabaseKnowledge = DocSimpService.getKnowledge('supabase');
+    assert.ok(supabaseKnowledge.includes('Supabase'));
+    assert.ok(supabaseKnowledge.includes('SUPABASE_URL') || supabaseKnowledge.includes('auth'));
+    assert.ok(supabaseKnowledge.includes('Fallback'));
+
+    // 3. BullMQ
+    const bullKnowledge = DocSimpService.getKnowledge('bullmq');
+    assert.ok(bullKnowledge.includes('BullMQ') || bullKnowledge.includes('bullmq') || bullKnowledge.includes('BULLMQ'));
+    assert.ok(bullKnowledge.includes('Queue') || bullKnowledge.includes('Worker') || bullKnowledge.includes('fila'));
+
+    // 4. Prisma
+    const prismaKnowledge = DocSimpService.getKnowledge('prisma');
+    assert.ok(prismaKnowledge.includes('PRISMA') || prismaKnowledge.includes('Prisma') || prismaKnowledge.includes('prisma'));
+    assert.ok(prismaKnowledge.includes('schema.prisma') || prismaKnowledge.includes('PrismaClient') || prismaKnowledge.includes('DATABASE_URL') || prismaKnowledge.includes('ORM'));
+
+    // 5. getKnowledgeForBriefing reunindo tecnologias mencionadas
+    const briefingText = 'Desenvolver micro-SaaS com checkout Pix via PushinPay, autenticação Supabase e filas assíncronas com BullMQ.';
+    const combinedKnowledge = DocSimpService.getKnowledgeForBriefing(briefingText);
+    assert.ok(combinedKnowledge.includes('DOCSIMP: REGRAS E CONTRATOS'));
+    assert.ok(combinedKnowledge.includes('PushinPay'));
+    assert.ok(combinedKnowledge.includes('Supabase'));
+    assert.ok(combinedKnowledge.includes('BullMQ') || combinedKnowledge.includes('bullmq') || combinedKnowledge.includes('BULLMQ'));
+  });
+
+  it('9. Supervisor Context Injection: Injeta AST compactada de arquivos-alvo e regras DOCSIMP no planejamento', () => {
+    const briefing = 'Adicionar checkout de Pix via PushinPay e autenticação no src/checkoutController.ts';
+
+    // 1. Identificar arquivos-alvo
+    const targets = AstSymbolIndexService.identifyTargetFiles(briefing, tempDir);
+    assert.ok(targets.some(t => t.includes('checkoutController.ts')), 'Deve identificar checkoutController.ts');
+
+    // 2. Extrair contexto compactado
+    const compactAst = AstSymbolIndexService.getCompactContextForBriefing(briefing, tempDir);
+    assert.ok(compactAst.includes('FILTRO DE CONTEXTO BASEADO EM AST'));
+    assert.ok(compactAst.includes('checkoutController.ts'));
+    assert.ok(compactAst.includes('POST /api/checkout/pix'));
+
+    // 3. Supervisor Prompt Assembly
+    const { prompt, meta } = PromptArchitectureService.buildSupervisorPrompt({
+      mode: 'INITIAL_PLAN',
+      projectId: testProjectId,
+      projectName: 'Test Compact Project',
+      projectPath: tempDir,
+      projectObjective: 'Reduzir tokens em 70% com injeção cirúrgica AST e DOCSIMP',
+      briefing,
+      astSymbolSummaryBlock: compactAst,
+      docSimpKnowledgeBlock: DocSimpService.getKnowledgeForBriefing(briefing)
+    });
+
+    assert.equal(meta.role, 'SUPERVISOR');
+    assert.ok(prompt.includes('<ast_symbol_index>'), 'Prompt do Supervisor deve conter envelope <ast_symbol_index>');
+    assert.ok(prompt.includes('POST /api/checkout/pix'), 'Prompt do Supervisor deve conter rotas detectadas');
+    assert.ok(prompt.includes('<docsimp_blueprints>'), 'Prompt do Supervisor deve conter contratos DOCSIMP');
+    assert.ok(prompt.includes('PushinPay'), 'Prompt do Supervisor deve conter PushinPay');
+    assert.ok(prompt.length < PromptArchitectureService.MAX_SAFE_PROMPT_CHARS, 'Prompt do Supervisor deve respeitar orçamento estrito');
+  });
+
+  it('10. Orçamento de Tokens do Worker: Payload gerado para Worker não ultrapassa 15.000 tokens em projetos médios', () => {
+    // Montar contexto denso representativo de um projeto médio completo
+    const { prompt, meta } = PromptArchitectureService.buildWorkerPrompt({
+      mode: 'IMPLEMENT',
+      projectId: testProjectId,
+      projectName: 'Medium Enterprise SaaS',
+      projectPath: tempDir,
+      projectObjective: 'Implementar checkout Pix seguro e idempotente',
+      taskId: 'task-pix-checkout',
+      taskTitle: 'Construir endpoint POST /api/checkout/pix com validação estrita e auditoria',
+      taskDescription: 'Processar pagamentos Pix utilizando PushinPay com fallback mock local e tabela audit_logs.',
+      acceptanceCriteria: [
+        'Endpoint POST /api/checkout/pix validando payload',
+        'Gravação de logs de auditoria na tabela audit_logs',
+        'Retorno de QR Code Pix funcional',
+        'Sobrevivência a reload e tratamento de valores inválidos com HTTP 400'
+      ],
+      expectedScopeFiles: ['src/checkoutController.ts', 'src/authService.ts'],
+      verificationCommand: 'npm test',
+      docSimpKnowledgeBlock: DocSimpService.getKnowledgeForBriefing('checkout Pix com PushinPay e filas BullMQ'),
+      astSymbolSummaryBlock: AstSymbolIndexService.getCompactContextForBriefing('checkoutController.ts authService.ts', tempDir),
+      relevantDecisions: [
+        'DEC-01: SQLite WAL com PRAGMA journal_mode = WAL;',
+        'DEC-02: Porta restrita entre 4000 e 4999 (PORT_GUARD)',
+        'DEC-03: Graceful mock fallback em ausência de chaves de API externas'
+      ]
+    });
+
+    assert.equal(meta.role, 'WORKER');
+    assert.ok(prompt.includes('checkoutController.ts'));
+    assert.ok(prompt.includes('PushinPay'));
+
+    // Estimativa de tokens: ~3.5 a 4 chars por token em código e markdown
+    const promptBytes = Buffer.byteLength(prompt, 'utf8');
+    const estimatedTokens = Math.ceil(promptBytes / 3.5);
+
+    // CRITÉRIO DE ACEITAÇÃO: Não ultrapassa 15.000 tokens
+    assert.ok(
+      estimatedTokens <= 15000,
+      `Payload do Worker excedeu o limite máximo de 15.000 tokens! Estimado: ${estimatedTokens} tokens (${promptBytes} bytes)`
+    );
+
+    // Verificação de alta eficiência: o DecoHUB mantém o payload abaixo de 7.000 tokens
+    assert.ok(
+      estimatedTokens <= 7000,
+      `Payload esperado altamente compacto (< 7.000 tokens), obtido: ${estimatedTokens} tokens`
+    );
   });
 });

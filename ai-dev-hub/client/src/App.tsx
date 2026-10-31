@@ -13,6 +13,7 @@ import { DecoHubGitDiffView } from './components/DecoHubGitDiffView';
 import { DecoHubRightPanel } from './components/DecoHubRightPanel';
 import { AdvancedDashboardModal } from './components/AdvancedDashboardModal';
 
+import { FourRoleTimeline } from './components/FourRoleTimeline';
 import { DiffModal } from './components/DiffModal';
 import { TerminalDrawer } from './components/TerminalDrawer';
 import { AddAccountModal } from './components/AddAccountModal';
@@ -641,26 +642,36 @@ export const App: React.FC = () => {
 
         {/* 2. Main Content Center */}
         {isMetaChatActive ? (
-          <DecoHubMetaChatView
-            onBack={() => setIsMetaChatActive(false)}
-            onShowToast={addToast}
-            accounts={accounts}
-            activeAccount={activeAccount}
-            onAccountSwitched={async (acc) => {
-              setActiveAccount(acc);
-              localStorage.setItem('ai_dev_last_account', acc.id);
-              try {
-                await api.setGlobalActiveAccountProfile(acc.id);
-                addToast('success', `Conta ativa alterada para "${acc.display_name}".`);
-              } catch (err: any) {
-                addToast('warn', `Conta selecionada: ${err.message}`);
-              }
-              loadAccounts();
-            }}
-            onOpenAccountManager={() => setIsAccountManagerOpen(true)}
-            onOpenAddAccountModal={() => setIsAddAccountModalOpen(true)}
-            onReloadAccounts={loadAccounts}
-          />
+          <div className="flex-1 flex flex-col h-full min-h-0 overflow-hidden">
+            <div className="px-6 pt-3 max-w-4xl mx-auto w-full flex-shrink-0">
+              <FourRoleTimeline
+                isMetaChat={true}
+                projectName="Meta-Chat DecoHUB"
+              />
+            </div>
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <DecoHubMetaChatView
+                onBack={() => setIsMetaChatActive(false)}
+                onShowToast={addToast}
+                accounts={accounts}
+                activeAccount={activeAccount}
+                onAccountSwitched={async (acc) => {
+                  setActiveAccount(acc);
+                  localStorage.setItem('ai_dev_last_account', acc.id);
+                  try {
+                    await api.setGlobalActiveAccountProfile(acc.id);
+                    addToast('success', `Conta ativa alterada para "${acc.display_name}".`);
+                  } catch (err: any) {
+                    addToast('warn', `Conta selecionada: ${err.message}`);
+                  }
+                  loadAccounts();
+                }}
+                onOpenAccountManager={() => setIsAccountManagerOpen(true)}
+                onOpenAddAccountModal={() => setIsAddAccountModalOpen(true)}
+                onReloadAccounts={loadAccounts}
+              />
+            </div>
+          </div>
         ) : projectDetails ? (
           <div key={activeProjectId || "no-project"} className="flex-1 flex flex-col h-full min-h-0 overflow-hidden">
             {/* Project Header */}
@@ -816,20 +827,30 @@ export const App: React.FC = () => {
               <div className="flex-1 flex overflow-hidden min-h-0">
                 <div className="flex-1 flex flex-col h-full min-h-0 overflow-hidden">
                   {activeMainTab === 'chat' && (
-                    <DecoHubChatView
-                      key={projectDetails.id}
-                      project={projectDetails}
-                      projectRun={projectRun}
-                      messages={messages}
-                      activeAccount={activeAccount}
-                      agentStatus={agentStatus}
-                      onSendMessage={handleSendMessage}
-                      onStopAgent={handleStopAgent}
-                      onBackToOverview={() => switchTab('overview')}
-                      onOpenAdvanced={() => setIsAdvancedModalOpen(true)}
-                      onRefreshMessages={() => loadMessages(projectDetails.id)}
-                      onRunUpdated={setProjectRun}
-                    />
+                    <div className="flex-1 flex flex-col h-full min-h-0 overflow-hidden">
+                      <div className="px-6 pt-3 max-w-4xl mx-auto w-full flex-shrink-0">
+                        <FourRoleTimeline
+                          projectId={projectDetails.id}
+                          projectName={projectDetails.name}
+                        />
+                      </div>
+                      <div className="flex-1 min-h-0 overflow-hidden">
+                        <DecoHubChatView
+                          key={projectDetails.id}
+                          project={projectDetails}
+                          projectRun={projectRun}
+                          messages={messages}
+                          activeAccount={activeAccount}
+                          agentStatus={agentStatus}
+                          onSendMessage={handleSendMessage}
+                          onStopAgent={handleStopAgent}
+                          onBackToOverview={() => switchTab('overview')}
+                          onOpenAdvanced={() => setIsAdvancedModalOpen(true)}
+                          onRefreshMessages={() => loadMessages(projectDetails.id)}
+                          onRunUpdated={setProjectRun}
+                        />
+                      </div>
+                    </div>
                   )}
 
                   {activeMainTab === 'overview' && (

@@ -35,6 +35,7 @@ export interface DocSimpCatalog {
 export interface DocSimpResolutionResult {
   matchedDocs: DocSimpEntry[];
   contextBlock: string;
+  knowledgeBlock?: string;
   extractedDocs: DocSimpEntry[];
   copiedFiles: string[];
 }
@@ -443,12 +444,265 @@ export class DocSimpService {
     }
 
     const contextBlock = this.buildDocSimpContextBlock(matchedDocs);
+    const knowledgeBlock = this.getKnowledgeForBriefing(briefing, { docSimpDir });
 
     return {
       matchedDocs,
       contextBlock,
+      knowledgeBlock,
       extractedDocs,
       copiedFiles
     };
+  }
+
+  /**
+   * Extrai cirurgicamente apenas seções de regras, endpoints, webhooks, contratos e códigos de exemplo
+   * de um documento Markdown de conhecimento, eliminando sumários, índices e textos explicativos verbosos.
+   */
+  static extractRulesAndContracts(markdown: string, maxChars = 3200): string {
+    if (!markdown || typeof markdown !== 'string') return '';
+
+    const lines = markdown.split(/\r?\n/);
+    const extractedSections: string[] = [];
+    let inTOC = false;
+    let currentSectionTitle = '';
+    let currentSectionLines: string[] = [];
+    let isInterestingSection = false;
+
+    const interestingPattern = /regras?|contratos?|endpoints?|webhooks?|api|auth|bearer|payload|schemas?|status|qr_code|models?|queue|workers?|queries|integra[cç][aã]o|integration|quickstart|getting started/i;
+    const ignoreSectionPattern = /^##\s+(?:[ií]ndice|table of contents|summary)/i;
+
+    const flushCurrentSection = () => {
+      if (isInterestingSection && currentSectionLines.length > 0) {
+        const text = currentSectionLines.join('\n').trim();
+        if (text.length > 30) {
+          extractedSections.push(text);
+        }
+      }
+      currentSectionLines = [];
+      isInterestingSection = false;
+    };
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+
+      // Ignora índice e sumários de navegação
+      if (ignoreSectionPattern.test(line)) {
+        inTOC = true;
+        continue;
+      }
+      if (inTOC && /^---|^##\s+/i.test(line)) {
+        inTOC = false;
+      }
+      if (inTOC) continue;
+
+      // Ignora linhas de rodapé/telemetria padrão
+      if (/Was this section helpful\?|On this page|Source URL:/i.test(line)) {
+        continue;
+      }
+
+      // Detecção de novo cabeçalho de seção (#, ##, ###)
+      const headerMatch = line.match(/^(#{1,3})\s+(.*)$/);
+      if (headerMatch) {
+        flushCurrentSection();
+        currentSectionTitle = headerMatch[2].trim();
+        isInterestingSection = interestingPattern.test(currentSectionTitle);
+        currentSectionLines.push(line);
+        continue;
+      }
+
+      // Se estiver em uma seção de interesse ou encontrar um bloco de código de contrato
+      if (isInterestingSection || line.startsWith('```')) {
+        currentSectionLines.push(line);
+      }
+    }
+    flushCurrentSection();
+
+    let combined = extractedSections.join('\n\n').trim();
+
+    // Se a extração estrita filtrou tudo (ex: arquivo sem headers convencionais), capture blocos de código e primeiras diretrizes
+    if (!combined || combined.length < 80) {
+      const codeBlockMatches = markdown.match(/```(?:json|ts|typescript|js|javascript|bash|sh|curl)?[\s\S]*?```/gi);
+      if (codeBlockMatches && codeBlockMatches.length > 0) {
+        combined = codeBlockMatches.slice(0, 5).join('\n\n');
+      } else {
+        combined = markdown
+          .replace(/^#\s+[^\n]+/g, '')
+          .replace(/##\s+Índice[\s\S]*?---/gi, '')
+          .trim()
+          .slice(0, maxChars);
+      }
+    }
+
+    if (combined.length > maxChars) {
+      combined = combined.slice(0, maxChars - 30) + '\n... [contratos truncados para teto de tokens]';
+    }
+
+    return combined;
+  }
+
+  /**
+   * Obtém a base de conhecimento e contratos de integração para uma tecnologia específica (DOCSIMP).
+   * Retorna apenas seções de regras e contratos de integração para injeção cirúrgica de contexto.
+   */
+  static getKnowledge(idOrAlias: string, options?: { docSimpDir?: string; maxChars?: number }): string {
+    if (!idOrAlias) return '';
+
+    const baseDir = options?.docSimpDir || this.getDocSimpDir();
+    const catalog = this.loadCatalog(baseDir);
+    const maxChars = options?.maxChars || 3500;
+
+    const searchKey = idOrAlias.toLowerCase().trim().replace(/[-_]/g, '');
+
+    // 1. Localiza a entrada correspondente no catálogo
+    let entry = catalog.documents.find(d => {
+      const dId = d.id.toLowerCase();
+      const dIdNorm = dId.replace(/[-_]/g, '');
+      if (dId === idOrAlias.toLowerCase() || dIdNorm === searchKey) return true;
+      if (dId.replace(/_io$/, '') === idOrAlias.toLowerCase().replace(/_io$/, '')) return true;
+      return (d.aliases || []).some(a => {
+        const aNorm = a.toLowerCase().replace(/[-_]/g, '');
+        return aNorm === searchKey || a.toLowerCase() === idOrAlias.toLowerCase();
+      });
+    });
+
+    // 2. Tenta ler o arquivo da documentação no disco
+    let rawContent = '';
+    if (entry) {
+      const candidates = [
+        path.isAbsolute(entry.file_path) ? entry.file_path : path.join(baseDir, entry.file_path),
+        path.join(baseDir, `${entry.id}_knowledge_ready.md`),
+        path.join(baseDir, `${entry.id.replace(/_io$/, '')}_knowledge_ready.md`),
+        path.join(process.cwd(), '.ai-dev-hub', 'docs', path.basename(entry.file_path))
+      ];
+      for (const cand of candidates) {
+        if (cand && fs.existsSync(cand)) {
+          try {
+            rawContent = fs.readFileSync(cand, 'utf-8');
+            break;
+          } catch {}
+        }
+      }
+    }
+
+    let extractedRules = rawContent ? this.extractRulesAndContracts(rawContent, maxChars) : '';
+
+    // 3. Contratos canônicos de segurança caso o arquivo markdown não exista no disco
+    if (!extractedRules || extractedRules.length < 80) {
+      if (/pushinpay|pix/i.test(idOrAlias)) {
+        extractedRules = [
+          '#### Endpoints Oficiais Pix PushinPay:',
+          '- `POST /api/v1/pix/cashIn`: Cria cobrança Pix dinâmica. Retorna `{ id, qr_code, qr_code_base64, value, status }`.',
+          '- `GET /api/v1/pix/cashIn/:id`: Consulta status da transação Pix (`created` | `paid` | `canceled`).',
+          '- `POST /api/v1/pix/cashOut`: Solicita liquidação/saque Pix para chave de destino.',
+          '#### Contrato do Webhook (POST):',
+          '```json',
+          '{',
+          '  "id": "uuid-da-transacao",',
+          '  "value": 2990,',
+          '  "status": "paid",',
+          '  "end_to_end_id": "E123456782026...",',
+          '  "payer_name": "Nome do Pagador",',
+          '  "payer_national_registration": "12345678900"',
+          '}',
+          '```',
+          '#### Headers Obrigatórios: `Authorization: Bearer <PUSHINPAY_API_KEY>`, `Accept: application/json`.'
+        ].join('\n');
+      } else if (/supabase/i.test(idOrAlias)) {
+        extractedRules = [
+          '#### SDK & Autenticação Supabase:',
+          '- Client: `const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY)`',
+          '- Auth: `supabase.auth.signUp({ email, password })`, `supabase.auth.signInWithPassword({ email, password })`',
+          '- Dados: `supabase.from("table").select("*").eq("user_id", user.id)`',
+          '- Persistência segura e isolamento de RLS via policies PostgreSQL.'
+        ].join('\n');
+      } else if (/bullmq/i.test(idOrAlias)) {
+        extractedRules = [
+          '#### SDK & Filas BullMQ:',
+          '- Fila: `const queue = new Queue("tasks", { connection: redisOptions })`',
+          '- Adicionar Job: `await queue.add("processOrder", payload, { attempts: 3, backoff: { type: "exponential", delay: 1000 } })`',
+          '- Worker: `const worker = new Worker("tasks", async job => { ... }, { connection: redisOptions })`',
+          '- Eventos determinísticos: `worker.on("completed", ...)` e `worker.on("failed", ...)`.'
+        ].join('\n');
+      } else if (/prisma/i.test(idOrAlias)) {
+        extractedRules = [
+          '#### Contrato de Acesso Prisma ORM:',
+          '- Schema `schema.prisma`: `datasource db { provider = "sqlite", url = env("DATABASE_URL") }`',
+          '- Client: `const prisma = new PrismaClient()`',
+          '- Operações Tipadas: `prisma.user.findUnique({ where: { id } })`, `prisma.user.create({ data })`'
+        ].join('\n');
+      }
+    }
+
+    if (!extractedRules) {
+      return '';
+    }
+
+    const title = entry?.name || idOrAlias.toUpperCase();
+    const envVars = (entry?.required_env_vars || []).join(', ') || 'Nenhuma variável obrigatória';
+    const fallback = entry?.fallback_strategy || 'Mock local e repositório em memória caso credenciais não estejam configuradas.';
+
+    const lines: string[] = [
+      `### [DOCSIMP KNOWLEDGE: ${title}]`,
+      `- Identificador: \`${entry?.id || idOrAlias}\``,
+      `- Variáveis de Ambiente Necessárias: ${envVars}`,
+      `- Estratégia de Fallback (Mandatória): ${fallback}`,
+      `- Regras e Contratos de Integração:`,
+      extractedRules
+    ];
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Identifica tecnologias presentes no catálogo e mencionadas no briefing e reúne
+   * suas seções de regras e contratos de integração.
+   */
+  static getKnowledgeForBriefing(
+    briefing: string,
+    options?: { docSimpDir?: string; maxCharsPerDoc?: number; maxTotalChars?: number }
+  ): string {
+    if (!briefing) return '';
+
+    const baseDir = options?.docSimpDir || this.getDocSimpDir();
+    const catalog = this.loadCatalog(baseDir);
+    const maxTotalChars = options?.maxTotalChars || 6000;
+    const maxCharsPerDoc = options?.maxCharsPerDoc || 2500;
+
+    const matched = this.matchDocs(briefing, catalog);
+    const knowledgeBlocks: string[] = [];
+
+    // Garantir que menções explícitas de pushinpay, supabase, bullmq e prisma sejam incluídas
+    const explicitIds: string[] = [];
+    if (/pushinpay|pix/i.test(briefing)) explicitIds.push('pushinpay');
+    if (/supabase/i.test(briefing)) explicitIds.push('supabase');
+    if (/bullmq|fila|queue/i.test(briefing)) explicitIds.push('bullmq_io');
+    if (/prisma/i.test(briefing)) explicitIds.push('prisma_io');
+
+    const allIds = new Set<string>();
+    for (const d of matched) allIds.add(d.id);
+    for (const eid of explicitIds) allIds.add(eid);
+
+    for (const id of Array.from(allIds)) {
+      const k = this.getKnowledge(id, { docSimpDir: baseDir, maxChars: maxCharsPerDoc });
+      if (k && k.trim().length > 0) {
+        knowledgeBlocks.push(k.trim());
+      }
+    }
+
+    if (knowledgeBlocks.length === 0) {
+      return '';
+    }
+
+    const joined = [
+      '### [DOCSIMP: REGRAS E CONTRATOS DE INTEGRAÇÃO TÉCNICA]',
+      'Contratos e especificações de integração identificados para o briefing:',
+      '',
+      ...knowledgeBlocks
+    ].join('\n\n');
+
+    return joined.length > maxTotalChars
+      ? joined.slice(0, maxTotalChars - 40) + '\n... [contratos DOCSIMP adicionais preservados]'
+      : joined;
   }
 }

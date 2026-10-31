@@ -24,6 +24,7 @@ import {
   Zap
 } from 'lucide-react';
 import { api } from '../services/api';
+import { AccountTelemetryBadge } from './AccountTelemetryBadge';
 
 interface DecoHubHeaderProps {
   project: FullProjectDetails;
@@ -284,89 +285,32 @@ export const DecoHubHeader: React.FC<DecoHubHeaderProps> = ({
 
       {/* 2. Controles Unificados do Projeto */}
       <div className="flex items-center gap-3">
-        {/* Indicador e Seletor Unificado de IA do Projeto */}
+        {/* Widget de Telemetria Multi-Conta e Auto-Failover */}
+        <AccountTelemetryBadge
+          projectId={project.id}
+          activeAccount={activeAccount}
+          onAccountSwitched={onAccountSwitched}
+          onOpenAccountManager={onOpenAccountManager}
+          onOpenAddAccountModal={onOpenAddAccountModal}
+        />
+
+        {/* Indicador e Seletor de Modelo de IA do Projeto */}
         <div className="relative" ref={configRef}>
           <button
             type="button"
             onClick={() => setIsConfigMenuOpen(!isConfigMenuOpen)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#141824] hover:bg-[#1c2234] border border-[#23293d] text-xs text-slate-200 hover:text-white transition-colors"
-            title="Configuração de Conta e Modelo de IA deste projeto"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#141824] hover:bg-[#1c2234] border border-[#23293d] text-xs text-slate-200 hover:text-white transition-colors"
+            title="Modelo de IA selecionado para este projeto"
           >
-            <span className={`w-2 h-2 rounded-full ${getAccountDot(activeAccount?.auth_status)}`} />
-            <span className="font-medium max-w-[110px] truncate">
-              {activeAccount?.display_name || 'Conta Antigravity'}
-            </span>
-            <span className="text-slate-500 font-mono">·</span>
-            <span className="text-indigo-300 font-medium max-w-[110px] truncate">
+            <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+            <span className="text-indigo-300 font-medium max-w-[120px] truncate">
               {getModelLabel(selectedModel)}
             </span>
             <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${isConfigMenuOpen ? 'rotate-180' : ''}`} />
           </button>
 
           {isConfigMenuOpen && (
-            <div className="absolute right-0 mt-2 w-72 bg-[#10131d] border border-[#23293d] rounded-xl shadow-xl py-2 z-50 text-xs">
-              {/* Seção 1: Conta do Projeto */}
-              <div className="px-3.5 pb-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider flex items-center justify-between">
-                <span>Conta do Projeto</span>
-                <button
-                  type="button"
-                  disabled={isRapidSwitching}
-                  onClick={handleRapidSwitch}
-                  className="flex items-center gap-1 text-[10px] text-indigo-400 hover:text-indigo-300 font-medium transition-colors disabled:opacity-50"
-                  title="Alternar em 1 clique para a próxima conta READY"
-                >
-                  <Zap className={`w-3 h-3 ${isRapidSwitching ? 'animate-pulse text-amber-400' : ''}`} />
-                  <span>Rapid Switch</span>
-                </button>
-              </div>
-
-              {accounts.map(acc => {
-                const isCur = acc.id === activeAccount?.id;
-                const isWaiting = acc.auth_status === 'WAITING_LOGIN' || acc.auth_status === 'NEEDS_LOGIN';
-                return (
-                  <button
-                    key={acc.id}
-                    type="button"
-                    onClick={() => {
-                      onAccountSwitched(acc);
-                    }}
-                    className={`w-full text-left px-3.5 py-1.5 flex items-center justify-between transition-colors ${
-                      isCur
-                        ? 'bg-indigo-600/10 text-white font-medium'
-                        : 'text-slate-300 hover:bg-[#181d2e] hover:text-white'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 truncate">
-                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${getAccountDot(acc.auth_status)}`} />
-                      <span className="truncate">{acc.display_name}</span>
-                      {isWaiting && <span className="text-[10px] text-amber-400 font-mono">(login necessário)</span>}
-                    </div>
-                    {isCur && <Check className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" />}
-                  </button>
-                );
-              })}
-
-              <div className="px-3.5 pt-1.5 pb-1 flex items-center justify-between text-[11px] border-t border-[#1e2333] mt-1.5">
-                <button
-                  type="button"
-                  onClick={() => { setIsConfigMenuOpen(false); onOpenAddAccountModal(); }}
-                  className="text-indigo-400 hover:text-indigo-300 flex items-center gap-1"
-                >
-                  <Plus className="w-3 h-3" />
-                  <span>Adicionar conta</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setIsConfigMenuOpen(false); onOpenAccountManager(); }}
-                  className="text-slate-400 hover:text-slate-200 flex items-center gap-1"
-                >
-                  <Settings className="w-3 h-3" />
-                  <span>Gerenciar</span>
-                </button>
-              </div>
-
-              {/* Seção 2: Modelo do Projeto */}
-              <div className="border-t border-[#1e2333] my-1.5" />
+            <div className="absolute right-0 mt-2 w-64 bg-[#10131d] border border-[#23293d] rounded-xl shadow-xl py-2 z-50 text-xs">
               <div className="px-3.5 pb-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider flex items-center justify-between">
                 <span>Modelo de IA do Projeto</span>
                 <span className="text-emerald-400 font-mono text-[9px]">Oficial</span>

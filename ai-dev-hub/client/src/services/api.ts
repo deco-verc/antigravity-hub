@@ -16,6 +16,7 @@ import {
   AccountProfile,
   AccountProjectSession,
   RapidSwitchResult,
+  AccountTelemetryResponse,
   AuthStatus,
   FileNode,
   FileContentResponse,
@@ -905,6 +906,22 @@ export const api = {
       const err = await res.json().catch(() => ({ error: 'Falha ao executar Rapid Switch' }));
       throw new Error(err.error || 'Falha ao executar Rapid Switch');
     }
+    return res.json();
+  },
+
+  async getAccountTelemetry(): Promise<AccountTelemetryResponse> {
+    const res = await fetch(`${API_BASE}/accounts/telemetry`);
+    if (!res.ok) throw new Error('Falha ao obter telemetria de contas');
+    return res.json();
+  },
+
+  async setAutoFailover(enabled: boolean): Promise<{ success: boolean; autoFailoverEnabled: boolean }> {
+    const res = await fetch(`${API_BASE}/accounts/auto-failover`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled })
+    });
+    if (!res.ok) throw new Error('Falha ao atualizar auto-failover');
     return res.json();
   },
 

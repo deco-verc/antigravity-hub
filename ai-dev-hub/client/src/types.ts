@@ -681,6 +681,38 @@ export interface AccountProfile {
   updated_at: string;
 }
 
+export interface AccountTelemetryProcessInfo {
+  pid: number | null;
+  grpcPort: number | null;
+  port: number | null;
+  uptimeSeconds: number | null;
+  uptimeFormatted: string;
+  isAlive: boolean;
+}
+
+export interface AccountTelemetryItem {
+  id: string;
+  name: string;
+  displayName: string;
+  email?: string | null;
+  authStatus: 'READY' | 'WAITING_LOGIN' | 'QUOTA_EXHAUSTED' | 'OFFLINE' | string;
+  rawAuthStatus: string;
+  isActive: boolean;
+  process: AccountTelemetryProcessInfo;
+  todayExecutions: number;
+  quotaResetsAt?: string | null;
+  quotaMessage?: string | null;
+  environmentPath?: string;
+}
+
+export interface AccountTelemetryResponse {
+  accounts: AccountTelemetryItem[];
+  totalAccounts?: number;
+  activeAccountId: string;
+  autoFailoverEnabled: boolean;
+  timestamp: string;
+}
+
 export interface AccountProjectSession {
   id: string;
   project_id: string;

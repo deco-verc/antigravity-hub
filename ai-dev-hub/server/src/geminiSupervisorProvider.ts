@@ -177,6 +177,8 @@ export class GeminiSupervisorProvider {
     requirements?: string[]
   ): Promise<{
     docSimpContextBlock: string;
+    docSimpKnowledgeBlock?: string;
+    astSymbolSummaryBlock?: string;
     designSkillContextBlock: string;
     reaSaaSMasterContextBlock: string;
     marketDiscoveryContextBlock: string;
@@ -187,12 +189,22 @@ export class GeminiSupervisorProvider {
     const projectProfile = resolveProjectProfileMode(this.projectId || projectPath, briefing);
 
     let docSimpContextBlock = '';
+    let docSimpKnowledgeBlock = '';
     try {
       const { DocSimpService } = await import('./docSimpService.js');
       const docSimpRes = await DocSimpService.resolveDocsForBriefing(briefing, projectPath, capabilities, projectProfile);
       docSimpContextBlock = docSimpRes.contextBlock;
+      docSimpKnowledgeBlock = docSimpRes.knowledgeBlock || DocSimpService.getKnowledgeForBriefing(briefing);
     } catch (err: any) {
       Logger.warn(`[GeminiSupervisor] Falha não bloqueante ao resolver DOCSIMP: ${err.message}`);
+    }
+
+    let astSymbolSummaryBlock = '';
+    try {
+      const { AstSymbolIndexService } = await import('./astSymbolIndexService.js');
+      astSymbolSummaryBlock = AstSymbolIndexService.getCompactContextForBriefing(briefing, projectPath);
+    } catch (err: any) {
+      Logger.warn(`[GeminiSupervisor] Falha não bloqueante ao resolver AST Symbol Index: ${err.message}`);
     }
 
     let designSkillContextBlock = '';
@@ -253,6 +265,8 @@ export class GeminiSupervisorProvider {
 
     return {
       docSimpContextBlock,
+      docSimpKnowledgeBlock,
+      astSymbolSummaryBlock,
       designSkillContextBlock,
       reaSaaSMasterContextBlock,
       marketDiscoveryContextBlock,
@@ -472,6 +486,8 @@ export class GeminiSupervisorProvider {
 
     const {
       docSimpContextBlock,
+      docSimpKnowledgeBlock,
+      astSymbolSummaryBlock,
       designSkillContextBlock,
       reaSaaSMasterContextBlock,
       marketDiscoveryContextBlock,
@@ -490,6 +506,8 @@ export class GeminiSupervisorProvider {
       constitutionSnippet,
       existingMemorySnippet,
       docSimpContextBlock,
+      docSimpKnowledgeBlock,
+      astSymbolSummaryBlock,
       designSkillContextBlock,
       reaSaaSMasterContextBlock,
       marketDiscoveryContextBlock,
@@ -912,6 +930,8 @@ export class GeminiSupervisorProvider {
       constitutionSnippet: options?.constitutionSnippet,
       existingMemorySnippet: options?.existingMemorySnippet,
       docSimpContextBlock: resolvedBlocks.docSimpContextBlock,
+      docSimpKnowledgeBlock: (resolvedBlocks as any).docSimpKnowledgeBlock,
+      astSymbolSummaryBlock: (resolvedBlocks as any).astSymbolSummaryBlock,
       designSkillContextBlock: resolvedBlocks.designSkillContextBlock,
       reaSaaSMasterContextBlock: resolvedBlocks.reaSaaSMasterContextBlock,
       marketDiscoveryContextBlock: resolvedBlocks.marketDiscoveryContextBlock,

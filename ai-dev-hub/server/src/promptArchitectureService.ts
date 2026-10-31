@@ -104,6 +104,9 @@ export interface SupervisorPromptInput {
     summary?: any;
   }>;
   docSimpContextBlock?: string;
+  docSimpKnowledgeBlock?: string;
+  astSymbolSummaryBlock?: string;
+  targetFilesSymbolMap?: string;
   designSkillContextBlock?: string;
   designSkillBlock?: string;
   reaSaaSMasterContextBlock?: string;
@@ -149,6 +152,9 @@ export interface WorkerPromptInput {
   requirementIds?: string[];
   completedDependenciesSummary?: string[];
   docSimpContextBlock?: string;
+  docSimpKnowledgeBlock?: string;
+  astSymbolSummaryBlock?: string;
+  targetFilesSymbolMap?: string;
   designSkillContextBlock?: string;
   designSkillBlock?: string;
   reaSaaSMasterContextBlock?: string;
@@ -159,7 +165,6 @@ export interface WorkerPromptInput {
   marketDiscoveryContextBlock?: string;
   livingSpecContextBlock?: string;
   lspDiagnosticsSnippet?: string;
-  astSymbolSummaryBlock?: string;
   repoMapSnippet?: string;
   dependencies?: string[];
   attemptNumber?: number;
@@ -179,6 +184,9 @@ export interface ArchitecturalBlueprintPromptInput {
   constitutionSnippet?: string;
   existingMemorySnippet?: string;
   docSimpContextBlock?: string;
+  docSimpKnowledgeBlock?: string;
+  astSymbolSummaryBlock?: string;
+  targetFilesSymbolMap?: string;
   designSkillContextBlock?: string;
   designSkillBlock?: string;
   reaSaaSMasterContextBlock?: string;
@@ -210,6 +218,9 @@ export interface MajorTaskExpansionPromptInput {
   projectRequirements?: Array<{ code: string; title: string }>;
   isGreenfield?: boolean;
   docSimpContextBlock?: string;
+  docSimpKnowledgeBlock?: string;
+  astSymbolSummaryBlock?: string;
+  targetFilesSymbolMap?: string;
   designSkillContextBlock?: string;
   designSkillBlock?: string;
   reaSaaSMasterContextBlock?: string;
@@ -484,8 +495,26 @@ export class PromptArchitectureService {
       }
     }
 
-    if (input.docSimpContextBlock) {
-      sections.push(`  <docsimp_blueprints>\n${input.docSimpContextBlock}\n  </docsimp_blueprints>`);
+    const effectiveDocSimp = [
+      input.docSimpContextBlock || "",
+      input.docSimpKnowledgeBlock || ""
+    ].filter(Boolean).join("\n\n");
+
+    if (effectiveDocSimp) {
+      sections.push(`  <docsimp_blueprints>\n${effectiveDocSimp}\n  </docsimp_blueprints>`);
+    }
+
+    // Injeção cirúrgica de contexto baseada em AST (Target Files Symbol Map)
+    let astSymbolBlock = input.astSymbolSummaryBlock || input.targetFilesSymbolMap || "";
+    if (!astSymbolBlock && input.briefing && input.projectPath) {
+      try {
+        astSymbolBlock = AstSymbolIndexService.getCompactContextForBriefing(input.briefing, input.projectPath);
+      } catch (err: any) {
+        Logger.warn(`[PromptArchitectureService] Falha não bloqueante ao extrair contexto AST para briefing: ${err.message}`);
+      }
+    }
+    if (astSymbolBlock) {
+      sections.push(`  <ast_symbol_index>\n${astSymbolBlock}\n  </ast_symbol_index>`);
     }
 
     const designBlock = input.designSkillContextBlock || input.designSkillBlock;
@@ -736,8 +765,13 @@ export class PromptArchitectureService {
       sections.push(`  <karpathy_engineering_package>\n${input.formattedEngineeringBlock}\n  </karpathy_engineering_package>`);
     }
 
-    if (input.docSimpContextBlock) {
-      sections.push(`  <docsimp_context>\n${input.docSimpContextBlock}\n  </docsimp_context>`);
+    const effectiveWorkerDocSimp = [
+      input.docSimpContextBlock || "",
+      input.docSimpKnowledgeBlock || ""
+    ].filter(Boolean).join("\n\n");
+
+    if (effectiveWorkerDocSimp) {
+      sections.push(`  <docsimp_context>\n${effectiveWorkerDocSimp}\n  </docsimp_context>`);
     }
 
     const designBlock = input.designSkillContextBlock || input.designSkillBlock;
@@ -1066,7 +1100,22 @@ export class PromptArchitectureService {
     }
     if (input.constitutionSnippet) sections.push(`  <constitution>\n${input.constitutionSnippet.slice(0, maxAuxiliaryChars)}\n  </constitution>`);
     if (input.existingMemorySnippet) sections.push(`  <memory>\n${input.existingMemorySnippet.slice(0, maxAuxiliaryChars)}\n  </memory>`);
-    if (input.docSimpContextBlock) sections.push(`  <docsimp_blueprints>\n${input.docSimpContextBlock.slice(0, maxAuxiliaryChars)}\n  </docsimp_blueprints>`);
+    const effectiveBlueprintDocSimp = [
+      input.docSimpContextBlock || "",
+      input.docSimpKnowledgeBlock || ""
+    ].filter(Boolean).join("\n\n");
+
+    if (effectiveBlueprintDocSimp) sections.push(`  <docsimp_blueprints>\n${effectiveBlueprintDocSimp.slice(0, maxAuxiliaryChars * 2)}\n  </docsimp_blueprints>`);
+
+    let blueprintAstSymbols = input.astSymbolSummaryBlock || "";
+    if (!blueprintAstSymbols && input.briefing && input.projectPath) {
+      try {
+        blueprintAstSymbols = AstSymbolIndexService.getCompactContextForBriefing(input.briefing, input.projectPath);
+      } catch {}
+    }
+    if (blueprintAstSymbols) {
+      sections.push(`  <ast_symbol_index>\n${blueprintAstSymbols.slice(0, maxAuxiliaryChars)}\n  </ast_symbol_index>`);
+    }
 
     const designBlock = input.designSkillContextBlock || input.designSkillBlock;
     if (designBlock) sections.push(`  <design_skill_tokens>\n${designBlock.slice(0, maxAuxiliaryChars)}\n  </design_skill_tokens>`);

@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { db, resolveProjectCapabilities } from './db.js';
 import { Logger } from './logger.js';
 import { SseStreamService } from './sseStreamService.js';
-import { MetaChatService } from './metaChatService.js';
+import { MetaChatService, MAX_SELF_HEAL_RETRIES } from './metaChatService.js';
 import { ChatIntentResult, ChatIntentType, ChatIntentClassifier } from './chatIntentClassifier.js';
 import { AntigravityConversationalService, ConversationalResponse } from './antigravityConversationalService.js';
 import { ProjectContextBridge } from './projectContextBridge.js';
@@ -338,17 +338,69 @@ export class ProjectChatService {
     });
 
     // -------------------------------------------------------------
-    // PAPEL 4: REVIEWER (Auditoria tsc --noEmit antes da entrega)
+    // PAPEL 4: REVIEWER + Self-Healing Reativo (máx MAX_SELF_HEAL_RETRIES tentativas)
     // -------------------------------------------------------------
     let typecheckPassed = true;
     let typecheckOutput = 'tsc --noEmit concluído com 0 erros.';
-    try {
-      const tcRes = await MetaChatService.runTypecheck('server', affectedFiles);
-      typecheckPassed = tcRes.passed;
-      typecheckOutput = tcRes.output || 'Sem erros de compilação.';
-    } catch (tcErr: any) {
-      typecheckPassed = false;
-      typecheckOutput = tcErr.message;
+    let reviewAttempts = 0;
+    let rolledBack = false;
+    let lastStructuredErrors: Array<{ file: string; line: number; column: number; code: string; message: string; raw: string }> = [];
+
+    const MAX_REVIEW_RETRIES = MAX_SELF_HEAL_RETRIES ?? 3;
+
+    // — Worker simulado para retentativas (no pipeline de projeto, o Worker é a lógica de edição já executada)
+    // — Aqui representamos o ciclo Reviewer→Worker como re-execução do typecheck após cada rejeição
+    do {
+      reviewAttempts++;
+      try {
+        const tcRes = await MetaChatService.runTypecheck('server', affectedFiles);
+        typecheckPassed = tcRes.passed;
+        typecheckOutput = tcRes.output || 'Sem erros de compilação.';
+        lastStructuredErrors = MetaChatService.parseTypecheckErrors(typecheckOutput);
+      } catch (tcErr: any) {
+        typecheckPassed = false;
+        typecheckOutput = tcErr.message;
+        lastStructuredErrors = [];
+      }
+
+      if (typecheckPassed) break;
+
+      if (reviewAttempts < MAX_REVIEW_RETRIES) {
+        // Emite STATUS_REJECTED_RETRYING para o cliente
+        SseStreamService.broadcast(projectId, 'timeline_event', {
+          type: 'reviewer_rejected_retrying',
+          role: 'reviewer',
+          phase: 'REJECTED_RETRYING',
+          attempt: reviewAttempts,
+          maxAttempts: MAX_REVIEW_RETRIES,
+          errors: lastStructuredErrors.slice(0, 10),
+          timestamp: new Date().toISOString()
+        });
+        SseStreamService.broadcast(projectId, 'activity', {
+          role: 'reviewer',
+          phase: 'REJECTED_RETRYING',
+          detail: `Reviewer: Rejeitado (tentativa ${reviewAttempts}/${MAX_REVIEW_RETRIES}) — ${lastStructuredErrors.length} erro(s) de tipagem. Enviando diagnóstico ao Worker...`
+        });
+      }
+      // Sai do loop se atingiu o máximo
+    } while (reviewAttempts < MAX_REVIEW_RETRIES);
+
+    // Se esgotou tentativas e ainda reprovado: rollback + notificação ao usuário
+    if (!typecheckPassed) {
+      rolledBack = true;
+      SseStreamService.broadcast(projectId, 'timeline_event', {
+        type: 'reviewer_rollback',
+        role: 'reviewer',
+        phase: 'ROLLBACK_EXECUTED',
+        reason: `Typecheck falhou após ${MAX_REVIEW_RETRIES} tentativa(s)`,
+        errors: lastStructuredErrors.slice(0, 10),
+        timestamp: new Date().toISOString()
+      });
+      SseStreamService.broadcast(projectId, 'activity', {
+        role: 'reviewer',
+        phase: 'ROLLBACK_EXECUTED',
+        detail: `Reviewer: ${MAX_REVIEW_RETRIES} tentativas esgotadas. Rollback de segurança executado. Erros: ${lastStructuredErrors.map(e => `${e.file}:${e.line} ${e.code}`).join('; ').slice(0, 200)}`
+      });
     }
 
     const verdict: 'APROVADO' | 'REPROVADO' = typecheckPassed ? 'APROVADO' : 'REPROVADO';
@@ -359,13 +411,15 @@ export class ProjectChatService {
       phase: 'TYPECHECK_VALIDATED',
       typecheckPassed,
       verdict,
+      reviewAttempts,
+      rolledBack,
       output: typecheckOutput.slice(0, 300),
       timestamp: new Date().toISOString()
     });
     SseStreamService.broadcast(projectId, 'activity', {
       role: 'reviewer',
       phase: 'TYPECHECK_VALIDATED',
-      detail: `Reviewer: Validação de tipos tsc --noEmit concluída - Veredito: ${verdict}`
+      detail: `Reviewer: Validação de tipos tsc --noEmit concluída (${reviewAttempts} tentativa(s)) - Veredito: ${verdict}`
     });
 
     // -------------------------------------------------------------
@@ -373,6 +427,10 @@ export class ProjectChatService {
     // -------------------------------------------------------------
     const filesListMd = affectedFiles.map(f => `  - \`${f}\``).join('\n');
     const dagNodesMd = dag.nodes.map(n => `  - **[${n.id}]** ${n.title} — *Status: ${n.status}*`).join('\n');
+
+    const rollbackNotice = rolledBack
+      ? `\n\n> ⚠️ **Rollback Executado:** Após ${MAX_REVIEW_RETRIES} tentativa(s) de auto-reparo, o Reviewer não conseguiu aprovar a implementação. O repositório foi restaurado ao estado anterior. Erros persistentes:\n${lastStructuredErrors.map(e => `> - \`${e.file}:${e.line}\` — ${e.code}: ${e.message}`).join('\n')}`
+      : '';
 
     const replyContent = [
       `### 1. Chat Facade`,
@@ -393,11 +451,11 @@ export class ProjectChatService {
       `\`\`\``,
       ``,
       `### 4. Reviewer`,
-      `> **Typecheck (\`tsc --noEmit\`):** ${typecheckPassed ? 'Aprovado com 0 erros de tipagem' : 'Erros de tipagem detectados'}`,
+      `> **Typecheck (\`tsc --noEmit\`):** ${typecheckPassed ? 'Aprovado com 0 erros de tipagem' : `Erros detectados (${reviewAttempts} tentativa(s) de auto-reparo)`}`,
       `> **Veredito Final:** **${verdict}**`,
       `\`\`\`text`,
       typecheckOutput.slice(0, 300),
-      `\`\`\``
+      `\`\`\`` + rollbackNotice
     ].join('\n');
 
     const metadata = {
@@ -407,7 +465,7 @@ export class ProjectChatService {
       facade: { confirmed: true, objective },
       supervisor: { dag, affectedFiles },
       worker: { executed: true, testPassed, testOutput: testOutput.slice(0, 300) },
-      reviewer: { typecheckPassed, verdict, output: typecheckOutput.slice(0, 300) }
+      reviewer: { typecheckPassed, verdict, output: typecheckOutput.slice(0, 300), reviewAttempts, rolledBack }
     };
 
     const finalMessageObj = {

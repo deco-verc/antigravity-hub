@@ -31,8 +31,12 @@ export const META_CHAT_STATUS = {
   STATUS_EXECUTING_STAGE: 'STATUS_EXECUTING_STAGE',
   STATUS_RUNNING_TYPECHECK: 'STATUS_RUNNING_TYPECHECK',
   STATUS_RUNNING_TESTS: 'STATUS_RUNNING_TESTS',
-  STATUS_SYNCING_PRODUCTION: 'STATUS_SYNCING_PRODUCTION'
+  STATUS_SYNCING_PRODUCTION: 'STATUS_SYNCING_PRODUCTION',
+  STATUS_REJECTED_RETRYING: 'STATUS_REJECTED_RETRYING'
 } as const;
+
+/** Número máximo de loops cirúrgicos Worker→Reviewer antes do rollback final. */
+export const MAX_SELF_HEAL_RETRIES = 3;
 
 export type MetaChatStatusCode = (typeof META_CHAT_STATUS)[keyof typeof META_CHAT_STATUS];
 
@@ -276,6 +280,7 @@ export interface MetaChatExecutionState {
 }
 
 export class MetaChatService {
+  public static readonly MAX_SELF_HEAL_RETRIES = MAX_SELF_HEAL_RETRIES;
   private static _repoRoot: string | null = null;
   private static _autopilotState: MetaChatAutopilotStatus = {
     enabled: false,
@@ -490,6 +495,84 @@ ${rawCompilerDiagnostics}
   1. LOCALIZAÇÃO EXATA: Use \`view_file\` para inspecionar uma janela de 30 linhas acima e abaixo das coordenadas \`arquivo.ts(linha,coluna)\` apontadas pelo compilador.
   2. DIFF MÍNIMO: Corrija a divergência de tipos, importação ou assinatura nos arquivos listados em <scoped_modified_files> utilizando \`replace_file_content\` ou \`multi_replace_file_content\`, mantendo tipagem estrita (\`strict: true\`) e preservando todos os métodos existentes.
   3. ENCERRAMENTO: Conclua apresentando o resumo atualizado (**O que foi feito:** e **Arquivos alterados:**).
+</execution_directive>`;
+  }
+
+  /**
+   * Extrai erros estruturados do output bruto do tsc, com arquivo, linha, coluna e código TS.
+   * Usado pelo ciclo de Self-Healing Reativo para montar diagnósticos precisos ao Worker.
+   */
+  static parseTypecheckErrors(
+    rawOutput: string
+  ): Array<{ file: string; line: number; column: number; code: string; message: string; raw: string }> {
+    const results: Array<{ file: string; line: number; column: number; code: string; message: string; raw: string }> = [];
+    const errorRegex1 = /^(.+?)\((\d+),(\d+)\):\s+(error\s+(TS\d+):\s*.+)$/;
+    const errorRegex2 = /^(.+?):(\d+):(\d+)\s+-\s+(error\s+(TS\d+):\s*.+)$/;
+    for (const line of rawOutput.split('\n')) {
+      const trimmed = line.trim();
+      const m = trimmed.match(errorRegex1) || trimmed.match(errorRegex2);
+      if (m) {
+        results.push({
+          file: m[1].trim(),
+          line: parseInt(m[2], 10),
+          column: parseInt(m[3], 10),
+          code: m[5] || '',
+          message: m[4].trim(),
+          raw: trimmed
+        });
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Formata um relatório de diagnóstico estruturado para ser passado ao Worker
+   * em cada iteração do ciclo de Self-Healing Reativo.
+   */
+  static buildRetryRepairPrompt(
+    originalContext: string,
+    previousDiff: string,
+    typecheckErrors: Array<{ file: string; line: number; column: number; code: string; message: string; raw: string }>,
+    testErrors: string,
+    attempt: number,
+    maxAttempts: number,
+    modifiedFiles: string[]
+  ): string {
+    const errorLines = typecheckErrors.length > 0
+      ? typecheckErrors.map(e => `  - ${e.file}:${e.line}:${e.column} — ${e.code}: ${e.message}`).join('\n')
+      : '  (nenhum erro de tipagem — verificar falhas de teste abaixo)';
+
+    const testBlock = testErrors
+      ? `\n<test_failures>\n${testErrors.slice(0, 2000)}\n</test_failures>`
+      : '';
+
+    return `<system_invariants>
+  Modo: SELF-HEALING REATIVO — Tentativa ${attempt} de ${maxAttempts}.
+  Usar exclusivamente ferramentas nativas (\`view_file\`, \`replace_file_content\`, \`multi_replace_file_content\`, \`write_to_file\`).
+  NÃO reintroduza os mesmos erros da tentativa anterior.
+</system_invariants>
+
+<workspace_context>
+  <original_objective>
+${originalContext.slice(0, 800)}
+  </original_objective>
+  <scoped_modified_files>
+${modifiedFiles.map(f => `    - ${f}`).join('\n')}
+  </scoped_modified_files>
+  <previous_diff_summary>
+${previousDiff.slice(0, 1500)}
+  </previous_diff_summary>
+  <reviewer_rejection_report attempt="${attempt}" of="${maxAttempts}">
+    O Reviewer rejeitou a implementação anterior com os seguintes erros exatos:
+${errorLines}
+  </reviewer_rejection_report>${testBlock}
+</workspace_context>
+
+<execution_directive mode="SURGICAL_REPAIR_RETRY">
+  1. ANÁLISE PRECISA: Para cada erro listado em <reviewer_rejection_report>, localize exatamente o arquivo e linha indicados via \`view_file\`.
+  2. CORREÇÃO MÍNIMA: Use \`replace_file_content\` ou \`multi_replace_file_content\` para corrigir APENAS o trecho problemático sem alterar lógica adjacente.
+  3. SEM REGRESSÕES: Preserve todos os métodos, tipos e interfaces existentes nos arquivos do escopo.
+  4. ENCERRAMENTO: Apresente **O que foi feito:** e **Arquivos alterados:** ao concluir.
 </execution_directive>`;
   }
 
@@ -4518,36 +4601,72 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
             typecheckResult = await this.runTypecheck(target, filesChanged);
             recordTimelineStep('Reviewer (Auditoria)', typecheckResult.passed ? 'done' : 'failed');
 
+            // ── Self-Healing Reativo: loop Worker→Reviewer (máx MAX_SELF_HEAL_RETRIES) ──
             if (!typecheckResult.passed) {
               Logger.warn(
-                `[MetaChatService] Typecheck apontou erros após turno do Antigravity. Tentando auto-reparo antes do rollback...`
+                `[MetaChatService] Typecheck apontou erros após turno do Antigravity. Iniciando ciclo Self-Healing Reativo (máx ${MAX_SELF_HEAL_RETRIES} tentativas)...`
               );
 
               let healedOnRetry = false;
-              if (!AgentApiGateway.isOfflineMode() && activeConvId && !this._currentExecution?.cancelRequested) {
-                this.updatePipelineTask('task-verify', 'in_progress', 'Auto-Reparo TypeScript em andamento...');
+              let lastRepairReport = '';
+
+              for (
+                let attempt = 1;
+                attempt <= MAX_SELF_HEAL_RETRIES && !healedOnRetry && !this._currentExecution?.cancelRequested;
+                attempt++
+              ) {
+                if (AgentApiGateway.isOfflineMode() || !activeConvId) break;
+
+                // — Emite STATUS_REJECTED_RETRYING com contador —
+                this.broadcastTelemetry(META_CHAT_STATUS.STATUS_REJECTED_RETRYING, {
+                  threadId: currentThread.id,
+                  attempt,
+                  maxAttempts: MAX_SELF_HEAL_RETRIES,
+                  message: `Reviewer rejeitou (tentativa ${attempt}/${MAX_SELF_HEAL_RETRIES}). Enviando diagnóstico ao Worker para correção...`,
+                  active_stage_code: META_CHAT_STATUS.STATUS_REJECTED_RETRYING,
+                  active_stage_title: `Self-Healing Reativo — Tentativa ${attempt}/${MAX_SELF_HEAL_RETRIES}`
+                });
+                this.updatePipelineTask(
+                  'task-verify',
+                  'in_progress',
+                  `Self-Healing Reativo: tentativa ${attempt}/${MAX_SELF_HEAL_RETRIES}...`
+                );
                 this.recordLiveStep({
                   type: 'GUARD',
-                  target: 'Auto-Reparo TypeScript',
+                  target: `Self-Healing (${attempt}/${MAX_SELF_HEAL_RETRIES})`,
                   status: 'running',
-                  details: 'Enviando diagnóstico do compilador para auto-correção na mesma conversa'
+                  details: `Reviewer rejeitou — enviando diagnóstico estruturado ao Worker (tentativa ${attempt})`
                 });
                 this.updateLiveStatus({
-                  phase: 'Solicitando auto-reparo de tipagem ao Antigravity...',
-                  lastStep: 'Self-Healing TypeScript Guard'
+                  phase: `Self-Healing Reativo: Reviewer→Worker (tentativa ${attempt}/${MAX_SELF_HEAL_RETRIES})...`,
+                  lastStep: `Corrigindo erros de typecheck — attempt ${attempt}`
                 });
 
-                const rawDiag = typecheckResult.output ? typecheckResult.output.slice(0, 3500) : 'Erros de tipagem detectados pelo tsc.';
-                const repairPrompt = MetaChatService.buildSurgicalRepairPrompt(rawDiag, Array.from(filesChanged));
+                // — Extrai erros estruturados (arquivo:linha:coluna:código) —
+                const structuredErrors = MetaChatService.parseTypecheckErrors(typecheckResult.output || '');
+                const rawDiag = structuredErrors.length > 0
+                  ? structuredErrors.map(e => e.raw).join('\n')
+                  : (typecheckResult.output || 'Erros de tipagem detectados pelo tsc.').slice(0, 3500);
+
+                // — Monta prompt de reparo cirúrgico com contexto completo —
+                const retryPrompt = MetaChatService.buildRetryRepairPrompt(
+                  userContent,
+                  lastRepairReport || rawDiag,
+                  structuredErrors,
+                  '',
+                  attempt,
+                  MAX_SELF_HEAL_RETRIES,
+                  Array.from(filesChanged)
+                );
 
                 try {
                   antigravityProvider.captureTurnStart(activeConvId, root, 'metachat-' + currentThread.id);
                   AgentApiGateway.sendMessage({
                     conversationId: activeConvId,
-                    prompt: repairPrompt,
+                    prompt: retryPrompt,
                     projectId: projectBinding.project.id,
                     role: 'CONVERSATIONAL',
-                    caller: 'MetaChatService.selfHealingTypecheck',
+                    caller: `MetaChatService.selfHealingRetry.attempt${attempt}`,
                     cwd: root,
                     env: execEnv
                   });
@@ -4561,6 +4680,7 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
 
                   const repairReport = (repairTurnResult.rawResponse || (repairTurnResult as any).finalResponse || '').trim();
                   if (repairReport) {
+                    lastRepairReport = repairReport;
                     agentReport = repairReport;
                     const parsedBlocks = this.parseCodeDirectives(repairReport);
                     for (const pb of parsedBlocks) {
@@ -4580,38 +4700,46 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
                     if (!filesChanged.includes(rc)) filesChanged.push(rc);
                   }
 
+                  // — Re-executa o Reviewer após cada turno do Worker —
                   typecheckResult = await this.runTypecheck(target, filesChanged);
-          recordTimelineStep('TypeScript Guard', typecheckResult.passed ? 'done' : 'failed');
+                  recordTimelineStep(`Self-Healing Guard (attempt ${attempt})`, typecheckResult.passed ? 'done' : 'failed');
+
                   if (typecheckResult.passed) {
                     healedOnRetry = true;
-                    Logger.success('[MetaChatService] Auto-reparo de Typecheck bem-sucedido!');
+                    Logger.success(`[MetaChatService] Self-Healing Reativo bem-sucedido na tentativa ${attempt}!`);
+                    this.updatePipelineTask(
+                      'task-verify',
+                      'completed',
+                      `Self-Healing aprovado na tentativa ${attempt} em ${typecheckResult.durationMs}ms`
+                    );
+                    this.recordLiveStep({
+                      type: 'GUARD',
+                      target: `Self-Healing (${attempt}/${MAX_SELF_HEAL_RETRIES})`,
+                      status: 'done',
+                      details: `Tipos corrigidos com sucesso na tentativa ${attempt} sem necessidade de rollback`
+                    });
+                  } else {
+                    Logger.warn(`[MetaChatService] Tentativa ${attempt}/${MAX_SELF_HEAL_RETRIES} falhou. ${attempt < MAX_SELF_HEAL_RETRIES ? 'Continuando ciclo...' : 'Máximo de tentativas atingido.'}`);
                   }
                 } catch (repairErr: any) {
-                  Logger.warn(`[MetaChatService] Falha durante tentativa de auto-reparo: ${repairErr.message}`);
+                  Logger.warn(`[MetaChatService] Erro na tentativa ${attempt}/${MAX_SELF_HEAL_RETRIES} de auto-reparo: ${repairErr.message}`);
+                  break;
                 }
               }
 
               if (!healedOnRetry) {
                 Logger.warn(
-                  `[MetaChatService] Typecheck permaneceu quebrado após tentativa. Acionando Rollback de Segurança...`
+                  `[MetaChatService] Self-Healing Reativo esgotado após ${MAX_SELF_HEAL_RETRIES} tentativas. Acionando Rollback de Segurança e notificando usuário...`
                 );
-                this.updatePipelineTask('task-verify', 'failed', 'Erro no Typecheck: rollback executado');
+                this.updatePipelineTask('task-verify', 'failed', `Erro persistente após ${MAX_SELF_HEAL_RETRIES} tentativas: rollback executado`);
                 this.recordLiveStep({
                   type: 'GUARD',
                   target: 'Rollback Automático',
                   status: 'done',
-                  details: 'Autoproteção Ativa: restaurando integridade do repositório'
+                  details: `Autoproteção Ativa: ${MAX_SELF_HEAL_RETRIES} tentativas esgotadas — restaurando integridade do repositório`
                 });
                 this.rollbackChangedFiles(root, filesChanged, baselineBefore);
                 selfHealed = true;
-              } else {
-                this.updatePipelineTask('task-verify', 'completed', `Auto-reparo aprovado em ${typecheckResult.durationMs}ms`);
-                this.recordLiveStep({
-                  type: 'GUARD',
-                  target: 'Auto-Reparo TypeScript',
-                  status: 'done',
-                  details: 'Tipos corrigidos com sucesso sem necessidade de rollback'
-                });
               }
             } else {
               this.updatePipelineTask('task-verify', 'completed', `Aprovado em ${typecheckResult.durationMs}ms`);

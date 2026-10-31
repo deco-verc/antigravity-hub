@@ -63,7 +63,7 @@ export class DecoHubSseClient {
       };
 
       // Register standard and custom event listeners
-      const eventTypes: SseEventType[] = [
+      const eventTypes: string[] = [
         'connected',
         'message',
         'activity',
@@ -72,10 +72,19 @@ export class DecoHubSseClient {
         'status',
         'done',
         'error',
-        'run_updated'
+        'run_updated',
+        'timeline_event',
+        'STATUS_FACADE_RECEIVED',
+        'STATUS_SUPERVISOR_PLANNING',
+        'STATUS_WORKER_EXECUTING',
+        'STATUS_REVIEWER_VERIFYING',
+        'STATUS_REVIEWER_AUDITING',
+        'STATUS_REJECTED_RETRYING',
+        ...Array.from(this.listeners.keys())
       ];
 
-      for (const type of eventTypes) {
+      const uniqueTypes = Array.from(new Set(eventTypes));
+      for (const type of uniqueTypes) {
         this.eventSource.addEventListener(type, (e: MessageEvent) => {
           this.dispatch(type, e.data);
         });
@@ -136,6 +145,11 @@ export class DecoHubSseClient {
   on<T = any>(event: SseEventType | string, handler: SseEventHandler<T>): () => void {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, new Set());
+      if (this.eventSource) {
+        this.eventSource.addEventListener(event, (e: MessageEvent) => {
+          this.dispatch(event, e.data);
+        });
+      }
     }
     this.listeners.get(event)!.add(handler);
 

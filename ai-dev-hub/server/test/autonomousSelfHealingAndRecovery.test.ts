@@ -496,3 +496,96 @@ test('Watchdog Resiliência: Não preempte nem incremente retries quando tarefa 
   }
 });
 
+
+
+test('Self-Healing Reativo: Worker com erro -> Reviewer rejeita -> Worker corrige -> Reviewer aprova', async (t) => {
+  const { MetaChatService, META_CHAT_STATUS } = await import('../src/metaChatService.js');
+  const { SseStreamService } = await import('../src/sseStreamService.js');
+
+  // 1. Testa parseTypecheckErrors com formato real do compilador TypeScript
+  const rawCompilerOutput = [
+    "server/src/fooService.ts(42,15): error TS2345: Argument of type 'string' is not assignable to parameter of type 'number'.",
+    "server/src/barController.ts:108:5 - error TS2322: Type 'null' is not assignable to type 'string'."
+  ].join('\n');
+
+  const parsedErrors = MetaChatService.parseTypecheckErrors(rawCompilerOutput);
+  assert.equal(parsedErrors.length, 2, 'Deve extrair exatamente 2 erros estruturados');
+  assert.equal(parsedErrors[0].file, 'server/src/fooService.ts');
+  assert.equal(parsedErrors[0].line, 42);
+  assert.equal(parsedErrors[0].column, 15);
+  assert.equal(parsedErrors[0].code, 'TS2345');
+  assert.match(parsedErrors[0].message, /TS2345/);
+
+  assert.equal(parsedErrors[1].file, 'server/src/barController.ts');
+  assert.equal(parsedErrors[1].line, 108);
+  assert.equal(parsedErrors[1].column, 5);
+  assert.equal(parsedErrors[1].code, 'TS2322');
+
+  // 2. Valida montagem do prompt cirúrgico de retentativa com erros e diff anterior
+  const retryPrompt = MetaChatService.buildRetryRepairPrompt(
+    'Corrigir tipagem do fooService',
+    '+ const result = foo("bar");',
+    parsedErrors,
+    '',
+    1,
+    3,
+    ['server/src/fooService.ts', 'server/src/barController.ts']
+  );
+  assert.match(retryPrompt, /Tentativa 1 de 3/);
+  assert.match(retryPrompt, /server\/src\/fooService\.ts:42:15 — TS2345/);
+  assert.match(retryPrompt, /server\/src\/barController\.ts:108:5 — TS2322/);
+  assert.match(retryPrompt, /SURGICAL_REPAIR_RETRY/);
+
+  // 3. Simula o ciclo reativo: Worker falha -> Reviewer rejeita -> Worker corrige -> Reviewer aprova
+  const eventsCaptured: Array<{ channel: string; event: string; data: any }> = [];
+  const originalBroadcast = SseStreamService.broadcast;
+  SseStreamService.broadcast = (channel: string, event: string, data: any) => {
+    eventsCaptured.push({ channel, event, data });
+  };
+
+  const originalRunTypecheck = MetaChatService.runTypecheck;
+  let typecheckInvocations = 0;
+  (MetaChatService as any).runTypecheck = async () => {
+    typecheckInvocations++;
+    if (typecheckInvocations === 1) {
+      // Primeira checagem: Reviewer rejeita com erros reais
+      return {
+        passed: false,
+        durationMs: 120,
+        output: rawCompilerOutput,
+        errors: parsedErrors
+      };
+    }
+    // Segunda checagem (após correção do Worker): Reviewer aprova
+    return {
+      passed: true,
+      durationMs: 95,
+      output: 'Typecheck aprovado com 0 erros de compilação.'
+    };
+  };
+
+  try {
+    const { ProjectChatService } = await import('../src/projectChatService.js');
+    const result = await ProjectChatService.executeFourRolePipeline({
+      projectId: 'test-self-heal-project',
+      content: 'Refatorar tipagem estrita no fooService.ts',
+      intentResult: { intent: 'GENERAL_CHAT' as any, subType: 'CODE_EXPLANATION' as any }
+    });
+
+    // Verificações do ciclo fechado de Auto-Cura
+    assert.equal(typecheckInvocations, 2, 'Deve ter rodado typecheck exatamente 2 vezes (rejeição + aprovação)');
+    assert.equal(result.metadata.reviewer.typecheckPassed, true, 'Reviewer deve terminar com aprovação após correção');
+    assert.equal(result.metadata.reviewer.verdict, 'APROVADO', 'Veredito final deve ser APROVADO');
+    assert.equal(result.metadata.reviewer.reviewAttempts, 2, 'Deve registrar 2 tentativas de revisão');
+    assert.equal(result.metadata.reviewer.rolledBack, false, 'Não deve acionar rollback quando corrigido com sucesso');
+
+    // Confirma emissão do evento de rejeição/retentativa
+    const retryEvent = eventsCaptured.find(e => e.data?.phase === 'REJECTED_RETRYING');
+    assert.ok(retryEvent, 'Deve emitir evento REJECTED_RETRYING ao rejeitar a primeira tentativa');
+    assert.equal(retryEvent?.data?.attempt, 1);
+    assert.equal(retryEvent?.data?.maxAttempts, 3);
+  } finally {
+    (MetaChatService as any).runTypecheck = originalRunTypecheck;
+    SseStreamService.broadcast = originalBroadcast;
+  }
+});

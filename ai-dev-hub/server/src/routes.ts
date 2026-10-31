@@ -3103,6 +3103,35 @@ apiRouter.post(['/account-profiles/rapid-switch', '/accounts/rapid-switch'], asy
   }
 });
 
+apiRouter.get(['/account-profiles/telemetry', '/accounts/telemetry'], (req, res) => {
+  try {
+    const telemetry = AccountProfileManager.getAccountTelemetry();
+    res.json(telemetry);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.get(['/account-profiles/auto-failover', '/accounts/auto-failover'], (req, res) => {
+  try {
+    const autoFailoverEnabled = AccountProfileManager.isAutoFailoverEnabled();
+    res.json({ autoFailoverEnabled });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.post(['/account-profiles/auto-failover', '/accounts/auto-failover'], (req, res) => {
+  try {
+    const { enabled } = req.body || {};
+    const isEnabled = typeof enabled === 'boolean' ? enabled : true;
+    AccountProfileManager.setAutoFailoverEnabled(isEnabled);
+    res.json({ success: true, autoFailoverEnabled: isEnabled });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 apiRouter.post(['/account-profiles', '/accounts'], (req, res) => {
   try {
     const { displayName, profileName, googleAccountLabel, autoLaunch = true } = req.body || {};

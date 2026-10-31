@@ -370,6 +370,7 @@ describe('Auto-Failover Multi-Conta via Rapid Switch Suite (FASE 20)', () => {
   test('5. WorkerRegistry.getReadyWorkers recupera worker quando PID divergiu mas Language Server está ativo', async () => {
     const profile = AccountProfileManager.getGlobalActiveProfile();
     assert.ok(profile);
+    db.prepare("UPDATE account_profiles SET auth_status = 'READY', quota_resets_at = NULL WHERE id = ?").run(profile.id);
 
     const prevOffline = process.env.DECOHUB_OFFLINE_MODE;
     process.env.DECOHUB_OFFLINE_MODE = 'false';

@@ -21,6 +21,40 @@ import {
   RuntimeProfileSelectionError
 } from './runtimeProfileSelector.js';
 import { NativeWorkspaceBinding } from './nativeWorkspaceBinding.js';
+import { UsageTracker } from './usageTracker.js';
+
+export interface AccountTelemetryProcessInfo {
+  pid: number | null;
+  grpcPort: number | null;
+  port: number | null;
+  uptimeSeconds: number | null;
+  uptimeFormatted: string;
+  isAlive: boolean;
+}
+
+export interface AccountTelemetryItem {
+  id: string;
+  name: string;
+  displayName: string;
+  email?: string | null;
+  authStatus: 'READY' | 'WAITING_LOGIN' | 'QUOTA_EXHAUSTED' | 'OFFLINE' | string;
+  rawAuthStatus: string;
+  isActive: boolean;
+  isDefault?: boolean;
+  process: AccountTelemetryProcessInfo;
+  todayExecutions: number;
+  quotaResetsAt?: string | null;
+  quotaMessage?: string | null;
+  environmentPath: string;
+}
+
+export interface AccountTelemetryResponse {
+  accounts: AccountTelemetryItem[];
+  totalAccounts: number;
+  activeAccountId: string;
+  autoFailoverEnabled: boolean;
+  timestamp: string;
+}
 
 export type AuthStatus =
   | 'READY'
@@ -1539,14 +1573,15 @@ export class AccountProfileManager {
   }
 
   static getRunningInstanceForProfile(envPath: string): { address: string; csrfToken: string; pid: number } | null {
-    const isMocked = (childProcess.execFileSync as any) !== nativeExecFileSync;
-    if (AccountProfileManager.isOfflineMode() || (!isMocked && this.isAutomatedTestRuntime() && process.env.DECOHUB_ALLOW_LIVE_AGENTAPI !== 'true')) return null;
-    const isTest = this.isAutomatedTestRuntime();
     const cacheKey = envPath ? normalizeRuntimePath(envPath) : '';
     const cached = this.runningInstanceCache.get(cacheKey);
     if (cached && Date.now() < cached.expiresAt) {
       return cached.data;
     }
+
+    const isMocked = (childProcess.execFileSync as any) !== nativeExecFileSync;
+    if (AccountProfileManager.isOfflineMode() || (!isMocked && this.isAutomatedTestRuntime() && process.env.DECOHUB_ALLOW_LIVE_AGENTAPI !== 'true')) return null;
+    const isTest = this.isAutomatedTestRuntime();
 
     try {
       const binding = this.getRuntimeBindingForProfile(envPath);
@@ -2365,6 +2400,17 @@ export class AccountProfileManager {
       this.updateStatus(failedProfileId, 'RUNTIME_UNAVAILABLE');
     }
 
+    if (!AccountProfileManager.isAutoFailoverEnabled()) {
+      Logger.info(`[AccountAutoFailoverSync] Auto-Failover desativado por configuração. Permanecendo na conta atual.`);
+      return {
+        switched: false,
+        previousProfileId: failedProfileId,
+        activeProfile: currentActive,
+        kind: classification.kind,
+        message: 'Auto-Failover desativado pelo usuário nas configurações do sistema.'
+      };
+    }
+
     const switchRes = this.rapidSwitchAccountSync({
       projectId: params.projectId || undefined,
       reason: `${classification.kind}_FAILOVER: ${classification.reason}`,
@@ -2482,6 +2528,17 @@ export class AccountProfileManager {
       this.updateStatus(failedProfileId, 'LOGIN_REQUIRED');
     } else if (classification.kind === 'RUNTIME') {
       this.updateStatus(failedProfileId, 'RUNTIME_UNAVAILABLE');
+    }
+
+    if (!AccountProfileManager.isAutoFailoverEnabled()) {
+      Logger.info(`[AccountAutoFailover] Auto-Failover desativado por configuração. Permanecendo na conta atual.`);
+      return {
+        switched: false,
+        previousProfileId: failedProfileId,
+        activeProfile: currentActive,
+        kind: classification.kind,
+        message: 'Auto-Failover desativado pelo usuário nas configurações do sistema.'
+      };
     }
 
     const switchRes = await this.rapidSwitchAccount({
@@ -2729,6 +2786,140 @@ export class AccountProfileManager {
     } catch {
       return null;
     }
+  }
+
+  static isAutoFailoverEnabled(): boolean {
+    try {
+      const row: any = db.prepare("SELECT value FROM system_settings WHERE key = 'auto_failover_enabled'").get();
+      if (row && typeof row.value === 'string') {
+        return row.value !== 'false' && row.value !== '0';
+      }
+      return true; // Habilitado por padrão
+    } catch {
+      return true;
+    }
+  }
+
+  static setAutoFailoverEnabled(enabled: boolean): boolean {
+    try {
+      const now = new Date().toISOString();
+      db.prepare(`
+        INSERT INTO system_settings (key, value, updated_at)
+        VALUES ('auto_failover_enabled', ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+      `).run(enabled ? 'true' : 'false', now);
+      Logger.info(`[AccountProfileManager] Auto-Failover atualizado para: ${enabled ? 'ATIVO' : 'DESATIVADO'}`);
+      return enabled;
+    } catch (err: any) {
+      Logger.warn(`[AccountProfileManager] Erro ao salvar auto_failover_enabled: ${err.message}`);
+      return enabled;
+    }
+  }
+
+  static getAccountTelemetry(): AccountTelemetryResponse {
+    const profiles = this.getAllProfiles();
+    let activeProfileId = 'acc-pro-1';
+    try {
+      activeProfileId = this.getGlobalActiveProfile().id;
+    } catch {}
+
+    const autoFailoverEnabled = this.isAutoFailoverEnabled();
+
+    const accounts: AccountTelemetryItem[] = profiles.map(p => {
+      const isCur = p.id === activeProfileId;
+      let normalizedStatus: 'READY' | 'WAITING_LOGIN' | 'QUOTA_EXHAUSTED' | 'OFFLINE' = 'READY';
+
+      if (p.auth_status === 'QUOTA_EXHAUSTED' || p.auth_status === 'RATE_LIMITED') {
+        normalizedStatus = 'QUOTA_EXHAUSTED';
+      } else if (
+        p.auth_status === 'WAITING_LOGIN' ||
+        p.auth_status === 'LOGIN_REQUIRED' ||
+        p.auth_status === 'NEEDS_LOGIN' ||
+        p.auth_status === 'AUTHENTICATING'
+      ) {
+        normalizedStatus = 'WAITING_LOGIN';
+      } else if (p.auth_status === 'OFFLINE' || p.auth_status === 'RUNTIME_UNAVAILABLE') {
+        normalizedStatus = 'OFFLINE';
+      } else if (p.auth_status === 'READY' || p.auth_status === 'ACTIVE') {
+        normalizedStatus = 'READY';
+      } else {
+        normalizedStatus = 'OFFLINE';
+      }
+
+      // Check process / daemon
+      let pid: number | null = null;
+      let grpcPort: number | null = null;
+      let uptimeSeconds: number | null = null;
+      let uptimeFormatted = 'Parado';
+      let isAlive = false;
+
+      try {
+        const instance = this.getRunningInstanceForProfile(p.environment_path);
+        if (instance && instance.pid) {
+          isAlive = true;
+          pid = instance.pid;
+          if (instance.address) {
+            const parts = instance.address.split(':');
+            const portNum = Number(parts[parts.length - 1]);
+            if (!isNaN(portNum) && portNum > 0) {
+              grpcPort = portNum;
+            }
+          }
+
+          const binding = this.getRuntimeBindingForProfile(p.environment_path);
+          if (binding?.started) {
+            const startedMs = new Date(binding.started).getTime();
+            if (!isNaN(startedMs)) {
+              uptimeSeconds = Math.max(0, Math.floor((Date.now() - startedMs) / 1000));
+              const m = Math.floor(uptimeSeconds / 60);
+              const s = uptimeSeconds % 60;
+              const h = Math.floor(m / 60);
+              const remM = m % 60;
+              uptimeFormatted = h > 0 ? `${h}h ${remM.toString().padStart(2, '0')}m` : `${m}m ${s.toString().padStart(2, '0')}s`;
+            }
+          } else {
+            uptimeFormatted = 'Ativo';
+          }
+        }
+      } catch {}
+
+      // Total executions today
+      let todayExecutions = 0;
+      try {
+        todayExecutions = UsageTracker.getTodayExecutionCount(p.id);
+      } catch {}
+
+      return {
+        id: p.id,
+        name: p.profile_name || p.name || p.id,
+        displayName: p.display_name || p.profile_name || p.id,
+        email: p.google_account_label || null,
+        authStatus: normalizedStatus,
+        rawAuthStatus: p.auth_status,
+        isActive: isCur,
+        isDefault: isCur,
+        process: {
+          pid,
+          grpcPort,
+          port: grpcPort,
+          uptimeSeconds,
+          uptimeFormatted,
+          isAlive
+        },
+        todayExecutions,
+        quotaResetsAt: p.quota_resets_at || null,
+        quotaMessage: p.quota_message || null,
+        environmentPath: p.environment_path
+      };
+    });
+
+    return {
+      accounts,
+      totalAccounts: accounts.length,
+      activeAccountId: activeProfileId,
+      autoFailoverEnabled,
+      timestamp: new Date().toISOString()
+    };
   }
 
   private static _rowToProfile(row: any): AccountProfile {
