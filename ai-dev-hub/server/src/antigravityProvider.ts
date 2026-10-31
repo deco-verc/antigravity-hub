@@ -472,74 +472,95 @@ export class AntigravityProvider implements AgentProvider {
 
     if (options?.projectId) {
       const { AgentSessionManager } = await import('./agentSessionManager.js');
-      const activeWorkerSession = AgentSessionManager.getActiveSession(options.projectId, 'WORKER');
-      if (activeWorkerSession) {
-        let sessionMatchesAccount = true;
-        if (options.accountProfileId && activeWorkerSession.metadata_json) {
-          try {
-            const parsedMeta = JSON.parse(activeWorkerSession.metadata_json);
-            if (parsedMeta?.accountProfileId && parsedMeta.accountProfileId !== options.accountProfileId) {
-              sessionMatchesAccount = false;
-            }
-          } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "antigravityProvider",
-          error: (err as any)?.message || String(err)
+      let activeWorkerSession = AgentSessionManager.getActiveSession(options.projectId, 'WORKER');
+      const isAlive = activeWorkerSession && AgentSessionManager.isSessionAlive(activeWorkerSession.provider_conversation_id, cleanEnv);
+
+      if (!activeWorkerSession || !isAlive) {
+        Logger.info(`[AntigravityProvider] activeWorkerSession inexistente ou inativa no projeto ${options.projectId}. Criando novo chat no Antigravity imediatamente.`);
+        const created = await AgentSessionManager.getOrCreateAgentSession(options.projectId, 'WORKER', {
+          model: options.model || 'flash',
+          env: cleanEnv,
+          accountProfileId: options.accountProfileId,
+          runId: options.runId,
+          forceNew: true,
+          initialPrompt: prompt
         });
-      } else {
-        console.warn("[WARN][server:antigravityProvider]", err);
+        activeWorkerSession = created.session;
+        this.captureTurnStart(activeWorkerSession.provider_conversation_id, taskInput.context.projectPath, taskInput.task.id);
+        AgentTurnState.setPhase(activeWorkerSession.provider_conversation_id, 'IN_FLIGHT');
+        return { sessionId: activeWorkerSession.provider_conversation_id, rotated: true };
       }
-    }
+
+      let sessionMatchesAccount = true;
+      if (options.accountProfileId && activeWorkerSession.metadata_json) {
+        try {
+          const parsedMeta = JSON.parse(activeWorkerSession.metadata_json);
+          if (parsedMeta?.accountProfileId && parsedMeta.accountProfileId !== options.accountProfileId) {
+            sessionMatchesAccount = false;
+          }
+        } catch (err) {
+          if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+            (globalThis as any).logger.warn({
+              event: "server.handled_exception",
+              file: "antigravityProvider",
+              error: (err as any)?.message || String(err)
+            });
+          } else {
+            console.warn("[WARN][server:antigravityProvider]", err);
+          }
+        }
+      }
+
+      if (!sessionMatchesAccount) {
+        Logger.info(`[AntigravityProvider] Conta divergente na sessão ativa. Criando novo chat no Antigravity com a nova conta.`);
+        const created = await AgentSessionManager.getOrCreateAgentSession(options.projectId, 'WORKER', {
+          model: options.model || 'flash',
+          env: cleanEnv,
+          accountProfileId: options.accountProfileId,
+          runId: options.runId,
+          forceNew: true,
+          initialPrompt: prompt
+        });
+        this.captureTurnStart(created.session.provider_conversation_id, taskInput.context.projectPath, taskInput.task.id);
+        AgentTurnState.setPhase(created.session.provider_conversation_id, 'IN_FLIGHT');
+        return { sessionId: created.session.provider_conversation_id, rotated: true };
+      }
+
+      this.captureTurnStart(
+        activeWorkerSession.provider_conversation_id,
+        taskInput.context.projectPath,
+        taskInput.task.id
+      );
+      AgentTurnState.setPhase(activeWorkerSession.provider_conversation_id, 'IN_FLIGHT');
+
+      try {
+        await AgentSessionManager.sendMessage(activeWorkerSession, prompt, {
+          env: cleanEnv,
+          taskTitle: taskInput.task.title
+        });
+        return { sessionId: activeWorkerSession.provider_conversation_id, rotated: false };
+      } catch (err: any) {
+        const errStr = (err?.stderr || err?.stdout || err?.message || String(err)).toString();
+        if (/RESOURCE_EXHAUSTED|code 429|Individual quota reached/i.test(errStr) || err?.message?.includes('QUOTA_EXHAUSTED')) {
+          AgentTurnState.setPhase(activeWorkerSession.provider_conversation_id, 'NOT_SENT');
+          throw new Error(`QUOTA_EXHAUSTED: ${errStr}`);
         }
 
-        if (sessionMatchesAccount) {
-          this.captureTurnStart(
-            activeWorkerSession.provider_conversation_id,
-            taskInput.context.projectPath,
-            taskInput.task.id
-          );
-          AgentTurnState.setPhase(activeWorkerSession.provider_conversation_id, 'IN_FLIGHT');
-          try {
-            await AgentSessionManager.sendMessage(activeWorkerSession, prompt, {
-              env: cleanEnv,
-              taskTitle: taskInput.task.title
-            });
-          } catch (err: any) {
-            const beforeCall = this.isPreDispatchGuardError(err);
-            AgentTurnState.setPhase(
-              activeWorkerSession.provider_conversation_id,
-              beforeCall ? 'NOT_SENT' : 'CONSUMED'
-            );
-            if (!beforeCall) {
-              Logger.warn(`[AntigravityProvider] send-message concluiu com aviso em ${activeWorkerSession.provider_conversation_id.slice(0, 8)}. Observação reconciliada como CONSUMED.`);
-            } else {
-              throw err;
-            }
-          }
-          return { sessionId: activeWorkerSession.provider_conversation_id, rotated: false };
-        } else {
-          // Account was switched: rotate session to bind cleanly to the new accountProfileId
-          const { newSession } = await AgentSessionManager.rotateSession(
-            options.projectId,
-            'WORKER',
-            'ACCOUNT_SWITCH',
-            {
-              model: (options.model as any) || 'flash',
-              env: cleanEnv,
-              runId: options.runId,
-              taskId: taskInput.task.id
-            }
-          );
-          this.captureTurnStart(newSession.provider_conversation_id, taskInput.context.projectPath, taskInput.task.id);
-          AgentTurnState.setPhase(newSession.provider_conversation_id, 'IN_FLIGHT');
-          await AgentSessionManager.sendMessage(newSession, prompt, {
-            env: cleanEnv,
-            taskTitle: taskInput.task.title
-          });
-          return { sessionId: newSession.provider_conversation_id, rotated: true };
-        }
+        Logger.warn(`[AntigravityProvider] sendMessage falhou em ${activeWorkerSession.provider_conversation_id.slice(0, 8)} (${err.message}). Invalidando e criando novo chat no Antigravity imediatamente.`);
+        AgentSessionManager.retireSession(activeWorkerSession.id, 'INVALID', 'SEND_MESSAGE_FAILED_AUTO_RECREATED');
+
+        const created = await AgentSessionManager.getOrCreateAgentSession(options.projectId, 'WORKER', {
+          model: options.model || 'flash',
+          env: cleanEnv,
+          accountProfileId: options.accountProfileId,
+          runId: options.runId,
+          forceNew: true,
+          initialPrompt: prompt
+        });
+
+        this.captureTurnStart(created.session.provider_conversation_id, taskInput.context.projectPath, taskInput.task.id);
+        AgentTurnState.setPhase(created.session.provider_conversation_id, 'IN_FLIGHT');
+        return { sessionId: created.session.provider_conversation_id, rotated: true };
       }
     }
 
@@ -585,16 +606,21 @@ export class AntigravityProvider implements AgentProvider {
       });
       return { sessionId, rotated: false };
     } catch (err: any) {
-      if (AgentTurnState.get(sessionId)?.phase === 'IN_FLIGHT') {
-        const beforeCall = this.isPreDispatchGuardError(err);
-        AgentTurnState.setPhase(sessionId, beforeCall ? 'NOT_SENT' : 'CONSUMED');
-      }
       const errStr = (err.stderr || err.stdout || err.message || '').toString();
       if (/RESOURCE_EXHAUSTED|code 429|Individual quota reached/i.test(errStr)) {
+        AgentTurnState.setPhase(sessionId, 'NOT_SENT');
         throw new Error(`QUOTA_EXHAUSTED: ${errStr}`);
       }
+      const beforeCall = this.isPreDispatchGuardError(err);
+      if (beforeCall) {
+        AgentTurnState.setPhase(sessionId, 'NOT_SENT');
+        throw err;
+      }
+      // Transporte falhou de forma ambígua (ex: 'transport ended without acknowledgement'):
+      // a mensagem PODE ter chegado ao Antigravity — estado incerto, requer reconciliação.
+      AgentTurnState.setPhase(sessionId, 'UNCERTAIN');
       Logger.error(`[AntigravityProvider] Erro ao enviar tarefa: ${err.message}`);
-      throw err;
+      throw new Error(`AGENT_TURN_UNCERTAIN: ${err.message}`);
     }
   }
 
@@ -631,16 +657,34 @@ export class AntigravityProvider implements AgentProvider {
   ): Promise<BuilderToSupervisorContract> {
     let transcriptPath = this.resolveTranscriptPath(sessionId);
     const startTime = Date.now();
-    const maxCeilingMs = Math.max(timeoutMs, 1500000); // Até 25 minutos de teto máximo de segurança
+
+    // CORREÇÃO CRÍTICA: nunca usar `timeoutMs || fallback` pois 0 é falsy em JS.
+    // Respeitar estritamente timeoutMs=0 (probe/teste) sem acionar heartbeat de 1500s.
+    const effectiveTimeoutMs =
+      typeof timeoutMs === 'number' && !Number.isNaN(timeoutMs)
+        ? Math.max(0, timeoutMs)
+        : 180000;
+    const allowHeartbeatExtension =
+      effectiveTimeoutMs > 5000 && !AgentApiGateway.isOfflineMode();
+
+    const maxCeilingMs = allowHeartbeatExtension
+      ? Math.max(effectiveTimeoutMs, 1500000) // Até 25 minutos de teto máximo de segurança
+      : effectiveTimeoutMs; // Probe/teste: respeitar o timeout exato
     const idleTimeoutMs = 180000; // 3 minutos de inatividade absoluta no transcript
     let lastActivityTime = Date.now();
     let lastTranscriptSize = 0;
     let lastTranscriptMtime = 0;
     let lastEntriesCount = 0;
 
-    Logger.info(
-      `[AntigravityProvider] Aguardando conclusão do agente ${sessionId.slice(0, 8)} (heartbeat ativo, teto máximo: ${maxCeilingMs / 1000}s)...`
-    );
+    if (allowHeartbeatExtension) {
+      Logger.info(
+        `[AntigravityProvider] Aguardando conclusão do agente ${sessionId.slice(0, 8)} (heartbeat ativo, teto máximo: ${maxCeilingMs / 1000}s)...`
+      );
+    } else {
+      Logger.info(
+        `[AntigravityProvider] Aguardando conclusão do agente ${sessionId.slice(0, 8)} (modo imediato, timeout: ${effectiveTimeoutMs}ms)...`
+      );
+    }
 
     const observation = AgentTurnState.get(sessionId);
     const initialLineCount =
@@ -656,6 +700,45 @@ export class AntigravityProvider implements AgentProvider {
       }
       if (!fs.existsSync(transcriptPath)) {
         transcriptPath = this.resolveTranscriptPath(sessionId);
+      }
+
+      // MODO IMEDIATO: quando allowHeartbeatExtension === false (probe/teste com timeoutMs=0 ou <=5000),
+      // faz apenas 1 leitura imediata e sai sem heartbeat, quiet-window ou extensão por mtime.
+      if (!allowHeartbeatExtension) {
+        const progress = observeTranscript(transcriptPath, initialLineCount);
+        const entriesAfterUser = initialLineCount > 0
+          ? (() => {
+              const idx = progress.entries.findIndex(
+                e => e.type === 'USER_INPUT' || e.type === 'USER_MESSAGE' || e.role === 'user' || e.source === 'USER_EXPLICIT'
+              );
+              return idx !== -1 ? progress.entries.slice(idx + 1) : [];
+            })()
+          : progress.entries;
+
+        if (progress.state === 'ERROR') {
+          const fatalEntry = progress.entries.find(
+            e => FATAL_QUOTA_OR_AUTH_REGEX.test(String(e.error || e.content || e.message || '')) ||
+                 e.type === 'ERROR_MESSAGE' ||
+                 e.status === 'ERROR'
+          );
+          const detail = String(fatalEntry?.error || fatalEntry?.content || fatalEntry?.message || 'Native authentication/quota error');
+          AgentTurnState.setPhase(sessionId, 'CONSUMED');
+          throw new Error(
+            /RESOURCE_EXHAUSTED|QUOTA|429|limit|cota|upgrade|credits/i.test(detail)
+              ? `QUOTA_EXHAUSTED: ${detail}`
+              : `AUTH_ERROR: ${detail}`
+          );
+        }
+        if (progress.state === 'COMPLETE' && entriesAfterUser.length > 0) {
+          isComplete = true;
+        }
+        // Sai imediatamente após 1 leitura (effectiveTimeoutMs === 0 → sem espera alguma)
+        if (Date.now() - startTime >= effectiveTimeoutMs) break;
+        // Pequena espera apenas se timeoutMs > 0 (ex: 1ms..5000ms)
+        if (effectiveTimeoutMs > 0) {
+          await new Promise(r => setTimeout(r, Math.min(100, effectiveTimeoutMs)));
+        }
+        break;
       }
 
       // Monitora batimentos cardíacos de atividade real no transcript (Activity Heartbeat)
@@ -729,7 +812,7 @@ export class AntigravityProvider implements AgentProvider {
         );
       }
       if (progress.state === 'COMPLETE' && entriesAfterUser.length > 0) {
-        if (timeoutMs > 5000 && !isTestEnv) {
+        if (effectiveTimeoutMs > 5000 && !isTestEnv) {
           // Exige 4000ms de silêncio real (2 checagens consecutivas de 2000ms) sem novas ferramentas pendentes ou novas linhas
           let quiet = true;
           for (let check = 0; check < 2; check++) {
@@ -782,7 +865,7 @@ export class AntigravityProvider implements AgentProvider {
         );
 
         if (isModelFinal) {
-          if (timeoutMs > 5000 && !isTestEnv) {
+          if (effectiveTimeoutMs > 5000 && !isTestEnv) {
             // Exige 4000ms de estabilidade sem ferramentas pendentes
             let quiet = true;
             for (let check = 0; check < 2; check++) {
@@ -806,10 +889,10 @@ export class AntigravityProvider implements AgentProvider {
       const totalElapsed = Date.now() - startTime;
       const inactiveElapsed = Date.now() - lastActivityTime;
 
-      // Em testes unitários curtos (<10s), respeita o timeoutMs fornecido
-      const isShortTest = timeoutMs < 10000;
+      // Em testes unitários curtos (<=5000ms mas >0), respeita o effectiveTimeoutMs fornecido
+      const isShortTest = effectiveTimeoutMs <= 5000 && effectiveTimeoutMs > 0;
       if (isShortTest) {
-        if (totalElapsed >= timeoutMs) break;
+        if (totalElapsed >= effectiveTimeoutMs) break;
       } else {
         if (inactiveElapsed >= idleTimeoutMs && progress.pendingTools.length === 0) {
           Logger.warn(`[AntigravityProvider] Inatividade de ${Math.round(inactiveElapsed / 1000)}s detectada no transcript para ${sessionId.slice(0, 8)}.`);
@@ -821,7 +904,7 @@ export class AntigravityProvider implements AgentProvider {
         }
       }
 
-      await new Promise(r => setTimeout(r, Math.min(500, timeoutMs)));
+      await new Promise(r => setTimeout(r, Math.min(500, effectiveTimeoutMs)));
     } while (true);
 
     if (!isComplete) {

@@ -65,7 +65,7 @@ export function isExcludedFromNativeGeminiProjects(projectName: string | undefin
     return { excluded: true, reason: `Pasta não existe no disco (${projectPath})` };
   }
 
-  // 3. Raiz genérica C:\IA (ou X:\IA onde X é qualquer letra de unidade)
+  // 3. Raiz genérica de unidade (ex: X:\ia)
   if (/^[a-z]:\/ia$/i.test(normalizedPath) || /^[a-z]:\\ia$/i.test(normalizedPath)) {
     return { excluded: true, reason: `Raiz genérica de workspace detectada (${projectPath})` };
   }
@@ -250,7 +250,7 @@ export class NativeWorkspaceBinding {
       }
     } else {
       // Modo Live (produção): NUNCA crie um arquivo <uuid>.json em .gemini/config/projects/ para:
-      // projetos temporários (os.tmpdir()), pastas que não existam em disco, para a raiz genérica C:\IA,
+      // projetos temporários (os.tmpdir()), pastas que não existam em disco, para a raiz genérica de unidade,
       // ou para nomes sintéticos de suítes de teste (Homologação E2E, Forensic Hardening, Test Project, temp-).
       const exclusion = isExcludedFromNativeGeminiProjects(project.name, project.path);
       if (exclusion.excluded) {

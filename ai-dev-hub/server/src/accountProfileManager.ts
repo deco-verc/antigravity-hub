@@ -773,11 +773,84 @@ export class AccountProfileManager {
     };
   }
 
+  /**
+   * Starts language_server.exe directly in headless/background mode for secondary profiles
+   * to bypass Electron's single-instance lock and provide isolated gRPC and CSRF tokens.
+   */
+  static startHeadlessLanguageServer(profile: AccountProfile): { success: boolean; message: string; pid?: number } {
+    if (AccountProfileManager.isOfflineMode()) throw new Error('OFFLINE_GUARD: login real bloqueado em sandbox/testes.');
+
+    let lsExe: string | null = null;
+    try {
+      lsExe = getLanguageServerExe();
+    } catch {
+      const discovery = AntigravityDiscovery.discover();
+      lsExe = discovery.languageServerExe;
+    }
+
+    if (!lsExe || !fs.existsSync(lsExe)) {
+      throw new Error(`Executável do Language Server (language_server.exe) não foi localizado no sistema.`);
+    }
+
+    this.ensureProfileDirectoriesAndSyncAuth(profile.environment_path);
+    const cleanEnv = this.buildIsolatedSpawnEnv(profile);
+
+    const csrfToken = crypto.randomUUID();
+    const args = ['--standalone', `--csrf_token=${csrfToken}`];
+
+    Logger.info(
+      `[AccountProfileManager] Subindo Language Server headless diretamente para perfil secundário "${profile.display_name}" (${profile.id}) com variáveis de ambiente dedicadas (USERPROFILE: ${cleanEnv.USERPROFILE}, APPDATA: ${cleanEnv.APPDATA}, LOCALAPPDATA: ${cleanEnv.LOCALAPPDATA})...`
+    );
+
+    const child = spawn(lsExe, args, {
+      detached: true,
+      stdio: 'ignore',
+      env: cleanEnv,
+      windowsHide: true
+    });
+
+    child.on('error', err => {
+      Logger.warn(`[AccountProfileManager] Falha ao spawnar language_server.exe para perfil ${profile.id}: ${err.message}`);
+    });
+
+    if (!child.pid) {
+      throw new Error('Falha ao iniciar language_server.exe: processo sem PID.');
+    }
+
+    child.unref();
+    const launchedPid = child.pid;
+    Logger.info(
+      `[AccountProfileManager] language_server.exe headless iniciado para perfil ${profile.id} com PID ${launchedPid} (anti single-instance lock).`
+    );
+    this.updateStatus(profile.id, 'READY');
+
+    return {
+      success: true,
+      message: `Language Server headless iniciado em modo background para o perfil secundário "${profile.display_name}" (PID ${launchedPid}). Portas gRPC e CSRF tokens isolados.`,
+      pid: launchedPid
+    };
+  }
+
   static launchLogin(profileId: string): { success: boolean; message: string; pid?: number } {
     if (AccountProfileManager.isOfflineMode()) throw new Error('OFFLINE_GUARD: login real bloqueado em sandbox/testes.');
     const profile = this.getProfile(profileId);
     if (!profile) {
       throw new Error(`Perfil ${profileId} não encontrado.`);
+    }
+
+    const isLegacyDefault =
+      normalizeRuntimePath(profile.environment_path) === normalizeRuntimePath(this.defaultRoamingPath);
+    const isSecondary = !isLegacyDefault || profile.id !== 'acc-pro-1';
+    const isAnotherInstanceRunning = AntigravityDiscovery.isLanguageServerOrAntigravityRunning();
+
+    // Requisito cirúrgico: Ao inicializar um perfil secundário (ex.: acc-pro-2), se outra instância já estiver em execução,
+    // não tenta abrir a interface gráfica Antigravity.exe para evitar o bloqueio de single-instance lock do Electron.
+    // Em vez disso, inicia diretamente o binário language_server.exe em modo background/headless.
+    if (isSecondary && isAnotherInstanceRunning) {
+      Logger.info(
+        `[AccountProfileManager] Instância ativa de Antigravity detectada. Inicializando perfil secundário "${profile.display_name}" (${profile.id}) via language_server.exe headless para contornar single-instance lock.`
+      );
+      return this.startHeadlessLanguageServer(profile);
     }
 
     const antigravityExe = AntigravityDiscovery.getAntigravityAppExe();
@@ -788,8 +861,6 @@ export class AccountProfileManager {
     }
 
     const canonicalUserDataDir = this.ensureProfileDirectoriesAndSyncAuth(profile.environment_path);
-    const isLegacyDefault =
-      normalizeRuntimePath(profile.environment_path) === normalizeRuntimePath(this.defaultRoamingPath);
 
     Logger.info(
       `[AccountProfileManager] Abrindo janela do Antigravity para autenticação no perfil "${profile.display_name}" (userDataDir: ${canonicalUserDataDir})...`

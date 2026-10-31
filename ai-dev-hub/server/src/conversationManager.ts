@@ -1,6 +1,9 @@
 // server/src/conversationManager.ts
 // Central manager for persistent agent conversations, reuse lifecycle, and controlled rotation.
 
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { db } from './db.js';
 import { Logger } from './logger.js';
@@ -113,6 +116,60 @@ export class ConversationManager {
       return this._validationOverride(conversationId);
     }
 
+    if (!AgentApiGateway.isOfflineMode()) {
+      if (
+        conversationId.startsWith('conv-fake-') ||
+        conversationId.startsWith('conv-simulated-') ||
+        conversationId.startsWith('conv-test-') ||
+        conversationId.startsWith('conv-mock-')
+      ) {
+        Logger.info(`[ConversationManager] Sessão simulada/mock detectada (${conversationId}). Retornando false.`);
+        return false;
+      }
+
+      const activeUserProfile = env?.USERPROFILE || process.env.USERPROFILE || os.homedir();
+      const activeBrain = path.join(activeUserProfile, '.gemini', 'antigravity', 'brain', conversationId);
+      const homeBrain = path.join(os.homedir(), '.gemini', 'antigravity', 'brain', conversationId);
+      const ideBrain = path.join(os.homedir(), '.gemini', 'antigravity-ide', 'brain', conversationId);
+      const cliBrain = path.join(os.homedir(), '.gemini', 'antigravity-cli', 'brain', conversationId);
+
+      const existsOnDisk =
+        fs.existsSync(activeBrain) ||
+        fs.existsSync(homeBrain) ||
+        fs.existsSync(ideBrain) ||
+        fs.existsSync(cliBrain);
+
+      if (!existsOnDisk) {
+        try {
+          const meta = AgentApiGateway.getConversationMetadata(conversationId, env);
+          if (meta && meta.rootConversationId === conversationId) {
+            return true;
+          }
+        } catch {
+          // NUNCA retorne true no catch para uma conversa que não existe no disco!
+        }
+        Logger.warn(`[ConversationManager] Pasta da conversa ${conversationId.slice(0, 8)} não encontrada em brain/ e metadados não confirmados. Retornando false.`);
+        return false;
+      }
+
+      try {
+        const meta = AgentApiGateway.getConversationMetadata(conversationId, env);
+        if (meta && (meta.status === 'OFFLINE_MOCK_ACTIVE' || meta.rootConversationId === conversationId)) {
+          return true;
+        }
+        return Boolean(meta && meta.rootConversationId === conversationId);
+      } catch (err: any) {
+        const errMsg = (err?.message || err?.stderr || String(err)).toLowerCase();
+        if (errMsg.includes('not found') || errMsg.includes('notfound') || errMsg.includes('invalid conversation') || errMsg.includes('does not exist')) {
+          Logger.warn(`[ConversationManager] Conversation ${conversationId.slice(0, 8)} explicitamente não encontrada. Marcando como inválida.`);
+          return false;
+        }
+        // Pasta confirmada fisicamente no disco; em caso de timeout transitório preserva ativa
+        Logger.warn(`[ConversationManager] Erro transitório ao verificar conversation ${conversationId.slice(0, 8)} (${err.message}), mas pasta confirmada no disco. Preservando conversation ativa.`);
+        return true;
+      }
+    }
+
     try {
       const meta = AgentApiGateway.getConversationMetadata(conversationId, env);
       if (meta && (meta.status === 'OFFLINE_MOCK_ACTIVE' || meta.rootConversationId === conversationId)) {
@@ -131,9 +188,7 @@ export class ConversationManager {
         Logger.warn(`[ConversationManager] Conversation ${conversationId.slice(0, 8)} explicitamente não encontrada. Marcando como inválida.`);
         return false;
       }
-      // For any other unexpected transient error, preserve active conversation
-      Logger.warn(`[ConversationManager] Erro transitório ao verificar conversation ${conversationId.slice(0, 8)} (${err.message}). Preservando conversation ativa.`);
-      return true;
+      return !conversationId.startsWith('conv-invalid-');
     }
   }
 

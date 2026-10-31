@@ -1608,7 +1608,7 @@ export function purgeGhostTestProjectsFromProductionDb(targetDb: any = db): { pu
       const p = (pathStr || '').toLowerCase();
       const id = (idStr || '').toLowerCase();
       if (id === 'decohub-meta') return true;
-      if (p.includes('c:\\ia\\saas') || p === '/ia/saas' || p.endsWith('\\ia\\saas') || p.endsWith('/ia/saas')) return true;
+      if (/[\\/]ia[\\/]saas/i.test(p) || p.endsWith('\\ia\\saas') || p.endsWith('/ia/saas')) return true;
       if (p.includes('adslibraryfind')) return true;
       if (p.includes('ai-dev-hub') && !p.includes('temp') && !p.includes('test-projects')) return true;
       return false;

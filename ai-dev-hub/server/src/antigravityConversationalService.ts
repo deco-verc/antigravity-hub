@@ -121,7 +121,19 @@ export class AntigravityConversationalService {
       });
       session = res.session;
     } catch (err: any) {
-      Logger.warn(`[ConversationalService] Não foi possível obter sessão nativa do Antigravity: ${err.message}.`);
+      Logger.warn(`[ConversationalService] getOrCreateAgentSession inicial falhou (${err.message}). Forçando novo chat com forceNew: true...`);
+      try {
+        const res = await AgentSessionManager.getOrCreateAgentSession(projectId, 'CONVERSATIONAL', {
+          env: effectiveEnv,
+          model: resolvedConfig.modelId,
+          accountProfileId: effectiveProfileId || undefined,
+          initialPrompt: this.buildBootstrapPrompt(snapshot, resolvedConfig),
+          forceNew: true
+        });
+        session = res.session;
+      } catch (retryErr: any) {
+        Logger.error(`[ConversationalService] Não foi possível obter sessão nativa do Antigravity mesmo com forceNew: ${retryErr.message}.`);
+      }
     }
 
     // 2. Format the turn prompt with rich project context snapshot
@@ -133,7 +145,7 @@ export class AntigravityConversationalService {
     });
 
     // 3. Dispatch to Antigravity runtime or Mock/Fallback
-    const providerConvId = session?.provider_conversation_id;
+    let providerConvId = session?.provider_conversation_id;
 
     // A. Offline / Mock Mode
     if (AgentApiGateway.isOfflineMode()) {
@@ -214,11 +226,25 @@ export class AntigravityConversationalService {
         }
 
         // Send physical message to the Antigravity conversation
-        await AgentSessionManager.sendMessage(session, turnPrompt, {
-          env: effectiveEnv,
-          timeoutMs: 15000,
-          taskTitle: `Conversa com usuário: "${userMessage.slice(0, 30)}"`
-        });
+        try {
+          await AgentSessionManager.sendMessage(session, turnPrompt, {
+            env: effectiveEnv,
+            timeoutMs: 15000,
+            taskTitle: `Conversa com usuário: "${userMessage.slice(0, 30)}"`
+          });
+        } catch (sendErr: any) {
+          Logger.warn(`[ConversationalService] sendMessage falhou na sessão atual ${providerConvId?.slice(0, 8)} (${sendErr.message}). Recriando chat CONVERSATIONAL com forceNew: true...`);
+          const res = await AgentSessionManager.getOrCreateAgentSession(projectId, 'CONVERSATIONAL', {
+            env: effectiveEnv,
+            model: resolvedConfig.modelId,
+            accountProfileId: effectiveProfileId || undefined,
+            initialPrompt: turnPrompt,
+            forceNew: true
+          });
+          session = res.session;
+          providerConvId = session.provider_conversation_id;
+          minStepIndex = -1;
+        }
 
         // Wait for live response in transcript
         const liveReply = await this.waitForTranscriptResponse(providerConvId, minStepIndex, timeoutMs, effectiveEnv);

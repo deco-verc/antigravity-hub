@@ -5,6 +5,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { execSync } from 'node:child_process';
 import { db } from './db.js';
 import { Logger } from './logger.js';
@@ -117,8 +118,12 @@ export interface SelfImprovementHypothesis {
 
 export class AutonomousSelfImprovementEngine {
   private static activeRunProcess: { runId: string; cancelRequested: boolean } | null = null;
-  private static repoRoot = 'C:\\IA\\Antigravity HUB\\ai-dev-hub';
-  private static worktreesBaseDir = 'C:\\IA\\agent-benchmarks\\worktrees';
+  private static get repoRoot(): string {
+    return process.env.DECOHUB_REPO_ROOT || path.resolve(process.cwd(), '..');
+  }
+  private static get worktreesBaseDir(): string {
+    return process.env.AGENT_BENCHMARKS_WORKTREES_DIR || path.join(os.homedir(), '.ai-dev-hub', 'benchmarks', 'worktrees');
+  }
 
   /**
    * Returns default configuration for each preset

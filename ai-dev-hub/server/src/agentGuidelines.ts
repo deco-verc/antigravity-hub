@@ -51,9 +51,13 @@ function resolveGuidelinesFilePath(): string | null {
     // ignore resolution error in restricted environments
   }
 
+  try {
+    if (typeof __dirname !== 'undefined') {
+      candidates.push(path.resolve(__dirname, 'agent-guidelines.md'));
+    }
+  } catch {}
   candidates.push(path.resolve(process.cwd(), 'src', 'agent-guidelines.md'));
   candidates.push(path.resolve(process.cwd(), 'server', 'src', 'agent-guidelines.md'));
-  candidates.push(path.resolve('C:/IA/Antigravity HUB/ai-dev-hub/server/src/agent-guidelines.md'));
 
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) {

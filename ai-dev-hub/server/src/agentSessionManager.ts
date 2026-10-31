@@ -181,19 +181,28 @@ export class AgentSessionManager {
       }
 
       // Verifica se a pasta real da sessão existe no disco do Antigravity
+      const activeUserProfile = env?.USERPROFILE || process.env.USERPROFILE || os.homedir();
+      const activeBrain = path.join(activeUserProfile, '.gemini', 'antigravity', 'brain', providerConversationId);
       const homeBrain = path.join(os.homedir(), '.gemini', 'antigravity', 'brain', providerConversationId);
-      const envBrain = env?.USERPROFILE ? path.join(env.USERPROFILE, '.gemini', 'antigravity', 'brain', providerConversationId) : null;
       const ideBrain = path.join(os.homedir(), '.gemini', 'antigravity-ide', 'brain', providerConversationId);
       const cliBrain = path.join(os.homedir(), '.gemini', 'antigravity-cli', 'brain', providerConversationId);
 
       const existsOnDisk =
+        fs.existsSync(activeBrain) ||
         fs.existsSync(homeBrain) ||
-        (envBrain && fs.existsSync(envBrain)) ||
         fs.existsSync(ideBrain) ||
         fs.existsSync(cliBrain);
 
       if (!existsOnDisk) {
-        Logger.warn(`[AgentSessionManager] Pasta de sessão ${providerConversationId.slice(0, 8)} não encontrada em brain/. Forçando criação de nova conversa.`);
+        try {
+          const meta = AgentApiGateway.getConversationMetadata(providerConversationId, env);
+          if (meta && meta.rootConversationId === providerConversationId) {
+            return true;
+          }
+        } catch {
+          // NUNCA retorne true no catch para conversa que não existe no disco!
+        }
+        Logger.warn(`[AgentSessionManager] Pasta de sessão ${providerConversationId.slice(0, 8)} não encontrada em brain/ e metadados não confirmados. Forçando criação de nova conversa.`);
         return false;
       }
 
@@ -292,8 +301,8 @@ export class AgentSessionManager {
         const hasNativeMismatch = Boolean(!AgentApiGateway.isOfflineMode() && options.env?.ANTIGRAVITY_PROJECT_ID && binding.nativeProjectId && binding.nativeProjectId !== options.env.ANTIGRAVITY_PROJECT_ID);
 
         if (hasProfileMismatch || hasModelMismatch || hasNativeMismatch) {
-          Logger.info(`[AgentSessionManager] Sessão ${existing.id} com configuração divergente (${hasProfileMismatch ? 'perfil' : hasModelMismatch ? 'modelo' : 'projeto nativo'}). Arquivando e auto-rotacionando para nova sessão.`);
-          this.retireSession(existing.id, 'ARCHIVED', 'CONFIG_OR_PROFILE_UPDATED');
+          Logger.info(`[AgentSessionManager] Sessão ${existing.id} com configuração divergente (${hasProfileMismatch ? 'perfil' : hasModelMismatch ? 'modelo' : 'projeto nativo'}). Arquivando e auto-rotacionando para novo chat real.`);
+          this.retireSession(existing.id, 'ARCHIVED', 'AUTO_RECREATED_MISSING_OR_MISMATCHED_CHAT');
         } else {
           const alive = this.isSessionAlive(existing.provider_conversation_id, options.env);
           if (alive) {
@@ -303,10 +312,16 @@ export class AgentSessionManager {
             this.logEvent(existing.id, projectId, role, 'SESSION_REUSED', existing.generation, `Sessão [${role} gen ${existing.generation}] reutilizada com sucesso.`);
             return { session: existing, isNew: false };
           } else {
-            Logger.warn(`[AgentSessionManager] Sessão ativa ${existing.id} (${existing.provider_conversation_id.slice(0, 8)}) não responde. Marcando como INVALID.`);
-            this.retireSession(existing.id, 'INVALID', 'PROVIDER_SESSION_DEAD');
+            Logger.warn(`[AgentSessionManager] Sessão ativa ${existing.id} (${existing.provider_conversation_id.slice(0, 8)}) não responde ou não existe no disco. Arquivando e recriando novo chat.`);
+            this.retireSession(existing.id, 'ARCHIVED', 'AUTO_RECREATED_MISSING_OR_MISMATCHED_CHAT');
           }
         }
+      }
+    } else {
+      const existing = this.getActiveSession(projectId, role);
+      if (existing) {
+        Logger.info(`[AgentSessionManager] forceNew ativo. Arquivando sessão ${existing.id} para criar novo chat.`);
+        this.retireSession(existing.id, 'ARCHIVED', 'AUTO_RECREATED_MISSING_OR_MISMATCHED_CHAT');
       }
     }
 
@@ -374,6 +389,7 @@ export class AgentSessionManager {
       } catch (err: any) {
         // Deleta sempre a reserva em caso de erro para nunca travar futuras tentativas com SESSION_CREATION_UNCERTAIN
         db.prepare('DELETE FROM agent_creation_reservations WHERE operation_id=?').run(operationId);
+        db.prepare('DELETE FROM agent_creation_reservations WHERE project_id = ? AND role = ?').run(projectId, role);
         throw err;
       }
       db.prepare("UPDATE agent_creation_reservations SET status='PROVIDER_CONFIRMED',conversation_id=? WHERE operation_id=?").run(providerConversationId, operationId);
@@ -385,7 +401,8 @@ export class AgentSessionManager {
         // Double check no other active session exists (reconcile)
         const conflict = this.getActiveSession(projectId, role);
         if (conflict) {
-          throw new Error('SESSION_CREATION_CONFLICT: sessão ativa encontrada após criação; suspender e reconciliar.');
+          Logger.warn(`[AgentSessionManager] Sessão ativa conflitante detectada (${conflict.id}). Arquivando para persistir nova sessão.`);
+          this.retireSession(conflict.id, 'ARCHIVED', 'AUTO_RECREATED_MISSING_OR_MISMATCHED_CHAT');
         }
         const foreign: any = db.prepare('SELECT id FROM agent_sessions WHERE provider_conversation_id=? AND project_id<>?').get(providerConversationId, projectId);
         if (foreign) throw new Error('CROSS_PROJECT_SESSION_REJECTED: provider retornou conversa de outro projeto.');

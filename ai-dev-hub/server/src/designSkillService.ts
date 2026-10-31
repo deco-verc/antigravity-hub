@@ -283,8 +283,6 @@ export class DesignSkillService {
     const docSimpBase = DocSimpService.getDocSimpDir();
     const candidatePaths = [
       path.join(docSimpBase, 'design-skills'),
-      'C:\\IA\\IA\\Antigravity HUB\\DOCSIMP\\design-skills',
-      'C:\\IA\\Antigravity HUB\\DOCSIMP\\design-skills',
       path.resolve(__dirname, '../../../DOCSIMP/design-skills'),
       path.resolve(process.cwd(), '../../DOCSIMP/design-skills'),
       path.resolve(process.cwd(), '..', 'DOCSIMP', 'design-skills'),

@@ -20,7 +20,7 @@ export interface SanitizeResult {
  * 1. Nome de suíte de teste ("App Financeiro Homologação E2E", "Projeto Forensic Hardening", ou contém "Test", "Mock", "Forensic", "Homologação E2E");
  * 2. folderUri/path aponta para pastas temporárias (os.tmpdir(), AppData/Local/Temp);
  * 3. folderUri/path já deletado que não existe mais em disco;
- * 4. folderUri/path aponta para a pasta-mãe genérica C:\IA (mantendo projetos reais como C:\IA\Antigravity HUB\ai-dev-hub e C:\IA\test-projects\*).
+ * 4. folderUri/path aponta para a pasta-mãe genérica raiz (mantendo projetos reais no diretório de trabalho).
  */
 export function isGhostProject(
   name?: string | null,
@@ -42,7 +42,7 @@ export function isGhostProject(
   const normPath = resolvedPath ? normalizeRuntimePath(resolvedPath).toLowerCase().replace(/\/+$/, '') : '';
   const tmpDir = normalizeRuntimePath(os.tmpdir()).toLowerCase().replace(/\/+$/, '');
 
-  // 0. Proteção Estrita Inviolável: DecoHUB Engine e projetos reais em C:\IA\test-projects\* NUNCA são fantasmas
+  // 0. Proteção Estrita Inviolável: DecoHUB Engine e projetos reais do usuário NUNCA são fantasmas
   const isDecoHubEngine =
     normPath.includes('antigravity hub/ai-dev-hub') ||
     normPath.includes('antigravity%20hub/ai-dev-hub') ||
@@ -61,17 +61,15 @@ export function isGhostProject(
     }
   }
 
-  // 1. Pasta-mãe genérica C:\IA (ou X:\IA)
-  // Preserva explicitamente projetos reais dentro dela (ex: C:\IA\Antigravity HUB\ai-dev-hub ou C:\IA\test-projects\*)
+  // 1. Pasta-mãe genérica de workspace raiz (ex: /ia ou X:/ia)
   const isGenericIaRoot =
-    normPath === 'c:/ia' ||
-    normPath === '/c:/ia' ||
     /^[a-z]:\/ia$/i.test(normPath) ||
-    folderUri?.toLowerCase() === 'file:///c:/ia' ||
-    folderUri?.toLowerCase() === 'file:///c%3a/ia';
+    /^\/?[a-z]:\/ia$/i.test(normPath) ||
+    /^file:\/\/\/[a-z]:\/ia$/i.test(folderUri || '') ||
+    /^file:\/\/\/[a-z]%3a\/ia$/i.test(folderUri || '');
 
   if (isGenericIaRoot) {
-    return { isGhost: true, reason: 'Raiz genérica do workspace (C:\\IA)' };
+    return { isGhost: true, reason: 'Raiz genérica do workspace' };
   }
 
   // 2. Pastas temporárias

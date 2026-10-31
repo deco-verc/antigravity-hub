@@ -1348,7 +1348,7 @@ export interface MetaChatThread {
 }
 
 export interface MetaChatPipelineTask {
-  id: 'task-inspect' | 'task-implement' | 'task-verify' | 'task-guard';
+  id: 'task-inspect' | 'task-implement' | 'task-verify' | 'task-guard' | 'task-facade' | 'task-supervisor' | 'task-worker' | 'task-reviewer' | string;
   label: string;
   status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'skipped';
   details?: string;
@@ -1385,6 +1385,20 @@ export interface MetaChatAttachment {
   diskPath?: string;
   isImage?: boolean;
 }
+
+export const META_CHAT_STATUS = {
+  STATUS_FACADE_RECEIVED: 'STATUS_FACADE_RECEIVED',
+  STATUS_SUPERVISOR_PLANNING: 'STATUS_SUPERVISOR_PLANNING',
+  STATUS_WORKER_EXECUTING: 'STATUS_WORKER_EXECUTING',
+  STATUS_REVIEWER_AUDITING: 'STATUS_REVIEWER_AUDITING',
+  STATUS_ANALYZING_PROJECT: 'STATUS_ANALYZING_PROJECT',
+  STATUS_EXECUTING_STAGE: 'STATUS_EXECUTING_STAGE',
+  STATUS_RUNNING_TYPECHECK: 'STATUS_RUNNING_TYPECHECK',
+  STATUS_RUNNING_TESTS: 'STATUS_RUNNING_TESTS',
+  STATUS_SYNCING_PRODUCTION: 'STATUS_SYNCING_PRODUCTION'
+} as const;
+
+export type MetaChatStatusCode = (typeof META_CHAT_STATUS)[keyof typeof META_CHAT_STATUS];
 
 export interface MetaChatTimelineStep {
   step: string;

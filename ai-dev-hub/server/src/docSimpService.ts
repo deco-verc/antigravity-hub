@@ -48,8 +48,6 @@ export class DocSimpService {
       return path.resolve(process.env.DOCSIMP_DIR);
     }
     const candidatePaths = [
-      'C:\\IA\\IA\\Antigravity HUB\\DOCSIMP',
-      'C:\\IA\\Antigravity HUB\\DOCSIMP',
       path.resolve(__dirname, '../../../DOCSIMP'),
       path.resolve(process.cwd(), '../../DOCSIMP'),
       path.resolve(process.cwd(), '..', 'DOCSIMP'),
@@ -69,7 +67,6 @@ export class DocSimpService {
       return path.resolve(process.env.SITE_DOCS_EXTRACTOR_SCRIPT);
     }
     const candidatePaths = [
-      'C:\\IA\\Antigravity HUB\\site_docs_extractor\\cli_extract.py',
       path.resolve(process.cwd(), '..', 'site_docs_extractor', 'cli_extract.py'),
       path.resolve(process.cwd(), 'site_docs_extractor', 'cli_extract.py')
     ];

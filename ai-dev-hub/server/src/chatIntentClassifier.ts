@@ -1,7 +1,13 @@
 // server/src/chatIntentClassifier.ts
 // Semantic intent classification layer separating conversational exploration, state inspection, execution, and ambiguity.
 
-export type ChatIntentType = 'CONVERSATION' | 'STATE_QUERY' | 'EXECUTION_INSTRUCTION' | 'AMBIGUOUS';
+export type ChatIntentType =
+  | 'CONVERSATION'
+  | 'STATE_QUERY'
+  | 'EXECUTION_INSTRUCTION'
+  | 'AMBIGUOUS'
+  | 'CODE_MODIFICATION'
+  | 'FEATURE_REQUEST';
 
 export type ChatSubType =
   | 'IDEA_EXPLORATION'
@@ -20,7 +26,9 @@ export type ChatSubType =
   | 'BUILD_TASK'
   | 'CONTINUE_COMMAND'
   | 'REPLAN_COMMAND'
-  | 'GENERAL_CONVERSATION';
+  | 'GENERAL_CONVERSATION'
+  | 'CODE_MODIFICATION'
+  | 'FEATURE_REQUEST';
 
 export interface ChatIntentResult {
   intent: ChatIntentType;
@@ -284,14 +292,15 @@ export class ChatIntentClassifier {
     // 11. Execution Instructions: Explicit commands to fix, continue, implement, build
     // E.g.: "Corrija a causa do erro identificado.", "Corrija o erro e continue", "Implemente o filtro por categoria."
     if (
-      /^(corrija|arrume|conserte|resolva)\s+(a\s+causa\s+do|o)\s+(erro|problema|falha)/i.test(cleanLower) && !hasQuestionMark ||
+      (/^(corrija|arrume|conserte|resolva|modifique|altere|refatore|ajuste)\s+/i.test(cleanLower) && !hasQuestionMark) ||
+      /^(corrija|arrume|conserte|resolva)\s+(a\s+causa\s+do|o)\s+(erro|problema|falha)/i.test(cleanLower) ||
       /^(corrija|arrume|conserte|resolva)\s+(o\s+)?(erro|problema|falha)\s+(e\s+)?(continue|retome|prossiga)/i.test(cleanLower)
     ) {
       return {
-        intent: 'EXECUTION_INSTRUCTION',
-        subType: 'FIX_AND_CONTINUE',
+        intent: 'CODE_MODIFICATION',
+        subType: 'CODE_MODIFICATION',
         confidence: 0.96,
-        explanation: 'Comando imperativo para corrigir falhas e dar prosseguimento à execução.'
+        explanation: 'Comando imperativo para alteração ou correção cirúrgica de código.'
       };
     }
 
@@ -314,14 +323,14 @@ export class ChatIntentClassifier {
     }
 
     if (
-      /^(implemente|desenvolva|crie|construa|adicione|monte|escreva|execute\s+os\s+testes|execute\s+testes)\b/i.test(cleanLower) &&
+      /^(implemente|desenvolva|crie|construa|adicione|monte|escreva)\b/i.test(cleanLower) &&
       !hasQuestionMark
     ) {
       return {
-        intent: 'EXECUTION_INSTRUCTION',
-        subType: 'BUILD_TASK',
-        confidence: 0.94,
-        explanation: 'Comando imperativo de desenvolvimento ou implementação de funcionalidade.'
+        intent: 'FEATURE_REQUEST',
+        subType: 'FEATURE_REQUEST',
+        confidence: 0.95,
+        explanation: 'Comando imperativo de desenvolvimento ou implementação de nova funcionalidade.'
       };
     }
 

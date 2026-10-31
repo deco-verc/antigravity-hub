@@ -3,6 +3,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import crypto from 'node:crypto';
 import { execSync } from 'node:child_process';
 import { db } from './db.js';
@@ -24,14 +25,17 @@ export interface AgentBenchmarkTask {
   expectedBehavior: string;
 }
 
+const AGENT_BENCHMARKS_ROOT =
+  process.env.AGENT_BENCHMARKS_DIR || path.join(os.homedir(), '.ai-dev-hub', 'benchmarks');
+
 export const AGENT_BENCHMARK_TASKS: AgentBenchmarkTask[] = [
   {
     id: 'agent-bm-01-bugfix',
     title: 'Corrigir parseQueryString com suporte a decode URI e chaves repetidas',
     category: 'BUG_FIX',
     difficulty: 'simple',
-    seedPath: 'C:\\IA\\agent-benchmarks\\seeds\\agent-bm-01-bugfix',
-    protectedTestPath: 'C:\\IA\\agent-benchmarks\\protected\\agent-bm-01-bugfix\\test\\queryString.test.js',
+    seedPath: path.join(AGENT_BENCHMARKS_ROOT, 'seeds', 'agent-bm-01-bugfix'),
+    protectedTestPath: path.join(AGENT_BENCHMARKS_ROOT, 'protected', 'agent-bm-01-bugfix', 'test', 'queryString.test.js'),
     testRelPath: 'test/queryString.test.js',
     allowedFilesToModify: ['src/queryString.js'],
     briefing: 'Em `src/queryString.js`, a função `parseQueryString(query)` tem dois bugs: 1) Não decodifica valores usando `decodeURIComponent`. 2) Quando uma chave se repete (ex: `tag=a&tag=b`), sobrescreve com o último valor em vez de retornar um array de strings com todos os valores. 3) O prefixo "?" opcional deve ser ignorado. Corrija o bug cirurgicamente apenas em `src/queryString.js`.',
@@ -42,8 +46,8 @@ export const AGENT_BENCHMARK_TASKS: AgentBenchmarkTask[] = [
     title: 'Implementar findBy e paginação em InMemoryRepository',
     category: 'FEATURE',
     difficulty: 'medium',
-    seedPath: 'C:\\IA\\agent-benchmarks\\seeds\\agent-bm-02-feature',
-    protectedTestPath: 'C:\\IA\\agent-benchmarks\\protected\\agent-bm-02-feature\\test\\repository.test.js',
+    seedPath: path.join(AGENT_BENCHMARKS_ROOT, 'seeds', 'agent-bm-02-feature'),
+    protectedTestPath: path.join(AGENT_BENCHMARKS_ROOT, 'protected', 'agent-bm-02-feature', 'test', 'repository.test.js'),
     testRelPath: 'test/repository.test.js',
     allowedFilesToModify: ['src/repository.js'],
     briefing: 'Em `src/repository.js`, adicione dois novos métodos na classe `InMemoryRepository`: 1) `findBy(predicate)`: retorna um array com todos os itens que satisfazem a função predicate. 2) `paginate(page, pageSize)`: retorna um objeto `{ items: [...], total: number, totalPages: number, page: number }`, onde a numeração de páginas começa em 1. Modifique cirurgicamente apenas `src/repository.js`.',
@@ -54,8 +58,8 @@ export const AGENT_BENCHMARK_TASKS: AgentBenchmarkTask[] = [
     title: 'Adicionar validação estrita de email em UserService com restrição de escopo',
     category: 'SURGICAL',
     difficulty: 'medium',
-    seedPath: 'C:\\IA\\agent-benchmarks\\seeds\\agent-bm-03-surgical',
-    protectedTestPath: 'C:\\IA\\agent-benchmarks\\protected\\agent-bm-03-surgical\\test\\userService.test.js',
+    seedPath: path.join(AGENT_BENCHMARKS_ROOT, 'seeds', 'agent-bm-03-surgical'),
+    protectedTestPath: path.join(AGENT_BENCHMARKS_ROOT, 'protected', 'agent-bm-03-surgical', 'test', 'userService.test.js'),
     testRelPath: 'test/userService.test.js',
     allowedFilesToModify: ['src/userService.js'],
     briefing: 'Em `src/userService.js`, adicione validação de e-mail no método `createUser(user)`. Se `user.email` não existir ou for inválido (não contiver "@" e "."), lance `new Error("Email invalido")`. DIRETRIZ CIRÚRGICA MANDATÓRIA (KARPATHY): Modifique ESTRITAMENTE `src/userService.js`. É expressamente PROIBIDO modificar ou formatar os arquivos vizinhos `src/authService.js`, `src/metricsService.js` ou `src/config.js`.',
@@ -66,8 +70,8 @@ export const AGENT_BENCHMARK_TASKS: AgentBenchmarkTask[] = [
     title: 'Adicionar campo tags coordenado entre Product Model e CatalogService',
     category: 'MULTI_FILE',
     difficulty: 'hard',
-    seedPath: 'C:\\IA\\agent-benchmarks\\seeds\\agent-bm-04-multifile',
-    protectedTestPath: 'C:\\IA\\agent-benchmarks\\protected\\agent-bm-04-multifile\\test\\catalog.test.js',
+    seedPath: path.join(AGENT_BENCHMARKS_ROOT, 'seeds', 'agent-bm-04-multifile'),
+    protectedTestPath: path.join(AGENT_BENCHMARKS_ROOT, 'protected', 'agent-bm-04-multifile', 'test', 'catalog.test.js'),
     testRelPath: 'test/catalog.test.js',
     allowedFilesToModify: ['src/models/product.js', 'src/services/catalogService.js'],
     briefing: 'Adicione suporte a tags em duas camadas coordenadas: 1) Em `src/models/product.js`, adicione o parâmetro opcional `tags = []` no construtor da classe `Product(id, name, price, tags = [])` e armazene em `this.tags`. 2) Em `src/services/catalogService.js`, implemente o método `findByTag(tag)` que retorna todos os produtos cujo array `tags` contenha a tag pesquisada. Altere exclusivamente estes dois arquivos.',
@@ -78,8 +82,8 @@ export const AGENT_BENCHMARK_TASKS: AgentBenchmarkTask[] = [
     title: 'Continuar migração de schema interrompida recuperando checkpoint de sessão',
     category: 'CONTEXT_CONTINUITY',
     difficulty: 'hard',
-    seedPath: 'C:\\IA\\agent-benchmarks\\seeds\\agent-bm-05-continuity',
-    protectedTestPath: 'C:\\IA\\agent-benchmarks\\protected\\agent-bm-05-continuity\\test\\migration.test.js',
+    seedPath: path.join(AGENT_BENCHMARKS_ROOT, 'seeds', 'agent-bm-05-continuity'),
+    protectedTestPath: path.join(AGENT_BENCHMARKS_ROOT, 'protected', 'agent-bm-05-continuity', 'test', 'migration.test.js'),
     testRelPath: 'test/migration.test.js',
     allowedFilesToModify: ['src/migrator.js'],
     briefing: 'Você é o Worker B assumindo uma tarefa em andamento. Inspecione a memória do projeto em `.ai-dev-hub/session-summary.md` e o arquivo `src/migrator.js`. O Worker A já completou o Step 1 (normalizeKeys). Recupere o contexto do checkpoint e implemente o Step 2 pendente: o método `validateSchema()` em `src/migrator.js`. Se `this.data` não contiver a chave "id", lance `new Error("Schema invalido: missing id")`. Adicione "validateSchema" a `this.completedSteps`. Não altere nem apague o Step 1.',
@@ -134,7 +138,12 @@ export interface AgentBenchmarkRunSummary {
 }
 
 export class AgentBenchmarkManager {
-  private static runsRootDir = 'C:\\IA\\agent-benchmarks\\runs';
+  private static get runsRootDir(): string {
+    return path.join(
+      process.env.AGENT_BENCHMARKS_DIR || path.join(os.homedir(), '.ai-dev-hub', 'benchmarks'),
+      'runs'
+    );
+  }
 
   static getAllTasks(): AgentBenchmarkTask[] {
     return AGENT_BENCHMARK_TASKS;

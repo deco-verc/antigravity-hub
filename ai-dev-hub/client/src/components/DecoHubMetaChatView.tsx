@@ -192,9 +192,67 @@ function renderTextLines(textBlock: string, keyPrefix: string): React.ReactNode 
   );
 }
 
+export interface Parsed4RoleTurn {
+  hasRoles: boolean;
+  chatFacadeContent: string;
+  supervisorContent?: string;
+  workerContent?: string;
+  reviewerContent?: string;
+}
+
+export function parse4RoleTrace(rawContent: string): Parsed4RoleTurn {
+  if (!rawContent || typeof rawContent !== 'string') {
+    return { hasRoles: false, chatFacadeContent: '' };
+  }
+
+  const roleRegex = /\[(CHAT FACADE|SUPERVISOR|WORKER|REVIEWER)\]/i;
+  const firstMatch = roleRegex.exec(rawContent);
+  if (!firstMatch) {
+    return { hasRoles: false, chatFacadeContent: rawContent };
+  }
+
+  const roleBlockRegex = /\[(CHAT FACADE|SUPERVISOR|WORKER|REVIEWER)\]([\s\S]*?)(?=\[(?:CHAT FACADE|SUPERVISOR|WORKER|REVIEWER)\]|$)/gi;
+
+  const chatFacadeParts: string[] = [];
+  let supervisorContent = '';
+  let workerContent = '';
+  let reviewerContent = '';
+
+  const prefixText = rawContent.slice(0, firstMatch.index).trim();
+  if (prefixText) {
+    chatFacadeParts.push(prefixText);
+  }
+
+  let match: RegExpExecArray | null;
+  while ((match = roleBlockRegex.exec(rawContent)) !== null) {
+    const roleTag = match[1].toUpperCase();
+    const roleBody = match[2].trim();
+    if (roleTag === 'CHAT FACADE') {
+      if (roleBody) chatFacadeParts.push(roleBody);
+    } else if (roleTag === 'SUPERVISOR') {
+      supervisorContent = (supervisorContent ? supervisorContent + '\n\n' : '') + roleBody;
+    } else if (roleTag === 'WORKER') {
+      workerContent = (workerContent ? workerContent + '\n\n' : '') + roleBody;
+    } else if (roleTag === 'REVIEWER') {
+      reviewerContent = (reviewerContent ? reviewerContent + '\n\n' : '') + roleBody;
+    }
+  }
+
+  return {
+    hasRoles: true,
+    chatFacadeContent: chatFacadeParts.join('\n\n').trim(),
+    supervisorContent: supervisorContent.trim() || undefined,
+    workerContent: workerContent.trim() || undefined,
+    reviewerContent: reviewerContent.trim() || undefined
+  };
+}
+
 export function cleanMetaChatMessage(content: string, isUser: boolean): string {
   if (isUser || !content) return content || '';
-  return content
+  const parsed = parse4RoleTrace(content);
+  const textToClean = parsed.hasRoles && parsed.chatFacadeContent ? parsed.chatFacadeContent : content;
+  return textToClean
+    .replace(/\[(?:CHAT FACADE|SUPERVISOR|WORKER|REVIEWER)\]/gi, '')
     .replace(/<thought[\s\S]*?<\/thought>/gi, '')
     .replace(/<thinking[\s\S]*?<\/thinking>/gi, '')
     .replace(/<system_invariants[\s\S]*?<\/system_invariants>/gi, '')
@@ -300,10 +358,10 @@ const MetaChatCompletedPipelineBar: React.FC<{
   const [showTelemetry, setShowTelemetry] = useState(false);
 
   const defaultStages = [
-    { label: 'Análise de Código', status: 'done' as const },
-    { label: 'Turno Antigravity', status: 'done' as const },
-    { label: 'Typecheck', status: isTypecheckPassed ? ('done' as const) : ('failed' as const) },
-    { label: 'Testes', status: 'done' as const }
+    { label: 'Chat Facade', status: 'done' as const },
+    { label: 'Supervisor', status: 'done' as const },
+    { label: 'Worker', status: 'done' as const },
+    { label: 'Reviewer', status: isTypecheckPassed ? ('done' as const) : ('failed' as const) }
   ];
 
   const stepsList = timeline && timeline.length > 0
@@ -519,12 +577,99 @@ const MetaChatFileInspectorCard: React.FC<{
   );
 };
 
-function renderFormattedMetaChatContent(rawContent: string, isUser: boolean): React.ReactNode {
-  if (isUser) {
-    return <div className="whitespace-pre-wrap font-sans">{rawContent}</div>;
-  }
+const MetaChatRoleCard: React.FC<{
+  role: 'supervisor' | 'worker' | 'reviewer';
+  title: string;
+  subtitle: string;
+  content: string;
+  badge?: {
+    text: string;
+    variant: 'approved' | 'rejected' | 'info';
+  };
+  defaultOpen?: boolean;
+}> = ({ role, title, subtitle, content, badge, defaultOpen = false }) => {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
 
-  const content = cleanMetaChatMessage(rawContent, false);
+  const styleConfig = {
+    supervisor: {
+      border: 'border-purple-500/30',
+      bg: 'bg-purple-950/15',
+      headerBg: 'bg-purple-950/25 hover:bg-purple-950/40',
+      text: 'text-purple-300',
+      badgeBg: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+      icon: <Shield className="w-3.5 h-3.5 text-purple-400" />
+    },
+    worker: {
+      border: 'border-cyan-500/30',
+      bg: 'bg-cyan-950/15',
+      headerBg: 'bg-cyan-950/25 hover:bg-cyan-950/40',
+      text: 'text-cyan-300',
+      badgeBg: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',
+      icon: <Terminal className="w-3.5 h-3.5 text-cyan-400" />
+    },
+    reviewer: {
+      border: badge?.variant === 'rejected' ? 'border-rose-500/30' : 'border-emerald-500/30',
+      bg: badge?.variant === 'rejected' ? 'bg-rose-950/15' : 'bg-emerald-950/15',
+      headerBg: badge?.variant === 'rejected' ? 'bg-rose-950/25 hover:bg-rose-950/40' : 'bg-emerald-950/25 hover:bg-emerald-950/40',
+      text: badge?.variant === 'rejected' ? 'text-rose-300' : 'text-emerald-300',
+      badgeBg: badge?.variant === 'rejected'
+        ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+        : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+      icon: badge?.variant === 'rejected'
+        ? <AlertCircle className="w-3.5 h-3.5 text-rose-400" />
+        : <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+    }
+  }[role];
+
+  return (
+    <div className={`my-1.5 rounded-xl border ${styleConfig.border} ${styleConfig.bg} overflow-hidden shadow-sm transition-all`}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(prev => !prev)}
+        className={`w-full flex items-center justify-between px-3 py-2 text-left cursor-pointer transition-colors ${styleConfig.headerBg}`}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          {styleConfig.icon}
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <span className={`text-xs font-bold tracking-wide ${styleConfig.text}`}>
+              {title}
+            </span>
+            <span className="text-[10px] text-slate-400 truncate hidden sm:inline">
+              — {subtitle}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {badge && (
+            <span
+              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-mono text-[9px] font-semibold border ${
+                badge.variant === 'approved'
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                  : badge.variant === 'rejected'
+                  ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                  : styleConfig.badgeBg
+              }`}
+            >
+              {badge.variant === 'approved' && <Check className="w-2.5 h-2.5 text-emerald-400" />}
+              {badge.variant === 'rejected' && <AlertCircle className="w-2.5 h-2.5 text-rose-400" />}
+              <span>{badge.text}</span>
+            </span>
+          )}
+          <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        </div>
+      </button>
+
+      {isOpen && (
+        <div className="p-3 pt-2 text-xs border-t border-[#19223c]/60 font-mono leading-relaxed space-y-1.5 bg-[#05070e]/60">
+          {renderTextLines(cleanMetaChatMessage(content, false), `role-${role}`)}
+        </div>
+      )}
+    </div>
+  );
+};
+
+function renderMarkdownBlocks(content: string): React.ReactNode {
   const codeBlockRegex = /```([a-zA-Z0-9_-]*)\r?\n([\s\S]*?)```/g;
   const sections: React.ReactNode[] = [];
   let lastIndex = 0;
@@ -551,6 +696,66 @@ function renderFormattedMetaChatContent(rawContent: string, isUser: boolean): Re
   return <div className="space-y-1.5 text-xs text-slate-200 leading-relaxed">{sections}</div>;
 }
 
+function renderFormattedMetaChatContent(rawContent: string, isUser: boolean): React.ReactNode {
+  if (isUser) {
+    return <div className="whitespace-pre-wrap font-sans">{rawContent}</div>;
+  }
+
+  const parsedRoles = parse4RoleTrace(rawContent);
+
+  if (parsedRoles.hasRoles) {
+    const isApproved = parsedRoles.reviewerContent?.includes('APROVADO') || false;
+    const isRejected = parsedRoles.reviewerContent?.includes('REJEITADO') || false;
+    const reviewerBadgeVariant = isRejected ? ('rejected' as const) : ('approved' as const);
+    const reviewerBadgeText = isRejected ? 'REJEITADO' : isApproved ? 'APROVADO' : 'AUDITADO';
+
+    const displayChatContent = parsedRoles.chatFacadeContent || '';
+
+    return (
+      <div className="space-y-2">
+        {displayChatContent && renderMarkdownBlocks(displayChatContent)}
+
+        <div className="pt-1 space-y-1.5">
+          {parsedRoles.supervisorContent && (
+            <MetaChatRoleCard
+              role="supervisor"
+              title="Supervisor"
+              subtitle="Planejamento Estratégico & DAG"
+              content={parsedRoles.supervisorContent}
+              badge={{ text: 'DAG CIRÚRGICO', variant: 'info' }}
+              defaultOpen={false}
+            />
+          )}
+
+          {parsedRoles.workerContent && (
+            <MetaChatRoleCard
+              role="worker"
+              title="Worker"
+              subtitle="Implementação & Evidências"
+              content={parsedRoles.workerContent}
+              badge={{ text: 'EVIDÊNCIAS DE EXECUÇÃO', variant: 'info' }}
+              defaultOpen={false}
+            />
+          )}
+
+          {parsedRoles.reviewerContent && (
+            <MetaChatRoleCard
+              role="reviewer"
+              title="Reviewer"
+              subtitle="Auditoria & Veredicto"
+              content={parsedRoles.reviewerContent}
+              badge={{ text: reviewerBadgeText, variant: reviewerBadgeVariant }}
+              defaultOpen={false}
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return renderMarkdownBlocks(cleanMetaChatMessage(rawContent, false));
+}
+
 const MetaChatActiveProgressWidget: React.FC<{
   currentActionSummary?: string;
   currentPhase?: string;
@@ -572,12 +777,12 @@ const MetaChatActiveProgressWidget: React.FC<{
 }) => {
   const activeTitle = currentActionSummary || currentPhase || 'Processando no DecoHUB...';
 
-  // 4 standard stages: Análise de Código -> Turno Antigravity -> Typecheck -> Testes
+  // 4-Role Pipeline: Chat Facade -> Supervisor -> Worker -> Reviewer
   const defaultTasks = [
-    { id: 'task-inspect', label: 'Análise de Código', status: 'completed' },
-    { id: 'task-implement', label: 'Turno Antigravity', status: 'in_progress' },
-    { id: 'task-verify', label: 'Typecheck', status: 'pending' },
-    { id: 'task-guard', label: 'Testes', status: 'pending' }
+    { id: 'task-facade', label: 'Chat Facade', status: 'completed' },
+    { id: 'task-supervisor', label: 'Supervisor', status: 'completed' },
+    { id: 'task-worker', label: 'Worker', status: 'in_progress' },
+    { id: 'task-reviewer', label: 'Reviewer', status: 'pending' }
   ];
 
   const tasks = pipelineTasks && pipelineTasks.length > 0 ? pipelineTasks : defaultTasks;
@@ -2635,10 +2840,10 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
                 {/* Os 4 Estágios do Pipeline */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {(serverActiveTurnStatus?.pipelineTasks || liveActivity?.pipelineTasks || [
-                    { id: 'task-inspect', label: 'Mapeamento', status: 'in_progress', details: 'Análise de contexto' },
-                    { id: 'task-implement', label: 'Modificação', status: 'pending', details: 'Código cirúrgico' },
-                    { id: 'task-verify', label: 'Typecheck', status: 'pending', details: 'tsc --noEmit' },
-                    { id: 'task-guard', label: 'Testes', status: 'pending', details: 'Verificação final' }
+                    { id: 'task-facade', label: 'Chat Facade', status: 'completed', details: 'Alinhamento' },
+                    { id: 'task-supervisor', label: 'Supervisor', status: 'in_progress', details: 'DAG Cirúrgico' },
+                    { id: 'task-worker', label: 'Worker', status: 'pending', details: 'Execução' },
+                    { id: 'task-reviewer', label: 'Reviewer', status: 'pending', details: 'Auditoria' }
                   ]).map(t => {
                     const isDone = t.status === 'completed';
                     const isProg = t.status === 'in_progress';

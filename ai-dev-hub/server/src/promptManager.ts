@@ -118,7 +118,7 @@ export class PromptManager {
     if (fs.existsSync(parentPromptDir)) return parentPromptDir;
 
     // 3. Canonical repository root fallback
-    const rootPath = path.resolve('C:/IA/Antigravity HUB/ai-dev-hub/prompts/gemini', fileName);
+    const rootPath = path.resolve(__dirname, '..', '..', 'prompts', 'gemini', fileName);
     if (fs.existsSync(rootPath)) return rootPath;
 
     throw new Error(`PROMPT_NOT_FOUND: Arquivo de prompt "${canonicalId}.md" não encontrado em ${this.basePromptDir}`);

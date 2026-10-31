@@ -125,8 +125,6 @@ export class SkillRouter {
       return path.resolve(process.env.DECOHUB_ROOT);
     }
     const candidates = [
-      'C:\\IA\\IA\\Antigravity HUB',
-      'C:\\IA\\Antigravity HUB',
       path.resolve(__dirname, '../../..'),
       path.resolve(process.cwd(), '../..'),
       path.resolve(process.cwd(), '..'),

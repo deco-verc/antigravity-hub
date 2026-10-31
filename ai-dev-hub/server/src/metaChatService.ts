@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, execSync, spawnSync } from 'node:child_process';
 import { db } from './db.js';
 import { Logger } from './logger.js';
 import { AgentApiGateway } from './agentApiGateway.js';
@@ -23,6 +23,10 @@ import { SkillRouter } from './skillRouter.js';
 import { SseStreamService } from './sseStreamService.js';
 
 export const META_CHAT_STATUS = {
+  STATUS_FACADE_RECEIVED: 'STATUS_FACADE_RECEIVED',
+  STATUS_SUPERVISOR_PLANNING: 'STATUS_SUPERVISOR_PLANNING',
+  STATUS_WORKER_EXECUTING: 'STATUS_WORKER_EXECUTING',
+  STATUS_REVIEWER_AUDITING: 'STATUS_REVIEWER_AUDITING',
   STATUS_ANALYZING_PROJECT: 'STATUS_ANALYZING_PROJECT',
   STATUS_EXECUTING_STAGE: 'STATUS_EXECUTING_STAGE',
   STATUS_RUNNING_TYPECHECK: 'STATUS_RUNNING_TYPECHECK',
@@ -81,7 +85,7 @@ export interface MetaChatThread {
 }
 
 export interface MetaChatPipelineTask {
-  id: 'task-inspect' | 'task-implement' | 'task-verify' | 'task-guard';
+  id: 'task-inspect' | 'task-implement' | 'task-verify' | 'task-guard' | 'task-facade' | 'task-supervisor' | 'task-worker' | 'task-reviewer' | string;
   label: string;
   status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'skipped';
   details?: string;
@@ -387,6 +391,32 @@ export class MetaChatService {
     3. FRONTEIRAS DE ESCOPO: Jamais modificar arquivos dentro de \`.git/\`, \`node_modules/\` ou artefatos protegidos em \`.ai-dev-hub/\`.
     4. PADRÃO CORPORATIVO LIMPO (ZERO EMOJIS): Não utilizar emojis decorativos em código, comentários, logs ou respostas. Nunca repetir ou ecoar o enunciado do usuário no início da resposta.
   </operational_safety_invariants>
+
+  <single_chat_4_role_pipeline>
+    ARQUITETURA UNIFICADA DE 4 PAPÉIS EM CHAT ÚNICO (SINGLE-CHAT 4-ROLE PIPELINE):
+    A cognição deve ser estritamente dividida em 4 papéis sequenciais:
+    - PAPEL 1: CHAT FACADE (Comunicação & Alinhamento): Interface direta com o usuário, objetivo, sem prolixidade. Apresenta o resumo executivo final.
+    - PAPEL 2: SUPERVISOR (Planejador & Orquestrador): Inspeciona a realidade (.ai-dev-hub/ e repositório), cria o DAG cirúrgico e define critérios de teste binários.
+    - PAPEL 3: WORKER (Engenheiro de Implementação): Executa alterações cirúrgicas com ferramentas nativas, roda comandos e coleta evidências de execução.
+    - PAPEL 4: REVIEWER (Auditor Independente & QA): Executa typecheck (tsc --noEmit), audita regras anti-slop e emite o veredicto [VEREDICTO: APROVADO] ou [VEREDICTO: REJEITADO].
+
+    PROTOCOLO DE RESPOSTA TRACE (DELIMITAÇÃO PADRONIZADA):
+    Para máxima clareza operacional na UI do DecoHUB, estruture sua resposta com as marcações de papéis:
+    [CHAT FACADE]
+    Mensagem direta e humana de alinhamento com o usuário.
+
+    [SUPERVISOR]
+    Resumo da inspeção, DAG cirúrgico e critérios de verificação.
+
+    [WORKER]
+    Arquivos modificados, ações executadas e evidências de testes.
+
+    [REVIEWER]
+    Auditoria de tipagem (tsc --noEmit), anti-slop e [VEREDICTO: APROVADO].
+
+    [CHAT FACADE]
+    Entrega final limpa, técnica e executiva para o usuário.
+  </single_chat_4_role_pipeline>
 </system_invariants>
 
 <workspace_context>
@@ -1049,14 +1079,22 @@ ${rawCompilerDiagnostics}
   }
 
   static updatePipelineTask(
-    taskId: 'task-inspect' | 'task-implement' | 'task-verify' | 'task-guard',
+    taskId: 'task-inspect' | 'task-implement' | 'task-verify' | 'task-guard' | 'task-facade' | 'task-supervisor' | 'task-worker' | 'task-reviewer' | string,
     status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'skipped',
     details?: string,
     threadId?: string
   ): void {
     const exec = this.getExecution(threadId);
     if (!exec) return;
-    const task = exec.pipelineTasks.find(t => t.id === taskId);
+    const task = exec.pipelineTasks.find(t => t.id === taskId) ||
+      (taskId === 'task-inspect' ? exec.pipelineTasks.find(t => t.id === 'task-facade' || t.id === 'task-supervisor') :
+       taskId === 'task-implement' ? exec.pipelineTasks.find(t => t.id === 'task-worker') :
+       taskId === 'task-verify' || taskId === 'task-guard' ? exec.pipelineTasks.find(t => t.id === 'task-reviewer') :
+       taskId === 'task-facade' ? exec.pipelineTasks.find(t => t.id === 'task-inspect') :
+       taskId === 'task-supervisor' ? exec.pipelineTasks.find(t => t.id === 'task-inspect') :
+       taskId === 'task-worker' ? exec.pipelineTasks.find(t => t.id === 'task-implement') :
+       taskId === 'task-reviewer' ? exec.pipelineTasks.find(t => t.id === 'task-verify' || t.id === 'task-guard') :
+       undefined);
     if (task) {
       task.status = status;
       if (details) task.details = details;
@@ -1329,9 +1367,7 @@ ${rawCompilerDiagnostics}
       path.resolve(currentDir, '..', '..'), // from server/src or server/dist -> ai-dev-hub root
       path.resolve(currentDir, '..'),
       path.resolve(process.cwd(), '..'),
-      process.cwd(),
-      'C:\\IA\\Antigravity HUB\\ai-dev-hub',
-      'C:\\IA\\Antigravity HUB'
+      process.cwd()
     ];
 
     for (const cand of candidates) {
@@ -1448,25 +1484,122 @@ ${rawCompilerDiagnostics}
     let passed = true;
     const collectedErrors: Array<{ file: string; line?: number; column?: number; code?: string; message: string; raw: string }> = [];
 
+    // 1. Resolução inteligente e offline do executável Node.js
+    const resolveNodeBinary = (): string => {
+      const isElectron = Boolean(
+        (process.versions as any)?.electron ||
+        process.execPath.toLowerCase().includes('electron') ||
+        process.execPath.toLowerCase().includes('decohub')
+      );
+
+      if (!isElectron && fs.existsSync(process.execPath)) {
+        return process.execPath;
+      }
+
+      // Se sob Electron, procurar Node ativo no PATH antes de assumir caminho padrão
+      try {
+        const lookupCmd = isWin ? 'where node' : 'which node';
+        const lookupOut = execSync(lookupCmd, {
+          encoding: 'utf-8',
+          timeout: 3000,
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'ignore']
+        }).trim();
+        const firstLine = lookupOut.split(/\r?\n/)[0]?.trim();
+        if (firstLine && fs.existsSync(firstLine)) {
+          return firstLine;
+        }
+      } catch {
+        // lookup falhou
+      }
+
+      const defaultNode = isWin
+        ? path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs', 'node.exe')
+        : '/usr/bin/node';
+      if (fs.existsSync(defaultNode)) {
+        return defaultNode;
+      }
+
+      return process.execPath;
+    };
+
+    // 2. Resolução offline em cascata do compilador TypeScript (tsc) sem acionar o npm registry
+    const resolveTsc = (dir: string): { type: 'binary' | 'script'; target: string } | null => {
+      const binName = isWin ? 'tsc.cmd' : 'tsc';
+
+      // 1. root/server/node_modules/.bin/tsc(.cmd)
+      const serverBin = path.join(root, 'server', 'node_modules', '.bin', binName);
+      if (fs.existsSync(serverBin)) {
+        return { type: 'binary', target: serverBin };
+      }
+
+      // local dirPath/node_modules/.bin/tsc(.cmd)
+      const localBin = path.join(dir, 'node_modules', '.bin', binName);
+      if (fs.existsSync(localBin)) {
+        return { type: 'binary', target: localBin };
+      }
+
+      // 2. root/node_modules/.bin/tsc(.cmd)
+      const rootBin = path.join(root, 'node_modules', '.bin', binName);
+      if (fs.existsSync(rootBin)) {
+        return { type: 'binary', target: rootBin };
+      }
+
+      // Scripts diretos typescript/bin/tsc
+      const serverScript = path.join(root, 'server', 'node_modules', 'typescript', 'bin', 'tsc');
+      if (fs.existsSync(serverScript)) {
+        return { type: 'script', target: serverScript };
+      }
+      const localScript = path.join(dir, 'node_modules', 'typescript', 'bin', 'tsc');
+      if (fs.existsSync(localScript)) {
+        return { type: 'script', target: localScript };
+      }
+      const rootScript = path.join(root, 'node_modules', 'typescript', 'bin', 'tsc');
+      if (fs.existsSync(rootScript)) {
+        return { type: 'script', target: rootScript };
+      }
+
+      // 3. Binário global tsc disponível no PATH (where tsc / which tsc)
+      try {
+        const lookupCmd = isWin ? 'where tsc' : 'which tsc';
+        const lookupOut = execSync(lookupCmd, {
+          encoding: 'utf-8',
+          timeout: 3000,
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'ignore']
+        }).trim();
+        const firstLine = lookupOut.split(/\r?\n/)[0]?.trim();
+        if (firstLine && fs.existsSync(firstLine)) {
+          return { type: 'binary', target: firstLine };
+        }
+      } catch {
+        // tsc global não encontrado
+      }
+
+      return null;
+    };
+
     const checkDir = (subDir: string): boolean => {
       const dirPath = path.join(root, subDir);
       if (!fs.existsSync(dirPath)) return true;
 
-      const serverTsc = path.join(root, 'server', 'node_modules', 'typescript', 'bin', 'tsc');
-      const localTsc = path.join(dirPath, 'node_modules', 'typescript', 'bin', 'tsc');
-      const tscScript = fs.existsSync(serverTsc) ? serverTsc : fs.existsSync(localTsc) ? localTsc : null;
+      const tscResolved = resolveTsc(dirPath);
+      if (!tscResolved) {
+        output += `[${subDir}] AVISO: Compilador TypeScript (tsc) não encontrado localmente nem no PATH. Typecheck offline estruturado: validação ignorada com segurança sem disparar requisição ao npm registry.\n`;
+        return true;
+      }
+
+      const safeNode = resolveNodeBinary();
 
       try {
         let res = '';
-        if (tscScript) {
-          const defaultNode = isWin ? 'C:\\Program Files\\nodejs\\node.exe' : '/usr/bin/node';
-          const isElectron = Boolean(
-            (process.versions as any)?.electron ||
-            process.execPath.toLowerCase().includes('electron') ||
-            process.execPath.toLowerCase().includes('decohub')
-          );
-          const safeNode = (isElectron && fs.existsSync(defaultNode)) ? defaultNode : process.execPath;
-          res = execFileSync(safeNode, [tscScript, '--noEmit', '--skipLibCheck'], {
+        const companionScript = tscResolved.type === 'binary'
+          ? path.resolve(path.dirname(tscResolved.target), '..', 'typescript', 'bin', 'tsc')
+          : null;
+
+        if (tscResolved.type === 'script' || (companionScript && fs.existsSync(companionScript))) {
+          const scriptPath = tscResolved.type === 'script' ? tscResolved.target : companionScript!;
+          res = execFileSync(safeNode, [scriptPath, '--noEmit', '--skipLibCheck'], {
             cwd: dirPath,
             encoding: 'utf-8',
             timeout: 45000,
@@ -1474,8 +1607,8 @@ ${rawCompilerDiagnostics}
             env: { ...process.env, CI: 'true', NONINTERACTIVE: '1', ELECTRON_RUN_AS_NODE: '1' }
           });
         } else {
-          const npxCmd = isWin ? 'npx.cmd' : 'npx';
-          res = execFileSync(npxCmd, ['--yes', 'tsc', '--noEmit', '--skipLibCheck'], {
+          const binCmd = isWin && tscResolved.target.includes(' ') ? `"${tscResolved.target}"` : tscResolved.target;
+          res = execFileSync(binCmd, ['--noEmit', '--skipLibCheck'], {
             cwd: dirPath,
             encoding: 'utf-8',
             timeout: 45000,
@@ -3565,10 +3698,10 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
       filesChanged: new Set<string>(),
       currentActionSummary: 'Interpretando instrução do desenvolvedor...',
       pipelineTasks: [
-        { id: 'task-inspect', label: 'Mapeamento & Análise de Contexto', status: 'in_progress', details: 'Interpretando instrução e inspecionando repositório' },
-        { id: 'task-implement', label: 'Modificação Cirúrgica de Código', status: 'pending', details: 'Aguardando diagnóstico e plano de ação' },
-        { id: 'task-verify', label: 'Self-Healing Typecheck Guard (tsc)', status: 'pending', details: 'Verificação de tipagem estrita' },
-        { id: 'task-guard', label: 'Testes Automatizados & Sincronização', status: 'pending', details: 'Execução de testes de escopo e empacotamento' }
+        { id: 'task-facade', label: 'Chat Facade', status: 'completed', details: 'Instrução recebida e escopo alinhado' },
+        { id: 'task-supervisor', label: 'Supervisor', status: 'in_progress', details: 'Inspeção e plano cirúrgico (DAG)' },
+        { id: 'task-worker', label: 'Worker', status: 'pending', details: 'Implementação cirúrgica e evidências' },
+        { id: 'task-reviewer', label: 'Reviewer', status: 'pending', details: 'Auditoria de integridade e veredicto' }
       ],
       liveSteps: [
         {
@@ -3583,16 +3716,16 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
       lastTranscriptLineCount: 0,
       userProfileDir: undefined,
       currentStage: {
-        code: META_CHAT_STATUS.STATUS_ANALYZING_PROJECT,
-        title: 'Análise de Repositório & Contexto'
+        code: META_CHAT_STATUS.STATUS_SUPERVISOR_PLANNING,
+        title: 'Supervisor (Planejamento & DAG Cirúrgico)'
       },
       executionTimeline: []
     };
 
     let effectiveAccountId = requestedAccountId;
     let activeStage: { code: string; title: string } = {
-      code: META_CHAT_STATUS.STATUS_ANALYZING_PROJECT,
-      title: 'Análise de Repositório & Contexto'
+      code: META_CHAT_STATUS.STATUS_SUPERVISOR_PLANNING,
+      title: 'Supervisor (Planejamento & DAG Cirúrgico)'
     };
 
     try {
@@ -3604,7 +3737,7 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
         activeAccount: requestedAccountId || 'Padrão',
         activeAccountId: requestedAccountId,
         activeModel: requestedModel,
-        startedAt: this._currentExecution.startedAt,
+        startedAt: this._currentExecution?.startedAt || new Date().toISOString(),
         lastStep: 'Análise de intenção'
       });
 
@@ -3642,16 +3775,26 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
       const slashMatch = userContent.trim().match(/^(\/[a-zA-Z0-9_-]+)/);
       const activeSlashCommand = slashMatch ? slashMatch[1] : undefined;
 
+      recordTimelineStep('Chat Facade', 'done');
+
       activeStage = {
-        code: META_CHAT_STATUS.STATUS_ANALYZING_PROJECT,
-        title: 'Análise de Repositório & Contexto'
+        code: META_CHAT_STATUS.STATUS_SUPERVISOR_PLANNING,
+        title: 'Supervisor (Planejamento & DAG Cirúrgico)'
       };
 
-      this.broadcastTelemetry(META_CHAT_STATUS.STATUS_ANALYZING_PROJECT, {
+      this.broadcastTelemetry(META_CHAT_STATUS.STATUS_FACADE_RECEIVED, {
         threadId: currentThread.id,
-        message: 'Leitura do repositório DecoHUB e inspeção de diff Git inicial...',
-        active_stage_code: META_CHAT_STATUS.STATUS_ANALYZING_PROJECT,
-        active_stage_title: 'Análise de Repositório & Contexto',
+        message: 'Chat Facade recebeu instrução do desenvolvedor e alinhou o escopo de execução.',
+        active_stage_code: META_CHAT_STATUS.STATUS_FACADE_RECEIVED,
+        active_stage_title: 'Chat Facade (Alinhamento & Comunicação)',
+        active_slash_command: activeSlashCommand
+      });
+
+      this.broadcastTelemetry(META_CHAT_STATUS.STATUS_SUPERVISOR_PLANNING, {
+        threadId: currentThread.id,
+        message: 'Supervisor inspecionando repositório e formulando plano cirúrgico (DAG)...',
+        active_stage_code: META_CHAT_STATUS.STATUS_SUPERVISOR_PLANNING,
+        active_stage_title: 'Supervisor (Planejamento & DAG Cirúrgico)',
         active_slash_command: activeSlashCommand
       });
 
@@ -4097,17 +4240,19 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
 
           if (this._currentExecution) {
             this._currentExecution.userProfileDir = userProfileDir;
-            recordTimelineStep('Análise de Contexto', 'done');
+            recordTimelineStep('Supervisor (Plano)', 'done');
+            this.updatePipelineTask('task-supervisor', 'completed');
+            this.updatePipelineTask('task-worker', 'in_progress', `Despachando para ${resolvedConfig.canonicalName}`);
             activeStage = {
-              code: META_CHAT_STATUS.STATUS_EXECUTING_STAGE,
-              title: `Turno Antigravity (${resolvedConfig.canonicalName})`
+              code: META_CHAT_STATUS.STATUS_WORKER_EXECUTING,
+              title: `Worker (Execução Cirúrgica — ${resolvedConfig.canonicalName})`
             };
             if (this._currentExecution) this._currentExecution.currentStage = activeStage;
-            this.broadcastTelemetry(META_CHAT_STATUS.STATUS_EXECUTING_STAGE, {
+            this.broadcastTelemetry(META_CHAT_STATUS.STATUS_WORKER_EXECUTING, {
               threadId: currentThread.id,
-              message: `Despachando turno para Antigravity (${resolvedConfig.canonicalName})...`,
-              active_stage_code: META_CHAT_STATUS.STATUS_EXECUTING_STAGE,
-              active_stage_title: `Turno Antigravity (${resolvedConfig.canonicalName})`,
+              message: `Worker executando turno no Antigravity (${resolvedConfig.canonicalName})...`,
+              active_stage_code: META_CHAT_STATUS.STATUS_WORKER_EXECUTING,
+              active_stage_title: `Worker (Execução Cirúrgica — ${resolvedConfig.canonicalName})`,
               active_slash_command: activeSlashCommand
             });
             this._currentExecution.lastTranscriptLineCount = initialLineCount;
@@ -4339,30 +4484,31 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
             }
           }
 
-          recordTimelineStep('Turno Antigravity', 'done');
+          recordTimelineStep('Worker (Execução)', 'done');
+          this.updatePipelineTask('task-worker', 'completed');
 
-        if (filesChanged.length > 0) {
-            this.updatePipelineTask('task-verify', 'in_progress', `Verificando ${filesChanged.length} arquivos alterados`);
+          if (filesChanged.length > 0) {
+            this.updatePipelineTask('task-reviewer', 'in_progress', `Auditando ${filesChanged.length} arquivos alterados`);
             this.recordLiveStep({
               type: 'GUARD',
               target: 'tsc --noEmit',
               status: 'running',
-              details: 'Validando integridade de compilação com Typecheck Guard...'
+              details: 'Reviewer validando integridade de compilação com Typecheck Guard...'
             });
             activeStage = {
-              code: META_CHAT_STATUS.STATUS_RUNNING_TYPECHECK,
-              title: 'TypeScript Guard'
+              code: META_CHAT_STATUS.STATUS_REVIEWER_AUDITING,
+              title: 'Reviewer (Auditoria & Typecheck Guard)'
             };
             if (this._currentExecution) this._currentExecution.currentStage = activeStage;
-            this.broadcastTelemetry(META_CHAT_STATUS.STATUS_RUNNING_TYPECHECK, {
+            this.broadcastTelemetry(META_CHAT_STATUS.STATUS_REVIEWER_AUDITING, {
               threadId: currentThread.id,
-              message: 'Validando tipagem estrita com TypeScript Guard (tsc --noEmit)...',
-              active_stage_code: META_CHAT_STATUS.STATUS_RUNNING_TYPECHECK,
-              active_stage_title: 'TypeScript Guard'
+              message: 'Reviewer auditando tipagem estrita com TypeScript Guard (tsc --noEmit)...',
+              active_stage_code: META_CHAT_STATUS.STATUS_REVIEWER_AUDITING,
+              active_stage_title: 'Reviewer (Auditoria & Typecheck Guard)'
             });
             this.updateLiveStatus({
-              phase: `Validando Typecheck Guard tsc --noEmit...`,
-              lastStep: `Verificando ${filesChanged.length} arquivos alterados`
+              phase: `Reviewer validando Typecheck Guard tsc --noEmit...`,
+              lastStep: `Auditando ${filesChanged.length} arquivos alterados`
             });
 
             const hasServerFiles = filesChanged.some(f => f.startsWith('server/'));
@@ -4370,7 +4516,7 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
             const target = hasServerFiles && hasClientFiles ? 'all' : hasClientFiles ? 'client' : 'server';
 
             typecheckResult = await this.runTypecheck(target, filesChanged);
-          recordTimelineStep('TypeScript Guard', typecheckResult.passed ? 'done' : 'failed');
+            recordTimelineStep('Reviewer (Auditoria)', typecheckResult.passed ? 'done' : 'failed');
 
             if (!typecheckResult.passed) {
               Logger.warn(

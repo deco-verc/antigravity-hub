@@ -2,6 +2,8 @@
 // Headless Single-Process Background Daemon Manager and Resilient Connection Handshake
 
 import { spawn, execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Logger } from './logger.js';
@@ -190,12 +192,39 @@ export class RuntimeDaemonManager {
               : [`--user-data-dir=${canonicalUserDataDir}`, '--headless'];
           }
 
+          const isSecondary = Boolean(
+            profile &&
+            (profile.id !== 'acc-pro-1' ||
+             normalizeRuntimePath(profile.environment_path) !== normalizeRuntimePath(AccountProfileManager.defaultRoamingPath))
+          );
+          const hasAnyRunning = AntigravityDiscovery.isLanguageServerOrAntigravityRunning();
+
+          let targetExe = antigravityExe;
+          if (isSecondary && hasAnyRunning) {
+            let lsExe: string | null = null;
+            try {
+              const { getLanguageServerExe } = await import('./antigravityProvider.js');
+              lsExe = getLanguageServerExe();
+            } catch {
+              const disc = AntigravityDiscovery.discover();
+              lsExe = disc.languageServerExe;
+            }
+            if (lsExe && fs.existsSync(lsExe)) {
+              targetExe = lsExe;
+              const csrfToken = crypto.randomUUID();
+              args = ['--standalone', `--csrf_token=${csrfToken}`];
+              Logger.info(
+                `[RuntimeDaemonManager] Auto-boot de perfil secundário "${profile?.display_name}": executando language_server.exe headless diretamente para contornar single-instance lock do Electron.`
+              );
+            }
+          }
+
           Logger.info(
             `[RuntimeDaemonManager] Iniciando processo único em 2º plano (Headless) do Antigravity para "${profile?.display_name || 'padrão'}"...`
           );
 
           try {
-            const child = spawn(antigravityExe, args, {
+            const child = spawn(targetExe, args, {
               detached: true,
               stdio: 'ignore',
               env: cleanEnv,
