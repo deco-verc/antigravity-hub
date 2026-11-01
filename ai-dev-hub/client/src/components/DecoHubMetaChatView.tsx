@@ -779,9 +779,9 @@ const MetaChatActiveProgressWidget: React.FC<{
 
   // 4-Role Pipeline: Chat Facade -> Supervisor -> Worker -> Reviewer
   const defaultTasks = [
-    { id: 'task-facade', label: 'Chat Facade', status: 'completed' },
-    { id: 'task-supervisor', label: 'Supervisor', status: 'completed' },
-    { id: 'task-worker', label: 'Worker', status: 'in_progress' },
+    { id: 'task-facade', label: 'Chat Facade', status: 'in_progress' },
+    { id: 'task-supervisor', label: 'Supervisor', status: 'pending' },
+    { id: 'task-worker', label: 'Worker', status: 'pending' },
     { id: 'task-reviewer', label: 'Reviewer', status: 'pending' }
   ];
 
@@ -877,12 +877,6 @@ const MetaChatActiveProgressWidget: React.FC<{
   );
 };
 
-const GithubIcon: React.FC<{ className?: string }> = ({ className = "w-4 h-4" }) => (
-  <svg className={className} fill="currentColor" viewBox="0 0 24 24">
-    <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
-  </svg>
-);
-
 export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
   onBack,
   onShowToast,
@@ -907,7 +901,6 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
   const [showDetailedCockpit, setShowDetailedCockpit] = useState<boolean>(false);
   const [isRecompiling, setIsRecompiling] = useState(false);
   const [recompileResult, setRecompileResult] = useState<MetaChatRecompileResult | null>(null);
-  const [isSyncing, setIsSyncing] = useState(false);
 
   // Autopilot State (Zero-Prompt Auto-Evolução)
   const [autopilotStatus, setAutopilotStatus] = useState<MetaChatAutopilotStatus | null>(null);
@@ -1430,6 +1423,86 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
       });
     });
 
+    sseClient.on('STATUS_FACADE_RECEIVED', (data: any) => {
+      if (data?.threadId && data.threadId !== activeThreadId) return;
+      setLiveActivity(prev => ({
+        ...(prev || {
+          isExecuting: true,
+          elapsedMs: 0,
+          filesModified: [],
+          liveSteps: []
+        }),
+        isExecuting: true,
+        currentActionSummary: data.message || 'Chat Facade alinhando instrução e escopo...',
+        pipelineTasks: [
+          { id: 'task-facade', label: 'Chat Facade', status: 'in_progress', details: 'Alinhando instrução e escopo' },
+          { id: 'task-supervisor', label: 'Supervisor', status: 'pending', details: 'Aguardando planejamento' },
+          { id: 'task-worker', label: 'Worker', status: 'pending', details: 'Aguardando execução cirúrgica' },
+          { id: 'task-reviewer', label: 'Reviewer', status: 'pending', details: 'Aguardando auditoria e testes' }
+        ]
+      }));
+    });
+
+    sseClient.on('STATUS_SUPERVISOR_PLANNING', (data: any) => {
+      if (data?.threadId && data.threadId !== activeThreadId) return;
+      setLiveActivity(prev => ({
+        ...(prev || {
+          isExecuting: true,
+          elapsedMs: 0,
+          filesModified: [],
+          liveSteps: []
+        }),
+        isExecuting: true,
+        currentActionSummary: data.message || 'Supervisor formulando plano cirúrgico (DAG)...',
+        pipelineTasks: [
+          { id: 'task-facade', label: 'Chat Facade', status: 'completed', details: 'Instrução recebida e escopo alinhado' },
+          { id: 'task-supervisor', label: 'Supervisor', status: 'in_progress', details: 'Formulando plano cirúrgico (DAG)' },
+          { id: 'task-worker', label: 'Worker', status: 'pending', details: 'Aguardando execução cirúrgica' },
+          { id: 'task-reviewer', label: 'Reviewer', status: 'pending', details: 'Aguardando auditoria e testes' }
+        ]
+      }));
+    });
+
+    sseClient.on('STATUS_WORKER_EXECUTING', (data: any) => {
+      if (data?.threadId && data.threadId !== activeThreadId) return;
+      setLiveActivity(prev => ({
+        ...(prev || {
+          isExecuting: true,
+          elapsedMs: 0,
+          filesModified: [],
+          liveSteps: []
+        }),
+        isExecuting: true,
+        currentActionSummary: data.message || 'Worker executando alterações cirúrgicas...',
+        pipelineTasks: [
+          { id: 'task-facade', label: 'Chat Facade', status: 'completed', details: 'Instrução recebida e escopo alinhado' },
+          { id: 'task-supervisor', label: 'Supervisor', status: 'completed', details: 'Plano cirúrgico finalizado' },
+          { id: 'task-worker', label: 'Worker', status: 'in_progress', details: 'Edição cirúrgica de arquivos' },
+          { id: 'task-reviewer', label: 'Reviewer', status: 'pending', details: 'Aguardando auditoria e testes' }
+        ]
+      }));
+    });
+
+    sseClient.on('STATUS_REVIEWER_VERIFYING', (data: any) => {
+      if (data?.threadId && data.threadId !== activeThreadId) return;
+      setLiveActivity(prev => ({
+        ...(prev || {
+          isExecuting: true,
+          elapsedMs: 0,
+          filesModified: [],
+          liveSteps: []
+        }),
+        isExecuting: true,
+        currentActionSummary: data.message || 'Reviewer auditando integridade e compilação...',
+        pipelineTasks: [
+          { id: 'task-facade', label: 'Chat Facade', status: 'completed', details: 'Instrução recebida e escopo alinhado' },
+          { id: 'task-supervisor', label: 'Supervisor', status: 'completed', details: 'Plano cirúrgico finalizado' },
+          { id: 'task-worker', label: 'Worker', status: 'completed', details: 'Edições concluídas com integridade' },
+          { id: 'task-reviewer', label: 'Reviewer', status: data.verdict === 'APROVADO' ? 'completed' : 'in_progress', details: data.verdict ? `[${data.verdict}] Integridade validada` : 'Auditoria de TypeScript e testes' }
+        ]
+      }));
+    });
+
     sseClient.on('message', (data: any) => {
       const msg = data.message || data.result?.message;
       const tId = data.threadId || data.result?.threadId;
@@ -1662,6 +1735,20 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
     const displaySnippet = effectiveText.length > 80 ? effectiveText.slice(0, 77) + '...' : effectiveText;
     setSentNotice({ id: tempUserMsg.id, text: displaySnippet, secondsLeft: 3 });
 
+    setLiveActivity({
+      isExecuting: true,
+      currentActionSummary: 'Alinhando instrução e escopo no Chat Facade...',
+      elapsedMs: 0,
+      filesModified: [],
+      pipelineTasks: [
+        { id: 'task-facade', label: 'Chat Facade', status: 'in_progress', details: 'Alinhando instrução e escopo' },
+        { id: 'task-supervisor', label: 'Supervisor', status: 'pending', details: 'Aguardando planejamento' },
+        { id: 'task-worker', label: 'Worker', status: 'pending', details: 'Aguardando execução cirúrgica' },
+        { id: 'task-reviewer', label: 'Reviewer', status: 'pending', details: 'Aguardando auditoria e testes' }
+      ],
+      liveSteps: []
+    });
+
     try {
       const res = await api.sendMetaChatMessage(
         effectiveText,
@@ -1801,33 +1888,6 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
       onShowToast?.('success', res.message || 'Terminal aberto na engine DecoHUB');
     } catch (err: any) {
       onShowToast?.('error', err.message || 'Falha ao abrir terminal da engine');
-    }
-  };
-
-  const handleGithubSync = async () => {
-    if (isSyncing) return;
-    setIsSyncing(true);
-    try {
-      const res = await fetch('/api/system/github-sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Falha ao sincronizar com o GitHub');
-      }
-      const filesCount = Array.isArray(data.files) ? data.files.length : (data.filesCount || 0);
-      const commitShort = data.commitHash ? ` (${data.commitHash.slice(0, 7)})` : '';
-      onShowToast?.(
-        'success',
-        filesCount > 0
-          ? `GitHub sincronizado com sucesso! ${filesCount} arquivo(s) enviados${commitShort}.`
-          : `GitHub em dia! Nenhum arquivo pendente para envio${commitShort}.`
-      );
-    } catch (err: any) {
-      onShowToast?.('error', `Erro ao sincronizar com o GitHub: ${err.message}`);
-    } finally {
-      setIsSyncing(false);
     }
   };
 
@@ -2201,22 +2261,6 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
           >
             <Terminal className="w-3.5 h-3.5 text-indigo-400" />
             <span>Terminal Engine</span>
-          </button>
-
-          {/* GitHub Sync */}
-          <button
-            type="button"
-            onClick={handleGithubSync}
-            disabled={isSyncing}
-            title="Executa: git add . -> git commit -> git push na raiz do repositório"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 hover:text-white text-xs font-semibold transition-all shadow-sm disabled:opacity-50"
-          >
-            {isSyncing ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <GithubIcon className="w-3.5 h-3.5" />
-            )}
-            <span>{isSyncing ? "Enviando..." : "Github"}</span>
           </button>
 
           {/* D. Recompilar e Atualizar Produção */}
@@ -2940,10 +2984,10 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
                 {/* Os 4 Estágios do Pipeline */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {(serverActiveTurnStatus?.pipelineTasks || liveActivity?.pipelineTasks || [
-                    { id: 'task-facade', label: 'Chat Facade', status: 'completed', details: 'Alinhamento' },
-                    { id: 'task-supervisor', label: 'Supervisor', status: 'in_progress', details: 'DAG Cirúrgico' },
-                    { id: 'task-worker', label: 'Worker', status: 'pending', details: 'Execução' },
-                    { id: 'task-reviewer', label: 'Reviewer', status: 'pending', details: 'Auditoria' }
+                    { id: 'task-facade', label: 'Chat Facade', status: 'in_progress', details: 'Alinhando instrução e escopo' },
+                    { id: 'task-supervisor', label: 'Supervisor', status: 'pending', details: 'Aguardando planejamento' },
+                    { id: 'task-worker', label: 'Worker', status: 'pending', details: 'Aguardando execução cirúrgica' },
+                    { id: 'task-reviewer', label: 'Reviewer', status: 'pending', details: 'Aguardando auditoria e testes' }
                   ]).map(t => {
                     const isDone = t.status === 'completed';
                     const isProg = t.status === 'in_progress';

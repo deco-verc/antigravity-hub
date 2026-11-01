@@ -2177,105 +2177,6 @@ apiRouter.post('/system/open-meta-terminal', (req, res) => {
   }
 });
 
-apiRouter.post('/system/github-sync', async (_req, res) => {
-  try {
-    const decoRoot = MetaChatService.getDecoHubRoot();
-    let gitRoot = decoRoot;
-
-    // 1. Resolve o diretório raiz do repositório Git com remote origin configurado
-    let hasRemote = false;
-    try {
-      const remotes = execFileSync('git', ['remote'], { cwd: decoRoot, stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim();
-      if (remotes.length > 0) hasRemote = true;
-    } catch {}
-
-    if (!hasRemote) {
-      const parentDir = path.dirname(decoRoot);
-      try {
-        const remotes = execFileSync('git', ['remote'], { cwd: parentDir, stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim();
-        if (remotes.length > 0) {
-          gitRoot = parentDir;
-          hasRemote = true;
-        }
-      } catch {}
-    }
-
-    if (!hasRemote) {
-      const fallbackDir = 'C:\\IA\\Antigravity HUB';
-      if (fs.existsSync(fallbackDir)) {
-        try {
-          const remotes = execFileSync('git', ['remote'], { cwd: fallbackDir, stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim();
-          if (remotes.length > 0) {
-            gitRoot = fallbackDir;
-            hasRemote = true;
-          }
-        } catch {}
-      }
-    }
-
-    Logger.info(`[System] Executando One-Click GitHub Sync em: "${gitRoot}"`);
-
-    // 2. Executa git add .
-    execFileSync('git', ['add', '.'], { cwd: gitRoot, stdio: 'pipe' });
-
-    // 3. Obtém arquivos em stage
-    const stagedOutput = execFileSync('git', ['diff', '--name-only', '--cached'], { cwd: gitRoot, stdio: 'pipe' }).toString().trim();
-    const stagedFiles = stagedOutput ? stagedOutput.split(/\r?\n/).map(f => f.trim()).filter(Boolean) : [];
-
-    let committed = false;
-    // 4. Executa git commit se houver arquivos staged
-    if (stagedFiles.length > 0) {
-      const commitMessage = 'chore: auto-sync DecoHUB update';
-      execFileSync('git', ['commit', '-m', commitMessage], { cwd: gitRoot, stdio: 'pipe' });
-      committed = true;
-      Logger.info(`[System] Commit efetuado: "${commitMessage}" (${stagedFiles.length} arquivos alterados)`);
-    }
-
-    // 5. Obtém o commit hash atual
-    let commitHash = '';
-    try {
-      commitHash = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: gitRoot, stdio: 'pipe' }).toString().trim();
-    } catch {}
-
-    // 6. Executa git push
-    let pushOutput = '';
-    try {
-      pushOutput = execFileSync('git', ['push'], { cwd: gitRoot, stdio: 'pipe', timeout: 60000 }).toString().trim();
-    } catch (pushErr: any) {
-      const errMsg = pushErr.stderr?.toString() || pushErr.message || '';
-      if (errMsg.includes('no upstream branch') || errMsg.includes('set-upstream')) {
-        pushOutput = execFileSync('git', ['push', '-u', 'origin', 'HEAD'], { cwd: gitRoot, stdio: 'pipe', timeout: 60000 }).toString().trim();
-      } else {
-        throw new Error(`Falha no git push: ${errMsg || pushErr.message}`);
-      }
-    }
-
-    const nowIso = new Date().toISOString();
-    Logger.info(`[System] GitHub Sync concluído com sucesso em "${gitRoot}" (commit: ${commitHash ? commitHash.slice(0, 7) : 'n/a'})`);
-
-    res.json({
-      success: true,
-      message: committed
-        ? `Sincronização com o GitHub concluída com sucesso (${stagedFiles.length} arquivos enviados).`
-        : 'Nenhuma alteração pendente para commit. Repositório já está sincronizado com o GitHub.',
-      gitRoot,
-      commitHash,
-      committed,
-      pushed: true,
-      files: stagedFiles,
-      filesCount: stagedFiles.length,
-      pushOutput,
-      syncedAt: nowIso
-    });
-  } catch (err: any) {
-    Logger.error(`[System] Erro no GitHub Sync: ${err.message}`);
-    res.status(500).json({
-      success: false,
-      error: err.message || 'Erro ao sincronizar com o GitHub'
-    });
-  }
-});
-
 // -------------------------------------------------------------
 // MEMORY & TASKS
 // -------------------------------------------------------------
@@ -5344,6 +5245,12 @@ apiRouter.post('/metachat/chat', async (req, res) => {
       result,
       message: result.message,
       threadId: result.message?.thread_id || threadId
+    });
+
+    SseStreamService.broadcast('metachat', 'done', {
+      threadId: result.message?.thread_id || threadId,
+      status: 'idle',
+      message: result.message
     });
 
     res.json(result);

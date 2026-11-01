@@ -1175,10 +1175,13 @@ export function initDatabase() {
   safeAddColumn(db, 'operational_lessons', 'is_global', 'INTEGER DEFAULT 1');
 
   try {
-    db.exec(`
-      CREATE INDEX IF NOT EXISTS idx_operational_lessons_global
-        ON operational_lessons(resolved, is_global, occurrences DESC);
-    `);
+    const olCols = (db.prepare("PRAGMA table_info(operational_lessons)").all() || []) as any[];
+    if (olCols.some((c: any) => c.name === 'is_global')) {
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_operational_lessons_global
+          ON operational_lessons(resolved, is_global, occurrences DESC);
+      `);
+    }
   } catch {}
 
   db.exec(`

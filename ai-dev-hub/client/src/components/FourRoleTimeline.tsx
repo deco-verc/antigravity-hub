@@ -213,7 +213,7 @@ export const FourRoleTimeline: React.FC<FourRoleTimelineProps> = ({
           timestamp: data?.timestamp || new Date().toISOString()
         },
         supervisor: {
-          status: 'planning',
+          status: 'idle',
           plannedFiles: []
         },
         worker: {
@@ -247,14 +247,18 @@ export const FourRoleTimeline: React.FC<FourRoleTimelineProps> = ({
           objective: prev.facade.objective || data?.objective || 'Alinhamento com usuário estabelecido'
         },
         supervisor: {
-          status: 'completed',
+          status: 'planning',
           dag,
           plannedFiles: files.length > 0 ? files : prev.supervisor.plannedFiles,
           timestamp: data?.timestamp || new Date().toISOString()
         },
         worker: {
           ...prev.worker,
-          status: prev.worker.status === 'idle' ? 'executing' : prev.worker.status
+          status: 'idle'
+        },
+        reviewer: {
+          ...prev.reviewer,
+          status: 'idle'
         }
       }));
     };
@@ -266,16 +270,21 @@ export const FourRoleTimeline: React.FC<FourRoleTimelineProps> = ({
       }
       const files = data?.affectedFiles || data?.filesModified || data?.files || [];
       const executionTimeMs = data?.duration_ms || (workerStartTimeRef.current ? Date.now() - workerStartTimeRef.current : 320);
+      const isCompleted = data?.status === 'completed' || data?.isDone || Boolean(data?.verdict);
 
       setState(prev => ({
         ...prev,
         hasActivity: true,
+        facade: {
+          ...prev.facade,
+          status: 'completed'
+        },
         supervisor: {
           ...prev.supervisor,
           status: 'completed'
         },
         worker: {
-          status: 'completed',
+          status: isCompleted ? 'completed' : 'executing',
           touchedFiles: files.length > 0 ? files : (prev.supervisor.plannedFiles.length > 0 ? prev.supervisor.plannedFiles : prev.worker.touchedFiles),
           executionTimeMs,
           testPassed: data?.testPassed ?? true,
@@ -284,25 +293,34 @@ export const FourRoleTimeline: React.FC<FourRoleTimelineProps> = ({
         },
         reviewer: {
           ...prev.reviewer,
-          status: prev.reviewer.status === 'idle' ? 'verifying' : prev.reviewer.status
+          status: isCompleted ? (prev.reviewer.status === 'idle' ? 'verifying' : prev.reviewer.status) : 'idle'
         }
       }));
     };
 
     // 4. Escuta STATUS_REVIEWER_VERIFYING e STATUS_REVIEWER_AUDITING
     const handleReviewerVerifying = (data: any) => {
+      const isApproved = data?.verdict === 'APROVADO';
       setState(prev => ({
         ...prev,
         hasActivity: true,
+        facade: {
+          ...prev.facade,
+          status: 'completed'
+        },
+        supervisor: {
+          ...prev.supervisor,
+          status: 'completed'
+        },
         worker: {
           ...prev.worker,
           status: 'completed'
         },
         reviewer: {
-          status: 'verifying',
-          verdict: 'AUDITANDO (tsc --noEmit)...',
-          typecheckPassed: undefined,
-          typecheckOutput: 'Executando tsc --noEmit na base de código...',
+          status: isApproved ? 'approved' : 'verifying',
+          verdict: data?.verdict ? `[VEREDICTO: ${data.verdict}]` : 'AUDITANDO (tsc --noEmit)...',
+          typecheckPassed: data?.typecheckPassed ?? (isApproved ? true : undefined),
+          typecheckOutput: data?.message || data?.output || 'Executando tsc --noEmit na base de código...',
           timestamp: data?.timestamp || new Date().toISOString()
         }
       }));

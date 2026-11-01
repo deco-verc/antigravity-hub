@@ -241,4 +241,38 @@ Módulo de autenticação atualizado e verificado com sucesso!
     assert.ok(report.includes('[VEREDICTO: APROVADO]'), 'Must have APROVADO verdict');
     assert.ok(report.includes('server/src/metaChatService.ts'), 'Must list changed file');
   });
+
+  it('11. should format structured 4-portão Reviewer opinion and Chat Facade synthesis', () => {
+    const plan = {
+      scopeFiles: ['server/src/metaChatService.ts'],
+      dagSteps: ['Passo 1: Inspeção', 'Passo 2: Implementação cirúrgica'],
+      verificationCommand: 'npm --prefix server run typecheck',
+      planningDurationMs: 40,
+      source: 'live_inference' as const
+    };
+
+    const reviewerReport = [
+      '### 🛡️ PARECER DO REVIEWER',
+      '- **Integridade TypeScript:** 0 erros (Server e Client OK)',
+      '- **Build de Produção:** Aprovado (Vite bundle gerado)',
+      '- **Arquivos Auditados:** `server/src/metaChatService.ts` (+15 / -2)',
+      '- **Veredicto:** [APROVADO PARA PRODUÇÃO]'
+    ].join('\n');
+
+    const report = MetaChatService.formatFourRoleDeliveryReport(
+      'Worker concluiu implementação.',
+      plan,
+      ['server/src/metaChatService.ts'],
+      { passed: true, output: '0 erros' },
+      ' 1 file changed, 15 insertions(+), 2 deletions(-)',
+      reviewerReport
+    );
+
+    assert.ok(report.includes('### 🛡️ PARECER DO REVIEWER'), 'Must have Reviewer Opinion header');
+    assert.ok(report.includes('- **Integridade TypeScript:** 0 erros (Server e Client OK)'), 'Must report TS integrity');
+    assert.ok(report.includes('- **Build de Produção:** Aprovado (Vite bundle gerado)'), 'Must report client build');
+    assert.ok(report.includes('- **Arquivos Auditados:** `server/src/metaChatService.ts` (+15 / -2)'), 'Must report audited files diff');
+    assert.ok(report.includes('- **Veredicto:** [APROVADO PARA PRODUÇÃO]'), 'Must report production approved verdict');
+    assert.ok(report.includes('Recompilar Produção'), 'Must invite to recompile production');
+  });
 });

@@ -668,9 +668,9 @@ export class AntigravityProvider implements AgentProvider {
       effectiveTimeoutMs > 5000 && !AgentApiGateway.isOfflineMode();
 
     const maxCeilingMs = allowHeartbeatExtension
-      ? Math.max(effectiveTimeoutMs, 1500000) // Até 25 minutos de teto máximo de segurança
+      ? 180000 // Teto máximo de segurança de 180 segundos (3 minutos)
       : effectiveTimeoutMs; // Probe/teste: respeitar o timeout exato
-    const idleTimeoutMs = 180000; // 3 minutos de inatividade absoluta no transcript
+    const idleTimeoutMs = 15000; // 15 segundos de inatividade absoluta no transcript (reduzido de 180s)
     let lastActivityTime = Date.now();
     let lastTranscriptSize = 0;
     let lastTranscriptMtime = 0;
@@ -785,6 +785,11 @@ export class AntigravityProvider implements AgentProvider {
         if (userMsgIdx !== -1) {
           hasUserMessage = true;
           entriesAfterUser = progress.entries.slice(userMsgIdx + 1);
+        } else if (progress.entries.length > 0) {
+          // Fallback ágil: se já existem novas entradas na fatia recente pós-initialLineCount,
+          // não bloqueia aguardando marcador sintético de USER_INPUT
+          hasUserMessage = true;
+          entriesAfterUser = progress.entries;
         }
       } else {
         hasUserMessage = true;
@@ -813,16 +818,13 @@ export class AntigravityProvider implements AgentProvider {
       }
       if (progress.state === 'COMPLETE' && entriesAfterUser.length > 0) {
         if (effectiveTimeoutMs > 5000 && !isTestEnv) {
-          // Exige 4000ms de silêncio real (2 checagens consecutivas de 2000ms) sem novas ferramentas pendentes ou novas linhas
+          // Exige 3 segundos de estabilidade sem novas ferramentas pendentes ou novas linhas
           let quiet = true;
-          for (let check = 0; check < 2; check++) {
-            const prevCount = progress.entries.length;
-            await new Promise(r => setTimeout(r, 2000));
-            const recheck = observeTranscript(transcriptPath, initialLineCount);
-            if (recheck.state !== 'COMPLETE' || recheck.entries.length > prevCount || recheck.pendingTools.length > 0) {
-              quiet = false;
-              break;
-            }
+          const prevCount = progress.entries.length;
+          await new Promise(r => setTimeout(r, 3000));
+          const recheck = observeTranscript(transcriptPath, initialLineCount);
+          if (recheck.entries.length > prevCount || recheck.pendingTools.length > 0) {
+            quiet = false;
           }
           if (!quiet) {
             continue;
@@ -832,7 +834,7 @@ export class AntigravityProvider implements AgentProvider {
         break;
       }
 
-      // Verificação complementar: se a última entrada operacional posterior ao USER_MESSAGE for uma resposta final concluída do modelo
+      // Verificação imediata: se a última entrada posterior ao USER_MESSAGE for uma resposta do modelo sem ferramentas pendentes
       if (!isComplete && entriesAfterUser.length > 0 && progress.pendingTools.length === 0) {
         const lastEntry = entriesAfterUser.filter(e => e.type !== 'CHECKPOINT').at(-1);
         const lastEntryText = String(lastEntry?.content || lastEntry?.text || '');
@@ -866,16 +868,13 @@ export class AntigravityProvider implements AgentProvider {
 
         if (isModelFinal) {
           if (effectiveTimeoutMs > 5000 && !isTestEnv) {
-            // Exige 4000ms de estabilidade sem ferramentas pendentes
+            // Exige 3 segundos de estabilidade sem ferramentas pendentes
             let quiet = true;
-            for (let check = 0; check < 2; check++) {
-              const prevCount = progress.entries.length;
-              await new Promise(r => setTimeout(r, 2000));
-              const recheck = observeTranscript(transcriptPath, initialLineCount);
-              if (recheck.state !== 'COMPLETE' || recheck.entries.length > prevCount || recheck.pendingTools.length > 0) {
-                quiet = false;
-                break;
-              }
+            const prevCount = progress.entries.length;
+            await new Promise(r => setTimeout(r, 3000));
+            const recheck = observeTranscript(transcriptPath, initialLineCount);
+            if (recheck.entries.length > prevCount || recheck.pendingTools.length > 0) {
+              quiet = false;
             }
             if (!quiet) {
               continue;

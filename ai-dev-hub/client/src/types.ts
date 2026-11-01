@@ -1405,6 +1405,7 @@ export interface MetaChatLiveActivity {
   activeAccount?: string;
   activeModel?: string;
   currentActionSummary: string;
+  currentPhase?: string;
   elapsedMs: number;
   pipelineTasks: MetaChatPipelineTask[];
   liveSteps: MetaChatLiveStep[];
@@ -1426,6 +1427,7 @@ export const META_CHAT_STATUS = {
   STATUS_SUPERVISOR_PLANNING: 'STATUS_SUPERVISOR_PLANNING',
   STATUS_WORKER_EXECUTING: 'STATUS_WORKER_EXECUTING',
   STATUS_REVIEWER_AUDITING: 'STATUS_REVIEWER_AUDITING',
+  STATUS_REVIEWER_VERIFYING: 'STATUS_REVIEWER_VERIFYING',
   STATUS_ANALYZING_PROJECT: 'STATUS_ANALYZING_PROJECT',
   STATUS_EXECUTING_STAGE: 'STATUS_EXECUTING_STAGE',
   STATUS_RUNNING_TYPECHECK: 'STATUS_RUNNING_TYPECHECK',
