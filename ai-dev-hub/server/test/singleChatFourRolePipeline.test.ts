@@ -140,4 +140,105 @@ Módulo de autenticação atualizado e verificado com sucesso!
     assert.ok(worker.includes('Evidências: PASS'), 'Worker section extracted');
     assert.ok(reviewer.includes('[VEREDICTO: APROVADO]'), 'Reviewer section extracted');
   });
+
+  it('6. should infer real non-empty scopeFiles and DAG in Supervisor offline inference', () => {
+    const root = MetaChatService.getDecoHubRoot();
+    const plan = MetaChatService.inferSupervisorPlanOffline(
+      'Corrigir visualização de timeline no FourRoleTimeline e sincronizar com metaChatService',
+      root
+    );
+
+    assert.ok(plan, 'Plan must be defined');
+    assert.ok(Array.isArray(plan.scopeFiles), 'scopeFiles must be an array');
+    assert.ok(plan.scopeFiles.length > 0, 'scopeFiles must never be empty (count > 0)');
+    assert.ok(
+      plan.scopeFiles.some(f => f.includes('metaChatService') || f.includes('FourRoleTimeline')),
+      'Must identify relevant files in scope'
+    );
+    assert.ok(Array.isArray(plan.dagSteps), 'dagSteps must be an array');
+    assert.ok(plan.dagSteps.length >= 2, 'dagSteps must have at least 2 steps');
+    assert.ok(plan.verificationCommand.includes('typecheck'), 'verificationCommand must target typecheck');
+  });
+
+  it('7. should build Supervisor planning prompt requiring strict JSON schema', () => {
+    const root = MetaChatService.getDecoHubRoot();
+    const prompt = MetaChatService.buildSupervisorPlanningPrompt({
+      userContent: 'Adicionar validação estrita no AST Symbol Index',
+      root,
+      canonicalModelName: 'Gemini 3.8 Pro',
+      intelligenceLevel: 'HIGH',
+      candidateFiles: ['server/src/astSymbolIndexService.ts']
+    });
+
+    assert.ok(prompt.includes('Você é o SUPERVISOR do DecoHUB'), 'Must establish Supervisor identity');
+    assert.ok(prompt.includes('scopeFiles'), 'Prompt must require scopeFiles in JSON');
+    assert.ok(prompt.includes('dagSteps'), 'Prompt must require dagSteps in JSON');
+    assert.ok(prompt.includes('verificationCommand'), 'Prompt must require verificationCommand in JSON');
+    assert.ok(prompt.includes('astSymbolIndexService.ts'), 'Must include candidate AST files');
+  });
+
+  it('8. should parse structured Supervisor JSON response correctly', () => {
+    const root = MetaChatService.getDecoHubRoot();
+    const rawJson = '```json\n{\n  "scopeFiles": ["server/src/metaChatService.ts"],\n  "dagSteps": ["Passo 1: análise", "Passo 2: edição"],\n  "verificationCommand": "npm --prefix server run typecheck"\n}\n```';
+
+    const plan = MetaChatService.parseSupervisorPlanResponse(rawJson, 'minha tarefa', root);
+    assert.ok(plan, 'Parsed plan must not be null');
+    assert.equal(plan.scopeFiles.length, 1);
+    assert.equal(plan.scopeFiles[0], 'server/src/metaChatService.ts');
+    assert.equal(plan.dagSteps.length, 2);
+    assert.equal(plan.verificationCommand, 'npm --prefix server run typecheck');
+    assert.equal(plan.source, 'live_inference');
+  });
+
+  it('9. should build Worker Work Order prompt with delimited scopeFiles and AST signatures', () => {
+    const root = MetaChatService.getDecoHubRoot();
+    const plan = {
+      scopeFiles: ['server/src/metaChatService.ts'],
+      dagSteps: ['1. Implementar método executeSupervisorPlanning', '2. Validar tipos'],
+      verificationCommand: 'npm --prefix server run typecheck',
+      planningDurationMs: 45,
+      source: 'offline_ast_inference' as const
+    };
+
+    const workerPrompt = MetaChatService.buildWorkerWorkOrderPrompt({
+      userContent: 'Orquestrar estágios reais no Meta-Chat',
+      supervisorPlan: plan,
+      root,
+      intelligenceLevel: 'HIGH',
+      canonicalModelName: 'Gemini 3.8 Flash',
+      requestedModel: 'gemini-3.8-flash'
+    });
+
+    assert.ok(workerPrompt.includes('ORDEM DE SERVIÇO AUTORITATIVA DO SUPERVISOR'), 'Must inject Work Order heading');
+    assert.ok(workerPrompt.includes('ARQUIVOS ALVO:'), 'Must inject ARQUIVOS ALVO');
+    assert.ok(workerPrompt.includes('server/src/metaChatService.ts'), 'Must inject scoped file');
+    assert.ok(workerPrompt.includes('EXECUTE AS SEGUINTES TAREFAS CIRÚRGICAS:'), 'Must inject surgical tasks');
+    assert.ok(workerPrompt.includes('CRITÉRIO DE ACEITE:'), 'Must inject CRITÉRIO DE ACEITE');
+    assert.ok(workerPrompt.includes('ast_symbol_signatures'), 'Must inject AST symbol signatures for scoped files');
+  });
+
+  it('10. should synthesize executive 4-role delivery report', () => {
+    const plan = {
+      scopeFiles: ['server/src/metaChatService.ts', 'client/src/components/FourRoleTimeline.tsx'],
+      dagSteps: ['Passo 1: DAG', 'Passo 2: Implementação'],
+      verificationCommand: 'npm --prefix server run typecheck',
+      planningDurationMs: 50,
+      source: 'offline_ast_inference' as const
+    };
+
+    const report = MetaChatService.formatFourRoleDeliveryReport(
+      'Edições realizadas nos arquivos de timeline e metaChat.',
+      plan,
+      ['server/src/metaChatService.ts'],
+      { passed: true, output: '0 erros' },
+      ' 1 file changed, 10 insertions(+)'
+    );
+
+    assert.ok(report.includes('### 1. Chat Facade'), 'Must have Facade section');
+    assert.ok(report.includes('### 2. Supervisor'), 'Must have Supervisor section');
+    assert.ok(report.includes('### 3. Worker'), 'Must have Worker section');
+    assert.ok(report.includes('### 4. Reviewer'), 'Must have Reviewer section');
+    assert.ok(report.includes('[VEREDICTO: APROVADO]'), 'Must have APROVADO verdict');
+    assert.ok(report.includes('server/src/metaChatService.ts'), 'Must list changed file');
+  });
 });

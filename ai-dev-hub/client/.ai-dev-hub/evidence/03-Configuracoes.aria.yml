@@ -1,6 +1,6 @@
 # Playwright Aria Snapshot (YAML Semantico de Acessibilidade - Offline)
 section: "Configuracoes"
-timestamp: "2026-10-31T20:27:05.021Z"
+timestamp: "2026-11-01T00:15:24.613Z"
 validation:
   passed: false
   has_heading: false

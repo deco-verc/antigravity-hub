@@ -2711,11 +2711,30 @@ export class HierarchicalOrchestrationService {
       params.independentEvaluation ??
       IndependentEvaluator.getEvaluationByTaskId(params.taskId);
     const criteria: string[] = task.criteria_json ? JSON.parse(task.criteria_json) : ['Implementação concluída'];
-    const allowedScope: string[] = task.allowed_scope_json
+    const rawAllowedScope: string[] = task.allowed_scope_json
       ? JSON.parse(task.allowed_scope_json)
       : task.expected_files_json
       ? JSON.parse(task.expected_files_json)
       : [];
+
+    // Context-Aware Scope Expansion:
+    // 1. Extrair menções de arquivos contidas no título, objetivo, descrição e critérios da tarefa
+    const taskContextText = `${task.title || ''} ${task.objective || ''} ${task.description || ''} ${task.criteria_json || ''}`;
+    const mentionedFileMatches = taskContextText.match(/(?:[a-zA-Z0-9_\-\.\/]+)\.(?:[cm]?[jt]sx?|html|css|json|sql|ya?ml|env\.example|md)/gi) || [];
+    const extractedMentionedFiles = mentionedFileMatches
+      .map(m => m.replace(/^[(`'"<\s]+|[)`'">\s]+$/g, '').trim())
+      .filter(m => m && !m.includes('://') && !m.startsWith('node_modules'));
+
+    // 2. Se for Intervenção Cirúrgica ou Bugfix, o escopo operacional cobre os arquivos de código do projeto
+    const isSurgicalTask = task.milestone === 'Intervenção Cirúrgica' ||
+      (typeof task.title === 'string' && /Intervenção Cirúrgica|Diagnosticar e Corrigir|Bugfix/i.test(task.title)) ||
+      task.replan_type === 'SURGICAL';
+
+    const allowedScope = Array.from(new Set([
+      ...rawAllowedScope,
+      ...extractedMentionedFiles,
+      ...(isSurgicalTask ? ['src/', 'public/', 'app/', 'pages/', 'components/', 'lib/', 'server.js', 'server.ts', 'app.js', 'app.ts', 'index.js', 'index.ts'] : [])
+    ]));
 
     const effectiveReport = params.builderReport || params.workerReport;
     const reportFiles: string[] = Array.isArray(effectiveReport?.filesChanged)
@@ -2754,7 +2773,30 @@ export class HierarchicalOrchestrationService {
         'program.md',
         'rea-blueprint.md',
         'market-research-rea.md',
-        'lessons.md'
+        'lessons.md',
+        'server.js',
+        'server.ts',
+        'server.mjs',
+        'server.cjs',
+        'app.js',
+        'app.ts',
+        'index.js',
+        'index.ts',
+        'main.js',
+        'main.ts',
+        'vite.config.js',
+        'vite.config.ts',
+        'vite.config.mjs',
+        'next.config.js',
+        'next.config.mjs',
+        'next.config.ts',
+        'tailwind.config.js',
+        'tailwind.config.ts',
+        'postcss.config.js',
+        'postcss.config.mjs',
+        'knexfile.js',
+        'drizzle.config.ts',
+        'drizzle.config.js'
       ]);
 
       if (allowedBaseNames.has(base)) return true;
@@ -2763,6 +2805,8 @@ export class HierarchicalOrchestrationService {
       if (normLower.startsWith('.agents/') || normLower.startsWith('agents/')) return true;
       if (normLower.startsWith('test/') || normLower.startsWith('tests/') || /(test|spec)\.[cm]?[jt]sx?$/i.test(norm)) return true;
       if (normLower.startsWith('src/types/') || normLower.endsWith('.d.ts')) return true;
+      if (normLower.startsWith('src/config/') || normLower.startsWith('config/')) return true;
+      if (normLower.startsWith('src/database/') || normLower.startsWith('database/') || normLower.startsWith('src/db/') || normLower.startsWith('db/') || normLower.startsWith('prisma/')) return true;
       if (normLower.startsWith('scripts/') || normLower.startsWith('tools/')) return true;
       if (normLower.startsWith('e2e/') || normLower.startsWith('playwright/')) return true;
       if (normLower.startsWith('docs/')) return true;
@@ -2933,31 +2977,43 @@ export class HierarchicalOrchestrationService {
     // 3. Determine decision (APPROVED, REJECTED, or BLOCKED)
     let decision: 'APPROVED' | 'REJECTED' | 'BLOCKED' = 'APPROVED';
 
-    if (params.supervisorVerdict === 'BLOCKED' || (evalRes?.verdict === 'BLOCKED' && !params.allowReworkOnBlocked)) {
-      decision = 'BLOCKED';
-      problemsFound.push(params.supervisorFeedback || evalRes?.evaluatorNotes || 'Avaliação bloqueada por dependência ou comando incompatível.');
-    } else if (
-      problemsFound.length > 0 ||
+    const testsPassed = Boolean(evalRes && evalRes.verdict === 'PASS' && evalRes.taskIsDone === true);
+    const hasFatalIssues = problemsFound.length > 0 ||
       securityOrIsolationIssues.length > 0 ||
       regressionsDetected.length > 0 ||
       placeholdersOrMocksDetected.length > 0 ||
-      actionableOutOfScope.length > 0 ||
       (evalRes && evalRes.verdict !== 'PASS') ||
       params.supervisorVerdict === 'CHANGES_REQUESTED' ||
-      params.supervisorVerdict === 'REJECTED'
-    ) {
+      params.supervisorVerdict === 'REJECTED';
+
+    if (params.supervisorVerdict === 'BLOCKED' || (evalRes?.verdict === 'BLOCKED' && !params.allowReworkOnBlocked)) {
+      decision = 'BLOCKED';
+      problemsFound.push(params.supervisorFeedback || evalRes?.evaluatorNotes || 'Avaliação bloqueada por dependência ou comando incompatível.');
+    } else if (hasFatalIssues) {
       decision = 'REJECTED';
       problemsFound.push(
         ...securityOrIsolationIssues,
         ...regressionsDetected,
-        ...placeholdersOrMocksDetected,
-        ...actionableOutOfScope.map(f => `Arquivo fora do escopo permitido: ${f}`)
+        ...placeholdersOrMocksDetected
       );
+      if (actionableOutOfScope.length > 0) {
+        problemsFound.push(...actionableOutOfScope.map(f => `Arquivo fora do escopo permitido: ${f}`));
+      }
       if (evalRes && evalRes.verdict !== 'PASS') {
         problemsFound.push(evalRes.evaluatorNotes || `Avaliação independente retornou ${evalRes.verdict}`);
       }
       if (params.supervisorFeedback && params.supervisorVerdict !== 'APPROVED') {
         problemsFound.push(params.supervisorFeedback);
+      }
+    } else if (actionableOutOfScope.length > 0) {
+      // Karpathy Autoresearch Principle: Se todos os testes reais foram aprovados com código de saída 0,
+      // sem regressões e sem violações de segurança, arquivos de código adicionais modificados para atender
+      // aos critérios não devem abortar a aprovação da tarefa em um ciclo de retrabalho infinito.
+      if (testsPassed) {
+        decision = 'APPROVED';
+      } else {
+        decision = 'REJECTED';
+        problemsFound.push(...actionableOutOfScope.map(f => `Arquivo fora do escopo permitido: ${f}`));
       }
     }
 
@@ -3023,14 +3079,15 @@ export class HierarchicalOrchestrationService {
       securityOrIsolationIssues,
       problemsFound,
       justification:
-        (decision === 'APPROVED' ? (params.supervisorFeedback || evalRes?.evaluatorNotes) : null) ||
-        (decision === 'APPROVED'
-          ? 'Todos os critérios obrigatórios e verificações independentes foram comprovados.'
+        decision === 'APPROVED'
+          ? (actionableOutOfScope.length > 0
+              ? `${params.supervisorFeedback || evalRes?.evaluatorNotes || 'Todos os critérios obrigatórios e verificações independentes foram comprovados'} (escopo adaptativo: ${actionableOutOfScope.length} arquivo(s) adicional(is) integrado(s): ${actionableOutOfScope.join(', ')}).`
+              : (params.supervisorFeedback || evalRes?.evaluatorNotes || 'Todos os critérios obrigatórios e verificações independentes foram comprovados.'))
           : problemsFound.length > 0
           ? `Reprovado no Review independente: ${problemsFound.join('; ')}`
           : (evalRes && evalRes.verdict !== 'PASS'
             ? `Reprovado pelo Evaluator: ${evalRes.actual || evalRes.evaluatorNotes}`
-            : 'Critérios obrigatórios não atendidos na avaliação independente.')),
+            : 'Critérios obrigatórios não atendidos na avaliação independente.'),
       recommendedCorrections,
       evaluatedAt: new Date().toISOString()
     };

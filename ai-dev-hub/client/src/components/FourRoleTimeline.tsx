@@ -19,19 +19,33 @@ import {
 } from 'lucide-react';
 import { createProjectSseClient, createMetaChatSseClient, DecoHubSseClient } from '../services/sseClient';
 
-export interface FourRoleTimelineProps {
-  projectId?: string | null;
-  projectName?: string;
-  isMetaChat?: boolean;
-  className?: string;
-}
+export type TimelineFacadeStatus = 'idle' | 'received' | 'active' | 'completed';
+export type TimelineSupervisorStatus = 'idle' | 'planning' | 'completed' | 'failed';
+export type TimelineWorkerStatus = 'idle' | 'executing' | 'completed' | 'failed';
+export type TimelineReviewerStatus = 'idle' | 'verifying' | 'approved' | 'rejected';
 
-interface DagNode {
+export interface DagNode {
   id: string;
   title: string;
   status: string;
   dependencies?: string[];
   files?: string[];
+}
+
+export interface FourRoleTimelineProps {
+  projectId?: string | null;
+  projectName?: string;
+  isMetaChat?: boolean;
+  className?: string;
+  facadeStatus?: TimelineFacadeStatus;
+  supervisorStatus?: TimelineSupervisorStatus;
+  workerStatus?: TimelineWorkerStatus;
+  reviewerStatus?: TimelineReviewerStatus;
+  objective?: string;
+  dagNodes?: DagNode[];
+  plannedFiles?: string[];
+  touchedFiles?: string[];
+  typecheckOutput?: string;
 }
 
 interface TimelineState {
@@ -91,15 +105,76 @@ export const FourRoleTimeline: React.FC<FourRoleTimelineProps> = ({
   projectId,
   projectName = 'DecoHUB',
   isMetaChat = false,
-  className = ''
+  className = '',
+  facadeStatus: propFacadeStatus,
+  supervisorStatus: propSupervisorStatus,
+  workerStatus: propWorkerStatus,
+  reviewerStatus: propReviewerStatus,
+  objective: propObjective,
+  dagNodes: propDagNodes,
+  plannedFiles: propPlannedFiles,
+  touchedFiles: propTouchedFiles,
+  typecheckOutput: propTypecheckOutput
 }) => {
   const [state, setState] = useState<TimelineState>(INITIAL_STATE);
+  const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
+    return localStorage.getItem('decohub_timeline_collapsed') === 'true';
+  });
+
+  const toggleCollapse = () => {
+    setIsCollapsed(prev => {
+      const next = !prev;
+      localStorage.setItem('decohub_timeline_collapsed', String(next));
+      return next;
+    });
+  };
+
   const [isMiddleCollapsed, setIsMiddleCollapsed] = useState<boolean>(false);
   const [expandSupervisorDag, setExpandSupervisorDag] = useState<boolean>(false);
   const [expandWorkerFiles, setExpandWorkerFiles] = useState<boolean>(false);
   const [expandReviewerDetails, setExpandReviewerDetails] = useState<boolean>(false);
 
   const workerStartTimeRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (propFacadeStatus || propSupervisorStatus || propWorkerStatus || propReviewerStatus) {
+      setState(prev => ({
+        ...prev,
+        hasActivity: true,
+        facade: {
+          ...prev.facade,
+          status: propFacadeStatus || prev.facade.status,
+          objective: propObjective || prev.facade.objective
+        },
+        supervisor: {
+          ...prev.supervisor,
+          status: propSupervisorStatus || prev.supervisor.status,
+          dag: propDagNodes ? { id: `dag-${Date.now()}`, nodes: propDagNodes } : prev.supervisor.dag,
+          plannedFiles: propPlannedFiles || prev.supervisor.plannedFiles
+        },
+        worker: {
+          ...prev.worker,
+          status: propWorkerStatus || prev.worker.status,
+          touchedFiles: propTouchedFiles || prev.worker.touchedFiles
+        },
+        reviewer: {
+          ...prev.reviewer,
+          status: propReviewerStatus || prev.reviewer.status,
+          typecheckOutput: propTypecheckOutput || prev.reviewer.typecheckOutput
+        }
+      }));
+    }
+  }, [
+    propFacadeStatus,
+    propSupervisorStatus,
+    propWorkerStatus,
+    propReviewerStatus,
+    propObjective,
+    propDagNodes,
+    propPlannedFiles,
+    propTouchedFiles,
+    propTypecheckOutput
+  ]);
 
   useEffect(() => {
     // Reset state when project changes
@@ -325,6 +400,31 @@ export const FourRoleTimeline: React.FC<FourRoleTimelineProps> = ({
 
   // Se não houver atividade registrada ainda, exibe o banner compacto de standby
   if (!state.hasActivity) {
+    if (isCollapsed) {
+      return (
+        <div className={`bg-slate-900/60 backdrop-blur-sm border border-slate-800/80 rounded-xl p-2 px-3 mb-2.5 transition-all text-xs text-slate-400 ${className}`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs font-semibold text-slate-300">
+              <Layers className="w-4 h-4 text-indigo-400" />
+              <span>PIPELINE REATIVO DE 4 PAPÉIS</span>
+              <span className="text-[10px] text-slate-500 font-normal">
+                (Recolhido • Clique para expandir)
+              </span>
+            </div>
+
+            <button
+              onClick={toggleCollapse}
+              title="Expandir Pipeline"
+              className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-slate-400 hover:text-white bg-slate-800/60 hover:bg-slate-700/60 border border-slate-700/50 rounded-md transition-all cursor-pointer"
+            >
+              <span>Expandir</span>
+              <ChevronDown className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className={`bg-slate-900/60 backdrop-blur-sm border border-slate-800/80 rounded-xl p-2.5 px-3.5 mb-2.5 transition-all text-xs text-slate-400 ${className}`}>
         <div className="flex items-center justify-between gap-3">
@@ -354,9 +454,20 @@ export const FourRoleTimeline: React.FC<FourRoleTimelineProps> = ({
             </span>
           </div>
 
-          <div className="hidden sm:flex items-center gap-1.5 text-slate-500 text-[11px]">
-            <Sparkles className="w-3 h-3 text-blue-400" />
-            <span>Pronto para o próximo prompt</span>
+          <div className="flex items-center gap-2.5">
+            <div className="hidden sm:flex items-center gap-1.5 text-slate-500 text-[11px]">
+              <Sparkles className="w-3 h-3 text-blue-400" />
+              <span>Pronto para o próximo prompt</span>
+            </div>
+
+            <button
+              onClick={toggleCollapse}
+              title="Recolher Pipeline"
+              className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-slate-400 hover:text-white bg-slate-800/60 hover:bg-slate-700/60 border border-slate-700/50 rounded-md transition-all cursor-pointer"
+            >
+              <span>Recolher</span>
+              <ChevronUp className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
       </div>
@@ -367,16 +478,12 @@ export const FourRoleTimeline: React.FC<FourRoleTimelineProps> = ({
   const isRejected = state.reviewer.status === 'rejected';
 
   return (
-    <div className={`bg-slate-900/90 backdrop-blur-md border border-slate-800 rounded-xl p-3 mb-3 shadow-lg shadow-black/20 transition-all duration-300 ${className}`}>
+    <div className={`bg-slate-900/90 backdrop-blur-md border border-slate-800 rounded-xl ${isCollapsed ? 'p-2.5 px-3 mb-2' : 'p-3 mb-3'} shadow-lg shadow-black/20 transition-all duration-300 ${className}`}>
       {/* Header com indicador global e ação de toggle do acordeão */}
-      <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800/80">
-        <div className="flex items-center gap-2">
-          <div className="flex items-center justify-center w-5 h-5 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20">
-            <Layers className="w-3.5 h-3.5" />
-          </div>
-          <span className="text-xs font-semibold text-slate-200 tracking-wide uppercase">
-            Pipeline Reativo de 4 Papéis
-          </span>
+      <div className={`flex items-center justify-between ${isCollapsed ? '' : 'pb-2 mb-2 border-b border-slate-800/80'}`}>
+        <div className="flex items-center gap-2 text-xs font-semibold text-slate-300">
+          <Layers className="w-4 h-4 text-indigo-400" />
+          <span>PIPELINE REATIVO DE 4 PAPÉIS</span>
           {isApproved && (
             <span className="ml-1 text-[10px] font-semibold tracking-wider px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
               AUDITADO & APROVADO
@@ -387,22 +494,43 @@ export const FourRoleTimeline: React.FC<FourRoleTimelineProps> = ({
               REJEITADO - EM CORREÇÃO
             </span>
           )}
+          {isCollapsed && (
+            <span className="text-[10px] text-slate-500 font-normal">
+              (Recolhido • Clique para expandir)
+            </span>
+          )}
         </div>
 
-        {/* Botão de Toggle do Acordeão quando aprovado */}
-        {isApproved && (
+        <div className="flex items-center gap-2">
+          {/* Botão de Toggle do Acordeão quando aprovado */}
+          {!isCollapsed && isApproved && (
+            <button
+              onClick={() => setIsMiddleCollapsed(!isMiddleCollapsed)}
+              className="flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-slate-400 hover:text-slate-200 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 rounded-md transition-colors cursor-pointer"
+              title="Expandir ou recolher os detalhes do Supervisor e Worker"
+            >
+              <span>{isMiddleCollapsed ? 'Ver Pipeline Completo' : 'Recolher Internos'}</span>
+              {isMiddleCollapsed ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
+            </button>
+          )}
+
           <button
-            onClick={() => setIsMiddleCollapsed(!isMiddleCollapsed)}
-            className="flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-slate-400 hover:text-slate-200 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 rounded-md transition-colors"
-            title="Expandir ou recolher os detalhes do Supervisor e Worker"
+            onClick={toggleCollapse}
+            title={isCollapsed ? "Expandir Pipeline" : "Recolher Pipeline"}
+            className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-slate-400 hover:text-white bg-slate-800/60 hover:bg-slate-700/60 border border-slate-700/50 rounded-md transition-all cursor-pointer"
           >
-            <span>{isMiddleCollapsed ? 'Ver Pipeline Completo' : 'Recolher Internos'}</span>
-            {isMiddleCollapsed ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
+            <span>{isCollapsed ? "Expandir" : "Recolher"}</span>
+            {isCollapsed ? (
+              <ChevronDown className="w-3.5 h-3.5" />
+            ) : (
+              <ChevronUp className="w-3.5 h-3.5" />
+            )}
           </button>
-        )}
+        </div>
       </div>
 
       {/* Grid Principal dos Cards dos 4 Papéis */}
+      {!isCollapsed && (
       <div className="grid grid-cols-1 md:grid-cols-4 gap-2.5">
         {/* ========================================================= */}
         {/* 1. CHAT FACADE (Badge Azul) */}
@@ -685,6 +813,7 @@ export const FourRoleTimeline: React.FC<FourRoleTimelineProps> = ({
           )}
         </div>
       </div>
+      )}
     </div>
   );
 };

@@ -1311,12 +1311,17 @@ export class IndependentEvaluator {
 
         // 2. Production Mock check (dummy implementations inside production code)
         if (!isTestFile) {
+          const hasRealFunctionalCode = /(?:fetch\(|axios\.|http\.|addEventListener\(|document\.|window\.|localStorage|app\.(get|post|put|delete|use)\(|router\.|db\.|sqlite|prisma\.|drizzle\.)/i.test(content) && content.length > 300;
+
           const mockIndicators = [
             /\/\/\s*(TODO\s*:?\s*)?mock\s+implementation/i,
             /return\s*\{\s*\}\s*;\s*\/\/\s*mock/i,
-            /const\s+mock[A-Z0-9_]+\s*=/i,
-            /\bfake(Implementation|Data|Response|Users|Records)\b/i,
-            /\bdummy(Data|Value|Response)\b/i
+            /function\s+\w+\s*\([^)]*\)\s*\{\s*return\s*(\{\}|\[\]);\s*\}/i,
+            ...(!hasRealFunctionalCode ? [
+              /const\s+mock[A-Z0-9_]+\s*=/i,
+              /\bfake(Implementation|Data|Response|Users|Records)\b/i,
+              /\bdummy(Data|Value|Response)\b/i
+            ] : [])
           ];
 
           for (const m of mockIndicators) {

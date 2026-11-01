@@ -1758,6 +1758,15 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
     }
   };
 
+  const handleOpenMetaTerminal = async () => {
+    try {
+      const res = await api.openMetaTerminal();
+      onShowToast?.('success', res.message || 'Terminal aberto na engine DecoHUB');
+    } catch (err: any) {
+      onShowToast?.('error', err.message || 'Falha ao abrir terminal da engine');
+    }
+  };
+
   const handleToggleAutopilot = async (customCycles?: number) => {
     if (autopilotStatus?.enabled) {
       try {
@@ -2118,6 +2127,17 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
               <span className="text-indigo-300">{mlStatus.episodicMemoriesCount} Q-Mem</span>
             </div>
           )}
+
+          {/* Terminal Engine */}
+          <button
+            type="button"
+            onClick={handleOpenMetaTerminal}
+            title="Abrir Terminal do DecoHUB (PowerShell / Windows Terminal para Git Commit & Push)"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/60 text-slate-300 hover:text-white text-xs font-medium transition-all shadow-sm"
+          >
+            <Terminal className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Terminal Engine</span>
+          </button>
 
           {/* D. Recompilar e Atualizar Produção */}
           <button

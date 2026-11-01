@@ -2026,6 +2026,17 @@ apiRouter.post('/projects/:id/open-terminal', (req, res) => {
   }
 });
 
+apiRouter.post('/system/open-meta-terminal', (req, res) => {
+  try {
+    const rootPath = MetaChatService.getDecoHubRoot();
+    const result = SystemManager.openTerminal(rootPath);
+    res.json(result);
+  } catch (err: any) {
+    Logger.error(`Erro ao abrir terminal da engine DecoHUB: ${err.message}`);
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // -------------------------------------------------------------
 // MEMORY & TASKS
 // -------------------------------------------------------------

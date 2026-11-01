@@ -1,7 +1,7 @@
 /**
  * Server-Sent Events (SSE) Streaming Service
  * Manages active SSE connections per project and for Meta-Chat,
- * delivers real-time heartbeats (ping every 15s), and dispatches
+ * delivers real-time heartbeats (ping every 10s), and dispatches
  * observability events, tool calls, logs, and activity progress.
  */
 import type { Response, Request } from 'express';
@@ -26,6 +26,17 @@ export class SseStreamService {
   static addClient(channelId: string, res: Response, req?: Request): void {
     this.initialize();
     const channel = String(channelId);
+
+    // Socket TCP shielding: prevent inactivity closing, enable TCP keep-alive & no-delay
+    if (req?.socket) {
+      req.socket.setTimeout(0);
+      req.socket.setNoDelay(true);
+      req.socket.setKeepAlive(true, 5000);
+    }
+    if (res.socket) {
+      res.socket.setTimeout(0);
+      res.socket.setKeepAlive(true, 5000);
+    }
 
     // Set standard SSE headers
     res.setHeader('Content-Type', 'text/event-stream');
@@ -123,7 +134,7 @@ export class SseStreamService {
     if (this.heartbeatTimer) return;
     this.heartbeatTimer = setInterval(() => {
       this.sendHeartbeat();
-    }, 15000);
+    }, 10000);
     // Don't prevent process from exiting
     if (typeof this.heartbeatTimer.unref === 'function') {
       this.heartbeatTimer.unref();

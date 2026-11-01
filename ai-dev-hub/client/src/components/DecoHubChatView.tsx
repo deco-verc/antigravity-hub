@@ -386,8 +386,8 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
 
     sseClient.on('error', () => {
       if (currentProjectRef.current !== project.id) return;
-      setCouncilStatus(null);
-      setIsSubmitting(false);
+      // Do not aggressively reset active council state or tasks during transient SSE reconnections;
+      // allow sseClient to silently reconnect in the background without UI flicker.
     });
 
     // Dual-layer resilience: fallback periodic poll while component is mounted
@@ -837,6 +837,15 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
               <span className="hidden sm:inline">Avançado</span>
             </button>
           )}
+
+          <button
+            type="button"
+            onClick={() => api.openTerminal(project.id)}
+            title="Abrir Terminal do Projeto (PowerShell / Windows Terminal)"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all border border-transparent hover:border-slate-700"
+          >
+            <Terminal className="w-4 h-4" />
+          </button>
         </div>
       </div>
 

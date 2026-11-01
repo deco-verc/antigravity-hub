@@ -393,6 +393,16 @@ export const DecoHubHeader: React.FC<DecoHubHeaderProps> = ({
           <span>Diagnóstico</span>
         </button>
 
+        {/* Botão de Terminal Rápido do Projeto */}
+        <button
+          type="button"
+          onClick={onOpenTerminal}
+          title="Abrir Terminal do Projeto (PowerShell / Windows Terminal)"
+          className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all border border-transparent hover:border-slate-700"
+        >
+          <Terminal className="w-4 h-4" />
+        </button>
+
         {/* Menu ... de Ações Secundárias */}
         <div className="relative" ref={menuRef}>
           <button

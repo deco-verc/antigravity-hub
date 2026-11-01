@@ -161,10 +161,19 @@ export class AccountProfileManager {
   private static runningInstanceCache = new Map<string, { data: { address: string; csrfToken: string; pid: number } | null; expiresAt: number }>();
   private static authEvidenceCache = new Map<string, { data: { exists: boolean; detectedUser: string | null; onboardingCompleted: boolean; hasAuthEvidence: boolean; storagePath: string | null }; expiresAt: number }>();
 
+  public static readonly LS_CACHE_TTL_MS = 30000;
+  public static readonly TRANSIENT_FAULT_TOLERANCE_MS = 45000;
+  private static lastKnownGoodInstance = new Map<string, { data: { address: string; csrfToken: string; pid: number }; timestamp: number }>();
+  private static lastKnownLiveLs: { data: { address: string; csrfToken: string; pid: number }; timestamp: number } | null = null;
+  public static lastReadyTimestamps = new Map<string, number>();
+
   static clearRuntimeCaches(): void {
     this.runningInstanceCache.clear();
     this.authEvidenceCache.clear();
     this.liveLsInstanceCache = null;
+    this.lastKnownGoodInstance.clear();
+    this.lastKnownLiveLs = null;
+    this.lastReadyTimestamps.clear();
   }
 
   static setVerifyProbeOverrideForTest(probe: ((profile: AccountProfile) => boolean) | null): void {
@@ -1206,14 +1215,30 @@ export class AccountProfileManager {
         const runningInstance = this.getRunningInstanceForProfile(profile.environment_path);
 
         if (!AccountProfileManager.isOfflineMode() && !appExe) {
-          determinedStatus = 'RUNTIME_UNAVAILABLE';
-          hasSession = false;
-          statusReason = 'Executável do Antigravity não encontrado neste sistema.';
+          const lastReady = AccountProfileManager.lastReadyTimestamps.get(profile.id) ||
+            (profile.auth_status === 'READY' && profile.last_tested ? new Date(profile.last_tested).getTime() : 0);
+          if (lastReady && (Date.now() - lastReady) < AccountProfileManager.TRANSIENT_FAULT_TOLERANCE_MS) {
+            determinedStatus = 'READY';
+            hasSession = true;
+            statusReason = 'Tolerância transitória ativa: mantendo último estado bom (READY).';
+          } else {
+            determinedStatus = 'RUNTIME_UNAVAILABLE';
+            hasSession = false;
+            statusReason = 'Executável do Antigravity não encontrado neste sistema.';
+          }
         } else if (!detectedUser || !evidence.hasAuthEvidence) {
-          determinedStatus = 'LOGIN_REQUIRED';
-          hasSession = false;
-          statusReason =
-            'Conta Google não autenticada no perfil (app_storage.json sem usuário logado). Conclua o login na janela do Antigravity.';
+          const lastReady = AccountProfileManager.lastReadyTimestamps.get(profile.id) ||
+            (profile.auth_status === 'READY' && profile.last_tested ? new Date(profile.last_tested).getTime() : 0);
+          if (lastReady && (Date.now() - lastReady) < AccountProfileManager.TRANSIENT_FAULT_TOLERANCE_MS && (profile.auth_status === 'READY' || profile.auth_status === 'ACTIVE')) {
+            determinedStatus = 'READY';
+            hasSession = true;
+            statusReason = 'Tolerância transitória ativa: mantendo último estado bom (READY) absorvendo oscilação temporária de probe.';
+          } else {
+            determinedStatus = 'LOGIN_REQUIRED';
+            hasSession = false;
+            statusReason =
+              'Conta Google não autenticada no perfil (app_storage.json sem usuário logado). Conclua o login na janela do Antigravity.';
+          }
         } else if (isQuotaExhausted) {
           determinedStatus = 'QUOTA_EXHAUSTED';
           hasSession = true;
@@ -1223,6 +1248,7 @@ export class AccountProfileManager {
         } else {
           determinedStatus = 'READY';
           hasSession = true;
+          AccountProfileManager.lastReadyTimestamps.set(profile.id, Date.now());
           statusReason = runningInstance
             ? `Conta Google "${detectedUser}" autenticada com sucesso e runtime Antigravity ativo em ${runningInstance.address}.`
             : `Conta Google "${detectedUser}" autenticada e pronta (runtime iniciará automaticamente sob demanda).`;
@@ -1419,8 +1445,21 @@ export class AccountProfileManager {
 
   static updateStatus(profileId: string, status: AuthStatus): void {
     const current = this.getProfile(profileId);
-    if (status === 'READY' && current?.quota_resets_at && new Date(current.quota_resets_at).getTime() > Date.now()) {
-      return;
+    if (status === 'READY' || status === 'ACTIVE') {
+      this.lastReadyTimestamps.set(profileId, Date.now());
+      if (current?.quota_resets_at && new Date(current.quota_resets_at).getTime() > Date.now()) {
+        return;
+      }
+    }
+    if (status === 'OFFLINE' || status === 'RUNTIME_UNAVAILABLE') {
+      const lastReady = this.lastReadyTimestamps.get(profileId) ||
+        (current && ['READY', 'ACTIVE'].includes(current.auth_status) && current.last_tested
+          ? new Date(current.last_tested).getTime()
+          : 0);
+      if (lastReady && (Date.now() - lastReady) < AccountProfileManager.TRANSIENT_FAULT_TOLERANCE_MS) {
+        Logger.info(`[AccountProfileManager] Tolerância transitória ativa para conta ${profileId} (estava READY há ${Math.round((Date.now() - lastReady) / 1000)}s). Preservando estado READY.`);
+        return;
+      }
     }
     const now = new Date().toISOString();
     db.prepare(`
@@ -1554,21 +1593,30 @@ export class AccountProfileManager {
       }).trim();
 
       if (!output) {
-        this.liveLsInstanceCache = { data: null, expiresAt: Date.now() + 4000 };
+        if (this.lastKnownLiveLs && (Date.now() - this.lastKnownLiveLs.timestamp) < AccountProfileManager.TRANSIENT_FAULT_TOLERANCE_MS) {
+          this.liveLsInstanceCache = { data: this.lastKnownLiveLs.data, expiresAt: Date.now() + AccountProfileManager.LS_CACHE_TTL_MS };
+          return this.lastKnownLiveLs.data;
+        }
+        this.liveLsInstanceCache = { data: null, expiresAt: Date.now() + AccountProfileManager.LS_CACHE_TTL_MS };
         return null;
       }
 
       const parsed = JSON.parse(output);
       if (parsed && Number.isInteger(parsed.port) && parsed.csrfToken && Number.isInteger(parsed.pid)) {
         const result = { address: `127.0.0.1:${parsed.port}`, csrfToken: String(parsed.csrfToken), pid: Number(parsed.pid) };
-        this.liveLsInstanceCache = { data: result, expiresAt: Date.now() + 4000 };
+        this.liveLsInstanceCache = { data: result, expiresAt: Date.now() + AccountProfileManager.LS_CACHE_TTL_MS };
+        this.lastKnownLiveLs = { data: result, timestamp: Date.now() };
         return result;
       }
     } catch (err: any) {
       Logger.warn(`[AccountProfileManager] Falha ao detectar language server ativo global: ${err.message}`);
     }
 
-    this.liveLsInstanceCache = { data: null, expiresAt: Date.now() + 4000 };
+    if (this.lastKnownLiveLs && (Date.now() - this.lastKnownLiveLs.timestamp) < AccountProfileManager.TRANSIENT_FAULT_TOLERANCE_MS) {
+      this.liveLsInstanceCache = { data: this.lastKnownLiveLs.data, expiresAt: Date.now() + AccountProfileManager.LS_CACHE_TTL_MS };
+      return this.lastKnownLiveLs.data;
+    }
+    this.liveLsInstanceCache = { data: null, expiresAt: Date.now() + AccountProfileManager.LS_CACHE_TTL_MS };
     return null;
   }
 
@@ -1583,18 +1631,36 @@ export class AccountProfileManager {
     if (AccountProfileManager.isOfflineMode() || (!isMocked && this.isAutomatedTestRuntime() && process.env.DECOHUB_ALLOW_LIVE_AGENTAPI !== 'true')) return null;
     const isTest = this.isAutomatedTestRuntime();
 
+    const resolveFallbackOrLastKnown = (): { address: string; csrfToken: string; pid: number } | null => {
+      if (!isTest) {
+        const fallback = this.findAnyLiveLanguageServerInstance();
+        if (fallback) {
+          if (cacheKey) {
+            this.runningInstanceCache.set(cacheKey, { data: fallback, expiresAt: Date.now() + AccountProfileManager.LS_CACHE_TTL_MS });
+            this.lastKnownGoodInstance.set(cacheKey, { data: fallback, timestamp: Date.now() });
+          }
+          return fallback;
+        }
+      }
+      // Tolerância a Falhas Transitórias: se uma chamada de verificação retornar null,
+      // não descarte a instância imediatamente se ela estava boa há menos de 45 segundos.
+      const lastKnown = cacheKey ? this.lastKnownGoodInstance.get(cacheKey) : null;
+      if (lastKnown && (Date.now() - lastKnown.timestamp) < AccountProfileManager.TRANSIENT_FAULT_TOLERANCE_MS) {
+        if (!isTest && cacheKey) {
+          this.runningInstanceCache.set(cacheKey, { data: lastKnown.data, expiresAt: Date.now() + AccountProfileManager.LS_CACHE_TTL_MS });
+        }
+        return lastKnown.data;
+      }
+      if (!isTest && cacheKey) {
+        this.runningInstanceCache.set(cacheKey, { data: null, expiresAt: Date.now() + AccountProfileManager.LS_CACHE_TTL_MS });
+      }
+      return null;
+    };
+
     try {
       const binding = this.getRuntimeBindingForProfile(envPath);
       if (!binding) {
-        if (!isTest) {
-          const fallback = this.findAnyLiveLanguageServerInstance();
-          if (fallback) {
-            if (cacheKey) this.runningInstanceCache.set(cacheKey, { data: fallback, expiresAt: Date.now() + 4000 });
-            return fallback;
-          }
-          if (cacheKey) this.runningInstanceCache.set(cacheKey, { data: null, expiresAt: Date.now() + 4000 });
-        }
-        return null;
+        return resolveFallbackOrLastKnown();
       }
       const script = `
         $ErrorActionPreference = 'Stop';
@@ -1626,43 +1692,22 @@ export class AccountProfileManager {
         connection.port > 65535 ||
         !connection.csrfToken
       ) {
-        if (!isTest) {
-          const fallback = this.findAnyLiveLanguageServerInstance();
-          if (fallback) {
-            if (cacheKey) this.runningInstanceCache.set(cacheKey, { data: fallback, expiresAt: Date.now() + 4000 });
-            return fallback;
-          }
-          if (cacheKey) this.runningInstanceCache.set(cacheKey, { data: null, expiresAt: Date.now() + 4000 });
-        }
-        return null;
+        return resolveFallbackOrLastKnown();
       }
       const current = this.getRuntimeBindingForProfile(envPath);
       if (!current || JSON.stringify(current) !== JSON.stringify(binding)) {
-        if (!isTest) {
-          const fallback = this.findAnyLiveLanguageServerInstance();
-          if (fallback) {
-            if (cacheKey) this.runningInstanceCache.set(cacheKey, { data: fallback, expiresAt: Date.now() + 4000 });
-            return fallback;
-          }
-          if (cacheKey) this.runningInstanceCache.set(cacheKey, { data: null, expiresAt: Date.now() + 4000 });
-        }
-        return null;
+        return resolveFallbackOrLastKnown();
       }
       const result = { address: `127.0.0.1:${connection.port}`, csrfToken: connection.csrfToken, pid: binding.pid };
-      if (!isTest && cacheKey) this.runningInstanceCache.set(cacheKey, { data: result, expiresAt: Date.now() + 5000 });
+      if (!isTest && cacheKey) {
+        this.runningInstanceCache.set(cacheKey, { data: result, expiresAt: Date.now() + AccountProfileManager.LS_CACHE_TTL_MS });
+        this.lastKnownGoodInstance.set(cacheKey, { data: result, timestamp: Date.now() });
+      }
       return result;
     } catch (error) {
       const code = error instanceof RuntimeProfileSelectionError ? error.code : 'RUNTIME_DISCOVERY_FAILED';
       Logger.warn(`[AccountProfileManager] Runtime indisponível ou ambíguo: ${code}`);
-      if (!isTest) {
-        const fallback = this.findAnyLiveLanguageServerInstance();
-        if (fallback) {
-          if (cacheKey) this.runningInstanceCache.set(cacheKey, { data: fallback, expiresAt: Date.now() + 4000 });
-          return fallback;
-        }
-        if (cacheKey) this.runningInstanceCache.set(cacheKey, { data: null, expiresAt: Date.now() + 4000 });
-      }
-      return null;
+      return resolveFallbackOrLastKnown();
     }
   }
 
@@ -2829,7 +2874,10 @@ export class AccountProfileManager {
       const isCur = p.id === activeProfileId;
       let normalizedStatus: 'READY' | 'WAITING_LOGIN' | 'QUOTA_EXHAUSTED' | 'OFFLINE' = 'READY';
 
-      if (p.auth_status === 'QUOTA_EXHAUSTED' || p.auth_status === 'RATE_LIMITED') {
+      if (p.auth_status === 'READY' || p.auth_status === 'ACTIVE') {
+        AccountProfileManager.lastReadyTimestamps.set(p.id, Date.now());
+        normalizedStatus = 'READY';
+      } else if (p.auth_status === 'QUOTA_EXHAUSTED' || p.auth_status === 'RATE_LIMITED') {
         normalizedStatus = 'QUOTA_EXHAUSTED';
       } else if (
         p.auth_status === 'WAITING_LOGIN' ||
@@ -2839,11 +2887,21 @@ export class AccountProfileManager {
       ) {
         normalizedStatus = 'WAITING_LOGIN';
       } else if (p.auth_status === 'OFFLINE' || p.auth_status === 'RUNTIME_UNAVAILABLE') {
-        normalizedStatus = 'OFFLINE';
-      } else if (p.auth_status === 'READY' || p.auth_status === 'ACTIVE') {
-        normalizedStatus = 'READY';
+        const lastReady = AccountProfileManager.lastReadyTimestamps.get(p.id) ||
+          (p.last_tested ? new Date(p.last_tested).getTime() : 0);
+        if (lastReady && (Date.now() - lastReady) < AccountProfileManager.TRANSIENT_FAULT_TOLERANCE_MS) {
+          normalizedStatus = 'READY';
+        } else {
+          normalizedStatus = 'OFFLINE';
+        }
       } else {
-        normalizedStatus = 'OFFLINE';
+        const lastReady = AccountProfileManager.lastReadyTimestamps.get(p.id) ||
+          (p.last_tested ? new Date(p.last_tested).getTime() : 0);
+        if (lastReady && (Date.now() - lastReady) < AccountProfileManager.TRANSIENT_FAULT_TOLERANCE_MS) {
+          normalizedStatus = 'READY';
+        } else {
+          normalizedStatus = 'OFFLINE';
+        }
       }
 
       // Check process / daemon
@@ -2930,8 +2988,16 @@ export class AccountProfileManager {
     ) {
       const evidence = AccountProfileManager.inspectLocalAuthEvidence(row.environment_path);
       if (!evidence.hasAuthEvidence) {
-        resolvedStatus = 'AUTH_UNKNOWN';
+        const lastReady = AccountProfileManager.lastReadyTimestamps.get(row.id) ||
+          (row.last_tested ? new Date(row.last_tested).getTime() : 0);
+        if (!lastReady || (Date.now() - lastReady) >= AccountProfileManager.TRANSIENT_FAULT_TOLERANCE_MS) {
+          resolvedStatus = 'AUTH_UNKNOWN';
+        }
+      } else {
+        AccountProfileManager.lastReadyTimestamps.set(row.id, Date.now());
       }
+    } else if (['READY', 'ACTIVE'].includes(row.auth_status)) {
+      AccountProfileManager.lastReadyTimestamps.set(row.id, Date.now());
     }
     const globalActiveId = AccountProfileManager.getGlobalActiveProfileIdSafe();
     const displayName = row.display_name || row.name || row.id;

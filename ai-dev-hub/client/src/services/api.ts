@@ -395,6 +395,15 @@ export const api = {
     return res.json();
   },
 
+  async openMetaTerminal(): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`${API_BASE}/system/open-meta-terminal`, { method: 'POST' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Falha ao abrir terminal da engine' }));
+      throw new Error(err.error || 'Falha ao abrir terminal da engine');
+    }
+    return res.json();
+  },
+
   async getSystemHealth(): Promise<SystemHealthData> {
     const res = await fetch(`${API_BASE}/system/health`);
     if (!res.ok) throw new Error('Falha ao consultar saúde do sistema');

@@ -206,9 +206,18 @@ export class DeltaFeatureEngine {
         return [];
       }
     };
-    const srcFiles = listFiles('src');
-    const pubFiles = listFiles('public');
-    const allFiles = [...srcFiles, ...pubFiles];
+    const candidateDirs = ['src', 'public', 'app', 'pages', 'components', 'lib', 'routes', 'controllers', 'database', 'config', 'services'];
+    const activeDirs = candidateDirs.filter(d => fs.existsSync(path.join(projectPath, d)));
+    const allFiles: string[] = [];
+    for (const d of activeDirs) {
+      allFiles.push(...listFiles(d));
+    }
+    const rootCandidates = ['server.js', 'server.ts', 'server.mjs', 'server.cjs', 'app.js', 'app.ts', 'index.js', 'index.ts', 'main.js', 'main.ts'];
+    for (const rc of rootCandidates) {
+      if (fs.existsSync(path.join(projectPath, rc))) {
+        allFiles.push(rc);
+      }
+    }
     const fileInventoryContext = allFiles.length > 0
       ? `\n- **Arquivos do Projeto:** ${allFiles.slice(0, 15).join(', ')}${allFiles.length > 15 ? ` (+${allFiles.length - 15} arquivos)` : ''}`
       : '';
@@ -222,10 +231,20 @@ export class DeltaFeatureEngine {
       `"${briefing}"\n\n` +
       `**Contexto e Evidências do Ambiente:**${fileInventoryContext}${envContext}${portLogsContext}\n\n` +
       `**Plano de Execução Focado (Zero Replanejamento):**\n` +
-      `1. Analise os arquivos reais da aplicação em \`src/\` e \`public/\`, localizando a causa-raiz exata da falha ou do comportamento inesperado.\n` +
+      `1. Analise os arquivos reais da aplicação em \`src/\`, \`public/\`, \`app/\` ou na raiz, localizando a causa-raiz exata da falha ou do comportamento inesperado.\n` +
       (wantsResetDb ? `2. Como solicitado, certifique-se de que a estrutura/schema do SQLite seja recriada limpa e sem dados corrompidos.\n` : `2. Preserve a base de dados existente e faça alterações aditivas seguras.\n`) +
       `3. Corrija o backend e o frontend de ponta a ponta: forneça feedback visual imediato no botão/interface (loading spinner, erro detalhado caso a API Key falhe) e garanta que as rotas da API leiam as chaves do .env e gravem os dados com consistência.\n` +
       `4. Assegure que a suíte de testes e o build continuem executando com exit code 0.`;
+
+    const scopeDirs = activeDirs.length > 0 ? activeDirs.map(d => `${d}/`) : ['src/', 'public/'];
+    const expectedScopeList = Array.from(new Set([
+      ...scopeDirs,
+      'src/',
+      'public/',
+      'app/',
+      'pages/',
+      ...rootCandidates.filter(rc => fs.existsSync(path.join(projectPath, rc)) || allFiles.includes(rc))
+    ]));
 
     const task1: PlannedTask = {
       title: taskTitle,
@@ -241,8 +260,8 @@ export class DeltaFeatureEngine {
       ],
       verificationCommand: 'npm test',
       doneWhen: 'Comportamento reportado corrigido e validado com sucesso.',
-      expectedFiles: ['src/', 'public/'],
-      expectedScopeFiles: ['src/', 'public/']
+      expectedFiles: expectedScopeList,
+      expectedScopeFiles: expectedScopeList
     };
 
     return [task1];
