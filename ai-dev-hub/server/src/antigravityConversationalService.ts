@@ -386,7 +386,9 @@ export class AntigravityConversationalService {
       `"${userMessage}"`,
       ``,
       `--- DIRETRIZ DE RESPOSTA ---`,
-      intentResult.intent === 'CONVERSATION'
+      intentResult.intent === 'CODE_MODIFICATION' || intentResult.intent === 'FEATURE_REQUEST'
+        ? `O usuário solicitou uma implementação ou modificação de código. Você DEVE acionar o Pipeline de 4 Papéis: o Supervisor analisa a arquitetura e define a Work Order; o Worker implementa cirurgicamente o backend e as interfaces visuais necessárias (telas de disparo, templates, webhooks); o Reviewer valida com tsc e testes.`
+        : intentResult.intent === 'CONVERSATION'
         ? `Esta é uma conversa de exploração/design. NÃO gere comandos de execução. Discuta ideias, analise trade-offs e faça perguntas esclarecedoras se houver decisões em aberto.`
         : intentResult.intent === 'STATE_QUERY'
         ? `Esta é uma consulta de estado/diagnóstico. Responda com base nos fatos, erros reais, critérios reprovados e caminhos de log indicados no contexto.`

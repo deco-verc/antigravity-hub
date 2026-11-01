@@ -28,6 +28,7 @@ import { getGlobalAgentGuidelines } from './agentGuidelines.js';
 import { IndependentEvaluator } from './independentEvaluator.js';
 import { ResearchManager } from './researchManager.js';
 import { CouncilManager } from './councilManager.js';
+import { SessionCircuitBreaker } from './sessionCircuitBreaker.js';
 import { ArenaManager } from './arenaManager.js';
 import { BenchmarkManager } from './benchmarkManager.js';
 import { BenchmarkService } from './benchmarkService.js';
@@ -1250,6 +1251,20 @@ apiRouter.get('/fs/quick-paths', (req, res) => {
   }
 });
 
+apiRouter.get('/system/paths', (req, res) => {
+  try {
+    const userHome = os.homedir();
+    const defaultProjectsDir = process.env.AI_DEV_TEST_PROJECTS_DIR || path.join(userHome, '.ai-dev-hub', 'test-projects');
+    res.json({
+      defaultProjectsDir,
+      userHome,
+      cwd: process.cwd()
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // -------------------------------------------------------------
 // PROJECTS MANAGEMENT
 // -------------------------------------------------------------
@@ -1453,14 +1468,54 @@ apiRouter.post('/projects', async (req, res) => {
       Logger.warn(`[POST /projects] Aviso ao definir preferência de modelo: ${e.message}`);
     }
 
+    // Pre-warm / switch account runtime e inicialização da memória de forma síncrona
+    // garantindo vínculo da conta antes de enviar a resposta HTTP 201 ao cliente
+    if (effectiveProfileId) {
+      try {
+        await AccountProfileManager.switchAccount({
+          projectId: id,
+          targetProfileId: effectiveProfileId
+        });
+      } catch (e: any) {
+        Logger.warn(`[POST /projects] Falha ao vincular conta inicial ${effectiveProfileId}: ${e.message}`);
+      }
+    }
+
+    // Auto-establish native workspace binding for seamless development
+    try {
+      const activeProf = AccountProfileManager.getActiveProfileForProject(id);
+      const userProfileDir = AccountProfileManager.getUserProfileDir(activeProf);
+      NativeWorkspaceBinding.ensureBinding(id, activeProf.id, userProfileDir, {
+        mode: fullDevAutonomy ? 'permissive' : 'restricted'
+      });
+      Logger.success(`[POST /projects] Vínculo nativo estabelecido com sucesso para ${name.trim()}`);
+    } catch (bindErr: any) {
+      Logger.warn(`[POST /projects] Aviso ao estabelecer vínculo nativo: ${bindErr.message}`);
+    }
+
+    // Initial system message
+    try {
+      db.prepare(`
+        INSERT INTO messages (id, project_id, role, content, created_at)
+        VALUES (?, ?, 'system', ?, ?)
+      `).run(
+        crypto.randomUUID(),
+        id,
+        `Projeto **${name.trim()}** registrado com sucesso. A memória permanente foi inicializada em \`${path.join(val.resolvedPath, '.ai-dev-hub')}\`.`,
+        nowIso
+      );
+    } catch (msgErr: any) {
+      Logger.warn(`[POST /projects] Aviso ao registrar mensagem de sistema: ${msgErr.message}`);
+    }
+
     Logger.success(`Projeto cadastrado no Hub: ${name} (${val.resolvedPath})`);
     const createdProject = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
 
-    // Send immediate response to unlock client UI instantly (< 20ms)
+    // Send immediate response after synchronous account binding and memory setup
     res.status(201).json(createdProject);
 
-    // 3. Asynchronous background secondary/heavy operations (Git init, Checkpoint, Git remote, Binding)
-    // Executado exclusivamente em background via setImmediate para garantir flush instantâneo (< 10ms) ao cliente HTTP
+    // 3. Asynchronous background secondary/heavy operations (Git init, Checkpoint, Git remote)
+    // Executado em background via setImmediate para operações pesadas (I/O de Git, Checkpoint e GitHub remoto)
     setImmediate(async () => {
       try {
         // Inicialização rápida do Git em background sem travar o Event Loop da requisição HTTP
@@ -1537,45 +1592,6 @@ apiRouter.post('/projects', async (req, res) => {
           });
         } catch (chkErr: any) {
           Logger.warn(`[POST /projects] Aviso ao criar checkpoint de sessão: ${chkErr.message}`);
-        }
-
-        // Initial system message
-        try {
-          db.prepare(`
-            INSERT INTO messages (id, project_id, role, content, created_at)
-            VALUES (?, ?, 'system', ?, ?)
-          `).run(
-            crypto.randomUUID(),
-            id,
-            `Projeto **${name.trim()}** registrado com sucesso. A memória permanente foi inicializada em \`${path.join(val.resolvedPath, '.ai-dev-hub')}\`.`,
-            nowIso
-          );
-        } catch (msgErr: any) {
-          Logger.warn(`[POST /projects] Aviso ao registrar mensagem de sistema: ${msgErr.message}`);
-        }
-
-        // Pre-warm / switch account runtime if requested
-        if (effectiveProfileId) {
-          try {
-            await AccountProfileManager.switchAccount({
-              projectId: id,
-              targetProfileId: effectiveProfileId
-            });
-          } catch (e: any) {
-            Logger.warn(`[POST /projects] Falha ao vincular conta inicial ${effectiveProfileId}: ${e.message}`);
-          }
-        }
-
-        // Auto-establish native workspace binding for seamless development
-        try {
-          const activeProf = AccountProfileManager.getActiveProfileForProject(id);
-          const userProfileDir = AccountProfileManager.getUserProfileDir(activeProf);
-          NativeWorkspaceBinding.ensureBinding(id, activeProf.id, userProfileDir, {
-            mode: fullDevAutonomy ? 'permissive' : 'restricted'
-          });
-          Logger.success(`[POST /projects] Vínculo nativo estabelecido com sucesso para ${name.trim()}`);
-        } catch (bindErr: any) {
-          Logger.warn(`[POST /projects] Aviso ao estabelecer vínculo nativo: ${bindErr.message}`);
         }
 
         // GitHub repository setup if requested (network call)
@@ -2209,6 +2225,118 @@ apiRouter.post('/projects/:id/tasks/move', (req, res) => {
   }
 });
 
+apiRouter.post('/projects/:id/tasks/delete', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { taskText, taskId } = req.body || {};
+    if (!taskText && !taskId) {
+      return res.status(400).json({ error: 'taskText ou taskId é obrigatório' });
+    }
+
+    const project: any = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
+    if (!project) return res.status(404).json({ error: 'Projeto não encontrado' });
+
+    // 1. Remover do tasks.md no disco
+    const memory = MemoryManager.readMemoryFiles(project.path);
+    const tasks = MemoryManager.parseTasks(memory.tasksMd);
+    const textToRemove = (taskText || '').trim();
+
+    if (textToRemove) {
+      tasks.pending = tasks.pending.filter(t => t.trim() !== textToRemove);
+      tasks.doing = tasks.doing.filter(t => t.trim() !== textToRemove);
+      tasks.done = tasks.done.filter(t => t.trim() !== textToRemove);
+    }
+
+    const newMd = MemoryManager.formatTasks(tasks);
+    MemoryManager.updateMemoryFile(project.path, 'tasks.md', newMd);
+
+    // 2. Deletar do banco autonomous_tasks
+    if (taskId) {
+      db.prepare('DELETE FROM autonomous_tasks WHERE id = ?').run(taskId);
+    }
+    if (textToRemove) {
+      db.prepare(`
+        DELETE FROM autonomous_tasks 
+        WHERE (title = ? OR description = ?) 
+          AND run_id IN (SELECT id FROM autonomous_runs WHERE project_id = ?)
+      `).run(textToRemove, textToRemove, id);
+    }
+
+    Logger.info(`[Tasks] Tarefa excluída em ${project.name}: "${textToRemove || taskId}"`);
+    res.json({ success: true, tasks });
+  } catch (err: any) {
+    Logger.error(`[Tasks] Erro ao excluir tarefa: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.post('/projects/:id/tasks/clear', (req, res) => {
+  try {
+    const { id } = req.params;
+    const project: any = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
+    if (!project) return res.status(404).json({ error: 'Projeto não encontrado' });
+
+    const nowIso = new Date().toISOString();
+
+    // 1. Zera as colunas pending e doing no tasks.md (mantém done)
+    const memory = MemoryManager.readMemoryFiles(project.path);
+    const tasks = MemoryManager.parseTasks(memory.tasksMd);
+    tasks.pending = [];
+    tasks.doing = [];
+
+    const newMd = MemoryManager.formatTasks(tasks);
+    MemoryManager.updateMemoryFile(project.path, 'tasks.md', newMd);
+
+    const tasksToCancel = db.prepare(`
+      SELECT id FROM autonomous_tasks 
+      WHERE run_id IN (SELECT id FROM autonomous_runs WHERE project_id = ?) 
+        AND status NOT IN ('completed', 'done')
+    `).all(id) as any[];
+
+    // 2. Deleta ou marca como cancelled todas as tarefas não concluídas em autonomous_tasks
+    db.prepare(`
+      UPDATE autonomous_tasks 
+      SET status = 'cancelled', updated_at = ? 
+      WHERE run_id IN (SELECT id FROM autonomous_runs WHERE project_id = ?) 
+        AND status NOT IN ('completed', 'done')
+    `).run(nowIso, id);
+
+    try {
+      for (const t of tasksToCancel) {
+        SessionCircuitBreaker.resetTaskWindow(id, t.id);
+      }
+      SessionCircuitBreaker.resetProjectWindow(id);
+    } catch {}
+
+    // Cancelar runs ativos no SQLite
+    db.prepare(`
+      UPDATE autonomous_runs 
+      SET status = 'cancelled', updated_at = ? 
+      WHERE project_id = ? AND status IN ('running', 'planning', 'reviewing', 'waiting_for_worker', 'paused')
+    `).run(nowIso, id);
+
+    // 3. Apaga o .ai-dev-hub/PENDING_PLAN.json se existir
+    try {
+      const pendingPlanFile = path.join(project.path, '.ai-dev-hub', 'PENDING_PLAN.json');
+      if (fs.existsSync(pendingPlanFile)) {
+        fs.unlinkSync(pendingPlanFile);
+      }
+    } catch {}
+
+    // Notificar via SSE
+    try {
+      SseStreamService.broadcast(id, 'run_updated', { status: 'cancelled' });
+      SseStreamService.broadcast(id, 'activity', { status: 'cancelled', message: 'Fila de tarefas limpa.' });
+    } catch {}
+
+    Logger.info(`[Tasks] Fila de tarefas limpa com sucesso em ${project.name}`);
+    res.json({ success: true, tasks });
+  } catch (err: any) {
+    Logger.error(`[Tasks] Erro ao limpar tarefas: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // -------------------------------------------------------------
 // CHECKPOINTS & CONTINUITY
 // -------------------------------------------------------------
@@ -2438,10 +2566,14 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
     const project: any = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
     if (!project) return res.status(404).json({ error: 'Projeto não encontrado' });
 
-    if(requestId!==undefined&&typeof requestId!=='string')return res.status(400).json({error:'CHAT_REQUEST_ID_INVALID'});
-    let submission;
-    if(requestId!==undefined){
-      try{submission=ChatSubmission.begin(id,requestId,content);}catch(e:any){return res.status(409).json({error:e.message});}
+    const incomingReqId = typeof requestId === 'string' ? requestId : undefined;
+    let submission: any;
+    if (requestId !== undefined) {
+      try {
+        submission = ChatSubmission.begin(id, incomingReqId, content);
+      } catch (e: any) {
+        return res.status(409).json({ error: e.message });
+      }
       if(!submission.isNew){
         if (!submission.persisted) {
           try { db.prepare('DELETE FROM chat_submissions WHERE project_id=? AND request_id=?').run(id, requestId); } catch (err) {
@@ -2495,7 +2627,7 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
           autonomousRun: activeExistingRun,
           execution: { status: 'queued', reconciled: true }
         };
-        ChatSubmission.complete(id, requestId, reconciledResponse);
+        ChatSubmission.complete(id, submission?.requestId || requestId, reconciledResponse);
         return res.json(reconciledResponse);
       }
     }
@@ -2559,7 +2691,8 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
           classification: null,
           actionTaken: execution?.status || 'started'
         };
-        if (requestId) ChatSubmission.complete(id, requestId, response);
+        const effectiveReqId = submission?.requestId || requestId;
+        if (effectiveReqId) ChatSubmission.complete(id, effectiveReqId, response);
         return response;
       }
 
@@ -2828,7 +2961,8 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
       classification: typeof intentResult !== 'undefined' ? intentResult : null,
       actionTaken: execution?.status || 'started'
     };
-    if (requestId) ChatSubmission.complete(id, requestId, response);
+    const effectiveReqId = submission?.requestId || requestId;
+    if (effectiveReqId) ChatSubmission.complete(id, effectiveReqId, response);
     return response;
     };
 
@@ -2861,7 +2995,8 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
           SseStreamService.broadcast(id, 'done', { turnId, status: 'completed' });
         } catch (bgErr: any) {
           SseStreamService.broadcast(id, 'error', { turnId, error: bgErr.message });
-          if (typeof requestId === 'string') ChatSubmission.uncertain(id, requestId);
+          const effectiveReqId = submission?.requestId || requestId;
+          if (typeof effectiveReqId === 'string') ChatSubmission.uncertain(id, effectiveReqId);
         }
       });
       return;
@@ -2986,6 +3121,56 @@ apiRouter.post('/projects/:id/messages/cancel', async (req, res) => {
       } else {
         console.warn("[WARN][server:routes]", err);
       }
+    }
+
+    // 7. HARD PURGE: Eliminação do Efeito Zumbi
+    const nowIso = new Date().toISOString();
+    try {
+      // A. Cancelar o run ativo no SQLite
+      db.prepare(`
+        UPDATE autonomous_runs 
+        SET status = 'cancelled', updated_at = ? 
+        WHERE project_id = ? AND status IN ('running', 'planning', 'reviewing', 'waiting_for_worker', 'paused')
+      `).run(nowIso, id);
+
+      const tasksToCancel = db.prepare(`
+        SELECT id FROM autonomous_tasks 
+        WHERE run_id IN (SELECT id FROM autonomous_runs WHERE project_id = ?) 
+          AND status IN ('pending', 'ready', 'building', 'planning')
+      `).all(id) as any[];
+
+      // B. Cancelar todas as tarefas pendentes/em andamento do projeto
+      db.prepare(`
+        UPDATE autonomous_tasks 
+        SET status = 'cancelled', updated_at = ? 
+        WHERE run_id IN (SELECT id FROM autonomous_runs WHERE project_id = ?) 
+          AND status IN ('pending', 'ready', 'building', 'planning')
+      `).run(nowIso, id);
+
+      try {
+        for (const t of tasksToCancel) {
+          SessionCircuitBreaker.resetTaskWindow(id, t.id);
+        }
+        SessionCircuitBreaker.resetProjectWindow(id);
+      } catch {}
+
+      // C. Destruir arquivos residuais de planos zumbis no disco
+      const project: any = db.prepare('SELECT path FROM projects WHERE id = ?').get(id);
+      if (project?.path) {
+        const pendingPlanFile = path.join(project.path, '.ai-dev-hub', 'PENDING_PLAN.json');
+        if (fs.existsSync(pendingPlanFile)) {
+          fs.unlinkSync(pendingPlanFile);
+          Logger.info(`[Cancel] PENDING_PLAN.json residual excluído com sucesso em ${project.path}`);
+        }
+      }
+
+      // D. Notificar via SSE para atualizar a UI imediatamente
+      try {
+        SseStreamService.broadcast(id, 'run_updated', { status: 'cancelled' });
+        SseStreamService.broadcast(id, 'activity', { status: 'cancelled', message: 'Execução e tarefas canceladas definitivamente.' });
+      } catch {}
+    } catch (purgeErr: any) {
+      Logger.warn(`[Routes] Erro durante Hard Purge no cancel: ${purgeErr.message}`);
     }
 
     res.json({
@@ -3571,11 +3756,60 @@ apiRouter.post('/projects/:id/agent-stop', (req, res) => {
       }
     }
 
+    // 4. HARD PURGE: Eliminação do Efeito Zumbi no agent-stop
+    const nowIso = new Date().toISOString();
+    try {
+      // Cancelar runs ativos no SQLite
+      db.prepare(`
+        UPDATE autonomous_runs 
+        SET status = 'cancelled', updated_at = ? 
+        WHERE project_id = ? AND status IN ('running', 'planning', 'reviewing', 'waiting_for_worker', 'paused')
+      `).run(nowIso, id);
+
+      const tasksToCancel = db.prepare(`
+        SELECT id FROM autonomous_tasks 
+        WHERE run_id IN (SELECT id FROM autonomous_runs WHERE project_id = ?) 
+          AND status IN ('pending', 'ready', 'building', 'planning')
+      `).all(id) as any[];
+
+      // Cancelar tarefas pendentes/em andamento
+      db.prepare(`
+        UPDATE autonomous_tasks 
+        SET status = 'cancelled', updated_at = ? 
+        WHERE run_id IN (SELECT id FROM autonomous_runs WHERE project_id = ?) 
+          AND status IN ('pending', 'ready', 'building', 'planning')
+      `).run(nowIso, id);
+
+      try {
+        for (const t of tasksToCancel) {
+          SessionCircuitBreaker.resetTaskWindow(id, t.id);
+        }
+        SessionCircuitBreaker.resetProjectWindow(id);
+      } catch {}
+
+      // Destruir PENDING_PLAN.json no disco
+      if (project?.path) {
+        const pendingPlanFile = path.join(project.path, '.ai-dev-hub', 'PENDING_PLAN.json');
+        if (fs.existsSync(pendingPlanFile)) {
+          fs.unlinkSync(pendingPlanFile);
+          Logger.info(`[AgentStop] PENDING_PLAN.json residual excluído com sucesso em ${project.path}`);
+        }
+      }
+
+      // Notificar via SSE
+      try {
+        SseStreamService.broadcast(id, 'run_updated', { status: 'cancelled' });
+        SseStreamService.broadcast(id, 'activity', { status: 'cancelled', message: 'Execução e tarefas canceladas definitivamente.' });
+      } catch {}
+    } catch (purgeErr: any) {
+      Logger.warn(`[AgentStop] Erro durante Hard Purge: ${purgeErr.message}`);
+    }
+
     Logger.info(`[AgentStop] Cancelamento solicitado para o projeto "${project.name}"`);
     res.json({
       success: true,
       pending: runs.some(r=>RunControl.get(r.id)?.status==='pending'),
-      message: 'Cancelamento solicitado; histórico preservado e operação atual aguardando parada segura'
+      message: 'Cancelamento solicitado e tarefas canceladas com sucesso'
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

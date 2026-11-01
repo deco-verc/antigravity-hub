@@ -70,7 +70,16 @@ export function isExcludedFromNativeGeminiProjects(projectName: string | undefin
     return { excluded: true, reason: `Raiz genérica de workspace detectada (${projectPath})` };
   }
 
-  // 4. Nomes sintéticos de suítes de teste
+  // 4. Pastas reais existentes no disco com package.json ou .git NUNCA devem ser excluídas por heurística de nome
+  const hasProjectArtifacts =
+    fs.existsSync(path.join(projectPath, 'package.json')) ||
+    fs.existsSync(path.join(projectPath, '.git'));
+
+  if (hasProjectArtifacts) {
+    return { excluded: false };
+  }
+
+  // 5. Nomes sintéticos de suítes de teste (quando não for um projeto real no disco com package.json/.git)
   const name = (projectName || '').trim();
   const normalizedName = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 

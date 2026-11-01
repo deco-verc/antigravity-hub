@@ -1,4 +1,5 @@
 import { db } from './db.js';
+import { SessionCircuitBreaker } from './sessionCircuitBreaker.js';
 
 /** User control survives backend restart and is consumed immediately on cancel or at a safe execution boundary. */
 export class RunControl {
@@ -71,12 +72,28 @@ export class RunControl {
     db.exec('BEGIN IMMEDIATE');
     try {
       if (request.action === 'cancel') {
+        const runRow: any = db.prepare('SELECT project_id FROM autonomous_runs WHERE id=?').get(runId);
+        const tasks: any[] = db.prepare('SELECT id FROM autonomous_tasks WHERE run_id=?').all(runId);
         db.prepare("UPDATE agent_turn_observations SET phase='CONSUMED' WHERE task_id IN (SELECT id FROM autonomous_tasks WHERE run_id=?) AND phase IN ('IN_FLIGHT','UNCERTAIN')").run(runId);
         db.prepare("DELETE FROM execution_reservations WHERE scope='global-agent-execution' OR (json_valid(context_json) AND json_extract(context_json, '$.runId') = ?)").run(runId);
         db.prepare("UPDATE autonomous_runs SET status='failed',last_error='RUN_CANCELLED',end_time=?,next_action='Cancelado pelo usuário; histórico e arquivos preservados',updated_at=? WHERE id=?").run(now, now, runId);
-        db.prepare("UPDATE autonomous_tasks SET status='ready',lifecycle_state='READY',updated_at=? WHERE run_id=? AND status='in_progress'").run(now, runId);
+        db.prepare(`
+          UPDATE autonomous_tasks 
+          SET status='cancelled', lifecycle_state='CANCELLED', updated_at=? 
+          WHERE run_id=? AND status IN ('in_progress', 'ready', 'pending')
+        `).run(now, runId);
         db.prepare("UPDATE worker_leases SET status='released',released_at=? WHERE run_id=? AND status='active'").run(now, runId);
         db.prepare("UPDATE workers SET status='READY',current_run_id=NULL,current_task_id=NULL,updated_at=? WHERE current_run_id=?").run(now, runId);
+        if (runRow?.project_id) {
+          try {
+            for (const t of tasks) {
+              SessionCircuitBreaker.resetTaskWindow(runRow.project_id, t.id);
+            }
+            SessionCircuitBreaker.resetProjectWindow(runRow.project_id);
+          } catch {
+            // non-blocking
+          }
+        }
       } else {
         db.prepare("UPDATE autonomous_runs SET status='paused',next_action='Pausado pelo usuário; pronto para continuar do estado salvo',updated_at=? WHERE id=?").run(now, runId);
       }

@@ -2784,6 +2784,26 @@ export class HierarchicalOrchestrationService {
         'index.ts',
         'main.js',
         'main.ts',
+        'page.tsx',
+        'page.jsx',
+        'page.js',
+        'page.ts',
+        'layout.tsx',
+        'layout.jsx',
+        'layout.js',
+        'layout.ts',
+        'loading.tsx',
+        'error.tsx',
+        'not-found.tsx',
+        'route.ts',
+        'route.js',
+        'globals.css',
+        'app.tsx',
+        'app.jsx',
+        'index.tsx',
+        'index.jsx',
+        'main.tsx',
+        'main.jsx',
         'vite.config.js',
         'vite.config.ts',
         'vite.config.mjs',
@@ -2803,10 +2823,11 @@ export class HierarchicalOrchestrationService {
       if (normLower.endsWith('.md')) return true;
       if (normLower.startsWith('.ai-dev-hub/') || normLower.startsWith('ai-dev-hub/')) return true;
       if (normLower.startsWith('.agents/') || normLower.startsWith('agents/')) return true;
+      if (normLower.startsWith('.gemini/') || normLower.startsWith('gemini/')) return true;
       if (normLower.startsWith('test/') || normLower.startsWith('tests/') || /(test|spec)\.[cm]?[jt]sx?$/i.test(norm)) return true;
       if (normLower.startsWith('src/types/') || normLower.endsWith('.d.ts')) return true;
       if (normLower.startsWith('src/config/') || normLower.startsWith('config/')) return true;
-      if (normLower.startsWith('src/database/') || normLower.startsWith('database/') || normLower.startsWith('src/db/') || normLower.startsWith('db/') || normLower.startsWith('prisma/')) return true;
+      if (normLower.startsWith('src/database/') || normLower.startsWith('database/') || normLower.startsWith('data/database/') || normLower.startsWith('data/') || normLower.startsWith('src/db/') || normLower.startsWith('db/') || normLower.startsWith('prisma/')) return true;
       if (normLower.startsWith('scripts/') || normLower.startsWith('tools/')) return true;
       if (normLower.startsWith('e2e/') || normLower.startsWith('playwright/')) return true;
       if (normLower.startsWith('docs/')) return true;
@@ -2904,6 +2925,9 @@ export class HierarchicalOrchestrationService {
         normalized.startsWith('.ai-dev-hub/') ||
         normalized.startsWith('ai-dev-hub/') ||
         normalized.startsWith('.agents/') ||
+        normalized.startsWith('agents/') ||
+        normalized.startsWith('.gemini/') ||
+        normalized.startsWith('gemini/') ||
         normalized === 'AGENTS.md' ||
         normalized === 'DESIGN.md'
       ) {
@@ -3006,15 +3030,8 @@ export class HierarchicalOrchestrationService {
         problemsFound.push(params.supervisorFeedback);
       }
     } else if (actionableOutOfScope.length > 0) {
-      // Karpathy Autoresearch Principle: Se todos os testes reais foram aprovados com código de saída 0,
-      // sem regressões e sem violações de segurança, arquivos de código adicionais modificados para atender
-      // aos critérios não devem abortar a aprovação da tarefa em um ciclo de retrabalho infinito.
-      if (testsPassed) {
-        decision = 'APPROVED';
-      } else {
-        decision = 'REJECTED';
-        problemsFound.push(...actionableOutOfScope.map(f => `Arquivo fora do escopo permitido: ${f}`));
-      }
+      decision = 'REJECTED';
+      problemsFound.push(...actionableOutOfScope.map(f => `Arquivo fora do escopo permitido: ${f}`));
     }
 
     // 4. Evaluate individual criteria
@@ -5593,8 +5610,8 @@ export class HierarchicalOrchestrationService {
   }
 
   /**
-   * Decompõe briefings arquiteturais completos em 5 a 8 etapas modulares reais e coesas,
-   * mapeando com exatidão os arquivos, módulos, contratos e regras descritos no prompt do usuário.
+   * Decompõe briefings arquiteturais completos em etapas modulares reais e coesas,
+   * separando estritamente PRÉ-PLANEJAMENTO (Bootstrap Dia 0) de PÓS-PLANEJAMENTO (Evolução / Delta Planning).
    */
   public static decomposeArchitecturalBriefing(params: {
     briefing: string;
@@ -5602,9 +5619,260 @@ export class HierarchicalOrchestrationService {
     projectPath?: string;
     projectId?: string;
   }): PlannedTask[] | null {
-    const { briefing, projectName } = params;
+    const { briefing, projectName, projectPath, projectId } = params;
     if (!briefing || typeof briefing !== 'string') return null;
 
+    // 1. Inspeção de Estado Existente (Day 0 vs Brownfield)
+    let existingTasks: Array<{ code?: string; order_index?: number; status?: string; title?: string }> = [];
+
+    if (projectId) {
+      try {
+        existingTasks = db.prepare('SELECT code, order_index, status, title FROM autonomous_tasks WHERE project_id = ? ORDER BY order_index ASC').all(projectId) as any[];
+      } catch {
+        try {
+          existingTasks = db.prepare(`
+            SELECT t.code, t.order_index, t.status, t.title 
+            FROM autonomous_tasks t
+            JOIN autonomous_runs r ON t.run_id = r.id
+            WHERE r.project_id = ?
+            ORDER BY t.order_index ASC
+          `).all(projectId) as any[];
+        } catch {}
+      }
+    }
+
+    if (existingTasks.length === 0 && projectPath) {
+      try {
+        const tasksMdPath = path.join(path.resolve(projectPath), '.ai-dev-hub', 'tasks.md');
+        if (fs.existsSync(tasksMdPath)) {
+          const content = fs.readFileSync(tasksMdPath, 'utf-8');
+          const matches = content.match(/TK-(\d+)/gi);
+          if (matches && matches.length > 0) {
+            const seenNums = new Set<number>();
+            for (const m of matches) {
+              const num = parseInt(m.replace(/TK-/i, ''), 10);
+              if (!isNaN(num) && !seenNums.has(num)) {
+                seenNums.add(num);
+                existingTasks.push({
+                  code: `TK-${num}`,
+                  order_index: num,
+                  title: `Task ${num}`,
+                  status: 'completed'
+                });
+              }
+            }
+          } else {
+            const taskLines = content.split('\n').filter(line => /^\s*-\s*\[[ xX/]\]\s*\*\*/.test(line));
+            taskLines.forEach((line, idx) => {
+              existingTasks.push({
+                code: `TK-${idx + 1}`,
+                order_index: idx + 1,
+                title: line.replace(/^\s*-\s*\[[ xX/]\]\s*\*\*/, '').replace(/\*\*.*$/, '').trim(),
+                status: line.includes('[x]') ? 'completed' : 'pending'
+              });
+            });
+          }
+        }
+      } catch {}
+    }
+
+    const isEvolutionPhase = existingTasks.length > 0;
+
+    // =========================================================================
+    // MODO 2: PÓS-PLANEJAMENTO (Evolução / Delta Planning)
+    // =========================================================================
+    if (isEvolutionPhase) {
+      Logger.info(`[HierarchicalOrchestrationService] Modo PÓS-PLANEJAMENTO (Evolução / Delta Planning) ativado para "${projectName}". ${existingTasks.length} tarefas prévias encontradas.`);
+
+      let maxOrderIndex = 0;
+      for (const t of existingTasks) {
+        if (typeof t.order_index === 'number' && t.order_index > maxOrderIndex) {
+          maxOrderIndex = t.order_index;
+        }
+        if (t.code) {
+          const m = t.code.match(/TK-(\d+)/i) || t.code.match(/(\d+)/);
+          if (m) {
+            const n = parseInt(m[1], 10);
+            if (!isNaN(n) && n > maxOrderIndex) {
+              maxOrderIndex = n;
+            }
+          }
+        }
+      }
+      if (maxOrderIndex === 0) {
+        maxOrderIndex = existingTasks.length;
+      }
+      const nextIndex = maxOrderIndex + 1;
+
+      // Código da última tarefa estável do projeto anterior
+      let lastStableTaskCode = `TK-${maxOrderIndex}`;
+      const sorted = [...existingTasks].sort((a, b) => (b.order_index || 0) - (a.order_index || 0));
+      if (sorted[0]?.code) {
+        lastStableTaskCode = sorted[0].code.startsWith('TK-') ? sorted[0].code : `TK-${sorted[0].code}`;
+      }
+
+      const lower = briefing.toLowerCase();
+      const incrementalTasks: PlannedTask[] = [];
+      let currentIdx = nextIndex;
+      let prevCode = lastStableTaskCode;
+
+      // 1. Detecção: Disparador Manual / Quick Dispatch
+      const hasManualDispatch =
+        lower.includes('disparador manual') ||
+        lower.includes('disparo manual') ||
+        lower.includes('envio manual') ||
+        lower.includes('disparo rápido') ||
+        lower.includes('disparo rapido') ||
+        lower.includes('disparador rápido') ||
+        lower.includes('disparador rapido') ||
+        lower.includes('disparar mensagem') ||
+        lower.includes('quick dispatch') ||
+        lower.includes('disparo avulso');
+
+      if (hasManualDispatch) {
+        const taskCode = `TK-${currentIdx}`;
+        incrementalTasks.push({
+          code: taskCode,
+          title: 'Módulo de Disparo Rápido Manual (UI + Endpoint direto de Envio)',
+          description: 'Implementar endpoint POST /api/messages/manual-send no servidor HTTP para disparo avulso imediato via WhatsApp Baileys com sanitização de telefone, suporte a textos e mídias PTT/áudio, integrando interface visual dedicada com status de entrega em tempo real.',
+          milestone: `M${currentIdx} - Disparo Manual`,
+          orderIndex: currentIdx,
+          dependencies: [prevCode],
+          criteria: [
+            'Endpoint POST /api/messages/manual-send validando payload e disparando via dispatcher Baileys',
+            'Interface web limpa permitindo digitar número, selecionar mídia e disparar com feedback visual',
+            'Tratamento de erros de conexão e resposta com status 200/400 estruturado'
+          ],
+          verificationCommand: 'npx tsc --noEmit',
+          doneWhen: 'Módulo de disparo manual implementado com endpoint HTTP e interface visual validados sem erros de tipo.',
+          expectedFiles: ['src/routes/manual-send.ts', 'src/whatsapp/dispatcher.ts', 'public/manual-send.html'],
+          expectedScopeFiles: ['src/routes/manual-send.ts', 'src/whatsapp/dispatcher.ts', 'public/manual-send.html']
+        });
+        prevCode = taskCode;
+        currentIdx++;
+      }
+
+      // 2. Detecção: Editor de Templates / Tags Dinâmicas
+      const hasTemplateEditor =
+        lower.includes('template') ||
+        lower.includes('editor de template') ||
+        lower.includes('editor de mensagem') ||
+        lower.includes('tags dinâmicas') ||
+        lower.includes('tags dinamicas') ||
+        lower.includes('tag dinâmica') ||
+        lower.includes('tag dinamica') ||
+        lower.includes('variáveis dinâmicas') ||
+        lower.includes('variaveis dinamicas') ||
+        lower.includes('spintax');
+
+      if (hasTemplateEditor) {
+        const taskCode = `TK-${currentIdx}`;
+        incrementalTasks.push({
+          code: taskCode,
+          title: 'Editor de Templates com Tags Dinâmicas (Tabela SQLite + CRUD UI)',
+          description: 'Criar tabela message_templates no SQLite WAL (id, name, content, tags_json, media_path, created_at, updated_at), repositório transacional com prepared statements e interface visual completa para criar, editar, listar e testar templates com substituição dinâmica de tags ({first_name}, {pix_code}, {product_name}) e validação Spintax.',
+          milestone: `M${currentIdx} - Editor de Templates`,
+          orderIndex: currentIdx,
+          dependencies: [prevCode],
+          criteria: [
+            'Tabela message_templates criada no SQLite com índices e campos para tags e mídias',
+            'Repositório transacional em src/database/templates-repo.ts com operações CRUD completas',
+            'Interface visual para gerenciamento de templates com preview de tags e renderização Spintax',
+            'Rotas de API REST (/api/templates) para manipulação dos modelos de mensagem'
+          ],
+          verificationCommand: 'npx tsc --noEmit',
+          doneWhen: 'Editor de templates implementado com tabela SQLite, repositório CRUD e UI interativa.',
+          expectedFiles: ['src/database/templates-repo.ts', 'src/routes/templates.ts', 'public/templates-editor.html'],
+          expectedScopeFiles: ['src/database/templates-repo.ts', 'src/routes/templates.ts', 'public/templates-editor.html']
+        });
+        prevCode = taskCode;
+        currentIdx++;
+      }
+
+      // 3. Detecção: Webhook Studio / Simulador de Payloads
+      const hasWebhookStudio =
+        lower.includes('webhook studio') ||
+        lower.includes('simulador de webhook') ||
+        lower.includes('simulador de payload') ||
+        lower.includes('webhook inspector') ||
+        lower.includes('simular webhook') ||
+        lower.includes('simular evento') ||
+        lower.includes('simulador de eventos') ||
+        lower.includes('teste de webhook');
+
+      if (hasWebhookStudio) {
+        const taskCode = `TK-${currentIdx}`;
+        incrementalTasks.push({
+          code: taskCode,
+          title: 'Hub de Webhook com Simulador de Payloads e Chave Secreta',
+          description: 'Implementar painel Webhook Studio para inspeção, depuração e simulação de eventos Cakto (purchase_approved, pix_generated, boleto_generated) com envio para o endpoint local /webhook/cakto, validação de header de assinatura secreta, histórico de requisições e botão de replay com 1 clique.',
+          milestone: `M${currentIdx} - Webhook Studio`,
+          orderIndex: currentIdx,
+          dependencies: [prevCode],
+          criteria: [
+            'Simulador visual de payloads Cakto com presets prontos (Pix, Cartão, Boleto)',
+            'Inspeção do log de webhooks recebidos exibindo timestamp, secret status e corpo JSON',
+            'Capacidade de reprocessar qualquer evento anterior (replay) com integridade de idempotência'
+          ],
+          verificationCommand: 'npx tsc --noEmit',
+          doneWhen: 'Webhook Studio implementado com simulador interativo e inspeção de payloads.',
+          expectedFiles: ['src/webhooks/simulator.ts', 'src/routes/webhook-studio.ts', 'public/webhook-studio.html'],
+          expectedScopeFiles: ['src/webhooks/simulator.ts', 'src/routes/webhook-studio.ts', 'public/webhook-studio.html']
+        });
+        prevCode = taskCode;
+        currentIdx++;
+      }
+
+      // 4. Detecção: Dashboard / Métricas
+      const hasDashboard =
+        lower.includes('dashboard') ||
+        lower.includes('painel de controle') ||
+        lower.includes('métricas') ||
+        lower.includes('metricas') ||
+        lower.includes('analytics') ||
+        lower.includes('relatório') ||
+        lower.includes('relatorio');
+
+      if (hasDashboard) {
+        const taskCode = `TK-${currentIdx}`;
+        incrementalTasks.push({
+          code: taskCode,
+          title: 'Dashboard de Métricas, Conversão do Funil e Status em Tempo Real',
+          description: 'Implementar painel visual de métricas em tempo real consumindo estatísticas do banco SQLite: total de clientes, conversão Pix gerado vs pago, volume de disparos na fila e status da conexão WhatsApp.',
+          milestone: `M${currentIdx} - Dashboard & Analytics`,
+          orderIndex: currentIdx,
+          dependencies: [prevCode],
+          criteria: [
+            'Endpoint de agregação de métricas (/api/metrics) com queries otimizadas',
+            'Dashboard visual com cards de KPI e gráficos ou barras de conversão do funil',
+            'Atualização automática periódica sem travamento do event loop'
+          ],
+          verificationCommand: 'npx tsc --noEmit',
+          doneWhen: 'Dashboard de métricas e conversão implementado e integrado ao backend.',
+          expectedFiles: ['src/routes/metrics.ts', 'public/dashboard.html'],
+          expectedScopeFiles: ['src/routes/metrics.ts', 'public/dashboard.html']
+        });
+        prevCode = taskCode;
+        currentIdx++;
+      }
+
+      // Fallback ou Extensões Customizadas: Se nenhuma das especializadas foi detectada
+      if (incrementalTasks.length === 0) {
+        const customTasks = HierarchicalOrchestrationService.extractEvolutionClauses({
+          briefing,
+          startIndex: currentIdx,
+          initialPrevCode: prevCode,
+          projectName
+        });
+        incrementalTasks.push(...customTasks);
+      }
+
+      return incrementalTasks.length > 0 ? incrementalTasks : null;
+    }
+
+    // =========================================================================
+    // MODO 1: PRÉ-PLANEJAMENTO (Projeto Vazio / Day 0)
+    // =========================================================================
     const lower = briefing.toLowerCase();
 
     // 1. Cenário Especializado A: Sistema de Automação WhatsApp + Cakto + Baileys + SQLite WAL
@@ -5886,6 +6154,88 @@ export class HierarchicalOrchestrationService {
   }
 
   /**
+   * Extrai tarefas incrementais customizadas a partir do briefing do usuário
+   * para projetos em fase de evolução quando palavras-chave padrão não cobrem todo o escopo.
+   */
+  public static extractEvolutionClauses(params: {
+    briefing: string;
+    startIndex: number;
+    initialPrevCode: string;
+    projectName: string;
+  }): PlannedTask[] {
+    const { briefing, startIndex, initialPrevCode, projectName } = params;
+    const tasks: PlannedTask[] = [];
+    let currentIdx = startIndex;
+    let prevCode = initialPrevCode;
+
+    // Procura por tópicos com marcadores (ex: "- [ ]", "-", "*", "1.", "Etapa", "Passo")
+    const lines = briefing.split(/\r?\n/).map(l => l.trim());
+    const candidateLines = lines.filter(l => 
+      /^(?:[-*]|\d+\.|\bETAPA\b|\bFASE\b|\bPASSO\b)/i.test(l) &&
+      l.length >= 10 &&
+      !/^(?:[-*]\s*\[\s*\]\s*)?#/.test(l)
+    );
+
+    if (candidateLines.length > 0) {
+      for (const line of candidateLines.slice(0, 5)) {
+        const cleanTitle = line
+          .replace(/^(?:[-*]\s*(?:\[[ xX/]\]\s*)?|\d+\.\s*|(?:ETAPA|FASE|PASSO)\s*\d*[:\-]?\s*)/i, '')
+          .replace(/\*\*([^*]+)\*\*/g, '$1')
+          .replace(/`([^`]+)`/g, '$1')
+          .trim();
+
+        if (cleanTitle.length < 5) continue;
+
+        const taskCode = `TK-${currentIdx}`;
+        tasks.push({
+          code: taskCode,
+          title: `Implementar ${cleanTitle.slice(0, 70)}`,
+          description: `Desenvolver e integrar o recurso "${cleanTitle}" no projeto ${projectName}, assegurando conformidade de tipagem e persistência.`,
+          milestone: `M${currentIdx} - ${cleanTitle.slice(0, 30)}`,
+          orderIndex: currentIdx,
+          dependencies: [prevCode],
+          criteria: [
+            `Implementação completa de "${cleanTitle.slice(0, 50)}"`,
+            'Integração com módulos existentes do projeto',
+            'Compilação sem erros de tipagem estrita'
+          ],
+          verificationCommand: 'npx tsc --noEmit',
+          doneWhen: `Recurso "${cleanTitle.slice(0, 50)}" implementado e verificado.`,
+          expectedFiles: [`src/features/feature-${currentIdx}.ts`],
+          expectedScopeFiles: [`src/features/feature-${currentIdx}.ts`]
+        });
+        prevCode = taskCode;
+        currentIdx++;
+      }
+    }
+
+    if (tasks.length === 0) {
+      // Se não houver marcadores, utiliza o texto consolidado
+      const cleanBriefing = briefing.replace(/[#*`]/g, '').trim();
+      const taskCode = `TK-${currentIdx}`;
+      tasks.push({
+        code: taskCode,
+        title: `Implementação Incremental: ${cleanBriefing.slice(0, 60)}`,
+        description: `Implementar a evolução solicitada no projeto ${projectName}: ${cleanBriefing}`,
+        milestone: `M${currentIdx} - Evolução`,
+        orderIndex: currentIdx,
+        dependencies: [prevCode],
+        criteria: [
+          'Desenvolvimento da funcionalidade incremental solicitada',
+          'Integração segura com os serviços existentes do sistema',
+          'Validação estrita de tipos sem regressões'
+        ],
+        verificationCommand: 'npx tsc --noEmit',
+        doneWhen: 'Evolução funcional concluída e verificada com TypeScript.',
+        expectedFiles: ['src/features/evolution.ts'],
+        expectedScopeFiles: ['src/features/evolution.ts']
+      });
+    }
+
+    return tasks;
+  }
+
+  /**
    * Deterministic Two-Wave Multi-Pass Generator:
    * Divides a project briefing into 6 domain-aligned Major Tasks (Scaffolding, Models/Persistence,
    * Domain Logic, APIs, UI/Views, and Testing/Verification), each with atomic microtasks (>15 total),
@@ -5946,17 +6296,16 @@ export class HierarchicalOrchestrationService {
     }
 
     // PILAR 2.5: Decomposição arquitetural fiel ao prompt do usuário (5 a 8 etapas coesas mapeadas do briefing)
-    if (isArchitectural) {
-      Logger.info(`[HierarchicalOrchestrationService] Briefing arquitetural/modular detectado para "${projectName || 'projeto'}". Decompondo em etapas modulares fiéis ao prompt...`);
-      const architecturalPlan = HierarchicalOrchestrationService.decomposeArchitecturalBriefing({
-        briefing: originalDescription,
-        projectName: projectName || 'Projeto',
-        projectPath,
-        projectId
-      });
-      if (architecturalPlan && architecturalPlan.length >= 3) {
-        return architecturalPlan;
-      }
+    // OU Modo PÓS-PLANEJAMENTO (Evolução Incremental / Delta Planning)
+    const architecturalOrEvolutionPlan = HierarchicalOrchestrationService.decomposeArchitecturalBriefing({
+      briefing: originalDescription,
+      projectName: projectName || 'Projeto',
+      projectPath,
+      projectId
+    });
+    if (architecturalOrEvolutionPlan && architecturalOrEvolutionPlan.length >= 1) {
+      Logger.info(`[HierarchicalOrchestrationService] Plano estruturado obtido via decomposeArchitecturalBriefing (${architecturalOrEvolutionPlan.length} tarefas).`);
+      return architecturalOrEvolutionPlan;
     }
 
     const structuredReqs = this.extractStructuredRequirements(originalDescription, requirements);

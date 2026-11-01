@@ -64,13 +64,18 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
   );
   const [objective, setObjective] = useState('');
   const [quickPaths, setQuickPaths] = useState<Array<{ label: string; path: string }>>([]);
+  const [baseProjectsDir, setBaseProjectsDir] = useState<string>(() => {
+    return localStorage.getItem('ai_dev_last_parent_dir') || '';
+  });
 
   const effectiveAccounts = (accounts && accounts.length > 0)
     ? accounts
     : (propAccounts && propAccounts.length > 0 ? propAccounts : []);
 
   const computedSlug = name.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'novo-projeto';
-  const defaultComputedPath = `C:\\IA\\test-projects\\${computedSlug}`;
+  const defaultComputedPath = baseProjectsDir
+    ? `${baseProjectsDir.replace(/[\\/]+$/, '')}\\${computedSlug}`
+    : `C:\\IA\\test-projects\\${computedSlug}`;
 
   // GitHub integration state
   const [githubAction, setGithubAction] = useState<'create_private' | 'link_existing' | 'none'>('none');
@@ -145,6 +150,11 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
       }
 
       api.getQuickPaths().then(res => setQuickPaths(res.suggestions || [])).catch(() => {});
+      api.getSystemPaths().then(res => {
+        if (res.defaultProjectsDir) {
+          setBaseProjectsDir(prev => prev || res.defaultProjectsDir);
+        }
+      }).catch(() => {});
       api.getAccountProfiles()
         .then(res => {
           const list: AccountProfile[] = Array.isArray(res) ? res : ((res as any)?.profiles || (res as any)?.accounts || (res as any)?.data || []);
@@ -202,6 +212,14 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
 
     const finalPath = folderPath.trim() || defaultComputedPath;
     const finalSelectedAccountId = selectedAccountId || effectiveAccounts[0]?.id || undefined;
+
+    // Salva a pasta-mãe para reutilização inteligente nos próximos projetos
+    try {
+      const parentDir = finalPath.replace(/[/\\][^/\\]+$/, '');
+      if (parentDir) {
+        localStorage.setItem('ai_dev_last_parent_dir', parentDir);
+      }
+    } catch {}
 
     submittingRef.current = true;
     setIsSubmitting(true);
@@ -349,10 +367,15 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                   onClick={async () => {
                     try {
                       const res = await (window as any).desktopAPI.selectDirectory({
-                        defaultPath: folderPath || 'C:\\IA\\test-projects'
+                        defaultPath: folderPath || baseProjectsDir || 'C:\\IA\\test-projects'
                       });
                       if (res && !res.canceled && res.filePaths && res.filePaths.length > 0) {
                         setFolderPath(res.filePaths[0]);
+                        const parent = res.filePaths[0].replace(/[/\\][^/\\]+$/, '');
+                        if (parent) {
+                          setBaseProjectsDir(parent);
+                          try { localStorage.setItem('ai_dev_last_parent_dir', parent); } catch {}
+                        }
                         if (!name) {
                           const parts = res.filePaths[0].split(/[/\\]/);
                           setName(parts[parts.length - 1] || '');

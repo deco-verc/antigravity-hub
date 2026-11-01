@@ -267,9 +267,24 @@ export class AstSymbolIndexService {
    */
   static extractSymbolsWithRegex(code: string, fileName: string): ExtractedSymbol[] {
     const symbols: ExtractedSymbol[] = [];
-    const lines = code.split(/\r?\n/);
+    if (!code || typeof code !== 'string') return symbols;
 
-    const fnRegex = /^(export\s+)?(async\s+)?function\s+([a-zA-Z0-9_$]+)\s*(\([^)]*\))(?:\s*:\s*([^{]+))?/m;
+    // 1. Remove comentários para não poluir nem quebrar assinaturas multilinhas
+    const cleanedCode = code
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+    // 2. Sanitiza quebras de linha em assinaturas de funções, arrows, classes e interfaces,
+    // permitindo que o analisador sintático de fallback capture perfeitamente assinaturas multilinhas
+    const sanitizedCode = cleanedCode
+      .replace(/((?:export\s+)?(?:async\s+)?function\s+[a-zA-Z0-9_$]+\s*\([\s\S]*?\)(?:\s*:\s*[^{;\r\n]+)?)/g, m => m.replace(/\s+/g, ' '))
+      .replace(/((?:export\s+)?const\s+[a-zA-Z0-9_$]+\s*=\s*(?:async\s+)?\([\s\S]*?\)(?:\s*:\s*[^=;\r\n]+)?\s*=>)/g, m => m.replace(/\s+/g, ' '))
+      .replace(/((?:export\s+)?(?:default\s+)?class\s+[a-zA-Z0-9_$]+[\s\S]*?\{)/g, m => m.replace(/\s+/g, ' '))
+      .replace(/((?:export\s+)?interface\s+[a-zA-Z0-9_$]+[\s\S]*?\{)/g, m => m.replace(/\s+/g, ' '));
+
+    const lines = sanitizedCode.split(/\r?\n/);
+
+    const fnRegex = /^(export\s+)?(async\s+)?function\s+([a-zA-Z0-9_$]+)\s*(\([^)]*\))(?:\s*:\s*([^{;]+))?/m;
     const arrowRegex = /^(export\s+)?const\s+([a-zA-Z0-9_$]+)\s*=\s*(async\s+)?\(([^)]*)\)(?:\s*:\s*([^=]+))?\s*=>/m;
     const classRegex = /^(export\s+)?(?:default\s+)?class\s+([a-zA-Z0-9_$]+)(?:\s+extends\s+[^{]+)?(?:\s+implements\s+[^{]+)?/m;
     const ifaceRegex = /^(export\s+)?interface\s+([a-zA-Z0-9_$]+)(?:\s+extends\s+[^{]+)?\s*\{/m;
@@ -286,7 +301,7 @@ export class AstSymbolIndexService {
         const isExp = Boolean(fnMatch[1]);
         const isAsync = Boolean(fnMatch[2]);
         const name = fnMatch[3];
-        const params = fnMatch[4];
+        const params = fnMatch[4].replace(/\s+/g, ' ');
         const ret = fnMatch[5] ? `: ${fnMatch[5].trim()}` : '';
         symbols.push({
           symbolName: name,
@@ -302,7 +317,7 @@ export class AstSymbolIndexService {
         const isExp = Boolean(arrowMatch[1]);
         const name = arrowMatch[2];
         const isAsync = Boolean(arrowMatch[3]);
-        const params = arrowMatch[4];
+        const params = arrowMatch[4].replace(/\s+/g, ' ');
         const ret = arrowMatch[5] ? `: ${arrowMatch[5].trim()}` : '';
         symbols.push({
           symbolName: name,

@@ -27,14 +27,18 @@ import {
   RotateCw,
   Check,
   Clock,
-  FileText
+  FileText,
+  Trash2
 } from 'lucide-react';
 
 interface DecoHubTasksViewProps {
   tasks: ParsedTasks;
   run?: AutonomousRun | null;
+  projectId?: string;
   onAddTask: (text: string, column: 'pending' | 'doing' | 'done') => Promise<void> | void;
   onMoveTask: (text: string, from: 'pending' | 'doing' | 'done', to: 'pending' | 'doing' | 'done') => Promise<void> | void;
+  onDeleteTask?: (text: string, taskId?: string) => Promise<void> | void;
+  onClearPendingTasks?: () => Promise<void> | void;
 }
 
 type TaskFilterMode = 'all' | 'pending' | 'in_progress' | 'in_review' | 'rework' | 'blocked' | 'completed';
@@ -42,16 +46,69 @@ type TaskFilterMode = 'all' | 'pending' | 'in_progress' | 'in_review' | 'rework'
 export const DecoHubTasksView: React.FC<DecoHubTasksViewProps> = ({
   tasks,
   run: initialRun,
+  projectId,
   onAddTask,
-  onMoveTask
+  onMoveTask,
+  onDeleteTask,
+  onClearPendingTasks
 }) => {
   const [currentRun, setCurrentRun] = useState<AutonomousRun | null>(initialRun || null);
   const [isActionLoading, setIsActionLoading] = useState(false);
+  const [localTasks, setLocalTasks] = useState<ParsedTasks>(tasks);
 
   // Sync with prop updates
   React.useEffect(() => {
     if (initialRun) setCurrentRun(initialRun);
   }, [initialRun]);
+
+  React.useEffect(() => {
+    setLocalTasks(tasks);
+  }, [tasks]);
+
+  const effectiveProjectId = projectId || currentRun?.project_id || '';
+
+  const handleDeleteTask = async (taskText: string, taskId?: string) => {
+    const trimmed = taskText.trim();
+    // Atualização otimista imediata na tela
+    setLocalTasks(prev => ({
+      pending: prev.pending.filter(t => t.trim() !== trimmed),
+      doing: prev.doing.filter(t => t.trim() !== trimmed),
+      done: prev.done.filter(t => t.trim() !== trimmed)
+    }));
+
+    if (onDeleteTask) {
+      await onDeleteTask(taskText, taskId);
+    } else if (effectiveProjectId) {
+      try {
+        await api.deleteTask(effectiveProjectId, taskText, taskId);
+      } catch (err: any) {
+        console.warn('[Tasks] Erro ao excluir tarefa:', err);
+      }
+    }
+  };
+
+  const handleClearPending = async () => {
+    if (!window.confirm('Tem certeza que deseja limpar todas as tarefas pendentes da fila? O plano residual será excluído definitivamente.')) {
+      return;
+    }
+
+    // Atualização otimista imediata na tela
+    setLocalTasks(prev => ({
+      ...prev,
+      pending: [],
+      doing: []
+    }));
+
+    if (onClearPendingTasks) {
+      await onClearPendingTasks();
+    } else if (effectiveProjectId) {
+      try {
+        await api.clearPendingTasks(effectiveProjectId);
+      } catch (err: any) {
+        console.warn('[Tasks] Erro ao limpar tarefas:', err);
+      }
+    }
+  };
 
   // Hierarchical plan interactive state
   const [filterMode, setFilterMode] = useState<TaskFilterMode>('all');
@@ -217,9 +274,9 @@ export const DecoHubTasksView: React.FC<DecoHubTasksViewProps> = ({
   const isRunCompleted = currentRun?.status === 'completed';
 
   const columns = [
-    { id: 'pending' as const, title: 'A Fazer', items: tasks.pending, dotColor: 'bg-amber-400', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/20' },
-    { id: 'doing' as const, title: 'Em Andamento', items: tasks.doing, dotColor: 'bg-indigo-400', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20' },
-    { id: 'done' as const, title: 'Concluído', items: tasks.done, dotColor: 'bg-emerald-400', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20' }
+    { id: 'pending' as const, title: 'A Fazer', items: localTasks.pending, dotColor: 'bg-amber-400', badgeClass: 'bg-amber-500/10 text-amber-300 border-amber-500/20' },
+    { id: 'doing' as const, title: 'Em Andamento', items: localTasks.doing, dotColor: 'bg-indigo-400', badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20' },
+    { id: 'done' as const, title: 'Concluído', items: localTasks.done, dotColor: 'bg-emerald-400', badgeClass: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20' }
   ];
 
   const renderMicrotaskRow = (mt: any) => {
@@ -342,13 +399,23 @@ export const DecoHubTasksView: React.FC<DecoHubTasksViewProps> = ({
             )}
           </div>
 
-          <button
-            type="button"
-            onClick={() => toggleTaskDetail(mt.id)}
-            className="text-[11px] text-indigo-400 hover:text-indigo-300 underline underline-offset-2 font-mono"
-          >
-            {isExpanded ? 'Recolher detalhes' : 'Critérios & Evidências'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => toggleTaskDetail(mt.id)}
+              className="text-[11px] text-indigo-400 hover:text-indigo-300 underline underline-offset-2 font-mono"
+            >
+              {isExpanded ? 'Recolher detalhes' : 'Critérios & Evidências'}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDeleteTask(mt.title, mt.id)}
+              className="text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 p-1 rounded transition-colors cursor-pointer"
+              title="Excluir microtarefa"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
 
         {/* Motivo de Bloqueio ou Retrabalho */}
@@ -706,7 +773,7 @@ export const DecoHubTasksView: React.FC<DecoHubTasksViewProps> = ({
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-mono text-slate-400">
-              {tasks.pending.length + tasks.doing.length + tasks.done.length} anotações
+              {localTasks.pending.length + localTasks.doing.length + localTasks.done.length} anotações
             </span>
             {showMemoryNotes ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
           </div>
@@ -737,7 +804,7 @@ export const DecoHubTasksView: React.FC<DecoHubTasksViewProps> = ({
               <button
                 type="submit"
                 disabled={!newText.trim() || isAdding}
-                className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm"
+                className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Adicionar</span>
@@ -753,9 +820,22 @@ export const DecoHubTasksView: React.FC<DecoHubTasksViewProps> = ({
                       <span className={`w-2 h-2 rounded-full ${col.dotColor}`} />
                       <span className="text-xs font-bold text-slate-200">{col.title}</span>
                     </div>
-                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${col.badgeClass}`}>
-                      {col.items.length}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      {col.id === 'pending' && col.items.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleClearPending}
+                          className="px-2 py-0.5 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 hover:text-rose-200 border border-rose-500/30 text-[10px] font-semibold flex items-center gap-1 transition-all cursor-pointer"
+                          title="Limpar todas as tarefas pendentes da fila e apagar plano residual"
+                        >
+                          <Trash2 className="w-3 h-3 text-rose-400" />
+                          <span>Limpar Fila</span>
+                        </button>
+                      )}
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${col.badgeClass}`}>
+                        {col.items.length}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="p-2.5 space-y-2 max-h-56 overflow-y-auto">
@@ -765,14 +845,14 @@ export const DecoHubTasksView: React.FC<DecoHubTasksViewProps> = ({
                       </div>
                     ) : (
                       col.items.map((task, idx) => (
-                        <div key={idx} className="p-2 rounded-lg bg-[#141828] border border-[#202638] text-xs text-slate-300 flex items-center justify-between gap-2">
-                          <span className="truncate">{task}</span>
+                        <div key={idx} className="p-2 rounded-lg bg-[#141828] border border-[#202638] text-xs text-slate-300 flex items-center justify-between gap-2 group hover:border-slate-700 transition-colors">
+                          <span className="truncate flex-1">{task}</span>
                           <div className="flex items-center gap-1 flex-shrink-0">
                             {col.id !== 'pending' && (
                               <button
                                 type="button"
                                 onClick={() => onMoveTask(task, col.id, col.id === 'done' ? 'doing' : 'pending')}
-                                className="text-slate-400 hover:text-white p-1"
+                                className="text-slate-400 hover:text-white p-1 cursor-pointer"
                                 title="Voltar coluna"
                               >
                                 <ArrowLeft className="w-3 h-3" />
@@ -782,12 +862,20 @@ export const DecoHubTasksView: React.FC<DecoHubTasksViewProps> = ({
                               <button
                                 type="button"
                                 onClick={() => onMoveTask(task, col.id, col.id === 'pending' ? 'doing' : 'done')}
-                                className="text-slate-400 hover:text-indigo-400 p-1"
+                                className="text-slate-400 hover:text-indigo-400 p-1 cursor-pointer"
                                 title="Avançar coluna"
                               >
                                 <ArrowRight className="w-3 h-3" />
                               </button>
                             )}
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteTask(task)}
+                              className="text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 p-1 rounded transition-colors cursor-pointer"
+                              title="Excluir tarefa definitivamente"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
                           </div>
                         </div>
                       ))

@@ -144,4 +144,43 @@ describe('QuotaManager Offline Suite', () => {
       'P0 VIOLATION: Zero conversations must be created by quota operations'
     );
   });
+
+  test('7. Model-specific quota unblocking: Pro cooldown does not block Flash or Flash Lite', () => {
+    const futureReset = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+    // Simula esgotamento específico do modelo Gemini Pro
+    db.prepare(`
+      UPDATE account_profiles
+      SET auth_status = 'QUOTA_EXHAUSTED',
+          quota_resets_at = ?,
+          quota_message = 'Resource exhausted for model gemini-2.5-pro: Resets in 1h'
+      WHERE id = ?
+    `).run(futureReset, testProfileId);
+
+    // Gemini Pro deve estar bloqueado
+    const proCheck = QuotaManager.isBlockedByQuota(testProfileId, 'pro');
+    assert.strictEqual(proCheck.blocked, true, 'Gemini Pro deve estar bloqueado');
+    assert.strictEqual(proCheck.resetsAt, futureReset);
+
+    // Gemini Flash NÃO deve estar bloqueado!
+    const flashCheck = QuotaManager.isBlockedByQuota(testProfileId, 'flash');
+    assert.strictEqual(flashCheck.blocked, false, 'Gemini Flash deve permanecer DESBLOQUEADO');
+    assert.strictEqual(flashCheck.resetsAt, null);
+
+    // Gemini Flash Lite NÃO deve estar bloqueado!
+    const flashLiteCheck = QuotaManager.isBlockedByQuota(testProfileId, 'flash_lite');
+    assert.strictEqual(flashLiteCheck.blocked, false, 'Gemini Flash Lite deve permanecer DESBLOQUEADO');
+    assert.strictEqual(flashLiteCheck.resetsAt, null);
+
+    // Teste com AUTH_ERROR bloqueia todos os modelos
+    db.prepare(`
+      UPDATE account_profiles
+      SET auth_status = 'AUTH_ERROR',
+          quota_message = 'Token expirado'
+      WHERE id = ?
+    `).run(testProfileId);
+
+    const authErrorFlash = QuotaManager.isBlockedByQuota(testProfileId, 'flash');
+    assert.strictEqual(authErrorFlash.blocked, true, 'AUTH_ERROR deve bloquear mesmo o Flash');
+  });
 });

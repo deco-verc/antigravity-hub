@@ -63,7 +63,7 @@ ${initialData.description || 'Contexto e propósito da aplicação para os usuá
 - Frontend: Interface do usuário
 - Backend: API e serviços locais
 - Banco de Dados: SQLite / Armazenamento local
-- Portas: 5173 (Frontend), 3001 (Backend)
+- Portas: Alocadas dinamicamente pelo DecoHUB (padrão Live Preview na porta 4100 ou porta configurada no .env)
 
 ## Fluxo de Dados
 1. O usuário interage com a interface.

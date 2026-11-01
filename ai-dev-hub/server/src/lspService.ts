@@ -148,6 +148,15 @@ export class LspService {
     this.pendingRequests.clear();
 
     if (this.tsserverProcess) {
+      if (this.tsserverProcess.pid && process.platform === 'win32') {
+        try {
+          childProcess.spawnSync('taskkill', ['/F', '/PID', String(this.tsserverProcess.pid), '/T'], {
+            stdio: 'ignore',
+            timeout: 3000,
+            windowsHide: true
+          });
+        } catch {}
+      }
       try {
         if (!this.tsserverProcess.killed) {
           this.tsserverProcess.kill();

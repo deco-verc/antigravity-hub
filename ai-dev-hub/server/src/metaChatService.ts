@@ -532,7 +532,8 @@ ${rawCompilerDiagnostics}
     - Think Before Coding: Analise o escopo cirúrgico antes de qualquer implementação.
     - Simplicity First & Surgical Changes: Delimite o menor conjunto viável de arquivos a modificar.
     - Zero Quebra de Retrocompatibilidade e Preservação Estrita de Tipagem TypeScript.
-    - Respeite as diretrizes de SystemPrompt/PROMPT_ARQUITETURA_4_PAPEIS.md.
+    - Respeite as diretrizes de SystemPrompt/PROMPT_ARQUITETURA_4_PAPEIS.md e SystemPrompt/PROMPT_INICIAL_PLANEJAMENTO.md.
+    - REGRA INVIOLÁVEL DE COMPLETUDE FUNCIONAL DE PRODUTO (NO PASSIVE DASHBOARDS): Em automação/mensageria/webhooks, contemplar obrigatoriamente os 4 pilares: 1. Ingestão & Webhook Studio (URL + Simulador 1-clique); 2. Editor de Templates ({nome}, {produto}, {pix}, {link}); 3. Disparador Manual ("Enviar Agora"); 4. Monitoramento da Fila & Auditoria. Planos com apenas dashboards passivos são estritamente proibidos.
   </role_identity>
 
   <mandato_operacional>

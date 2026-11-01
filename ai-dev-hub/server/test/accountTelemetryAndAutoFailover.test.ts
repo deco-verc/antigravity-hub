@@ -201,4 +201,53 @@ describe('Telemetria Multi-Conta e Auto-Failover Suite (FASE 21)', () => {
     assert.ok(item, 'Conta deve estar na lista de telemetria');
     assert.strictEqual(item.todayExecutions, newCount);
   });
+
+  test('6. Classificador de cota e ação Verificar Cota previnem falso positivo de telemetria', async () => {
+    // 6.1 Telemetria informativa normal NÃO deve ser classificada como erro de cota
+    const normalTelemetry1 = '5h limit: 53% left • Resets in 2h 22m';
+    const c1 = AccountProfileManager.classifyAccountOrQuotaError(normalTelemetry1);
+    assert.strictEqual(c1.kind, 'NONE', '53% left não deve ser classificado como QUOTA');
+    assert.strictEqual(c1.isAccountOrQuotaError, false);
+
+    const normalTelemetry2 = 'Weekly limit: 71% left • Resets in 4d 14h';
+    const c2 = AccountProfileManager.classifyAccountOrQuotaError(normalTelemetry2);
+    assert.strictEqual(c2.kind, 'NONE', '71% left não deve ser classificado como QUOTA');
+    assert.strictEqual(c2.isAccountOrQuotaError, false);
+
+    // 6.2 Esgotamento real (0% left ou 429 RESOURCE_EXHAUSTED) DEVE ser classificado como QUOTA
+    const exhaustedZero = '5h limit: 0% left • Resets in 1h 45m';
+    const c3 = AccountProfileManager.classifyAccountOrQuotaError(exhaustedZero);
+    assert.strictEqual(c3.kind, 'QUOTA', '0% left deve ser classificado como QUOTA');
+    assert.strictEqual(c3.isAccountOrQuotaError, true);
+
+    const exhausted429 = 'RESOURCE_EXHAUSTED: 429 quota reached';
+    const c4 = AccountProfileManager.classifyAccountOrQuotaError(exhausted429);
+    assert.strictEqual(c4.kind, 'QUOTA', '429 RESOURCE_EXHAUSTED deve ser classificado como QUOTA');
+    assert.strictEqual(c4.isAccountOrQuotaError, true);
+
+    // 6.3 markQuotaExhausted ignora mensagens informativas com % left > 0
+    const profile = AccountProfileManager.getAllProfiles()[0];
+    AccountProfileManager.markQuotaExhausted(profile.id, normalTelemetry1);
+    const afterIgnore = AccountProfileManager.getProfile(profile.id)!;
+    assert.notStrictEqual(afterIgnore.auth_status, 'QUOTA_EXHAUSTED', 'markQuotaExhausted não deve travar com 53% left');
+
+    // 6.4 verifyProfile reseta quota_resets_at e quota_message se houver probe válido
+    // Simular conta previamente travada por cooldown antigo
+    db.prepare(`
+      UPDATE account_profiles
+      SET auth_status = 'QUOTA_EXHAUSTED', quota_resets_at = '2099-01-01T00:00:00.000Z', quota_message = 'Cooldown antigo'
+      WHERE id = ?
+    `).run(profile.id);
+
+    AccountProfileManager.setVerifyProbeOverrideForTest(() => true);
+    try {
+      const verifyRes = AccountProfileManager.verifyProfile(profile.id);
+      assert.strictEqual(verifyRes.status, 'READY');
+      assert.strictEqual(verifyRes.profile.auth_status, 'READY');
+      assert.strictEqual(verifyRes.profile.quota_resets_at, null, 'quota_resets_at deve ser resetado para NULL');
+      assert.strictEqual(verifyRes.profile.quota_message, null, 'quota_message deve ser resetado para NULL');
+    } finally {
+      AccountProfileManager.setVerifyProbeOverrideForTest(null);
+    }
+  });
 });

@@ -4,6 +4,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { Logger } from './logger.js';
 import { DocSimpService } from './docSimpService.js';
 import { DesignSkillService } from './designSkillService.js';
@@ -536,6 +537,29 @@ export class SkillSlashCommandService {
   /**
    * Provisions specified skills files into `<projectPath>/.ai-dev-hub/skills/` idempotently.
    */
+  /**
+   * Escreve arquivo de forma atômica utilizando arquivo temporário (.tmp.<uuid>) e fs.renameSync
+   * Evita arquivos truncados ou erros de EBUSY em execuções concorrentes.
+   */
+  static atomicWriteFileSync(filePath: string, content: string, encoding: BufferEncoding = 'utf-8'): void {
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const tmpPath = `${filePath}.tmp.${crypto.randomUUID()}`;
+    try {
+      fs.writeFileSync(tmpPath, content, encoding);
+      fs.renameSync(tmpPath, filePath);
+    } catch (err) {
+      try {
+        if (fs.existsSync(tmpPath)) {
+          fs.unlinkSync(tmpPath);
+        }
+      } catch {}
+      fs.writeFileSync(filePath, content, encoding);
+    }
+  }
+
   static provisionSkillsForProject(projectPath: string, skillKeys: string[]): ProvisionSkillsResult {
     const skillsDir = path.join(projectPath, '.ai-dev-hub', 'skills');
     if (!fs.existsSync(skillsDir)) {
@@ -568,7 +592,7 @@ export class SkillSlashCommandService {
           }
           const isSame = fs.existsSync(targetPath) && fs.readFileSync(targetPath, 'utf-8') === srcContent;
           if (!isSame) {
-            fs.writeFileSync(targetPath, srcContent, 'utf-8');
+            this.atomicWriteFileSync(targetPath, srcContent, 'utf-8');
           }
           copiedSkills.push(targetFilename);
 
@@ -581,7 +605,7 @@ export class SkillSlashCommandService {
             const nativeSkillFile = path.join(nativeSkillDir, 'SKILL.md');
             const nativeContent = ensureSkillFrontmatter(srcContent, key);
             if (!fs.existsSync(nativeSkillFile) || fs.readFileSync(nativeSkillFile, 'utf-8') !== nativeContent) {
-              fs.writeFileSync(nativeSkillFile, nativeContent, 'utf-8');
+              this.atomicWriteFileSync(nativeSkillFile, nativeContent, 'utf-8');
             }
 
             // For karpathy-guidelines, also provision examples/EXAMPLES.md
@@ -608,7 +632,7 @@ export class SkillSlashCommandService {
                   const examplesDest = path.join(examplesDir, 'EXAMPLES.md');
                   const exContent = fs.readFileSync(exSrc, 'utf-8');
                   if (!fs.existsSync(examplesDest) || fs.readFileSync(examplesDest, 'utf-8') !== exContent) {
-                    fs.writeFileSync(examplesDest, exContent, 'utf-8');
+                    this.atomicWriteFileSync(examplesDest, exContent, 'utf-8');
                   }
                   break;
                 }
@@ -622,7 +646,7 @@ export class SkillSlashCommandService {
         }
       } else {
         if (!fs.existsSync(targetPath)) {
-          fs.writeFileSync(
+          this.atomicWriteFileSync(
             targetPath,
             `# Skill: ${key}\n\nEspecialidade técnica ativada sob demanda via Slash Command DecoHUB.\nSiga estritamente os contratos de código limpo, tokens semânticos (:root), ícones SVG Lucide e validação automatizada.\n`,
             'utf-8'
@@ -641,7 +665,7 @@ export class SkillSlashCommandService {
             key
           );
           if (!fs.existsSync(nativeSkillFile)) {
-            fs.writeFileSync(nativeSkillFile, nativeContent, 'utf-8');
+            this.atomicWriteFileSync(nativeSkillFile, nativeContent, 'utf-8');
           }
         } catch (nativeErr: any) {
           Logger.warn(`[SkillSlashCommandService] Falha ao provisionar fallback native skill ${key}: ${nativeErr.message}`);

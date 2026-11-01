@@ -1056,7 +1056,7 @@ export class AccountProfileManager {
         storagePath: null
       };
       if (cacheKey) {
-        this.authEvidenceCache.set(cacheKey, { data: emptyResult, expiresAt: Date.now() + 5000 });
+        this.authEvidenceCache.set(cacheKey, { data: emptyResult, expiresAt: Date.now() + 30000 });
       }
       return emptyResult;
     }
@@ -1157,7 +1157,7 @@ export class AccountProfileManager {
       storagePath: matchedStoragePath
     };
     if (cacheKey) {
-      this.authEvidenceCache.set(cacheKey, { data: result, expiresAt: Date.now() + 10000 });
+      this.authEvidenceCache.set(cacheKey, { data: result, expiresAt: Date.now() + 30000 });
     }
     return result;
   }
@@ -1207,14 +1207,16 @@ export class AccountProfileManager {
       } else {
         const detectedUser = evidence.detectedUser;
 
-        const isQuotaExhausted = Boolean(
-          profile.quota_resets_at && new Date(profile.quota_resets_at).getTime() > Date.now()
-        );
-
         const appExe = AntigravityDiscovery.getAntigravityAppExe();
-        const runningInstance = this.getRunningInstanceForProfile(profile.environment_path);
+        const runningInstance = this.getRunningInstanceForProfile(profile.environment_path) || this.findAnyLiveLanguageServerInstance();
 
-        if (!AccountProfileManager.isOfflineMode() && !appExe) {
+        if (runningInstance) {
+          // Se o probe do Language Server responder com sucesso, resete obrigatoriamente quota e retorne READY
+          determinedStatus = 'READY';
+          hasSession = true;
+          AccountProfileManager.lastReadyTimestamps.set(profile.id, Date.now());
+          statusReason = `Conta Google "${detectedUser || profile.display_name}" com Language Server ativo e respondendo em ${runningInstance.address} (PID: ${runningInstance.pid}). Cota liberada e conta pronta.`;
+        } else if (!AccountProfileManager.isOfflineMode() && !appExe) {
           const lastReady = AccountProfileManager.lastReadyTimestamps.get(profile.id) ||
             (profile.auth_status === 'READY' && profile.last_tested ? new Date(profile.last_tested).getTime() : 0);
           if (lastReady && (Date.now() - lastReady) < AccountProfileManager.TRANSIENT_FAULT_TOLERANCE_MS) {
@@ -1239,19 +1241,14 @@ export class AccountProfileManager {
             statusReason =
               'Conta Google não autenticada no perfil (app_storage.json sem usuário logado). Conclua o login na janela do Antigravity.';
           }
-        } else if (isQuotaExhausted) {
-          determinedStatus = 'QUOTA_EXHAUSTED';
-          hasSession = true;
-          statusReason =
-            profile.quota_message ||
-            `Limite de cota ativo até ${new Date(profile.quota_resets_at!).toLocaleTimeString()}`;
         } else {
+          // Ação "Verificar Cota": Se o probe confirmar que o Language Server está ativo e respondendo (ou pronto),
+          // resete obrigatoriamente qualquer cooldown de cota (quota_resets_at = NULL, quota_message = NULL),
+          // transicionando a conta para READY e evitando travas falsas de cota.
           determinedStatus = 'READY';
           hasSession = true;
           AccountProfileManager.lastReadyTimestamps.set(profile.id, Date.now());
-          statusReason = runningInstance
-            ? `Conta Google "${detectedUser}" autenticada com sucesso e runtime Antigravity ativo em ${runningInstance.address}.`
-            : `Conta Google "${detectedUser}" autenticada e pronta (runtime iniciará automaticamente sob demanda).`;
+          statusReason = `Conta Google "${detectedUser}" autenticada e pronta (runtime iniciará automaticamente sob demanda).`;
         }
 
         if (detectedUser && detectedUser !== profile.google_account_label) {
@@ -1276,12 +1273,24 @@ export class AccountProfileManager {
     }
 
     const now = new Date().toISOString();
-    db.prepare(`UPDATE account_profiles SET auth_status = ?, last_tested = ?, updated_at = ? WHERE id = ?`).run(
-      determinedStatus,
-      now,
-      now,
-      profile.id
-    );
+    if (determinedStatus === 'READY') {
+      db.prepare(`UPDATE account_profiles SET auth_status = ?, quota_resets_at = NULL, quota_message = NULL, last_tested = ?, updated_at = ? WHERE id = ?`).run(
+        determinedStatus,
+        now,
+        now,
+        profile.id
+      );
+      try {
+        db.prepare(`UPDATE workers SET status = 'READY', updated_at = ? WHERE account_profile_id = ? AND status IN ('COOLDOWN', 'WAITING')`).run(now, profile.id);
+      } catch {}
+    } else {
+      db.prepare(`UPDATE account_profiles SET auth_status = ?, last_tested = ?, updated_at = ? WHERE id = ?`).run(
+        determinedStatus,
+        now,
+        now,
+        profile.id
+      );
+    }
     const updated = this.getProfile(profile.id)!;
     return {
       profile: updated,
@@ -1447,9 +1456,6 @@ export class AccountProfileManager {
     const current = this.getProfile(profileId);
     if (status === 'READY' || status === 'ACTIVE') {
       this.lastReadyTimestamps.set(profileId, Date.now());
-      if (current?.quota_resets_at && new Date(current.quota_resets_at).getTime() > Date.now()) {
-        return;
-      }
     }
     if (status === 'OFFLINE' || status === 'RUNTIME_UNAVAILABLE') {
       const lastReady = this.lastReadyTimestamps.get(profileId) ||
@@ -1462,11 +1468,26 @@ export class AccountProfileManager {
       }
     }
     const now = new Date().toISOString();
-    db.prepare(`
-      UPDATE account_profiles
-      SET auth_status = ?, updated_at = ?
-      WHERE id = ?
-    `).run(status, now, profileId);
+    if (status === 'READY' || status === 'ACTIVE') {
+      db.prepare(`
+        UPDATE account_profiles
+        SET auth_status = ?, quota_resets_at = NULL, quota_message = NULL, updated_at = ?
+        WHERE id = ?
+      `).run(status, now, profileId);
+      try {
+        db.prepare(`
+          UPDATE workers
+          SET status = 'READY', updated_at = ?
+          WHERE account_profile_id = ? AND status IN ('COOLDOWN', 'WAITING')
+        `).run(now, profileId);
+      } catch {}
+    } else {
+      db.prepare(`
+        UPDATE account_profiles
+        SET auth_status = ?, updated_at = ?
+        WHERE id = ?
+      `).run(status, now, profileId);
+    }
   }
 
   // ----------------------------------------------------------------
@@ -2098,11 +2119,27 @@ export class AccountProfileManager {
         ? String((errorOrMessage as any).message)
         : String(errorOrMessage || '');
 
-    const quotaPattern = /RESOURCE_EXHAUSTED|QUOTA_EXHAUSTED|QUOTA_BLOCKED|\b429\b|Individual quota reached|baseline quota will refresh|Weekly Limit|upgrade your subscription to increase your limits|Resets in \d+|AI credits balance is too low|Out of credits|rate limit|\bcota\b/i;
+    // Se o texto contiver "% left", "% remaining" ou "% restante" com valor maior que 0 (ex.: "53% left", "71% left"),
+    // classifique imediatamente como kind: 'NONE' (cota disponível).
+    const percentLeftMatch = rawMsg.match(/(\d+(?:\.\d+)?)\s*%\s*(?:left|remaining|restante)/i);
+    const hasPositiveQuotaLeft = percentLeftMatch && parseFloat(percentLeftMatch[1]) > 0;
+    if (hasPositiveQuotaLeft) {
+      return {
+        isAccountOrQuotaError: false,
+        kind: 'NONE',
+        reason: rawMsg.trim()
+      };
+    }
+
+    // Somente considere erro de cota se contiver explicitamente:
+    // 1) 0% left / remaining (ex: "0% left", "0% remaining")
+    // 2) OU código HTTP 429 real com RESOURCE_EXHAUSTED retornado pela API gRPC
+    const explicitZeroLeft = /\b0(?:\.0+)?\s*%\s*(?:left|remaining|restante)/i.test(rawMsg);
+    const isGrpcResourceExhausted429 = /(?:429.*RESOURCE_EXHAUSTED|RESOURCE_EXHAUSTED.*429|RESOURCE_EXHAUSTED|QUOTA_EXHAUSTED|Individual quota reached|Out of credits|\b429\b.*rate limit|rate limit.*429)/i.test(rawMsg);
     const authPattern = /AUTH_ERROR|UNAUTHENTICATED|LOGIN_REQUIRED|Verify your account to continue|secret keyring is locked|OAuth|invalid_grant|missing license|not authenticated|ACCOUNT_UNAVAILABLE/i;
     const runtimePattern = /AGENTAPI_UNAVAILABLE.*perfil|NATIVE_WORKSPACE_PROFILE_HOME_MISMATCH/i;
 
-    if (quotaPattern.test(rawMsg)) {
+    if (explicitZeroLeft || isGrpcResourceExhausted429) {
       return {
         isAccountOrQuotaError: true,
         kind: 'QUOTA',
@@ -2668,6 +2705,14 @@ export class AccountProfileManager {
   static markQuotaExhausted(profileId: string, errorMsg?: string): AccountProfile {
     const now = new Date();
     const rawMsg = errorMsg || 'Limite de cota individual atingido (RESOURCE_EXHAUSTED 429).';
+
+    // Defesa contra falso positivo: se a mensagem de erro indicar porcentagem positiva restante, não marcar como esgotado!
+    const percentMatch = rawMsg.match(/(\d+(?:\.\d+)?)\s*%\s*(?:left|remaining|restante)/i);
+    if (percentMatch && parseFloat(percentMatch[1]) > 0) {
+      Logger.info(`[AccountProfileManager] Telemetria informativa com cota restante (${percentMatch[1]}% restante). Ignorando marcação de QUOTA_EXHAUSTED para "${profileId}".`);
+      return this.getProfile(profileId)!;
+    }
+
     let durationMs = 60 * 60 * 1000; // default 1h
 
     // Suporte a dias, horas, minutos e segundos (ex: "Resets in 110h56m54s", "Resets in 4d 14h")
@@ -2736,18 +2781,22 @@ export class AccountProfileManager {
     const profile = this._rowToProfile(row);
 
     if (profile.auth_status === 'QUOTA_EXHAUSTED') {
-      if (profile.quota_resets_at && Date.now() >= new Date(profile.quota_resets_at).getTime()) {
+      const percentMatch = profile.quota_message ? profile.quota_message.match(/(\d+(?:\.\d+)?)\s*%\s*(?:left|remaining|restante)/i) : null;
+      const isFalsePositive = percentMatch && parseFloat(percentMatch[1]) > 0;
+      const isLsOnline = Boolean(this.getRunningInstanceForProfile(profile.environment_path) || this.findAnyLiveLanguageServerInstance());
+
+      if (isFalsePositive || isLsOnline || (profile.quota_resets_at && Date.now() >= new Date(profile.quota_resets_at).getTime())) {
         const now = new Date().toISOString();
         db.prepare(`
           UPDATE account_profiles
-          SET auth_status = 'AUTH_UNKNOWN', quota_resets_at = NULL, quota_message = ?, updated_at = ?
+          SET auth_status = 'READY', quota_resets_at = NULL, quota_message = NULL, updated_at = ?
           WHERE id = ?
-        `).run('Cooldown expirou. Elegível para tentativa; quota e OAuth ainda não confirmados.', now, profileId);
+        `).run(now, profileId);
 
         try {
           db.prepare(`
             UPDATE workers
-            SET status = 'WAITING', updated_at = ?
+            SET status = 'READY', updated_at = ?
             WHERE account_profile_id = ? AND status = 'COOLDOWN'
           `).run(now, profileId);
         } catch (err) {
@@ -2763,7 +2812,7 @@ export class AccountProfileManager {
     }
 
         Logger.info(
-          `[AccountProfileManager] Cooldown expirou para "${profile.display_name}". Elegível para nova tentativa; quota permanece desconhecida.`
+          `[AccountProfileManager] Cooldown resetado para "${profile.display_name}". Status restabelecido para READY.`
         );
         const updatedRow: any = db.prepare('SELECT * FROM account_profiles WHERE id = ?').get(profileId);
         return updatedRow ? this._rowToProfile(updatedRow) : profile;

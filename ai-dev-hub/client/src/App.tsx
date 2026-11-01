@@ -70,7 +70,7 @@ export const App: React.FC = () => {
       }
     };
     refresh();
-    const timer = setInterval(refresh, 2500);
+    const timer = setInterval(refresh, 5000);
     return () => { mounted = false; clearInterval(timer); };
   }, [activeProjectId]);
 
@@ -488,6 +488,7 @@ export const App: React.FC = () => {
     try {
       const result = await api.stopAgent(activeProjectId);
       api.getActiveAutonomousRun(activeProjectId).then(run => setProjectRun(run)).catch(() => {});
+      await loadProjectDetails(activeProjectId);
       addToast('info', result.message);
     } catch (err: any) {
       addToast('error', `Erro ao parar agente: ${err.message}`);
@@ -539,6 +540,29 @@ export const App: React.FC = () => {
       addToast('info', `Tarefa movida para ${to}.`);
     } catch (err: any) {
       addToast('error', `Erro ao mover tarefa: ${err.message}`);
+    }
+  };
+
+  const handleDeleteTask = async (taskText: string, taskId?: string) => {
+    if (!activeProjectId) return;
+    try {
+      await api.deleteTask(activeProjectId, taskText, taskId);
+      await loadProjectDetails(activeProjectId);
+      addToast('info', 'Tarefa removida com sucesso.');
+    } catch (err: any) {
+      addToast('error', `Erro ao excluir tarefa: ${err.message}`);
+    }
+  };
+
+  const handleClearPendingTasks = async () => {
+    if (!activeProjectId) return;
+    try {
+      await api.clearPendingTasks(activeProjectId);
+      await loadProjectDetails(activeProjectId);
+      setProjectRun(null);
+      addToast('success', 'Fila de tarefas pendentes limpa com sucesso.');
+    } catch (err: any) {
+      addToast('error', `Erro ao limpar tarefas: ${err.message}`);
     }
   };
 
@@ -867,8 +891,11 @@ export const App: React.FC = () => {
                     <DecoHubTasksView
                       tasks={projectDetails.parsedTasks}
                       run={projectRun}
+                      projectId={projectDetails.id}
                       onAddTask={handleAddTask}
                       onMoveTask={handleMoveTask}
+                      onDeleteTask={handleDeleteTask}
+                      onClearPendingTasks={handleClearPendingTasks}
                     />
                   )}
 

@@ -740,20 +740,24 @@ export class IndependentEvaluator {
   static getFileContentBefore(projectPath: string, relFile: string): string | null {
     const normRel = relFile.replace(/\\/g, '/');
     try {
-      return execSync(`git show HEAD:"${normRel}"`, {
+      return execFileSync('git', ['show', `HEAD:${normRel}`], {
         cwd: projectPath,
         encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'ignore']
+        stdio: ['pipe', 'pipe', 'ignore'],
+        timeout: 4000,
+        windowsHide: true
       });
     } catch {
       // Normal when file is newly created or untracked in HEAD
     }
 
     try {
-      return execSync(`git show HEAD~1:"${normRel}"`, {
+      return execFileSync('git', ['show', `HEAD~1:${normRel}`], {
         cwd: projectPath,
         encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'ignore']
+        stdio: ['pipe', 'pipe', 'ignore'],
+        timeout: 4000,
+        windowsHide: true
       });
     } catch {
       // Normal when file is new or repository has single commit
@@ -794,10 +798,12 @@ export class IndependentEvaluator {
 
     const gitRenameMap = new Map<string, string>();
     try {
-      const gitStatusOut = execSync('git status --porcelain', {
+      const gitStatusOut = execFileSync('git', ['status', '--porcelain'], {
         cwd: projectPath,
         encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'ignore']
+        stdio: ['pipe', 'pipe', 'ignore'],
+        timeout: 5000,
+        windowsHide: true
       });
       for (const line of gitStatusOut.split(/\r?\n/)) {
         if (!line || line.length < 3) continue;
@@ -1316,12 +1322,14 @@ export class IndependentEvaluator {
           const mockIndicators = [
             /\/\/\s*(TODO\s*:?\s*)?mock\s+implementation/i,
             /return\s*\{\s*\}\s*;\s*\/\/\s*mock/i,
-            /function\s+\w+\s*\([^)]*\)\s*\{\s*return\s*(\{\}|\[\]);\s*\}/i,
             ...(!hasRealFunctionalCode ? [
+              /function\s+\w+\s*\([^)]*\)\s*\{\s*return\s*(\{\}|\[\]);\s*\}/i,
               /const\s+mock[A-Z0-9_]+\s*=/i,
               /\bfake(Implementation|Data|Response|Users|Records)\b/i,
               /\bdummy(Data|Value|Response)\b/i
-            ] : [])
+            ] : [
+              /function\s+(?:mock|fake|dummy|stub)\w*\s*\([^)]*\)\s*\{\s*return\s*(\{\}|\[\]);\s*\}/i
+            ])
           ];
 
           for (const m of mockIndicators) {
@@ -1523,16 +1531,25 @@ export class IndependentEvaluator {
               (ext === '.json' && !['package.json', 'package-lock.json', 'tsconfig.json'].includes(entry.name))
             ) {
               matchedFiles.push(relPath);
-            } else if (['.js', '.cjs', '.mjs', '.ts'].includes(ext)) {
+            } else if (['.js', '.cjs', '.mjs', '.ts', '.tsx', '.jsx'].includes(ext)) {
               try {
                 const content = fs.readFileSync(fullPath, 'utf-8');
                 if (
                   content.includes('writeFileSync') ||
                   content.includes('writeFile') ||
+                  content.includes('appendFileSync') ||
+                  content.includes('appendFile') ||
                   content.includes('sqlite') ||
                   content.includes('localStorage') ||
+                  content.includes('sessionStorage') ||
                   content.includes('indexedDB') ||
                   content.includes('createWriteStream') ||
+                  content.includes('better-sqlite3') ||
+                  content.includes('prisma') ||
+                  content.includes('drizzle') ||
+                  content.includes('knex') ||
+                  content.includes('typeorm') ||
+                  content.includes('lowdb') ||
                   content.includes('fs/promises') ||
                   content.includes('fs.promises')
                 ) {

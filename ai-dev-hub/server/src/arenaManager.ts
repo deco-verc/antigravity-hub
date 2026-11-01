@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import { db } from './db.js';
 import { Logger } from './logger.js';
 import { WorkerRegistry, Worker } from './workerRegistry.js';
@@ -484,7 +484,11 @@ export class ArenaManager {
     try {
       execSync('git add -A', { cwd: workspace, stdio: 'pipe' });
       const msg = params.commitMessage || `arena(${candidate.candidateLabel}): implement ${arenaRun.taskTitle}`;
-      execSync(`git commit -m "${msg}"`, { cwd: workspace, stdio: 'pipe' });
+      execFileSync('git', ['commit', '-m', msg], {
+        cwd: workspace,
+        stdio: 'pipe',
+        timeout: 8000
+      });
       commitSha = execSync('git rev-parse HEAD', { cwd: workspace, encoding: 'utf-8' }).trim();
     } catch (e: any) {
       Logger.warn(`[AI DEV ARENA] Aviso no commit do candidato: ${e.message}`);

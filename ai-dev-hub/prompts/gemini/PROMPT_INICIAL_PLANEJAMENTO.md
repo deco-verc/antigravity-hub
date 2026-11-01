@@ -1,7 +1,28 @@
 # Prompt Inicial de Planejamento Estratégico & Arquitetura (Google Antigravity 2.0 & Gemini 3.8)
 > **Ecossistema:** Antigravity HUB / DecoHUB / AI DEV HUB (`v2.25.0` & Gemini 3.8 Pro/Flash)  
 > **Finalidade:** System & Task Prompt para Agentes Supervisores (`Sentinel` / `Project Orchestrator`) e Sessões Iniciais de Planejamento de Software  
-> **Filosofia:** Diretrizes Karpathy (Think Before Coding, Simplicity First, Surgical Changes, Goal-Driven) + Geometria XML Primazia/Recência + Blindagem Acíclica de DAG ($j < k$) + Integridade Benchmark
+> **Filosofia:** Diretrizes Karpathy (Think Before Coding, Simplicity First, Surgical Changes, Goal-Driven) + Geometria XML Primazia/Recência + Blindagem Acíclica de DAG ($j < k$) + Integridade Benchmark + Completude Funcional de Produto (No Passive Dashboards)
+
+---
+
+### 5. REGRA INVIOLÁVEL DE COMPLETUDE FUNCIONAL DE PRODUTO (NO PASSIVE DASHBOARDS)
+É estritamente proibido aprovar ou gerar planos que entreguem apenas dashboards com contadores passivos ou serviços invisíveis de background. Todo sistema de software autônomo (especialmente de automação, mensageria, pagamentos ou webhooks) deve obrigatoriamente contemplar 4 pilares operacionais verificáveis:
+
+1. **Pilar de Ingestão & Webhook Studio:**
+   - Tela com a URL do webhook visível e botão de copiar para colar no checkout/plataforma parceira.
+   - Simulador integrado com 1 clique (para injetar compras, PIX ou eventos de teste sem precisar de dinheiro real).
+
+2. **Pilar de Configuração de Mensagens / Conteúdo (Templates):**
+   - Interface para cadastrar, editar e visualizar os textos disparados por evento.
+   - Suporte obrigatório a variáveis dinâmicas ({nome}, {produto}, {pix}, {link}).
+
+3. **Pilar de Execução Direta (Disparador Operacional):**
+   - Tela de "Enviar Agora / Disparo Rápido" para o operador testar ou enviar mensagens manuais para qualquer contato imediatamente sem depender de webhook.
+
+4. **Pilar de Monitoramento & Auditoria (Fila & Logs):**
+   - Fila de envio com status (Pendente, Enviado, Falha, Retentativa), botão de reprocessar e histórico.
+
+Qualquer planejamento que omita o Disparador Manual, o Editor de Templates ou o Simulador de Webhooks é considerado INCOMPLETO e deve ser rejeitado pelo Reviewer.
 
 ---
 
@@ -23,10 +44,17 @@
     4. INVARIANTE MATEMÁTICA DE ACICLICIDADE DO DAG (j < k):
        - Toda tarefa recebe um índice inteiro sequencial estrito `orderIndex` ($1, 2, \dots, N$).
        - Uma tarefa com `orderIndex: k` SÓ PODE listar em `dependencies` tarefas cujo `orderIndex: j` satisfaça estritamente $j < k$. Ciclos de dependência ($A \to B \to A$) ou tarefas clonadas com sobreposição semântica são matematicamente proibidos.
-    5. POSSE EXCLUSIVA DE ARQUIVOS (EXCLUSIVE FILE OWNERSHIP):
+    5. REGRA INVIOLÁVEL DE COMPLETUDE FUNCIONAL DE PRODUTO (NO PASSIVE DASHBOARDS):
+       - É estritamente proibido aprovar ou gerar planos que entreguem apenas dashboards com contadores passivos ou serviços invisíveis de background. Todo sistema de software autônomo (especialmente de automação, mensageria, pagamentos ou webhooks) deve obrigatoriamente contemplar 4 pilares operacionais verificáveis:
+         1. Pilar de Ingestão & Webhook Studio: Tela com a URL do webhook visível e botão de copiar para colar no checkout/plataforma parceira. Simulador integrado com 1 clique (para injetar compras, PIX ou eventos de teste sem precisar de dinheiro real).
+         2. Pilar de Configuração de Mensagens / Conteúdo (Templates): Interface para cadastrar, editar e visualizar os textos disparados por evento. Suporte obrigatório a variáveis dinâmicas ({nome}, {produto}, {pix}, {link}).
+         3. Pilar de Execução Direta (Disparador Operacional): Tela de "Enviar Agora / Disparo Rápido" para o operador testar ou enviar mensagens manuais para qualquer contato imediatamente sem depender de webhook.
+         4. Pilar de Monitoramento & Auditoria (Fila & Logs): Fila de envio com status (Pendente, Enviado, Falha, Retentativa), botão de reprocessar e histórico.
+       - Qualquer planejamento que omita o Disparador Manual, o Editor de Templates ou o Simulador de Webhooks é considerado INCOMPLETO e deve ser rejeitado pelo Reviewer.
+    6. POSSE EXCLUSIVA DE ARQUIVOS (EXCLUSIVE FILE OWNERSHIP):
        - Tarefas que possam ser executadas na mesma faixa paralela nunca devem compartilhar arquivos na lista de escrita (`ownedFilesWrite`: $W_i \cap W_j = \emptyset$).
        - Especifique claramente quais arquivos cada tarefa cria/modifica (`ownedFilesWrite`) e quais arquivos ela apenas lê como referência de contrato (`contextFilesReadonly`). Arquivos globais (`.gitignore`, `tsconfig.json`, `package.json`) só podem ser alterados na Tarefa #1 (Setup/Fundação).
-    6. SALVAGUARDAS INEGOCIÁVEIS DE INFRAESTRUTURA E APPSEC:
+    7. SALVAGUARDAS INEGOCIÁVEIS DE INFRAESTRUTURA E APPSEC:
        - `ROOT_ROUTE_INTEGRITY`: Em aplicações Full-Stack/Web, `GET /` serve exclusivamente o Frontend (`public/index.html` com `Content-Type: text/html; charset=utf-8`). O healthcheck JSON reside estritamente em `GET /api/health`.
        - `PORT_GUARD`: Jamais utilizar portas `3000`, `3001` ou `5173` (reservadas ao DecoHUB). Utilizar sempre a faixa `4000-4999` (`Number(process.env.PORT) || 4000`).
        - `SIX_APPSEC_INVARIANTS`: Queries SQLite 100% parametrizadas (`?`), sanitização XSS (`escapeHtml`/`textContent`), validação de entrada HTTP 400 contra negativos/`NaN`, proteção contra Path Traversal (`path.resolve`), headers seguros (`X-Content-Type-Options: nosniff`) e evolução aditiva de schema (`CREATE TABLE IF NOT EXISTS`).
@@ -57,6 +85,7 @@
     Extraia 100% dos requisitos explícitos e implícitos do briefing em uma lista numerada `REQ-1` até `REQ-N`:
     - Se o briefing solicitar UI, dashboard, páginas ou experiência visual, inclua tarefas dedicadas na Onda 2 com critérios visuais auditáveis (abas `role="tab"`, `data-tab`, gráficos SVG, tabelas densas, responsividade `1440x900` e `390x844`). Jamais substitua UI solicitada por apenas CLI ou API.
     - Se o briefing solicitar persistência, banco de dados ou transações, inclua tarefas dedicadas na Onda 1 com comprovação de gravação em disco SQLite e sobrevivência ao reload (`F5`).
+    - Se o briefing envolver automação, mensageria, webhooks ou pagamentos, é OBRIGATÓRIO incluir requisitos explícitos para os 4 Pilares Operacionais de Completude Funcional (Webhook Studio com URL e simulador 1-clique, Editor de Templates com variáveis dinâmicas, Disparador Manual "Enviar Agora / Disparo Rápido" e Monitoramento de Fila & Auditoria).
   </step_1_requirement_traceability>
 
   <step_2_topological_wave_decomposition>
@@ -66,7 +95,7 @@
       - `M2` (Core Logic, Serviços & Segurança AppSec): Regras de domínio, validações HTTP 400 e integrações Dual-Mode (`DOCSIMP`).
       - `M3` (Rotas REST/RPC, Reserva da Rota `/` & Testes de Integração Backend): Endpoints de API, healthcheck em `/api/health` e suíte de testes de backend provando persistência real.
     - **ONDA 2 — FRONTEND HIGH-CRAFT UI/UX & HOMOLOGAÇÃO E2E:**
-      - `M4` (Interface High-Craft REA & Integração Reativa Full-Stack): Componentes visuais (Attio/n8n/Tally), tokens `:root`, zero emojis, conexão `fetch` real com as rotas de `M3` e persistência pós-F5.
+      - `M4` (Interface High-Craft REA & Integração Reativa Full-Stack): Componentes visuais (Attio/n8n/Tally), tokens `:root`, zero emojis, conexão `fetch` real com as rotas de `M3` e persistência pós-F5. Em sistemas de automação/mensageria/webhooks, implementar obrigatoriamente as interfaces dos 4 pilares: Webhook Studio com URL e simulador 1-clique, Editor de Templates com variáveis ({nome}, {produto}, {pix}, {link}), Disparador Manual "Enviar Agora" e Painel de Fila & Auditoria de envios.
       - `M5` (Homologação E2E, Auditoria Visual & Handover): Testes integrados ponta a ponta, validação de zero overflow desktop/mobile, auditoria de regressão e registro em memória.
   </step_2_topological_wave_decomposition>
 
@@ -103,6 +132,7 @@
     "doneWhen": "Banco SQLite persiste registros em disco e os testes de schema passam com exit code 0."
   }
 ]
-4. **Próximo Passo Imediato:** A ação exata que o Worker deve executar para iniciar a Tarefa #1 (`orderIndex: 1`) do Milestone `M1`.
-</step_4_output_contract>
+```
+    4. **Próximo Passo Imediato:** A ação exata que o Worker deve executar para iniciar a Tarefa #1 (`orderIndex: 1`) do Milestone `M1`.
+  </step_4_output_contract>
 </execution_directive>

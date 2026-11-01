@@ -252,6 +252,27 @@ export class PromptArchitectureService {
   // CAMADA A: REGRAS PERMANENTES (CORE INVARIANTS — PRIMAZIA & KV CACHE)
   // =========================================================================
 
+  public static getInitialPlanningPromptPath(): string {
+    const candidates = [
+      path.resolve(process.cwd(), 'SystemPrompt/PROMPT_INICIAL_PLANEJAMENTO.md'),
+      path.resolve(process.cwd(), '../SystemPrompt/PROMPT_INICIAL_PLANEJAMENTO.md'),
+      path.resolve(process.cwd(), 'prompts/gemini/PROMPT_INICIAL_PLANEJAMENTO.md'),
+      path.resolve(process.cwd(), '../prompts/gemini/PROMPT_INICIAL_PLANEJAMENTO.md')
+    ];
+    for (const p of candidates) {
+      if (fs.existsSync(p)) return p;
+    }
+    return candidates[0];
+  }
+
+  public static loadInitialPlanningPrompt(): string {
+    const p = this.getInitialPlanningPromptPath();
+    if (fs.existsSync(p)) {
+      return fs.readFileSync(p, 'utf-8');
+    }
+    return '';
+  }
+
   public static readonly SUPERVISOR_CORE_RULES_VERSION = 'supervisor-core-v4.0-antigravity';
   public static readonly SUPERVISOR_CORE_RULES: string = [
     `<system_invariants role="SUPERVISOR" version="supervisor-core-v4.0-antigravity">`,
@@ -275,6 +296,7 @@ export class PromptArchitectureService {
     `    11. CONTRATOS EXPLÍCITOS E COMUNICAÇÃO LIMPA: Especificar na description de cada tarefa os nomes exatos de tabelas/colunas SQLite e rotas REST. Adotar tom técnico estilo CLI corporativo (Linear/Vercel), zero emojis decorativos, zero eco da pergunta do usuário e foco direto em arquivos de código (.ts, .tsx, .js, .sql, .html, .css).`,
     `    12. GRANULARIDADE COESA & FIDELIDADE AO BRIEFING (ANTI-BULLET-CHOPPING): Jamais picotar bullets individuais (- campo: string, - regra) em tarefas separadas. 1 Tarefa = 1 Módulo / Rota / Subseção Completa (6 a 8 tarefas no total para especificações estruturadas). Bullets pertencem à descrição e critérios da respectiva tarefa e devem ser preservados integralmente sem truncamento.`,
     `    13. ARQUITETURA UNIFICADA EM 4 PAPÉIS (SINGLE-CHAT 4-ROLE PIPELINE): Respeitar a separação cognitiva estrita de 4 papéis: CHAT FACADE (comunicação limpa com o usuário), SUPERVISOR (planejador e orquestrador do DAG), WORKER (engenheiro cirúrgico de execução) e REVIEWER (auditor independente com veredicto [VEREDICTO: APROVADO] ou [VEREDICTO: REJEITADO]). O Supervisor nunca implementa código diretamente e formula ordens com critérios binários falsificáveis.`,
+    `    14. REGRA INVIOLÁVEL DE COMPLETUDE FUNCIONAL DE PRODUTO (NO PASSIVE DASHBOARDS): É estritamente proibido aprovar ou gerar planos que entreguem apenas dashboards com contadores passivos ou serviços invisíveis de background. Todo sistema de software autônomo (especialmente de automação, mensageria, pagamentos ou webhooks) deve obrigatoriamente contemplar 4 pilares operacionais verificáveis: (1) Ingestão & Webhook Studio (tela com URL visível, botão copiar e simulador integrado com 1 clique para injetar compras, PIX ou eventos de teste sem precisar de dinheiro real); (2) Configuração de Mensagens / Conteúdo (interface para cadastrar, editar e visualizar templates disparados por evento com suporte obrigatório a variáveis dinâmicas {nome}, {produto}, {pix}, {link}); (3) Execução Direta / Disparador Operacional (tela de "Enviar Agora / Disparo Rápido" para o operador testar ou enviar mensagens manuais para qualquer contato imediatamente sem depender de webhook); e (4) Monitoramento & Auditoria (fila de envio com status Pendente, Enviado, Falha, Retentativa, botão de reprocessar e histórico). Qualquer planejamento que omita o Disparador Manual, o Editor de Templates ou o Simulador de Webhooks é considerado INCOMPLETO e deve ser sumariamente rejeitado pelo Reviewer.`,
     `  </affirmative_operational_mandates>`,
     `  <epistemic_grounding_and_falsifiability>`,
     `    1. Basear todo planejamento e revisão exclusivamente nos artefatos de <workspace_context> e nas especificações canônicas @.ai-dev-hub/specs/*.`,
@@ -564,6 +586,7 @@ export class PromptArchitectureService {
           `  <mode_objective>Atuar como ARQUITETO DE SOFTWARE SÊNIOR AUTÔNOMO para decompor o briefing do projeto em uma hierarquia profunda e adaptativa de Grandes Tarefas (Major Tasks), Etapas (Stages) e Microtarefas atômicas executáveis (DAG).</mode_objective>`,
           `  <planning_rules_and_criteria>`,
           `    - ZERO TAREFAS FANTASMAS OU MONOLÍTICAS (SEM TETOS ARTIFICIAIS / SEM TETO ARTIFICIAL): Jamais comprima um sistema complexo em 6 tarefas genéricas.`,
+          `    - REGRA INVIOLÁVEL DE COMPLETUDE FUNCIONAL DE PRODUTO (NO PASSIVE DASHBOARDS): Em sistemas de software autônomo (automação, mensageria, pagamentos ou webhooks), o plano DEVE conter tarefas para os 4 pilares operacionais: 1. Ingestão & Webhook Studio (URL visível + simulador 1-clique); 2. Configuração de Mensagens / Templates (variáveis {nome}, {produto}, {pix}, {link}); 3. Execução Direta (Disparador Operacional Manual "Enviar Agora / Disparo Rápido"); e 4. Monitoramento da Fila & Auditoria (status, retentativa, reprocessar). Planos que entreguem apenas dashboards passivos ou serviços invisíveis de background serão sumariamente rejeitados.`,
           `    - INVESTIGAÇÃO DE ESTADO DO REPOSITÓRIO: Verificar se o diretório é GREENFIELD (projeto novo do zero) ou REPOSITÓRIO EXISTENTE com código legado.`,
           `    - COBERTURA OBRIGATÓRIA EM PROJETOS GREENFIELD (BACKEND-FIRST -> FRONTEND HIGH-CRAFT):`,
           `      1. Scaffolding inicial & Config Unificada: package.json, dependências, .env.example, Dockerfile, .dockerignore, config/env e runner de testes em uma única tarefa coesa (proibido criar tarefas isoladas apenas para .gitignore ou .env.example).`,
@@ -614,7 +637,7 @@ export class PromptArchitectureService {
           `    1. GATE CRITIC (Escopo e Especialidade): Verificar se o diff foi cirúrgico nos expectedScopeFiles e se o Worker cumpriu as DIRETRIZES DA ESPECIALIDADE / SKILL ALOCADA.`,
           `    2. GATE CHALLENGER (Persistência F5 e Resiliência): Verificar se as rotas e a UI sobrevivem a reload (F5) com dados reais no SQLite e tratam entradas inválidas com HTTP 400.`,
           `    3. GATE AUDITOR (Integridade Benchmark & Anti-Tampering): Reprovar imediatamente (CHANGES_REQUESTED) se o Independent Evaluator reportou FAIL, se houve adulteração de testes protegidos (tamperedFiles), ou presença de mocks/TODOs indevidos.`,
-          `    4. GATE SUCCESS AUDITOR (Anti-Slop & Rota Raiz): Reprovar se GET / retornar JSON bruto em vez da SPA, se houver emojis na UI ou falha em gates visuais/AppSec.`,
+          `    4. GATE SUCCESS AUDITOR (Anti-Slop, Rota Raiz & Completude Funcional): Reprovar se GET / retornar JSON bruto em vez da SPA, se houver emojis na UI, ou se violar a REGRA DE COMPLETUDE FUNCIONAL DE PRODUTO (entregar apenas dashboard passivo ou serviço invisível de background sem contemplar Webhook Studio com simulador, Editor de Templates ou Disparador Manual).`,
           `    5. DIAGNÓSTICO ACIONÁVEL: Ao emitir CHANGES_REQUESTED, especificar no campo "feedback" exatamente o arquivo, linha, critério violado e a aresta de contraste (o que corrigir sem quebrar funcionalidades vizinhas). Se 100% dos critérios passaram com exit code 0, emitir APPROVED.`,
           `  </adversarial_verification_gates>`,
           `  <output_contract>`,
@@ -1169,6 +1192,7 @@ export class PromptArchitectureService {
       `    * GT-11 [Visualizações Especializadas do Domínio & Responsividade]: Painéis de análise, comparadores ou visualizadores específicos do domínio conforme solicitado no briefing, com responsividade completa para Desktop (1440x900), Tablet (768x1024) e Mobile (390x844).`,
       `    * GT-12 [Homologação Visual Playwright & Screenshots no Chat: playwright-agent-cli]: Auditoria visual E2E Desktop e Mobile, garantia de sobrevivência ao F5, zero botões mortos, zero overflow horizontal, captura de evidências fotográficas em PNG no Playwright e envio automático das Screenshots finais no Chat do Projeto.`,
       `    - FIDELIDADE ABSOLUTA AO BRIEFING: Modele estritamente os módulos, entidades e fluxos solicitados no briefing do usuário (@.ai-dev-hub/BRIEFING_ORIGINAL.md). Jamais invente módulos não solicitados (como vídeos virais do YouTube, PIX, Turnstile ou n8n, a menos que constem no briefing).`,
+      `    - REGRA INVIOLÁVEL DE COMPLETUDE FUNCIONAL (NO PASSIVE DASHBOARDS): Em sistemas de automação, mensageria, pagamentos ou webhooks, é estritamente obrigatório contemplar os 4 pilares: (1) Ingestão & Webhook Studio (URL visível + simulador 1-clique); (2) Configuração de Mensagens / Templates (variáveis {nome}, {produto}, {pix}, {link}); (3) Disparador Operacional Manual ("Enviar Agora / Disparo Rápido"); e (4) Monitoramento da Fila & Auditoria (status, retentativa, reprocessar). Planos que entreguem apenas dashboards com contadores passivos ou serviços invisíveis de background serão sumariamente rejeitados.`,
       `    - Explicitar no campo "objective" de cada Grande Tarefa e Etapa os nomes principais de tabelas, módulos e rotas da API para orientar a Onda 2.`,
       `  </blueprint_architecture_mandates>`,
       `  <output_contract>`,

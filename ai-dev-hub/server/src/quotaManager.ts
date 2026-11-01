@@ -306,8 +306,12 @@ export class QuotaManager {
       hasActiveCooldown ||
       ((profile.auth_status === 'QUOTA_EXHAUSTED' || profile.auth_status === 'RATE_LIMITED') &&
         !profile.quota_resets_at);
+    const exhaustedTier = this.extractModelTier(profile.quota_message);
 
     for (const model of models) {
+      const modelTier = this.extractModelTier(model);
+      const isModelExhausted = isExhausted && (!exhaustedTier || exhaustedTier === modelTier);
+
       quotaInfoList.push({
         accountProfileId: profile.id,
         authenticatedIdentity: null,
@@ -315,13 +319,13 @@ export class QuotaManager {
         modelOrBucket: model,
         availableQuota: null,
         quotaUnit: 'UNKNOWN',
-        resetsAt: isExhausted ? profile.quota_resets_at || null : null,
+        resetsAt: isModelExhausted ? profile.quota_resets_at || null : null,
         creditsAvailable: null,
         creditsStatus: 'NOT_EXPOSED',
         creditsDisclaimer: 'Créditos de IA e cota de janela de 5 horas são acompanhados no Google Antigravity Desktop.',
         lastUpdated: nowIso,
         validityState: 'UNKNOWN',
-        queryError: isExhausted
+        queryError: isModelExhausted
           ? profile.quota_message || 'Cooldown após 429; quota por modelo desconhecida'
           : 'QUOTA_TELEMETRY_UNAVAILABLE: /usage real não integrado; identidade OAuth não confirmada.'
       });
@@ -332,35 +336,65 @@ export class QuotaManager {
   }
 
   /**
+   * Helper to identify if a model identifier or quota message targets a specific tier ('pro', 'flash', 'flash_lite')
+   */
+  static extractModelTier(textOrModel?: string | null): 'pro' | 'flash' | 'flash_lite' | null {
+    if (!textOrModel) return null;
+    const lower = textOrModel.toLowerCase();
+    if (lower.includes('flash_lite') || lower.includes('flash-lite') || lower.includes('flash lite')) {
+      return 'flash_lite';
+    }
+    if (/\bflash\b/.test(lower) || lower.includes('gemini-flash') || lower.includes('gemini 3.8 flash') || lower.includes('gemini 3.7 flash') || lower.includes('gemini 2.5 flash')) {
+      return 'flash';
+    }
+    if (/\bpro\b/.test(lower) || lower.includes('gemini-pro') || lower.includes('claude') || lower.includes('sonnet') || lower.includes('opus')) {
+      return 'pro';
+    }
+    return null;
+  }
+
+  /**
    * Checks if a specific model or profile is currently blocked by quota
    */
   static isBlockedByQuota(
     profileId: string,
-    _modelId?: string
+    modelId?: string
   ): { blocked: boolean; resetsAt: string | null; reason: string | null } {
     const profile = this._getProfileRow(profileId);
     if (!profile) {
       return { blocked: true, resetsAt: null, reason: 'Perfil inexistente' };
     }
 
-    if (profile.quota_resets_at) {
-      const resetTime = new Date(profile.quota_resets_at).getTime();
-      if (Date.now() < resetTime) {
-        return {
-          blocked: true,
-          resetsAt: profile.quota_resets_at,
-          reason: profile.quota_message || 'Limite de cota ativo (aguardando reset)'
-        };
-      }
-      // Reset time already passed (auto-healed in _getProfileRow)
-      return { blocked: false, resetsAt: null, reason: null };
+    // Se a conta inteira estiver desautenticada, bloqueia qualquer modelo
+    if (profile.auth_status === 'AUTH_ERROR' || profile.auth_status === 'LOGIN_REQUIRED') {
+      return {
+        blocked: true,
+        resetsAt: null,
+        reason: profile.quota_message || 'Conta desautenticada (AUTH_ERROR)'
+      };
     }
 
-    if (profile.auth_status === 'QUOTA_EXHAUSTED' || profile.auth_status === 'RATE_LIMITED') {
+    const hasActiveReset = Boolean(
+      profile.quota_resets_at && Date.now() < new Date(profile.quota_resets_at).getTime()
+    );
+    const isExhaustedStatus =
+      profile.auth_status === 'QUOTA_EXHAUSTED' || profile.auth_status === 'RATE_LIMITED';
+
+    if (hasActiveReset || isExhaustedStatus) {
+      const quotaMsg = profile.quota_message || '';
+      const exhaustedTier = this.extractModelTier(quotaMsg);
+      const requestedTier = this.extractModelTier(modelId);
+
+      // Se o esgotamento pertencer expressamente a um tier diferente do modelo solicitado:
+      // Ex: cooldown específico de 'pro' (Gemini Pro), mas modelId é 'flash' ou 'flash_lite' -> NÃO bloqueia!
+      if (exhaustedTier && requestedTier && exhaustedTier !== requestedTier) {
+        return { blocked: false, resetsAt: null, reason: null };
+      }
+
       return {
         blocked: true,
         resetsAt: profile.quota_resets_at || null,
-        reason: profile.quota_message || 'Cota ou taxa limite atingida'
+        reason: quotaMsg || 'Limite de cota ativo (aguardando reset)'
       };
     }
 

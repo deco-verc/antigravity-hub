@@ -291,15 +291,22 @@ export class SessionCircuitBreaker {
   }
 
   /**
-   * Zera o histórico de tentativas de uma tarefa específica quando ela progride
+   * Zera o histórico de tentativas de uma tarefa específica quando ela progride ou é cancelada
    */
-  static resetTaskWindow(projectId: string, taskId: string): void {
-    if (!projectId || !taskId) return;
+  static resetTaskWindow(projectId: string | null | undefined, taskId: string): void {
+    if (!taskId) return;
     try {
-      db.prepare(`
-        DELETE FROM session_creation_telemetry
-        WHERE project_id = ? AND task_id = ? AND event_type IN ('AGENT_CONVERSATION_CREATE_ATTEMPT', 'SESSION_CREATION_STORM', 'CREATE_BLOCKED')
-      `).run(projectId, taskId);
+      if (projectId) {
+        db.prepare(`
+          DELETE FROM session_creation_telemetry
+          WHERE project_id = ? AND task_id = ? AND event_type IN ('AGENT_CONVERSATION_CREATE_ATTEMPT', 'SESSION_CREATION_STORM', 'CREATE_BLOCKED')
+        `).run(projectId, taskId);
+      } else {
+        db.prepare(`
+          DELETE FROM session_creation_telemetry
+          WHERE task_id = ? AND event_type IN ('AGENT_CONVERSATION_CREATE_ATTEMPT', 'SESSION_CREATION_STORM', 'CREATE_BLOCKED')
+        `).run(taskId);
+      }
     } catch (err) {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({
@@ -311,6 +318,17 @@ export class SessionCircuitBreaker {
         console.warn("[WARN][server:sessionCircuitBreaker]", err);
       }
     }
+  }
+
+  /**
+   * Zera contadores de storm ao cancelar um run ou uma tarefa para permitir que novas ordens sejam aceitas imediatamente.
+   */
+  static onCancel(projectId: string, taskId?: string): void {
+    if (!projectId) return;
+    if (taskId) {
+      this.resetTaskWindow(projectId, taskId);
+    }
+    this.resetProjectWindow(projectId);
   }
 
   /**

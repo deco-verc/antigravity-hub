@@ -223,6 +223,12 @@ export const api = {
     return res.json();
   },
 
+  async getSystemPaths(): Promise<{ defaultProjectsDir: string; userHome: string; cwd: string }> {
+    const res = await fetch(`${API_BASE}/system/paths`);
+    if (!res.ok) return { defaultProjectsDir: '', userHome: '', cwd: '' };
+    return res.json();
+  },
+
   async getMemory(id: string): Promise<ProjectMemory> {
     const res = await fetch(`${API_BASE}/projects/${id}/memory`);
     if (!res.ok) throw new Error('Falha ao obter arquivos de memória');
@@ -258,6 +264,24 @@ export const api = {
       body: JSON.stringify({ taskText, from, to })
     });
     if (!res.ok) throw new Error('Falha ao mover tarefa');
+    return res.json();
+  },
+
+  async deleteTask(projectId: string, taskText: string, taskId?: string): Promise<any> {
+    const res = await fetch(`${API_BASE}/projects/${projectId}/tasks/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskText, taskId })
+    });
+    if (!res.ok) throw new Error('Falha ao excluir tarefa');
+    return res.json();
+  },
+
+  async clearPendingTasks(projectId: string): Promise<any> {
+    const res = await fetch(`${API_BASE}/projects/${projectId}/tasks/clear`, {
+      method: 'POST'
+    });
+    if (!res.ok) throw new Error('Falha ao limpar tarefas');
     return res.json();
   },
 

@@ -12,6 +12,8 @@ import { SkillSlashCommandService } from '../src/skillSlashCommandService.js';
 import { ChatIntentClassifier } from '../src/chatIntentClassifier.js';
 import { AutonomousManager } from '../src/autonomousManager.js';
 import { AgentApiGateway } from '../src/agentApiGateway.js';
+import { PlaywrightVisualInspector } from '../src/playwrightVisualInspector.js';
+import { UserExperienceSimulator } from '../src/userExperienceSimulator.js';
 
 describe('FASE 16: Motor Universal de Slash Commands e Arsenal de Skills', () => {
   let testProjectDir: string;
@@ -388,6 +390,32 @@ describe('FASE 16: Motor Universal de Slash Commands e Arsenal de Skills', () =>
     const updatedDesign = fs.readFileSync(path.join(testProjectDir, 'DESIGN.md'), 'utf-8');
     assert.ok(updatedDesign.includes('shadcn/ui & 21st.dev'), 'DESIGN.md deve ser enriquecido com os padrões');
     assert.ok(updatedDesign.includes('--primary-foreground'), 'DESIGN.md deve receber tokens CSS do shadcn');
+  });
+
+  it('FASE 25: Escrita Atômica de Skills (atomicWriteFileSync) e Resolução Segura de Node.js', () => {
+    // 1. Escrita atômica em arquivo novo
+    const targetFile = path.join(testProjectDir, 'skills-atomic-test', 'SKILL.md');
+    SkillSlashCommandService.atomicWriteFileSync(targetFile, '# Skill Atômica de Teste\nConteúdo seguro');
+    assert.ok(fs.existsSync(targetFile), 'Arquivo deve existir após escrita atômica');
+    assert.equal(fs.readFileSync(targetFile, 'utf-8'), '# Skill Atômica de Teste\nConteúdo seguro');
+
+    // Garantir que não sobraram arquivos .tmp no diretório
+    const dirEntries = fs.readdirSync(path.dirname(targetFile));
+    assert.equal(dirEntries.filter(f => f.includes('.tmp.')).length, 0, 'Nenhum resíduo temporário .tmp deve sobrar');
+
+    // 2. Sobrescrita atômica em arquivo existente
+    SkillSlashCommandService.atomicWriteFileSync(targetFile, '# Skill Atualizada\nVersão 2');
+    assert.equal(fs.readFileSync(targetFile, 'utf-8'), '# Skill Atualizada\nVersão 2');
+
+    // 3. Resolução Segura de Node.js em PlaywrightVisualInspector
+    const pwNode = PlaywrightVisualInspector.getSafeNodeExecutable();
+    assert.ok(pwNode.execPath && pwNode.execPath.length > 0, 'PlaywrightVisualInspector deve resolver execPath de Node válido');
+    assert.equal(pwNode.env.ELECTRON_RUN_AS_NODE, '1', 'ELECTRON_RUN_AS_NODE deve ser 1');
+
+    // 4. Resolução Segura de Node.js em UserExperienceSimulator
+    const uxNode = UserExperienceSimulator.getSafeNodeExecutable();
+    assert.ok(uxNode.execPath && uxNode.execPath.length > 0, 'UserExperienceSimulator deve resolver execPath de Node válido');
+    assert.equal(uxNode.env.ELECTRON_RUN_AS_NODE, '1', 'ELECTRON_RUN_AS_NODE deve ser 1');
   });
 
 });

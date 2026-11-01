@@ -3,22 +3,23 @@ import { db } from './db.js';
 
 /** Durable user-intent identity; a lost HTTP reply must not dispatch another model turn. */
 export class ChatSubmission {
-  static begin(projectId: string, requestId: string, content: string) {
-    if (!/^[a-zA-Z0-9_-]{16,100}$/.test(requestId)) throw new Error('CHAT_REQUEST_ID_INVALID');
+  static begin(projectId: string, requestId: string | null | undefined, content: string) {
+    const safeRequestId = (requestId && /^[a-zA-Z0-9_-]{8,128}$/.test(requestId)) ? requestId : crypto.randomUUID();
     const contentHash=crypto.createHash('sha256').update(content).digest('hex');
     const now=new Date().toISOString(),messageId=crypto.randomUUID();
     db.exec('BEGIN IMMEDIATE');
     try {
-      const prior:any=db.prepare('SELECT * FROM chat_submissions WHERE project_id=? AND request_id=?').get(projectId,requestId);
+      const prior:any=db.prepare('SELECT * FROM chat_submissions WHERE project_id=? AND request_id=?').get(projectId,safeRequestId);
       if(prior){
         if (prior.status === 'cancelled' || prior.status === 'uncertain') {
-          db.prepare('DELETE FROM chat_submissions WHERE project_id=? AND request_id=?').run(projectId, requestId);
+          db.prepare('DELETE FROM chat_submissions WHERE project_id=? AND request_id=?').run(projectId, safeRequestId);
         } else {
           if(prior.content_hash!==contentHash)throw new Error('CHAT_REQUEST_CONTENT_CONFLICT');
           const persistedMessage: any = db.prepare('SELECT * FROM messages WHERE id=? AND project_id=?').get(prior.user_message_id, projectId);
           db.exec('COMMIT');
           return {
             isNew:false,
+            requestId:safeRequestId,
             messageId:prior.user_message_id,
             persisted: Boolean(persistedMessage),
             persistedMessage: persistedMessage || null,
@@ -27,9 +28,9 @@ export class ChatSubmission {
           };
         }
       }
-      db.prepare('INSERT INTO chat_submissions VALUES(?,?,?,?,?,NULL,?,?)').run(projectId,requestId,contentHash,messageId,'dispatching',now,now);
+      db.prepare('INSERT INTO chat_submissions VALUES(?,?,?,?,?,NULL,?,?)').run(projectId,safeRequestId,contentHash,messageId,'dispatching',now,now);
       db.prepare("INSERT INTO messages(id,project_id,role,content,created_at) VALUES(?,?,'user',?,?)").run(messageId,projectId,content,now);
-      db.exec('COMMIT');return {isNew:true,messageId,persisted:true,persistedMessage:null,response:null,status:'dispatching'};
+      db.exec('COMMIT');return {isNew:true,requestId:safeRequestId,messageId,persisted:true,persistedMessage:null,response:null,status:'dispatching'};
     }catch(e){db.exec('ROLLBACK');throw e;}
   }
   static complete(projectId:string,requestId:string,response:unknown){

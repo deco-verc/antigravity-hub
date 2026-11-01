@@ -409,6 +409,24 @@ export class ProjectContextBridge {
       );
     }
 
+    // Se houver project.md rico, injete o contexto do produto e regras
+    if (snapshot.memory.projectMd && snapshot.memory.projectMd.length > 50) {
+      sections.push(
+        '',
+        '--- ESCOPO E REGRAS DE NEGÓCIO DO PROJETO (.ai-dev-hub/project.md) ---',
+        snapshot.memory.projectMd.slice(0, 4000)
+      );
+    }
+
+    // Se houver architecture.md, injete a stack real, componentes e rotas
+    if (snapshot.memory.architectureMd && snapshot.memory.architectureMd.length > 50) {
+      sections.push(
+        '',
+        '--- ARQUITETURA TÉCNICA E BANCO DE DADOS (.ai-dev-hub/architecture.md) ---',
+        snapshot.memory.architectureMd.slice(0, 4000)
+      );
+    }
+
     sections.push(
       ``,
       `--- LOCALIZAÇÃO DE LOGS ---`,

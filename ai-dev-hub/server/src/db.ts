@@ -1513,6 +1513,13 @@ export function initDatabase() {
  * Cascading deletion of a single project and all its related records across all tables.
  */
 export function deleteProjectCascading(projectId: string, targetDb: any = db): { success: boolean; error?: string } {
+  const inTx = Boolean(targetDb.inTransaction);
+  if (!inTx) {
+    try {
+      targetDb.exec('BEGIN IMMEDIATE');
+    } catch {}
+  }
+
   try {
     const deleteWhereIn = (table: string, column: string, items: string[]) => {
       if (items.length === 0) return;
@@ -1535,9 +1542,32 @@ export function deleteProjectCascading(projectId: string, targetDb: any = db): {
       }
     } catch {}
 
+    // Exclusão precisa de observações vinculadas às tarefas do projeto (evita registros órfãos)
+    if (runIds.length > 0) {
+      try {
+        const placeholders = runIds.map(() => '?').join(',');
+        targetDb.prepare(`
+          DELETE FROM agent_turn_observations 
+          WHERE task_id IN (SELECT id FROM autonomous_tasks WHERE run_id IN (${placeholders}))
+        `).run(...runIds);
+      } catch {}
+    }
+    try {
+      targetDb.prepare(`
+        DELETE FROM agent_turn_observations 
+        WHERE task_id IN (SELECT id FROM autonomous_tasks WHERE project_id = ?)
+      `).run(projectId);
+    } catch {}
+
+    try {
+      const projectRow: any = targetDb.prepare('SELECT path FROM projects WHERE id = ?').get(projectId);
+      if (projectRow?.path) {
+        targetDb.prepare('DELETE FROM agent_turn_observations WHERE project_path = ?').run(projectRow.path);
+      }
+    } catch {}
+
     if (runIds.length > 0) {
       deleteWhereIn('worker_leases', 'run_id', runIds);
-      deleteWhereIn('agent_turn_observations', 'task_id', runIds);
       deleteWhereIn('builder_reports', 'run_id', runIds);
       deleteWhereIn('supervisor_reviews', 'run_id', runIds);
       deleteWhereIn('runner_heartbeats', 'run_id', runIds);
@@ -1584,11 +1614,20 @@ export function deleteProjectCascading(projectId: string, targetDb: any = db): {
     deleteWhereIn('meta_chat_threads', 'project_id', projList);
     deleteWhereIn('ml_episodic_memories', 'project_id', projList);
     deleteWhereIn('ml_training_samples', 'project_id', projList);
+    deleteWhereIn('autonomous_tasks', 'project_id', projList);
     deleteWhereIn('autonomous_runs', 'project_id', projList);
     deleteWhereIn('projects', 'id', projList);
 
+    if (!inTx && targetDb.inTransaction) {
+      targetDb.exec('COMMIT');
+    }
     return { success: true };
   } catch (err: any) {
+    if (!inTx && targetDb.inTransaction) {
+      try {
+        targetDb.exec('ROLLBACK');
+      } catch {}
+    }
     return { success: false, error: err?.message || String(err) };
   }
 }

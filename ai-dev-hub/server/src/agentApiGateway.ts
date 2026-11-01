@@ -395,7 +395,39 @@ export class AgentApiGateway {
     // 1. Check if mock provider is active
     if (this._mockProvider) {
       if (projectId) {
-        SessionCircuitBreaker.assertCanCreate({ projectId, role: role || 'UNKNOWN', origin: 'TEST', caller });
+        const evaluation = SessionCircuitBreaker.evaluateCreation(projectId, role || 'UNKNOWN', {
+          taskId: options.taskId,
+          caller,
+          runId: options.runId
+        });
+
+        if (!evaluation.allowed) {
+          const reusableConvId = SessionCircuitBreaker.findReusableConversation(projectId, role || 'UNKNOWN');
+          if (reusableConvId) {
+            SessionCircuitBreaker.logTelemetry({
+              event: 'SESSION_REUSED',
+              origin: 'TEST',
+              projectId,
+              role,
+              caller,
+              runId: options.runId,
+              taskId: options.taskId,
+              conversationId: reusableConvId,
+              reason: `Anti-Storm Fallback: Reutilizando conversa existente [${reusableConvId}] em vez de falhar com storm.`
+            });
+
+            return reusableConvId;
+          }
+
+          SessionCircuitBreaker.assertCanCreate({
+            projectId,
+            role: role || 'UNKNOWN',
+            origin: 'TEST',
+            caller,
+            taskId: options.taskId,
+            runId: options.runId
+          });
+        }
       }
       SessionCircuitBreaker.logTelemetry({
         event: 'AGENT_CONVERSATION_CREATE_ATTEMPT',
@@ -536,19 +568,6 @@ export class AgentApiGateway {
             conversationId: reusableConvId,
             reason: `Anti-Storm Fallback: Reutilizando conversa existente [${reusableConvId}] em vez de falhar com storm.`
           });
-
-          try {
-            this.sendMessage({
-              conversationId: reusableConvId,
-              prompt: options.prompt,
-              projectId,
-              role,
-              caller,
-              env: options.env
-            });
-          } catch (sendErr: any) {
-            Logger.warn(`[AgentApiGateway] Aviso ao despachar prompt na sessão reutilizada: ${sendErr.message}`);
-          }
 
           return reusableConvId;
         }

@@ -85,19 +85,55 @@ export class PlaywrightVisualInspector {
   private static readonly MOBILE_VIEWPORT: ViewportConfig = { width: 390, height: 844, name: 'mobile' };
 
   /**
+   * Helper to find active Node.js executable in PATH or standard system locations
+   */
+  private static findSystemNode(): string {
+    const isWin = process.platform === 'win32';
+    const nodeBinary = isWin ? 'node.exe' : 'node';
+    const pathDirs = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
+
+    for (const dir of pathDirs) {
+      try {
+        const candidate = path.join(dir, nodeBinary);
+        if (fs.existsSync(candidate)) {
+          const lower = candidate.toLowerCase();
+          if (!lower.includes('electron') && !lower.includes('decohub')) {
+            return candidate;
+          }
+        }
+      } catch {}
+    }
+
+    const defaultPaths = isWin
+      ? [
+          path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs', 'node.exe'),
+          path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'nodejs', 'node.exe'),
+          path.join(process.env.LOCALAPPDATA || '', 'Programs', 'nodejs', 'node.exe'),
+          'C:\\Program Files\\nodejs\\node.exe'
+        ]
+      : ['/usr/local/bin/node', '/usr/bin/node', '/bin/node'];
+
+    for (const p of defaultPaths) {
+      try {
+        if (fs.existsSync(p)) return p;
+      } catch {}
+    }
+
+    return isWin ? 'C:\\Program Files\\nodejs\\node.exe' : '/usr/bin/node';
+  }
+
+  /**
    * Helper to resolve the safe Node CLI executable path.
-   * If running inside Electron or DecoHUB, uses system node or sets ELECTRON_RUN_AS_NODE: '1'
+   * If running inside Electron or DecoHUB, uses system node found in PATH or sets ELECTRON_RUN_AS_NODE: '1'
    * to prevent spawning GUI windows or freezing the Express event loop.
    */
-  private static getSafeNodeExecutable(): { execPath: string; env: NodeJS.ProcessEnv } {
-    const isWin = process.platform === 'win32';
-    const defaultNode = isWin ? 'C:\\Program Files\\nodejs\\node.exe' : '/usr/bin/node';
+  public static getSafeNodeExecutable(): { execPath: string; env: NodeJS.ProcessEnv } {
     const isElectron = Boolean(
       (process.versions as any)?.electron ||
       process.execPath.toLowerCase().includes('electron') ||
       process.execPath.toLowerCase().includes('decohub')
     );
-    const execPath = (isElectron && fs.existsSync(defaultNode)) ? defaultNode : process.execPath;
+    const execPath = isElectron ? this.findSystemNode() : process.execPath;
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       ELECTRON_RUN_AS_NODE: '1'
@@ -314,7 +350,7 @@ export class PlaywrightVisualInspector {
           isResolved = true;
           try {
             if (isWin && child.pid) {
-              spawnSync('taskkill', ['/pid', String(child.pid), '/f', '/t'], { stdio: 'ignore', windowsHide: true });
+              spawnSync('taskkill', ['/pid', String(child.pid), '/f', '/t'], { stdio: 'ignore', timeout: 4000, windowsHide: true });
             }
             child.kill();
           } catch (err) {
@@ -346,7 +382,7 @@ export class PlaywrightVisualInspector {
             const pid = child.pid;
             if (isWin && pid) {
               try {
-                spawnSync('taskkill', ['/pid', String(pid), '/f', '/t'], { stdio: 'ignore', windowsHide: true });
+                spawnSync('taskkill', ['/pid', String(pid), '/f', '/t'], { stdio: 'ignore', timeout: 4000, windowsHide: true });
               } catch (err) {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({

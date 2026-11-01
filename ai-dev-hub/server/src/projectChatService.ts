@@ -103,7 +103,17 @@ export class ProjectChatService {
       return `**${idx + 1}. [${t.code}] ${t.title}**${filesTag}`;
     }).join('\n\n');
 
-    const replyContent = `Analisei o seu briefing e elaborei uma proposta de arquitetura estruturada em **${proposedTasks.length} etapas coesas** para o projeto **${projectName}**:\n\n${taskListMd}\n\n---\n**Alinhamento de Escopo:**\nO plano acima atende a todas as especificações que você precisa? Se desejar adicionar, remover ou ajustar algum detalhe, basta responder aqui. Para iniciar a construção imediatamente, clique no botão de aprovação abaixo.`;
+    const firstCode = proposedTasks[0]?.code || '';
+    const matchStart = firstCode.match(/TK-(\d+)/i) || firstCode.match(/(\d+)/);
+    const startIdx = matchStart ? parseInt(matchStart[1], 10) : 1;
+    const endIdx = startIdx + proposedTasks.length - 1;
+    const isEvolution = startIdx > 1;
+
+    const headerTitle = isEvolution
+      ? `### [PLANO DE EXPANSÃO INCREMENTAL — ETAPAS TK-${startIdx} A TK-${endIdx}]\n\n`
+      : '';
+
+    const replyContent = `${headerTitle}Analisei o seu briefing e elaborei uma proposta de ${isEvolution ? 'expansão incremental' : 'arquitetura'} estruturada em **${proposedTasks.length} etapas coesas** para o projeto **${projectName}**:\n\n${taskListMd}\n\n---\n**Alinhamento de Escopo:**\nO plano acima atende a todas as especificações que você precisa? Se desejar adicionar, remover ou ajustar algum detalhe, basta responder aqui. Para iniciar a construção imediatamente, clique no botão de aprovação abaixo.`;
 
     return { replyContent, pendingPlan };
   }

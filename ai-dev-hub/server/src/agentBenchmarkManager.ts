@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import { db } from './db.js';
 import { Logger } from './logger.js';
 import { AntigravityProvider } from './antigravityProvider.js';
@@ -295,7 +295,11 @@ export class AgentBenchmarkManager {
       execSync('git add .', { cwd: workspace, stdio: 'pipe' });
       const statusOut = execSync('git status --porcelain', { cwd: workspace, encoding: 'utf-8' });
       if (statusOut.trim().length > 0) {
-        execSync(`git commit -m "[AI Agent] ${task.title}"`, { cwd: workspace, stdio: 'pipe' });
+        execFileSync('git', ['commit', '-m', `[AI Agent] ${task.title}`], {
+          cwd: workspace,
+          stdio: 'pipe',
+          timeout: 8000
+        });
       }
       resultCommit = execSync('git rev-parse HEAD', { cwd: workspace, encoding: 'utf-8' }).trim();
     } catch (e: any) {

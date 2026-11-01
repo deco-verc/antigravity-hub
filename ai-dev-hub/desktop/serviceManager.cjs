@@ -21,42 +21,32 @@ class ServiceManager extends EventEmitter {
     let serverDir = options.serverDir;
     let clientDir = null;
 
-    // Prioridade 1: Sempre priorizar o código-fonte real compilado no repositório DecoHUB
-    const canonicalServer = fs.existsSync('C:\\IA\\IA\\Antigravity HUB\\ai-dev-hub\\server\\dist\\index.js')
-      ? 'C:\\IA\\IA\\Antigravity HUB\\ai-dev-hub\\server'
-      : 'C:\\IA\\Antigravity HUB\\ai-dev-hub\\server';
-    const canonicalClient = fs.existsSync('C:\\IA\\IA\\Antigravity HUB\\ai-dev-hub\\client\\dist\\index.html')
-      ? 'C:\\IA\\IA\\Antigravity HUB\\ai-dev-hub\\client\\dist'
-      : 'C:\\IA\\Antigravity HUB\\ai-dev-hub\\client\\dist';
-    const canonicalServerDist = path.join(canonicalServer, 'dist', 'index.js');
-    const canonicalClientHtml = path.join(canonicalClient, 'index.html');
-
+    // Prioridade 1 (Workspace Local Relativo): Sempre verificar primeiro path.resolve(__dirname, '..', 'server') e client/dist
     const localWorkspaceServer = path.resolve(__dirname, '..', 'server');
     const localWorkspaceClient = path.resolve(__dirname, '..', 'client', 'dist');
     const localServerDist = path.join(localWorkspaceServer, 'dist', 'index.js');
     const localClientHtml = path.join(localWorkspaceClient, 'index.html');
 
-    if (fs.existsSync(canonicalServerDist) && fs.existsSync(canonicalClientHtml)) {
-      serverDir = canonicalServer;
-      clientDir = canonicalClient;
-      logger.info(`[ServiceManager] Priorizando runtime do workspace canônico: ${serverDir}`);
-    } else if (fs.existsSync(localServerDist) && fs.existsSync(localClientHtml)) {
+    if (fs.existsSync(localServerDist) && fs.existsSync(localClientHtml)) {
       serverDir = localWorkspaceServer;
       clientDir = localWorkspaceClient;
-      logger.info(`[ServiceManager] Priorizando runtime do workspace local: ${serverDir}`);
+      logger.info(`[ServiceManager] Prioridade 1: Runtime do workspace local detectado: ${serverDir}`);
     } else if (process.resourcesPath) {
+      // Prioridade 2 (Pacote ASAR descompactado): Se estiver sob process.resourcesPath, carregar de app.asar.unpacked
       const unpackedServer = path.join(process.resourcesPath, 'app.asar.unpacked', 'server');
-      if (fs.existsSync(unpackedServer)) serverDir = unpackedServer;
-
       const unpackedClient = path.join(process.resourcesPath, 'app.asar.unpacked', 'client', 'dist');
+      if (fs.existsSync(unpackedServer)) serverDir = unpackedServer;
       if (fs.existsSync(unpackedClient)) clientDir = unpackedClient;
+      if (serverDir && clientDir) {
+        logger.info(`[ServiceManager] Prioridade 2: Runtime app.asar.unpacked detectado: ${serverDir}`);
+      }
     }
 
     if (!serverDir) {
-      serverDir = path.resolve(__dirname, '..', 'server');
+      serverDir = localWorkspaceServer;
     }
     if (!clientDir) {
-      clientDir = path.resolve(__dirname, '..', 'client', 'dist');
+      clientDir = localWorkspaceClient;
     }
 
     let nodePath = null;
@@ -134,7 +124,7 @@ class ServiceManager extends EventEmitter {
               if (pid && pid > 0 && pid !== process.pid) {
                 logger.info(`[ServiceManager] Limpando processo preso na porta ${port} (PID: ${pid})...`);
                 try {
-                  execFileSync('taskkill', ['/pid', String(pid), '/f', '/t'], { stdio: 'ignore' });
+                  execFileSync('taskkill', ['/pid', String(pid), '/f', '/t'], { stdio: 'ignore', timeout: 4000, windowsHide: true });
                 } catch {}
               }
             }
@@ -349,7 +339,7 @@ class ServiceManager extends EventEmitter {
       try {
         if (process.platform === 'win32') {
           const { execFileSync } = require('child_process');
-          execFileSync('taskkill', ['/pid', String(this.backendPid), '/f', '/t'], { stdio: 'ignore' });
+          execFileSync('taskkill', ['/pid', String(this.backendPid), '/f', '/t'], { stdio: 'ignore', timeout: 4000, windowsHide: true });
         } else {
           this.serverProcess.kill('SIGTERM');
         }

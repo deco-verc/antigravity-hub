@@ -6,7 +6,7 @@ import path from 'node:path';
 import net from 'node:net';
 import http from 'node:http';
 import crypto from 'node:crypto';
-import { spawn, spawnSync, ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, execFileSync, ChildProcess } from 'node:child_process';
 import { Logger } from './logger.js';
 import { PlaywrightVisualInspector } from './playwrightVisualInspector.js';
 import { db } from './db.js';
@@ -182,6 +182,15 @@ export class ProjectOperationsService {
    * Aloca uma porta TCP livre a partir de startPort (evitando conflito com o DecoHUB 3001).
    */
   public static async findFreePort(startPort: number = 4100): Promise<number> {
+    // Se a porta inicial (ex: 4100) não estiver disponível, tenta limpar processo zumbi se for 4100
+    if (startPort === 4100 && !(await this.isPortAvailable(4100))) {
+      this.killProcessOnPort(4100);
+      await new Promise(resolve => setTimeout(resolve, 300));
+      if (await this.isPortAvailable(4100)) {
+        return 4100;
+      }
+    }
+
     for (let p = startPort; p < 4900; p++) {
       if (p === 3000 || p === 3001 || p === 5173) continue; // Portas reservadas do DecoHUB, backend e Vite dev server
       const inUseByOtherPreview = Array.from(this.activePreviews.values()).some(inst => inst.port === p);
@@ -200,7 +209,7 @@ export class ProjectOperationsService {
     if (!pid) return;
     if (process.platform === 'win32') {
       try {
-        spawnSync('taskkill', ['/pid', String(pid), '/f', '/t'], { stdio: 'ignore', windowsHide: true });
+        spawnSync('taskkill', ['/pid', String(pid), '/f', '/t'], { stdio: 'ignore', timeout: 4000, windowsHide: true });
       } catch (err) {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({
@@ -230,6 +239,83 @@ export class ProjectOperationsService {
       }
     }
       }
+    }
+  }
+
+  /**
+   * Força o encerramento de qualquer processo escutando em uma determinada porta (ex: 4100).
+   * Protege portas vitais do DecoHUB (3000, 3001, 5173).
+   */
+  public static killProcessOnPort(port: number): void {
+    if (port <= 1024 || port === 3000 || port === 3001 || port === 5173) {
+      return;
+    }
+
+    // 1. Limpar das instâncias ativas do DecoHUB se estiver registrado
+    for (const [pId, inst] of this.activePreviews.entries()) {
+      if (inst.port === port) {
+        try {
+          if (inst.child && inst.child.pid) {
+            this.killProcessTree(inst.child.pid);
+          }
+          if (inst.staticClose) {
+            try { inst.staticClose(); } catch {}
+          }
+        } catch {}
+        this.activePreviews.delete(pId);
+      }
+    }
+
+    // 2. Verificar via sistema operacional se a porta ainda está em uso e forçar encerramento do PID
+    try {
+      if (process.platform === 'win32') {
+        const netstatOut = execFileSync('netstat', ['-ano', '-p', 'tcp'], {
+          encoding: 'utf-8',
+          stdio: ['pipe', 'pipe', 'ignore'],
+          timeout: 4000,
+          windowsHide: true
+        });
+
+        const lines = netstatOut.split(/\r?\n/);
+        const portPattern = new RegExp(`[:.]${port}\\s+.*LISTENING\\s+(\\d+)`, 'i');
+        const pidsToKill = new Set<number>();
+
+        for (const line of lines) {
+          const match = line.match(portPattern);
+          if (match && match[1]) {
+            const pid = parseInt(match[1], 10);
+            if (pid && pid > 0 && pid !== process.pid) {
+              pidsToKill.add(pid);
+            }
+          }
+        }
+
+        for (const pid of pidsToKill) {
+          try {
+            this.killProcessTree(pid);
+          } catch {}
+        }
+      } else {
+        try {
+          const lsofOut = execFileSync('lsof', ['-ti', `:${port}`], {
+            encoding: 'utf-8',
+            stdio: ['pipe', 'pipe', 'ignore'],
+            timeout: 4000
+          });
+          const pids = lsofOut.trim().split(/\s+/).map(p => parseInt(p, 10)).filter(Boolean);
+          for (const pid of pids) {
+            if (pid && pid !== process.pid) {
+              this.killProcessTree(pid);
+            }
+          }
+        } catch {
+          try {
+            execFileSync('fuser', ['-k', `${port}/tcp`], { stdio: 'ignore', timeout: 4000 });
+          } catch {}
+        }
+      }
+    } catch {
+      // Ignora erro se comando do SO falhar
     }
   }
 
@@ -312,9 +398,18 @@ export class ProjectOperationsService {
       return currentStatus;
     }
 
-    let port = options.port;
-    if (!port || !(await this.isPortAvailable(port))) {
-      port = await this.findFreePort(options.port || 4100);
+    const defaultPort = 4100;
+    let port = options.port || defaultPort;
+
+    // Se a porta padrão (4100) ou porta solicitada estiver ocupada, força encerramento de processo anterior do DecoHUB
+    if (!(await this.isPortAvailable(port))) {
+      this.killProcessOnPort(port);
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+
+    // Se ainda não estiver livre, busca a próxima porta livre
+    if (!(await this.isPortAvailable(port))) {
+      port = await this.findFreePort(options.port || defaultPort);
     }
     const timeoutMs = options.timeoutMs || 15000;
     const logs: string[] = [];
@@ -449,6 +544,34 @@ export class ProjectOperationsService {
       }
     }
 
+    // 1.5 Auto-provisionamento e resolução de .env do projeto
+    const projectEnvMap = new Map<string, string>();
+    const projectEnvPath = path.join(resolvedPath, '.env');
+    const projectEnvExamplePath = path.join(resolvedPath, '.env.example');
+
+    if (!fs.existsSync(projectEnvPath) && fs.existsSync(projectEnvExamplePath)) {
+      try {
+        fs.copyFileSync(projectEnvExamplePath, projectEnvPath);
+        appendLog(`[DecoHUB Launcher] Arquivo .env provisionado automaticamente a partir de .env.example.`);
+      } catch (copyErr: any) {
+        appendLog(`[DecoHUB Launcher] Aviso ao provisionar .env: ${copyErr.message}`, 'WARN' as any);
+      }
+    }
+
+    if (fs.existsSync(projectEnvPath)) {
+      try {
+        const envContent = fs.readFileSync(projectEnvPath, 'utf-8');
+        ProjectOperationsService.parseEnvFile(envContent, projectEnvMap);
+      } catch (err: any) {
+        appendLog(`[DecoHUB Launcher] Aviso ao ler .env do projeto: ${err.message}`, 'WARN' as any);
+      }
+    }
+
+    const projectEnvObj: Record<string, string> = {};
+    for (const [k, v] of projectEnvMap.entries()) {
+      projectEnvObj[k] = v;
+    }
+
     // 2. Executar script de servidor detectado
     const scriptFull = path.join(resolvedPath, scriptRel);
     const isWin = process.platform === 'win32';
@@ -474,6 +597,8 @@ export class ProjectOperationsService {
       cwd: resolvedPath,
       env: {
         ...process.env,
+        NODE_ENV: projectEnvObj['NODE_ENV'] || 'development',
+        ...projectEnvObj,
         PORT: String(port),
         DECOHUB_PREVIEW_MODE: 'true'
       },
