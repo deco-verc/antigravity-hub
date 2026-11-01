@@ -578,17 +578,18 @@ export class ProjectOperationsService {
     let cmd = 'node';
     let args: string[] = [];
 
+    const hasWatchFlag = customNodeFlags.includes('--watch') || customNodeFlags.includes('watch');
     if (isTypeScript) {
       if (customNodeFlags.length > 0 && !customNodeFlags.includes('tsx')) {
         cmd = 'node';
-        args = [...customNodeFlags, scriptFull];
+        args = [...(hasWatchFlag ? [] : ['--watch']), ...customNodeFlags, scriptFull];
       } else {
         cmd = isWin ? 'npx.cmd' : 'npx';
-        args = ['tsx', scriptFull];
+        args = ['tsx', 'watch', scriptFull];
       }
     } else {
       cmd = 'node';
-      args = [...customNodeFlags, scriptFull];
+      args = [...(hasWatchFlag ? [] : ['--watch']), ...customNodeFlags, scriptFull];
     }
 
     appendLog(`[DecoHUB Launcher] Executando: ${cmd} ${args.join(' ')}`);
@@ -681,7 +682,7 @@ export class ProjectOperationsService {
           const res = await fetch(`http://127.0.0.1:${port}/`, {
             method: 'GET',
             headers: { 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
-            signal: AbortSignal.timeout(1500)
+            signal: AbortSignal.timeout(400)
           });
           if (res.status >= 200 && res.status < 500) {
             isReady = true;
@@ -692,7 +693,7 @@ export class ProjectOperationsService {
             const fallbackRes = await fetch(`http://localhost:${port}/`, {
               method: 'GET',
               headers: { 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
-              signal: AbortSignal.timeout(1000)
+              signal: AbortSignal.timeout(300)
             });
             if (fallbackRes.status >= 200 && fallbackRes.status < 500) {
               isReady = true;
@@ -702,7 +703,7 @@ export class ProjectOperationsService {
             // Segue tentando até timeoutMs
           }
         }
-        await new Promise((r) => setTimeout(r, 250));
+        await new Promise((r) => setTimeout(r, 50));
       }
 
       if (!isReady) {

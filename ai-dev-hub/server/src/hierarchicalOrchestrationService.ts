@@ -5610,6 +5610,98 @@ export class HierarchicalOrchestrationService {
   }
 
   /**
+   * Garante a separação estrita entre ferramentas locais (local_personal) e produtos comerciais (commercial_saas).
+   * Para local_personal: PROÍBE terminantemente tarefas de telas de login, cadastro, recuperação de senha,
+   * planos de assinatura e checkout. Foca 100% no valor operacional direto.
+   * Para commercial_saas: ASSEGURA o pipeline comercial com autenticação, multi-tenant (tenant_id),
+   * webhooks/checkout e dashboard do assinante.
+   */
+  public static enforceProfileConstraints(
+    tasks: PlannedTask[],
+    projectProfile: ProjectProfileMode = 'local_personal',
+    capabilities?: ProjectCapabilities
+  ): PlannedTask[] {
+    if (!tasks || tasks.length === 0) return tasks;
+
+    const isLocal = projectProfile === 'local_personal';
+    const isCommercial = projectProfile === 'commercial_saas';
+
+    if (isLocal) {
+      // 1. Filtrar tarefas estritamente de telas de login, cadastro de usuário, recuperação de senha, checkout de assinatura ou planos
+      const filtered = tasks.filter(t => {
+        const title = (t.title || '').toLowerCase();
+        const desc = (t.description || '').toLowerCase();
+        const full = `${title} ${desc}`;
+
+        const isAuthScreen =
+          /\b(tela de login|login screen|cadastro de usu[aá]rios?|sign[\s-]?up screen|recupera[cç][aã]o de senha|password recovery|esqueci a senha)\b/i.test(full) ||
+          (/\b(autentica[cç][aã]o|login)\b/i.test(title) && /\b(jwt|sess[aã]o de usu[aá]rio|supabase|turnstile|bcrypt|auth middleware)\b/i.test(desc));
+
+        const isBillingPlan =
+          /\b(planos? de assinatura|tabela de pre[cç]os?|pricing table|checkout pix de assinatura|checkout de planos?|faturas? de cobran[cç]a|assinatura recorrente)\b/i.test(full) &&
+          !/\b(cakto|webhook)\b/i.test(title);
+
+        if (isAuthScreen || isBillingPlan) {
+          Logger.info(`[HierarchicalOrchestrationService] Removendo tarefa incompatível com modo Local / Pessoal (${projectProfile}): "${t.title}"`);
+          return false;
+        }
+
+        return true;
+      });
+
+      // 2. Sanitizar descrições, títulos, critérios e arquivos de tarefas remanescentes que citem autenticação ou login
+      const sanitized = filtered.map(t => {
+        let updatedTitle = t.title;
+        let updatedDesc = t.description;
+        let updatedCriteria = Array.isArray(t.criteria) ? [...t.criteria] : [];
+        let updatedFiles = Array.isArray(t.expectedFiles) ? [...t.expectedFiles] : [];
+
+        updatedFiles = updatedFiles
+          .map(f => f.includes('authMiddleware') ? f.replace('authMiddleware', 'errorHandler') : f)
+          .filter(f => !/auth\.(ts|js)|login\.(tsx|jsx|html)|billing\.(ts|js)|plans\.(ts|js)/i.test(f));
+
+        if (/autentica[cç][aã]o|login|sess[aã]o/i.test(updatedTitle)) {
+          updatedTitle = updatedTitle
+            .replace(/\b(?:de\s+)?autentica[cç][aã]o,?\s*(?:autoriza[cç][aã]o\s*e\s*)?/gi, 'de segurança local e ')
+            .replace(/\blogin(?:\s*e\s*cadastro)?\b/gi, 'operação direta')
+            .trim();
+        }
+
+        if (/autentica[cç][aã]o|login|sess[aã]o/i.test(updatedDesc)) {
+          updatedDesc = updatedDesc
+            .replace(/\b(?:desde\s+)?autentica[cç][aã]o\s+at[eé]\b/gi, 'desde o disparo operacional até')
+            .replace(/\bvalidando tokens,?\s*sess[oõ]es\s*e\s*permiss[oõ]es\s*de\s*acesso\b/gi, 'com validação de integridade e tratamento local de erros')
+            .replace(/\b(login|cadastro|sessão de usuário)\b/gi, 'operação local direta')
+            .trim();
+        }
+
+        updatedCriteria = updatedCriteria.map(c =>
+          c.replace(/\b(?:login|autenticação)\s*->\s*/gi, 'painel operacional -> ')
+           .replace(/\b(?:desde\s+)?autentica[cç][aã]o\b/gi, 'operação direta')
+        );
+
+        return {
+          ...t,
+          title: updatedTitle,
+          description: updatedDesc,
+          criteria: updatedCriteria,
+          expectedFiles: updatedFiles,
+          allowedScope: t.allowedScope ? t.allowedScope.filter(s => !/auth|login/i.test(s)) : undefined
+        };
+      });
+
+      return DagAutoHealer.autoHealAndNormalizeTaskGraph(sanitized as any) as PlannedTask[];
+    }
+
+    if (isCommercial) {
+      Logger.info(`[HierarchicalOrchestrationService] Assegurando pipeline comercial SaaS (${tasks.length} tarefas) com Auth, Multi-Tenant e Checkout.`);
+      return DagAutoHealer.autoHealAndNormalizeTaskGraph(tasks as any) as PlannedTask[];
+    }
+
+    return tasks;
+  }
+
+  /**
    * Decompõe briefings arquiteturais completos em etapas modulares reais e coesas,
    * separando estritamente PRÉ-PLANEJAMENTO (Bootstrap Dia 0) de PÓS-PLANEJAMENTO (Evolução / Delta Planning).
    */
@@ -5618,9 +5710,13 @@ export class HierarchicalOrchestrationService {
     projectName: string;
     projectPath?: string;
     projectId?: string;
+    projectProfile?: ProjectProfileMode;
   }): PlannedTask[] | null {
     const { briefing, projectName, projectPath, projectId } = params;
     if (!briefing || typeof briefing !== 'string') return null;
+
+    const projectProfile = params.projectProfile || resolveProjectProfileMode(projectId || projectPath, briefing);
+    const capabilities = resolveProjectCapabilities(projectId || projectPath, briefing);
 
     // 1. Inspeção de Estado Existente (Day 0 vs Brownfield)
     let existingTasks: Array<{ code?: string; order_index?: number; status?: string; title?: string }> = [];
@@ -5867,7 +5963,9 @@ export class HierarchicalOrchestrationService {
         incrementalTasks.push(...customTasks);
       }
 
-      return incrementalTasks.length > 0 ? incrementalTasks : null;
+      return incrementalTasks.length > 0
+        ? HierarchicalOrchestrationService.enforceProfileConstraints(incrementalTasks, projectProfile, capabilities)
+        : null;
     }
 
     // =========================================================================
@@ -5998,7 +6096,7 @@ export class HierarchicalOrchestrationService {
         expectedScopeFiles: ['src/engine/worker.ts', 'src/index.ts', 'ecosystem.config.js', 'Caddyfile', 'setup.sh']
       };
 
-      return [t1, t2, t3, t4, t5, t6];
+      return HierarchicalOrchestrationService.enforceProfileConstraints([t1, t2, t3, t4, t5, t6], projectProfile, capabilities);
     }
 
     // 2. Cenário Arquitetural Genérico com Múltiplos Módulos e Arquivos /src/
@@ -6147,7 +6245,7 @@ export class HierarchicalOrchestrationService {
         expectedScopeFiles: stage6Files
       });
 
-      return tasks;
+      return HierarchicalOrchestrationService.enforceProfileConstraints(tasks, projectProfile, capabilities);
     }
 
     return null;
@@ -6258,6 +6356,8 @@ export class HierarchicalOrchestrationService {
     let projectName: string | undefined;
     let projectId: string | undefined;
     let requirements: string[] | undefined;
+    let projectProfile: ProjectProfileMode;
+    let capabilities: ProjectCapabilities;
 
     if (typeof paramsOrBriefing === 'string') {
       originalDescription = (paramsOrBriefing || '').trim();
@@ -6280,6 +6380,9 @@ export class HierarchicalOrchestrationService {
       requirements
     };
 
+    capabilities = resolveProjectCapabilities(projectId || projectPath, originalDescription);
+    projectProfile = resolveProjectProfileMode(projectId || projectPath, originalDescription);
+
     // PILAR 2: Validação estrita de modo cirúrgico vs decomposição arquitetural
     const hasCode = projectPath ? DeltaFeatureEngine.hasImplementedCode(projectPath, projectId) : false;
     const isArchitectural = DeltaFeatureEngine.isArchitecturalBriefing(originalDescription);
@@ -6297,11 +6400,15 @@ export class HierarchicalOrchestrationService {
 
     // PILAR 2.5: Decomposição arquitetural fiel ao prompt do usuário (5 a 8 etapas coesas mapeadas do briefing)
     // OU Modo PÓS-PLANEJAMENTO (Evolução Incremental / Delta Planning)
+    capabilities = resolveProjectCapabilities(params.projectId || params.projectPath, originalDescription);
+    projectProfile = resolveProjectProfileMode(params.projectId || params.projectPath, originalDescription);
+
     const architecturalOrEvolutionPlan = HierarchicalOrchestrationService.decomposeArchitecturalBriefing({
       briefing: originalDescription,
       projectName: projectName || 'Projeto',
       projectPath,
-      projectId
+      projectId,
+      projectProfile
     });
     if (architecturalOrEvolutionPlan && architecturalOrEvolutionPlan.length >= 1) {
       Logger.info(`[HierarchicalOrchestrationService] Plano estruturado obtido via decomposeArchitecturalBriefing (${architecturalOrEvolutionPlan.length} tarefas).`);
@@ -6327,9 +6434,13 @@ export class HierarchicalOrchestrationService {
 
     const domainProfile = MarketDiscoveryService.inferDomainProfile(originalDescription);
     const isDomainKnown = domainProfile.domainName && !domainProfile.domainName.includes('Geral');
-    const isSaaS = ReaSaaSMasterService.isSaaSOrFullStackProject(originalDescription) ||
-      isDomainKnown ||
-      (params.projectPath ? fs.existsSync(path.join(path.resolve(params.projectPath), '.ai-dev-hub', 'specs', 'CONTEUDO.md')) : false);
+    const hasLivingSpecs = params.projectPath ? fs.existsSync(path.join(path.resolve(params.projectPath), '.ai-dev-hub', 'specs', 'CONTEUDO.md')) : false;
+    const isSaaS = projectProfile === 'commercial_saas' ||
+      hasLivingSpecs ||
+      (projectProfile !== 'local_personal' && (
+        ReaSaaSMasterService.isSaaSOrFullStackProject(originalDescription) ||
+        isDomainKnown
+      ));
     const isSimple = !isSaaS && complexity.complexityTier === 'SIMPLE' && structuredReqs.length <= 2;
     if (isSimple) {
       const t1: PlannedTask = {
@@ -6448,8 +6559,6 @@ export class HierarchicalOrchestrationService {
     }
 
     const pName = params.projectName || 'SaaS';
-    const capabilities = resolveProjectCapabilities(params.projectId || params.projectPath, originalDescription);
-    const projectProfile = resolveProjectProfileMode(params.projectId || params.projectPath, originalDescription);
     const briefingExtraction = MarketDiscoveryService.extractBriefingEntitiesAndRules(originalDescription);
     const domainBlueprint = ProjectLivingSpecService.resolveDomainBlueprint(originalDescription);
     const hasExplicitBilling = capabilities.payments && briefingExtraction.hasExplicitBilling;
@@ -7323,11 +7432,17 @@ export class HierarchicalOrchestrationService {
         microtasks: [
           {
             subCode: '4.1',
-            title: 'Implementar middlewares de autenticação, autorização e sanitização',
-            desc: 'Proteger rotas da aplicação validando tokens, sessões e permissões de acesso.',
-            files: ['src/middlewares/authMiddleware.ts', 'src/middlewares/sanitize.ts'],
+            title: capabilities.auth
+              ? 'Implementar middlewares de autenticação, autorização e sanitização'
+              : 'Implementar middlewares de segurança local, sanitização e tratamento de requisições',
+            desc: capabilities.auth
+              ? 'Proteger rotas da aplicação validando tokens, sessões e permissões de acesso.'
+              : 'Proteger rotas da aplicação com sanitização de cabeçalhos e tratamento seguro de erros locais.',
+            files: capabilities.auth
+              ? ['src/middlewares/authMiddleware.ts', 'src/middlewares/sanitize.ts']
+              : ['src/middlewares/errorHandler.ts', 'src/middlewares/sanitize.ts'],
             criteria: [
-              'Intercepção de requisições não autorizadas com código HTTP 401/403',
+              'Intercepção segura de requisições e validação de permissões',
               'Sanitização de cabeçalhos e payloads contra injeções'
             ]
           },
@@ -7412,7 +7527,9 @@ export class HierarchicalOrchestrationService {
           {
             subCode: '6.2',
             title: 'Implementar testes de ponta a ponta dos fluxos críticos de usuário',
-            desc: 'Validar cenários completos desde autenticação até geração de relatórios ou resultados.',
+            desc: capabilities.auth
+              ? 'Validar cenários completos desde autenticação até geração de relatórios ou resultados.'
+              : 'Validar cenários completos do fluxo operacional local até geração de relatórios ou resultados.',
             files: ['test/e2e/workflow.test.ts'],
             criteria: [
               'Fluxo de ponta a ponta executado com sucesso simulando jornada do usuário',
@@ -7536,7 +7653,7 @@ export class HierarchicalOrchestrationService {
     }
 
     const healedTasks = DagAutoHealer.autoHealAndNormalizeTaskGraph(plannedTasks as any);
-    return healedTasks as PlannedTask[];
+    return HierarchicalOrchestrationService.enforceProfileConstraints(healedTasks as PlannedTask[], projectProfile, capabilities);
   }
 
   /**

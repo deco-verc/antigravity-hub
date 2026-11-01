@@ -5385,6 +5385,7 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
                 });
 
                 // — Extrai erros estruturados (arquivo:linha:coluna:código) —
+                const previousErrors = typecheckResult.output || '';
                 const structuredErrors = MetaChatService.parseTypecheckErrors(typecheckResult.output || '');
                 const rawDiag = structuredErrors.length > 0
                   ? structuredErrors.map(e => e.raw).join('\n')
@@ -5449,6 +5450,18 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
                   if (typecheckResult.passed) {
                     healedOnRetry = true;
                     Logger.success(`[MetaChatService] Self-Healing Reativo bem-sucedido na tentativa ${attempt}!`);
+                    try {
+                      const { EngineeringContextService } = await import('./engineeringContextService.js');
+                      EngineeringContextService.registerResolvedVaccine({
+                        projectId: (currentThread as any)?.project_id || 'metachat',
+                        projectPath: root,
+                        problemSummary: `Erro de TypeScript no arquivo ${filesChanged.slice(0, 3).join(', ')}`,
+                        rootCause: (typecheckResult.output || 'Falha de tipagem no Reviewer').slice(0, 300),
+                        failedStrategy: 'Código inicial falhou na validação estrita de tipos',
+                        workingStrategy: `Auto-reparo convergente resolvido com sucesso na tentativa ${attempt}`,
+                        affectedFiles: filesChanged
+                      });
+                    } catch {}
                     this.updatePipelineTask(
                       'task-reviewer',
                       'completed',

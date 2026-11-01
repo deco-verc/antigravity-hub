@@ -34,11 +34,19 @@ export type WorkerMode =
   | 'AUDIT'
   | 'TEST';
 
+export type DevelopmentStage =
+  | 'database'
+  | 'frontend-ui'
+  | 'surgical-bugfix'
+  | 'engine-api'
+  | 'scaffold';
+
 export interface PromptVersionMeta {
   version: string;
   hash: string;
   mode: SupervisorMode | WorkerMode;
   role: 'SUPERVISOR' | 'WORKER';
+  stage?: DevelopmentStage;
   retrievedMemoryIds?: string[];
 }
 
@@ -118,6 +126,7 @@ export interface SupervisorPromptInput {
 
 export interface WorkerPromptInput {
   mode: WorkerMode;
+  stage?: DevelopmentStage;
   projectId: string;
   projectName: string;
   projectPath: string;
@@ -240,11 +249,11 @@ export class PromptArchitectureService {
    */
   public static enforcePromptBudget(prompt: string, maxLimit = PromptArchitectureService.MAX_SAFE_PROMPT_CHARS): string {
     if (!prompt || prompt.length <= maxLimit) return prompt;
-    const headLength = 6200;
-    const tailLength = maxLimit - headLength - 180;
+    const headLength = 5000;
+    const tailLength = maxLimit - headLength - 160;
     const head = prompt.slice(0, headLength);
     const tail = prompt.slice(-tailLength);
-    const marker = '\n\n<!-- [CONTEXTO INTERMEDIÁRIO CONDENSADO PARA MANTER ORÇAMENTO ESTRITO < 24.000 CHARS] -->\n\n';
+    const marker = '\n\n<!-- [CONTEXTO CONDENSADO PELO FILTRO RÁPIDO PARA MANTER ORÇAMENTO ESTRITO < 3.500 TOKENS] -->\n\n';
     return head + marker + tail;
   }
 
@@ -334,6 +343,351 @@ export class PromptArchitectureService {
     `</system_invariants>`
   ].join('\n');
 
+  // =========================================================================
+  // MATRIZ DE PROMPTS ESPECIALIZADOS POR ESTÁGIO DE DESENVOLVIMENTO
+  // =========================================================================
+
+  private static stagePromptCache = new Map<DevelopmentStage, string>();
+
+  /**
+   * Seletor Automático de Estágio de Desenvolvimento:
+   * Analisa a natureza da tarefa (arquivos esperados, título, descrição, erros anteriores e modo)
+   * para mapear dinamicamente ao estágio especializado correto.
+   *
+   * Regras canônicas de mapeamento:
+   * 1. Se for correção de falha (REPAIR ou rejeição do Reviewer/erro anterior) ➔ stage-surgical-bugfix.md
+   * 2. Se os arquivos contiverem .sql, database, schema, repository ➔ stage-database.md
+   * 3. Se contiverem .tsx, view, component, page, css, html ➔ stage-frontend-ui.md
+   * 4. Se contiver webhook, api, server, socket, baileys, worker ➔ stage-engine-api.md
+   * 5. Se for bootstrap ou setup inicial ➔ stage-scaffold.md
+   */
+  static detectDevelopmentStage(input: WorkerPromptInput): DevelopmentStage {
+    if (input.stage) {
+      return input.stage;
+    }
+
+    const files = (input.expectedScopeFiles || []).map(f => f.toLowerCase());
+    const filesJoined = files.join(' ');
+    const titleLower = (input.taskTitle || '').toLowerCase();
+    const descLower = (input.taskDescription || '').toLowerCase();
+    const stageCodeLower = (input.stageCode || '').toLowerCase();
+    const stageTitleLower = (input.stageTitle || '').toLowerCase();
+    const majorTaskTitleLower = (input.majorTaskTitle || '').toLowerCase();
+    const combinedText = `${titleLower} ${descLower} ${stageCodeLower} ${stageTitleLower} ${majorTaskTitleLower} ${filesJoined}`;
+
+    // 1. Correção de falha (REPAIR ou rejeição do Reviewer)
+    const isRepairMode = input.mode === 'REPAIR';
+    const hasPreviousError = Boolean(input.previousError && input.previousError.trim().length > 0);
+    const hasRejectionOutput = Boolean(
+      input.previousEvaluatorOutput &&
+      /reject|rejei|fail|rework|reprova|erro|falha|blocked/i.test(input.previousEvaluatorOutput)
+    );
+    const hasBugFixKeywords = /\b(corrigir|fix|bug|reparar|defeito|hotfix|regress[aã]o|bugfix|patch)\b/i.test(titleLower);
+
+    if (isRepairMode || hasPreviousError || hasRejectionOutput || hasBugFixKeywords) {
+      return 'surgical-bugfix';
+    }
+
+    // 2. Se os arquivos contiverem .sql, database, schema, repository (ou termos estritos de banco)
+    const hasDatabaseFiles = files.some(f =>
+      f.endsWith('.sql') ||
+      f.endsWith('.sqlite') ||
+      f.endsWith('.db') ||
+      f.includes('database') ||
+      f.includes('schema') ||
+      f.includes('repository') ||
+      f.includes('migration') ||
+      f.includes('sqlite') ||
+      f.includes('banco')
+    );
+    const hasDatabaseText = /\b(banco de dados|persist[eê]ncia relacional|tabelas ddl|sqlite wal|tabelas sqlite|better-sqlite3|tabela ddl|schema|repository|banco|sqlite|migrations?)\b|\.sql\b/i.test(combinedText);
+
+    if (hasDatabaseFiles || (hasDatabaseText && !files.some(f => f.endsWith('.tsx') || f.endsWith('.jsx') || f.endsWith('.html') || f.endsWith('.css')))) {
+      return 'database';
+    }
+
+    // 3. Se contiverem .tsx, view, component, page, css, html
+    const hasFrontendFiles = files.some(f =>
+      f.endsWith('.tsx') ||
+      f.endsWith('.jsx') ||
+      f.endsWith('.html') ||
+      f.endsWith('.css') ||
+      f.endsWith('.vue') ||
+      f.includes('view') ||
+      f.includes('component') ||
+      f.includes('page') ||
+      f.includes('frontend') ||
+      f.includes('ui/')
+    );
+    const hasFrontendText = /\b(frontend|interface visual|tabela din[aâ]mica|painel|dashboard|formul[aá]rio|template|componentes?|view|css|html|design system|tokens rea)\b|\.(tsx|jsx|css|html)\b/i.test(combinedText);
+
+    if (hasFrontendFiles || hasFrontendText) {
+      return 'frontend-ui';
+    }
+
+    // 4. Se contiver webhook, api, server, socket, baileys, worker
+    const hasEngineApiFiles = files.some(f =>
+      f.includes('webhook') ||
+      f.includes('api') ||
+      f.includes('server') ||
+      f.includes('socket') ||
+      f.includes('baileys') ||
+      f.includes('worker') ||
+      f.includes('route') ||
+      f.includes('controller') ||
+      f.includes('queue')
+    );
+    const hasEngineApiText = /\b(webhook|api|server|servidor|socket|sockets|baileys|worker|endpoint|rotas?|routes?|express|http|microservi[cç]o|filas?|queue|idempot[eê]ncia)\b/i.test(combinedText);
+
+    if (hasEngineApiFiles || hasEngineApiText) {
+      return 'engine-api';
+    }
+
+    // 5. Se for bootstrap ou setup inicial
+    const hasScaffoldFiles = files.some(f =>
+      f === 'package.json' ||
+      f === 'tsconfig.json' ||
+      f === '.gitignore' ||
+      f === '.env.example' ||
+      f.includes('scaffold') ||
+      f.includes('setup')
+    );
+    const hasScaffoldText = /\b(bootstrap|scaffold|setup|inicial|configurar estrutura|depend[eê]ncias base|iniciar projeto|preflight)\b/i.test(combinedText);
+
+    if (hasScaffoldFiles || hasScaffoldText) {
+      return 'scaffold';
+    }
+
+    // Fallback padrão: rotas/serviço -> engine-api, senão scaffold
+    if (files.some(f => f.includes('src/routes') || f.includes('src/services') || f.includes('src/server'))) {
+      return 'engine-api';
+    }
+
+    return 'scaffold';
+  }
+
+  /**
+   * Carrega o prompt enxuto especializado para o estágio selecionado.
+   * Utiliza cache em memória e resolução robusta de caminhos em dev e runtime empacotado.
+   */
+  static loadStagePrompt(stage: DevelopmentStage): string {
+    const cached = this.stagePromptCache.get(stage);
+    if (cached) return cached;
+
+    const fileName = `stage-${stage}.md`;
+    const candidatePaths = [
+      path.resolve(__dirname, 'prompts', 'stages', fileName),
+      path.resolve(process.cwd(), 'server', 'src', 'prompts', 'stages', fileName),
+      path.resolve(process.cwd(), 'src', 'prompts', 'stages', fileName),
+      path.resolve(__dirname, '..', 'src', 'prompts', 'stages', fileName),
+      path.resolve(process.cwd(), 'prompts', 'stages', fileName)
+    ];
+
+    for (const p of candidatePaths) {
+      try {
+        if (fs.existsSync(p)) {
+          const content = fs.readFileSync(p, 'utf-8').trim();
+          if (content.length > 50) {
+            this.stagePromptCache.set(stage, content);
+            return content;
+          }
+        }
+      } catch {}
+    }
+
+    const fallback = this.getStagePromptFallback(stage);
+    this.stagePromptCache.set(stage, fallback);
+    return fallback;
+  }
+
+  /**
+   * Conteúdo embutido de fallback para garantir 100% de disponibilidade mesmo sem arquivos em disco.
+   */
+  private static getStagePromptFallback(stage: DevelopmentStage): string {
+    switch (stage) {
+      case 'scaffold':
+        return `# ESTÁGIO: BOOTSTRAP, SETUP INICIAL & SCAFFOLD (SCAFFOLD)
+## 1. Configuração Estrita de TypeScript (tsconfig.json)
+- Ative sempre tipagem estrita: "strict": true, "noImplicitAny": true, "strictNullChecks": true.
+- Utilize resolução moderna: "moduleResolution": "NodeNext", "module": "NodeNext", "target": "ES2022".
+## 2. Scripts Canônicos e Determinísticos (package.json)
+- "build": tsc; "typecheck": tsc --noEmit; "test": node --test; "start": node dist/server.js.
+## 3. Zero Dependências Redundantes
+- Priorize 100% a stdlib do Node.js (node:fs, node:path, node:http, node:crypto, node:test).
+## 4. Preflight de Ambiente e Diretórios
+- Reserve porta entre 4000 e 4999 (PORT_GUARD), mantendo portas 3000, 3001 e 5173 livres.`;
+
+      case 'database':
+        return `# ESTÁGIO: PERSISTÊNCIA, MODELAGEM RELACIONAL & DDL (DATABASE)
+## 1. Configuração de Alta Concorrência (SQLite WAL)
+- Inicialize o banco com pragmas obrigatórios via better-sqlite3: journal_mode = WAL, foreign_keys = ON, synchronous = NORMAL, busy_timeout = 5000.
+## 2. DDL Limpo, Idempotente e Tipado
+- Declare migrações e tabelas usando CREATE TABLE IF NOT EXISTS com constraints CHECK e chaves estrangeiras explícitas.
+## 3. Transações ACID e Queries 100% Parametrizadas
+- Prevenção total contra SQL Injection: use exclusivamente placeholders ? ou :param. Transações atômicas com db.transaction().
+## 4. Smart Demo Seeding Idempotente (seedIfEmpty)
+- Popule entre 15 e 30 registros realistas e relacionais caso as tabelas estejam vazias.`;
+
+      case 'engine-api':
+        return `# ESTÁGIO: MOTOR DE EXECUÇÃO, ROTAS DE API & WEBHOOKS (ENGINE-API)
+## 1. Webhooks de Alta Performance (< 100ms)
+- Receba o payload HTTP POST, valide a autenticidade/assinatura, enfileire/persista e responda HTTP 200/202 em < 100ms.
+## 2. Autenticação Estrita de Segredos e Assinaturas
+- Valide tokens (X-Webhook-Secret) ou HMAC com crypto.timingSafeEqual(). Rejeite requisições inválidas com HTTP 401/403.
+## 3. Sockets & Conectores Resilientes (Baileys / WebSockets)
+- Reconexão automática com exponential backoff, auth state persistido e encerramento limpo em shutdown.
+## 4. Filas e Idempotência Rigorosa
+- Deduplicação por chave única (idempotency_key / message_id) com status pending -> processing -> completed/failed.
+## 5. Invariantes de Servidor HTTP & PORT_GUARD
+- Porta configurada na faixa 4000-4999, cabeçalho nosniff, rota /api/health e bloqueio de Path Traversal.`;
+
+      case 'frontend-ui':
+        return `# ESTÁGIO: INTERFACE VISUAL, FERRAMENTAS OPERACIONAIS & UX (FRONTEND-UI)
+## 1. Regra Fundamental: Anti-Dashboard Passivo
+- PROIBIDO criar interfaces passivas puramente contemplativas. Crie ferramentas operacionais ativas com formulários de disparo rápido e botões de ação direta.
+## 2. Formulários de Disparo Rápido e Operações Ativas
+- Formulários com validação inline, botões com feedback de carregamento e toasts de confirmação.
+## 3. Edição Dinâmica de Templates e Configurações
+- Painéis para edição de templates com suporte a variáveis dinâmicas ({{nome}}) e Live Preview.
+## 4. Tabelas Dinâmicas Operacionais e Ações por Linha
+- Tabelas com busca, filtros, paginação, data-action="<acao>", data-id="<id>" e tipografia font-variant-numeric: tabular-nums.
+## 5. Optimistic UI e Sincronização Reativa (Sobrevivência ao F5)
+- Optimistic UI imediato no DOM, sincronização via fetch() real e recarregamento no DOMContentLoaded para sobreviver a F5.
+## 6. Design System, Tokens REA & Acessibilidade
+- Tokens em :root (--bg, --surface, --border, --text, --accent), scrollbars finas de 6px, ícones SVG inline (zero emojis), abas com role="tab" e data-tab, e sanitização obrigatória com escapeHtml() contra XSS.`;
+
+      case 'surgical-bugfix':
+      default:
+        return `# ESTÁGIO: CORREÇÃO CIRÚRGICA, CAUSA RAIZ & PRESERVAÇÃO (SURGICAL-BUGFIX)
+## 1. Regra Inviolável: Preservação Estrita de Testes
+- NUNCA altere, enfraqueça ou comente testes para mascarar defeitos. A correção é exclusiva no código de produção.
+## 2. Isolamento da Causa Raiz via Stack Trace
+- Inspecione a coordenada exata da falha e formule hipótese causal clara.
+## 3. Aplicação de Diff Mínimo Cirúrgico
+- Altere apenas as linhas estritamente necessárias via replace_file_content preservando código adjacente.
+## 4. Prova Empírica de Convergência
+- Execute a suíte de testes comprovando exit code 0 sem regressões secundárias.`;
+    }
+  }
+
+  /**
+   * Gera a Camada A com as regras permanentes calibradas para o estágio selecionado,
+   * garantindo isolamento estrito de domínios (zero SQLite no frontend, zero React/CSS no banco).
+   */
+  static getStageWorkerCoreRules(stage: DevelopmentStage): string {
+    const commonHeader = [
+      `<system_invariants role="WORKER" version="${this.WORKER_CORE_RULES_VERSION}" stage="${stage}">`,
+      `  <worker_identity>`,
+      `    Atuar como STAFF FULL-STACK EXECUTION WORKER DO DECOHUB operando no ambiente Google Antigravity 2.0 sobre modelos Gemini 3.8 com calibração cognitiva MAX.`,
+      `  </worker_identity>`,
+      `  <business_objective>`,
+      `    Implementar, testar ou reparar cirurgicamente a microtarefa atribuída com zero dívida técnica, zero mocks em rotas de produção, fidelidade absoluta aos contratos de banco/API e comprovação empírica via terminal (exit code 0) antes de encerrar o turno.`,
+      `  </business_objective>`,
+      `  <native_tool_and_execution_policy>`,
+      `    1. LEITURA ANTES DE ESCRITA: Inspecionar obrigatoriamente os arquivos existentes do projeto no escopo via view_file, grep_search ou find_by_name antes de realizar modificações.`,
+      `    2. EDIÇÃO CIRÚRGICA NATIVA: Utilizar replace_file_content ou multi_replace_file_content para edições precisas em arquivos existentes e write_to_file para novos arquivos, preservando todo código adjacente funcional. É proibido criar scripts temporários (.cjs, .mjs, .py, .sh) ou usar node -e / sed / awk para mutar código-fonte.`,
+      `    3. INSPEÇÃO SINTÁTICA E DIAGNÓSTICO LSP: Utilizar lsp_diagnostics nos arquivos editados e executar o comando de verificação no terminal para comprovar exit code 0 com zero erros sintáticos ou de tipagem.`,
+      `    4. AUTONOMIA 100% NÃO-INTERATIVA: É estritamente proibido invocar a ferramenta ask_question ou abrir modais bloqueantes (window.alert, window.confirm, window.prompt). Resolver ambiguidades consultando os ponteiros @.ai-dev-hub/specs/* e os contratos do repositório.`,
+      `    5. INTEGRIDADE DE AVALIAÇÃO (ANTI-TAMPERING): A aprovação cabe ao Independent Evaluator e ao Supervisor. Jamais modificar, comentar, enfraquecer ou pular (.skip / xit) testes protegidos.`,
+      `  </native_tool_and_execution_policy>`
+    ];
+
+    const commonFooter = [
+      `  <affirmative_operational_mandates>`,
+      `    1. RESERVA ESTRITA DE PORTA (PORT_GUARD): Utilizar obrigatoriamente porta na faixa 4000–4999 (const PORT = Number(process.env.PORT) || 4000;), mantendo 3001, 3000 e 5173 livres para o DecoHUB.`,
+      `    2. BLOQUEIO EPISTÉMICO E COMUNICAÇÃO LIMPA: Reportar resultados em estilo CLI corporativo (Linear/Vercel), sem emojis decorativos e sem repetir o prompt do usuário, focando 100% nos arquivos de implementação e testes.`,
+      `    3. PROTOCOLO 4 PAPÉIS (WORKER HANDOFF): O Worker executa exclusivamente o escopo da Work Order do Supervisor e entrega o Pacote de Implementação com evidências empíricas ao Reviewer para emissão do veredicto ([VEREDICTO: APROVADO] / [VEREDICTO: REJEITADO]).`,
+      `  </affirmative_operational_mandates>`,
+      `</system_invariants>`
+    ];
+
+    let stageInvariants: string[] = [];
+
+    switch (stage) {
+      case 'database':
+        stageInvariants = [
+          `  <stage_invariants stage="database">`,
+          `    1. BLINDAGEM APPSEC & SQLITE: Utilizar exclusivamente queries SQLite parametrizadas (? ou :param) com PRAGMA journal_mode = WAL; e PRAGMA foreign_keys = ON;. Prevenção absoluta contra SQL Injection (zero concatenação).`,
+          `    2. TRANSAÇÕES ACID & INTEGRIDADE: Operações atômicas multi-tabela DEVEM ser executadas em transação ACID via db.transaction(). Chaves estrangeiras com integridade referencial explícita.`,
+          `    3. SMART_DEMO_SEEDING (seedIfEmpty): Garantir rotina idempotente seedIfEmpty() populando 15 a 30 registros realistas na inicialização do banco caso esteja vazio.`,
+          `    4. VALIDAÇÃO DE ENTRADAS: Validar números finitos e não-negativos (Number.isFinite(val) && val >= 0) e rejeitar entradas inválidas.`,
+          `  </stage_invariants>`
+        ];
+        break;
+
+      case 'frontend-ui':
+        stageInvariants = [
+          `  <stage_invariants stage="frontend-ui">`,
+          `    1. REGRA ANTI-DASHBOARD PASSIVO: A interface DEVE ser uma estação de trabalho operacional com ferramentas ativas, formulários de disparo rápido e botões de ação direta (proibido painéis contemplativos estáticos).`,
+          `    2. BLINDAGEM APPSEC CONTRA XSS: Sanitizar obrigatoriamente qualquer dado dinâmico interpolado em HTML via escapeHtml() ou utilizar propriedades seguras como textContent.`,
+          `    3. DESIGN SYSTEM & TOKENS REA: Tokens semânticos em :root (--bg, --surface, --border, --text, --accent), tipografia tabular-nums, scrollbars finas (6px) e ícones SVG Lucide inline (PROIBIDO emojis em botões/controles).`,
+          `    4. OPERAÇÕES REATIVAS & F5 SURVIVAL: Abas acessíveis com [role="tab"] e data-tab; botões dinâmicos com data-action="<acao>", data-id="<id>" e Optimistic UI imediato; sincronização via fetch() real recarregando no boot para sobreviver a F5.`,
+          `  </stage_invariants>`
+        ];
+        break;
+
+      case 'engine-api':
+        stageInvariants = [
+          `  <stage_invariants stage="engine-api">`,
+          `    1. WEBHOOKS DE ALTO THROUGHPUT (< 100ms): Validar autenticidade/assinatura do webhook, enfileirar ou registrar o evento e responder HTTP 200/202 em menos de 100ms antes de processamento pesado assíncrono.`,
+          `    2. AUTENTICAÇÃO DE SEGREDOS & HMAC: Validar tokens secretos em cabeçalhos (X-Webhook-Secret) ou assinaturas HMAC com timingSafeEqual. Rejeitar requisições inválidas com HTTP 401/403 sem vazar dados.`,
+          `    3. SOCKETS & CONECTORES RESILIENTES: Reconexão automática com exponential backoff (e.g. Baileys / WebSocket), auth state seguro e encerramento limpo em sinais de shutdown.`,
+          `    4. FILAS & IDEMPOTÊNCIA: Deduplicação obrigatória por chave de idempotência (idempotency_key / message_id) com ciclo de vida (pending -> processing -> completed/failed).`,
+          `    5. BLINDAGEM DE SERVIDOR HTTP: Header 'X-Content-Type-Options: nosniff', healthcheck leve em GET /api/health e bloqueio de Path Traversal.`,
+          `  </stage_invariants>`
+        ];
+        break;
+
+      case 'scaffold':
+        stageInvariants = [
+          `  <stage_invariants stage="scaffold">`,
+          `    1. TYPESCRIPT STRICT: Configurar tsconfig.json com "strict": true, "moduleResolution": "NodeNext" e "target": "ES2022".`,
+          `    2. SCRIPTS DETERMINÍSTICOS: Configurar scripts canônicos em package.json: build, typecheck (tsc --noEmit), test (node --test) e start.`,
+          `    3. ZERO DEPENDÊNCIAS REDUNDANTES: Priorizar 100% a stdlib do Node (node:fs, node:path, node:http, node:crypto, node:test) em vez de pacotes externos desnecessários.`,
+          `    4. PREFLIGHT & PORT_GUARD: Estrutura base limpa (src/, test/, public/), .gitignore padronizado e reserva de porta entre 4000 e 4999.`,
+          `  </stage_invariants>`
+        ];
+        break;
+
+      case 'surgical-bugfix':
+      default:
+        stageInvariants = [
+          `  <stage_invariants stage="surgical-bugfix">`,
+          `    1. PRESERVAÇÃO INVIOLÁVEL DE TESTES: NUNCA alterar, enfraquecer, comentar ou desativar testes para mascarar defeitos. A correção é exclusiva no código de produção.`,
+          `    2. ISOLAMENTO DA CAUSA RAIZ VIA STACK TRACE: Inspecionar o erro anterior e a coordenada exata da falha, formulando explicação causal verificável.`,
+          `    3. DIFF MÍNIMO CIRÚRGICO: Aplicar a correção estritamente nas linhas com defeito via replace_file_content preservando 100% do código adjacente.`,
+          `    4. CONVERGÊNCIA EMPÍRICA: Comprovar exit code 0 no comando de teste sem regressões secundárias.`,
+          `  </stage_invariants>`
+        ];
+        break;
+    }
+
+    return [...commonHeader, ...stageInvariants, ...commonFooter].join('\n');
+  }
+
+  /**
+   * Constrói o Passo 2 de implementação adaptado cirurgicamente ao estágio detectado.
+   */
+  private static buildStageStep2(stage: DevelopmentStage, input: WorkerPromptInput): string {
+    const scopeFiles = (input.expectedScopeFiles || []).join(', ') || 'arquivos de escopo';
+    switch (stage) {
+      case 'database':
+        return `    Passo 2 (Implementação Cirúrgica de Produção - Banco de Dados): Implementar 100% da lógica exigida nos arquivos de <expected_scope_files> (${scopeFiles}) (zero placeholders, zero TODOs, zero funções vazias): modelar esquemas DDL idempotentes com chaves primárias e estrangeiras explícitas, queries parametrizadas (db.prepare('... WHERE id = ?').get(id)), índices em chaves estrangeiras, transações ACID com better-sqlite3 e garantir seedIfEmpty() idempotente com 15-30 registros realistas.`;
+
+      case 'frontend-ui':
+        return `    Passo 2 (Implementação Cirúrgica de Produção - Frontend & UI): Implementar 100% da lógica exigida nos arquivos de <expected_scope_files> (${scopeFiles}) (zero placeholders, zero TODOs, zero funções vazias): (1) Tokens :root (--bg, --surface, --border, --text, --accent), ::-webkit-scrollbar (6px) e font-variant-numeric: tabular-nums; (2) Botões/abas com role="tab" e data-tab="<secao>" + ícones SVG Lucide inline (zero emojis); (3) Helper obrigatório function escapeHtml(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); } em toda renderização innerHTML; (4) Reactive Store + Fetch API real recarregando do backend no boot para sobreviver ao F5; (5) Botões dinâmicos com data-action="<acao>" e data-id="<id>" aplicando Optimistic UI imediato no DOM; (6) Ferramentas operacionais ativas com formulários de disparo rápido e edição de templates.`;
+
+      case 'engine-api':
+        return `    Passo 2 (Implementação Cirúrgica de Produção - Engine & API): Implementar 100% da lógica exigida nos arquivos de <expected_scope_files> (${scopeFiles}) (zero placeholders, zero TODOs, zero funções vazias): definir const PORT = Number(process.env.PORT) || 4000; incluir res.setHeader('X-Content-Type-Options', 'nosniff'); servir GET /api/health com JSON; bloquear Path Traversal verificando const safePath = path.resolve(publicDir, '.' + reqPath); if (!safePath.startsWith(publicDir) || /\\/\\.|\\.env|\\.git/i.test(reqPath)) return 403/404; processar webhooks em < 100ms e autenticar assinaturas secretas.`;
+
+      case 'scaffold':
+        return `    Passo 2 (Implementação Cirúrgica de Produção - Scaffold Base): Implementar 100% da lógica exigida nos arquivos de <expected_scope_files> (${scopeFiles}) (zero placeholders, zero TODOs, zero funções vazias): configurar tsconfig.json com strict e NodeNext, package.json com scripts determinísticos (build, typecheck, test, start) e estrutura de pastas sem dependências redundantes.`;
+
+      case 'surgical-bugfix':
+      default:
+        return `    Passo 2 (Implementação Cirúrgica de Produção - Correção de Bug): Isolar a coordenada exata da falha via stack trace e aplicar diff mínimo preservando 100% dos testes e contratos existentes.`;
+    }
+  }
   // =========================================================================
   // DETECÇÃO AUTOMÁTICA DE MODO
   // =========================================================================
@@ -425,7 +779,8 @@ export class PromptArchitectureService {
       ? resolveProjectCapabilities({ capabilities: input.capabilities }, input.briefing || input.projectObjective)
       : resolveProjectCapabilities(input.projectId || input.projectPath, input.briefing || input.projectObjective);
     const effectiveProfile = input.projectProfile || resolveProjectProfileMode(input.projectId || input.projectPath, input.briefing || input.projectObjective);
-    sections.push(`  <project_architectural_profile>\n${formatCapabilitiesProfileBlock(effectiveCaps, effectiveProfile)}\n  </project_architectural_profile>`);
+    const profileBlock = formatCapabilitiesProfileBlock(effectiveCaps, effectiveProfile);
+    sections.push(`  <project_architectural_profile>\n${profileBlock}\n  </project_architectural_profile>`);
 
     sections.push(`  <canonical_artifact_pointers>`);
     sections.push(`    - Especificação de Princípios e AppSec: @.ai-dev-hub/specs/PRINCIPIOS.md`);
@@ -524,6 +879,25 @@ export class PromptArchitectureService {
 
     if (effectiveDocSimp) {
       sections.push(`  <docsimp_blueprints>\n${effectiveDocSimp}\n  </docsimp_blueprints>`);
+    }
+
+    // Injeção de Vacinas Preventivas de Código Cross-Project (Universal Vaccine Memory)
+    try {
+      const vaccineContext = [
+        input.briefing || '',
+        input.projectObjective || '',
+        (input.pendingTasks || []).map(t => t.title).join(' '),
+        (input.completedTasks || []).map(t => t.title).join(' ')
+      ].join(' ');
+      const supervisorVaccines = EngineeringContextService.getPreventiveVaccinesBlock(
+        vaccineContext,
+        []
+      );
+      if (supervisorVaccines) {
+        sections.push(`  <preventive_code_vaccines>\n${supervisorVaccines}\n  </preventive_code_vaccines>`);
+      }
+    } catch (vaccineErr: any) {
+      Logger.warn(`[PromptArchitectureService] Falha não bloqueante ao injetar vacinas preventivas no Supervisor: ${vaccineErr.message}`);
     }
 
     // Injeção cirúrgica de contexto baseada em AST (Target Files Symbol Map)
@@ -734,13 +1108,17 @@ export class PromptArchitectureService {
   } {
     const sections: string[] = [];
 
+    const stage = this.detectDevelopmentStage(input);
+    const stageCoreRules = this.getStageWorkerCoreRules(stage);
+    const stagePromptContent = this.loadStagePrompt(stage);
+
     // 1. TOPO ABSOLUTO (PRIMAZIA / KV CACHE): CAMADA A
     sections.push('=== CAMADA A: REGRAS PERMANENTES DO WORKER ===');
-    sections.push(this.WORKER_CORE_RULES);
+    sections.push(stageCoreRules);
     sections.push('');
 
     // 2. CENTRO (CONTEXTO REAL DA TAREFA, REPOMAP, AST E VACINAS ML): CAMADA C
-    sections.push(`<workspace_context role="WORKER" mode="${input.mode}">`);
+    sections.push(`<workspace_context role="WORKER" mode="${input.mode}" stage="${stage}">`);
     sections.push(`  <project_and_task_metadata>`);
     sections.push(`    PROJETO: ${input.projectName} (ID: ${input.projectId})`);
     sections.push(`    DIRETÓRIO EXATO: ${input.projectPath}`);
@@ -765,7 +1143,11 @@ export class PromptArchitectureService {
       ? resolveProjectCapabilities({ capabilities: input.capabilities }, input.projectObjective)
       : resolveProjectCapabilities(input.projectId || input.projectPath, input.projectObjective);
     const effectiveProfile = input.projectProfile || resolveProjectProfileMode(input.projectId || input.projectPath, input.projectObjective);
-    sections.push(`  <project_architectural_profile>\n${formatCapabilitiesProfileBlock(effectiveCaps, effectiveProfile)}\n  </project_architectural_profile>`);
+    let profileBlock = formatCapabilitiesProfileBlock(effectiveCaps, effectiveProfile);
+    if (stage === 'frontend-ui') {
+      profileBlock = profileBlock.replace(/- Banco de Dados \(SQLite\):/g, '- Banco de Dados / Backend:');
+    }
+    sections.push(`  <project_architectural_profile>\n${profileBlock}\n  </project_architectural_profile>`);
 
     sections.push(`  <file_ownership_contract>`);
     sections.push(`    <owned_files_write>${(input.expectedScopeFiles || []).join(', ') || 'escopo estrito da tarefa no projeto'}</owned_files_write>`);
@@ -863,7 +1245,7 @@ export class PromptArchitectureService {
           ? AstSymbolIndexService.generateStructuredSymbolSummary(input.projectId, {
               projectPath: input.projectPath,
               targetFiles: input.expectedScopeFiles,
-              maxChars: 7000
+              maxChars: 3000
             })
           : ''
       );
@@ -872,6 +1254,23 @@ export class PromptArchitectureService {
       }
     } catch (symErr: any) {
       Logger.warn(`[PromptArchitectureService] Falha não bloqueante ao gerar AST Symbol Summary: ${symErr.message}`);
+    }
+
+    // Filtro Rápido de Contexto de Arquivos (< 3.500 tokens): Se > 200 linhas, injeta apenas assinaturas e trecho específico
+    if (input.projectPath && input.expectedScopeFiles?.length) {
+      try {
+        const condensedScope = AstSymbolIndexService.readAndCondenseScopeFiles(
+          input.projectPath,
+          input.expectedScopeFiles,
+          input.taskDescription || input.taskTitle,
+          2500
+        );
+        if (condensedScope) {
+          sections.push(`  <condensed_file_context>\n${condensedScope}\n  </condensed_file_context>`);
+        }
+      } catch (scopeErr: any) {
+        Logger.warn(`[PromptArchitectureService] Aviso não bloqueante ao condensar arquivos de escopo: ${scopeErr.message}`);
+      }
     }
 
     // FASE 23: RepoMap Automático de Símbolos, Rotas e Schemas (Aider RepoMap)
@@ -929,6 +1328,25 @@ export class PromptArchitectureService {
       Logger.warn(`[PromptArchitectureService] Aviso não bloqueante ao injetar DecoMind ML: ${mlErr.message}`);
     }
 
+    // Injeção de Vacinas Preventivas de Código Cross-Project (Universal Vaccine Memory)
+    try {
+      const workerVaccineContext = [
+        input.taskTitle || '',
+        input.taskDescription || '',
+        input.projectObjective || '',
+        (input.acceptanceCriteria || []).join(' ')
+      ].join(' ');
+      const workerVaccines = EngineeringContextService.getPreventiveVaccinesBlock(
+        workerVaccineContext,
+        input.expectedScopeFiles || []
+      );
+      if (workerVaccines) {
+        sections.push(`  <preventive_code_vaccines>\n${workerVaccines}\n  </preventive_code_vaccines>`);
+      }
+    } catch (vaccineErr: any) {
+      Logger.warn(`[PromptArchitectureService] Falha não bloqueante ao injetar vacinas preventivas no Worker: ${vaccineErr.message}`);
+    }
+
     sections.push(`  <lsp_realtime_diagnostics_tool>`);
     sections.push(`    Você dispõe da ferramenta 'lsp_diagnostics(filePath)' para validação sintática e de tipagem em tempo real nos arquivos modificados antes de encerrar a tarefa.`);
     if (input.lspDiagnosticsSnippet) {
@@ -962,6 +1380,9 @@ export class PromptArchitectureService {
     if (input.supervisorInstructions) {
       sections.push(`  <supervisor_specific_instructions>\n${input.supervisorInstructions}\n  </supervisor_specific_instructions>`);
     }
+
+    // Injeção da Matriz de Prompts Especializados por Estágio (Camada C)
+    sections.push(`  <stage_specialized_rules stage="${stage}">\n${stagePromptContent}\n  </stage_specialized_rules>`);
 
     sections.push(`</workspace_context>`);
     sections.push('');
@@ -1006,11 +1427,10 @@ export class PromptArchitectureService {
         sections.push(
           `  <step_by_step_execution_protocol>`,
           `    OBJETIVO DESTE MODO: DIRETRIZES DE IMPLEMENTAÇÃO: Altere apenas o necessário (escopo cirúrgico) para atender a 100% dos critérios da tarefa. ARQUIVOS ESPERADOS NO ESCOPO: ${(input.expectedScopeFiles || []).join(', ')}`,
-          `    Passo 1 (Inspeção e Ancoragem de Contratos): Verificar os arquivos existentes no projeto (package.json, esquemas SQLite, serviços e rotas) via view_file para manter consistência absoluta de propriedades JSON e imports. Em Node.js/TypeScript, utilizar SEMPRE imports canônicos com namespace para bibliotecas padrão: 'import * as fs from "node:fs"', 'import * as path from "node:path"', 'import * as http from "node:http"', 'import assert from "node:assert/strict"' (jamais usar default import de módulos CJS sem default export).`,
-          `    Passo 2 (Implementação Cirúrgica de Produção): Implementar 100% da lógica exigida nos arquivos de <expected_scope_files> (zero placeholders, zero TODOs, zero funções vazias):`,
-          `      * Banco/Domínio (SQLite): usar queries parametrizadas (db.prepare('... WHERE id = ?').get(id)), validar números finitos e não-negativos (Number.isFinite(val) && val >= 0) e garantir seedIfEmpty() idempotente com 15-30 registros realistas.`,
-          `      * API/Servidor HTTP: definir const PORT = Number(process.env.PORT) || 4000; incluir res.setHeader('X-Content-Type-Options', 'nosniff'); servir GET /api/health com JSON; bloquear Path Traversal verificando const safePath = path.resolve(publicDir, '.' + reqPath); if (!safePath.startsWith(publicDir) || /\\/\\.|\\.env|\\.git/i.test(reqPath)) return 403/404; e servir public/index.html em GET / e fallback SPA.`,
-          `      * Frontend/UI (Anti-Slop & SaaS Master): (1) Tokens :root (--bg, --surface, --border, --text, --accent), ::-webkit-scrollbar (6px) e font-variant-numeric: tabular-nums; (2) Botões/abas com role="tab" e data-tab="<secao>" + ícones SVG Lucide inline (zero emojis); (3) Helper obrigatório function escapeHtml(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); } em toda renderização innerHTML; (4) Reactive Store + Fetch API real recarregando do backend no boot para sobreviver ao F5; (5) Botões dinâmicos com data-action="<acao>" e data-id="<id>" aplicando Optimistic UI imediato no DOM.`,
+          stage === 'frontend-ui'
+            ? `    Passo 1 (Inspeção e Ancoragem de Contratos): Verificar os arquivos existentes no projeto (package.json, serviços, componentes e rotas) via view_file para manter consistência absoluta de propriedades JSON e imports. Em Node.js/TypeScript, utilizar SEMPRE imports canônicos com namespace para bibliotecas padrão: 'import * as fs from "node:fs"', 'import * as path from "node:path"', 'import * as http from "node:http"', 'import assert from "node:assert/strict"' (jamais usar default import de módulos CJS sem default export).`
+            : `    Passo 1 (Inspeção e Ancoragem de Contratos): Verificar os arquivos existentes no projeto (package.json, esquemas SQLite, serviços e rotas) via view_file para manter consistência absoluta de propriedades JSON e imports. Em Node.js/TypeScript, utilizar SEMPRE imports canônicos com namespace para bibliotecas padrão: 'import * as fs from "node:fs"', 'import * as path from "node:path"', 'import * as http from "node:http"', 'import assert from "node:assert/strict"' (jamais usar default import de módulos CJS sem default export).`,
+          this.buildStageStep2(stage, input),
           `    Passo 3 (Diagnóstico LSP e Verificação Empírica): Executar lsp_diagnostics nos arquivos editados e rodar o comando de verificação (${input.verificationCommand || 'npm test'}) comprovando exit code 0.`,
           `    Passo 4 (Relatório Factual): Encerrar reportando objetivamente os arquivos alterados e a saída real dos testes.`,
           `  </step_by_step_execution_protocol>`
@@ -1075,6 +1495,7 @@ export class PromptArchitectureService {
         version: this.WORKER_CORE_RULES_VERSION,
         hash,
         mode: input.mode,
+        stage,
         role: 'WORKER',
         retrievedMemoryIds
       }
@@ -1111,7 +1532,8 @@ export class PromptArchitectureService {
       ? resolveProjectCapabilities({ capabilities: input.capabilities }, input.briefing || input.projectObjective)
       : resolveProjectCapabilities(input.projectId || input.projectPath, input.briefing || input.projectObjective);
     const effectiveProfile = input.projectProfile || resolveProjectProfileMode(input.projectId || input.projectPath, input.briefing || input.projectObjective);
-    sections.push(`  <project_architectural_profile>\n${formatCapabilitiesProfileBlock(effectiveCaps, effectiveProfile)}\n  </project_architectural_profile>`);
+    const profileBlock = formatCapabilitiesProfileBlock(effectiveCaps, effectiveProfile);
+    sections.push(`  <project_architectural_profile>\n${profileBlock}\n  </project_architectural_profile>`);
 
     sections.push(`  <user_briefing>\n${input.briefing}\n  </user_briefing>`);
 
@@ -1240,7 +1662,8 @@ export class PromptArchitectureService {
       ? resolveProjectCapabilities({ capabilities: input.capabilities }, input.briefing || input.projectObjective)
       : resolveProjectCapabilities(input.projectId || input.projectPath, input.briefing || input.projectObjective);
     const effectiveProfile = input.projectProfile || resolveProjectProfileMode(input.projectId || input.projectPath, input.briefing || input.projectObjective);
-    sections.push(`  <project_architectural_profile>\n${formatCapabilitiesProfileBlock(effectiveCaps, effectiveProfile)}\n  </project_architectural_profile>`);
+    const profileBlock = formatCapabilitiesProfileBlock(effectiveCaps, effectiveProfile);
+    sections.push(`  <project_architectural_profile>\n${profileBlock}\n  </project_architectural_profile>`);
 
     if (input.briefing) {
       sections.push(`  <user_briefing>\n${input.briefing}\n  </user_briefing>`);

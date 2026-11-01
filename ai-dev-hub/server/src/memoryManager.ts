@@ -33,6 +33,9 @@ export class MemoryManager {
       objective?: string;
       description?: string;
       stack?: string;
+      project_profile?: string;
+      projectProfile?: string;
+      capabilities?: any;
     }
   ): void {
     const memDir = this.getMemoryDir(projectPath);
@@ -40,8 +43,16 @@ export class MemoryManager {
       fs.mkdirSync(memDir, { recursive: true });
     }
 
+    const rawProfile = initialData.project_profile || initialData.projectProfile || 'local_personal';
+    const isCommercial = rawProfile === 'commercial_saas';
+    const typeLabel = isCommercial
+      ? 'PRODUTO SAAS (MULTI-TENANT / COMERCIAL)'
+      : 'FERRAMENTA LOCAL (SEM LOGIN / OPERAÇÃO DIRETA)';
+
     const files = {
       'project.md': `# Projeto: ${initialData.name}
+
+> **TIPO DE PROJETO:** ${typeLabel}
 
 ## Objetivo Principal
 ${initialData.objective || 'Definir o objetivo principal do projeto.'}
@@ -56,7 +67,10 @@ ${initialData.description || 'Contexto e propósito da aplicação para os usuá
 
       'architecture.md': `# Arquitetura do Sistema
 
+> **TIPO DE PROJETO:** ${typeLabel}
+
 ## Stack Tecnológica
+- **Perfil do Projeto:** ${typeLabel}
 - **Stack:** ${initialData.stack || 'Não especificada'}
 
 ## Componentes

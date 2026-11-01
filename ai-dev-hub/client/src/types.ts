@@ -5,6 +5,7 @@ export interface ProjectCapabilities {
   auth: boolean;          // Login, Cadastro, Sessão, Supabase Auth / Turnstile
   payments: boolean;      // Checkout PIX, PushinPay, Planos de Assinatura, Billing
   advancedSaas: boolean;  // Multi-tenant/Equipe RBAC, API Keys, Webhooks Playground, /docs, Audit Trail comercial
+  multiTenant?: boolean;  // Multi-tenant com isolamento por organização/tenant_id
   demoSeed: boolean;      // Popular dados fictícios de exemplo no boot (seedIfEmpty)
 }
 
@@ -13,6 +14,7 @@ export const DEFAULT_CAPABILITIES_LOCAL_PERSONAL: ProjectCapabilities = {
   auth: false,
   payments: false,
   advancedSaas: false,
+  multiTenant: false,
   demoSeed: false
 };
 
@@ -21,6 +23,7 @@ export const DEFAULT_CAPABILITIES_COMMERCIAL_SAAS: ProjectCapabilities = {
   auth: true,
   payments: true,
   advancedSaas: true,
+  multiTenant: true,
   demoSeed: true
 };
 

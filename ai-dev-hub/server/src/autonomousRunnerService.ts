@@ -16,6 +16,7 @@ import { GitManager } from './gitManager.js';
 import { GitHubMcpClient } from './githubMcpClient.js';
 import { WorkerRegistry, Worker } from './workerRegistry.js';
 import { IndependentEvaluator, EvaluationResult } from './independentEvaluator.js';
+import { TestSelector } from './testSelector.js';
 import { ModelRegistry } from './modelRegistry.js';
 import { UsageTracker } from './usageTracker.js';
 import { AgentSessionManager } from './agentSessionManager.js';
@@ -2070,7 +2071,8 @@ export class AutonomousRunnerService {
             }).catch((err: any) => Logger.warn(`[Runner] Falha ao postar conclusão da etapa: ${err.message}`));
           } catch {}
 
-          setTimeout(() => {
+          // Fast-Forward DAG: Encadeamento contínuo com 0ms de latência entre tarefas aprovadas
+          setImmediate(() => {
             AutonomousRunnerService.schedulerTick().catch((err) => {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({
@@ -2082,7 +2084,7 @@ export class AutonomousRunnerService {
         console.warn("[WARN][server:autonomousRunnerService]", err);
       }
     });
-          }, 50);
+          });
         } else {
           this.consecutiveFailures++;
           db.prepare(`
@@ -2092,7 +2094,8 @@ export class AutonomousRunnerService {
           `).run(reviewResult.feedback || 'Correções necessárias', nowIso, runId);
 
           Logger.warn(`[REWORK] [Supervisor] Solicitação de correções enviada para "${inReviewTask.title}": ${reviewResult.feedback || 'Revisão reprovada'}`);
-          setTimeout(() => {
+          // Fast-Forward DAG: Encadeamento contínuo com 0ms de latência entre tarefas aprovadas
+          setImmediate(() => {
             AutonomousRunnerService.schedulerTick().catch((err) => {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({
@@ -2104,13 +2107,14 @@ export class AutonomousRunnerService {
         console.warn("[WARN][server:autonomousRunnerService]", err);
       }
     });
-          }, 50);
+          });
         }
         return;
       } else {
         // Tarefa está in_review sem report válido (anomalia de estado): reset para ready
         db.prepare("UPDATE autonomous_tasks SET status = 'ready', updated_at = ? WHERE id = ?").run(nowIso, inReviewTask.id);
-        setTimeout(() => {
+        // Fast-Forward DAG: Encadeamento contínuo com 0ms de latência entre tarefas aprovadas
+      setImmediate(() => {
           AutonomousRunnerService.schedulerTick().catch((err) => {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({
@@ -2122,7 +2126,7 @@ export class AutonomousRunnerService {
         console.warn("[WARN][server:autonomousRunnerService]", err);
       }
     });
-        }, 50);
+        });
         return;
       }
     }
@@ -2183,7 +2187,8 @@ export class AutonomousRunnerService {
               error: revErr
             });
             if (failoverRes.switched) {
-              setTimeout(() => {
+              // Fast-Forward DAG: Encadeamento contínuo com 0ms de latência entre tarefas aprovadas
+          setImmediate(() => {
                 AutonomousRunnerService.schedulerTick().catch((err) => {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({
@@ -2195,7 +2200,7 @@ export class AutonomousRunnerService {
         console.warn("[WARN][server:autonomousRunnerService]", err);
       }
     });
-              }, 50);
+              });
               return;
             }
           }
@@ -2349,7 +2354,8 @@ export class AutonomousRunnerService {
         recoveredOrphan = true;
       }
       if (recoveredOrphan) {
-        setTimeout(() => {
+        // Fast-Forward DAG: Encadeamento contínuo com 0ms de latência entre tarefas aprovadas
+      setImmediate(() => {
           AutonomousRunnerService.schedulerTick().catch((err) => {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({
@@ -2361,7 +2367,7 @@ export class AutonomousRunnerService {
         console.warn("[WARN][server:autonomousRunnerService]", err);
       }
     });
-        }, 50);
+        });
         return;
       }
 
@@ -2430,7 +2436,8 @@ export class AutonomousRunnerService {
               SET status = 'running', last_error = NULL, next_action = ?, updated_at = ?
               WHERE id = ?
             `).run(`Failover automático concluído para "${failoverRes.activeProfile.display_name}". Retomando execução.`, nowIso, runId);
-            setTimeout(() => {
+            // Fast-Forward DAG: Encadeamento contínuo com 0ms de latência entre tarefas aprovadas
+          setImmediate(() => {
               AutonomousRunnerService.schedulerTick().catch((err) => {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({
@@ -2442,7 +2449,7 @@ export class AutonomousRunnerService {
         console.warn("[WARN][server:autonomousRunnerService]", err);
       }
     });
-            }, 50);
+            });
             return;
           }
         } catch (failoverErr: any) {
@@ -2702,7 +2709,8 @@ export class AutonomousRunnerService {
               WHERE id = ?
             `).run(`Auto-Failover (${failoverRes.kind}) concluído para "${failoverRes.activeProfile.display_name}". Retomando execução.`, nowIso, runId);
 
-            setTimeout(() => {
+            // Fast-Forward DAG: Encadeamento contínuo com 0ms de latência entre tarefas aprovadas
+          setImmediate(() => {
               AutonomousRunnerService.schedulerTick().catch((err) => {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({
@@ -2714,7 +2722,7 @@ export class AutonomousRunnerService {
         console.warn("[WARN][server:autonomousRunnerService]", err);
       }
     });
-            }, 100);
+            });
             return;
           }
         } catch (failoverErr: any) {
@@ -2917,7 +2925,8 @@ export class AutonomousRunnerService {
       this.currentTask = null;
       this.currentWorker = null;
 
-      setTimeout(() => {
+      // Fast-Forward DAG: Encadeamento contínuo com 0ms de latência entre tarefas aprovadas
+      setImmediate(() => {
         AutonomousRunnerService.schedulerTick().catch((err) => {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({
@@ -2929,7 +2938,7 @@ export class AutonomousRunnerService {
         console.warn("[WARN][server:autonomousRunnerService]", err);
       }
     });
-      }, 50);
+      });
 
       return;
     }
@@ -2970,7 +2979,8 @@ export class AutonomousRunnerService {
       `).run(nowIso, nowIso, runId);
 
       Logger.success(`[APPROVED] [Supervisor] Tarefa "${nextTask.title}" aprovada após avaliação independente.`);
-      setTimeout(() => {
+      // Fast-Forward DAG: Encadeamento contínuo com 0ms de latência entre tarefas aprovadas
+      setImmediate(() => {
         AutonomousRunnerService.schedulerTick().catch((err) => {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({
@@ -2982,7 +2992,7 @@ export class AutonomousRunnerService {
         console.warn("[WARN][server:autonomousRunnerService]", err);
       }
     });
-      }, 50);
+      });
     } else {
       this.consecutiveFailures++;
       db.prepare(`
@@ -2992,7 +3002,8 @@ export class AutonomousRunnerService {
       `).run(reviewResult.feedback || 'Correções necessárias', nowIso, runId);
 
       Logger.warn(`[REWORK] [Supervisor] Solicitação de correções enviada para "${nextTask.title}": ${reviewResult.feedback || 'Revisão reprovada'}`);
-      setTimeout(() => {
+      // Fast-Forward DAG: Encadeamento contínuo com 0ms de latência entre tarefas aprovadas
+      setImmediate(() => {
         AutonomousRunnerService.schedulerTick().catch((err) => {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({
@@ -3004,7 +3015,7 @@ export class AutonomousRunnerService {
         console.warn("[WARN][server:autonomousRunnerService]", err);
       }
     });
-      }, 50);
+      });
     }
   }
 
@@ -3081,7 +3092,7 @@ export class AutonomousRunnerService {
           title: task.title,
           description: task.description,
           criteria: task.criteria || ['Atender plenamente os objetivos da tarefa'],
-          verificationCommand: task.verification_command || 'npm test',
+          verificationCommand: TestSelector.resolveTestForFiles(task.expected_files || [], projectPath) || (task.verification_command && !/^\s*npm\s+test\s*$/i.test(task.verification_command) ? task.verification_command : (TestSelector.resolveTestForFiles(task.expected_files || [], projectPath) || 'npm test')),
           doneWhen: task.done_when || 'Todos os critérios atendidos e verificação sem erros',
           expectedScopeFiles: task.expected_files || []
         }

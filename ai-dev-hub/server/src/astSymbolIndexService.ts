@@ -1009,4 +1009,116 @@ export class AstSymbolIndexService {
 
     return `${header}\n${summaryBlock}`;
   }
+
+  /**
+   * Filtro Rápido de Contexto (< 3.500 tokens por turno):
+   * Limita o envio de arquivos inteiros no prompt.
+   * Se o arquivo tiver mais de 200 linhas, injeta apenas:
+   * 1. As assinaturas de interfaces e funções via AstSymbolIndexService.
+   * 2. O trecho específico da função ou rota sendo modificada.
+   */
+  static condenseFileContentForPrompt(
+    filePath: string,
+    fileContent: string,
+    taskHint?: string
+  ): string {
+    if (!fileContent || typeof fileContent !== 'string') return '';
+    const lines = fileContent.split(/\r?\n/);
+
+    // Se o arquivo tiver até 200 linhas, mantém o arquivo intacto
+    if (lines.length <= 200) {
+      return fileContent;
+    }
+
+    // Se tiver mais de 200 linhas, extrai assinaturas via AST e trecho relevante
+    const extracted = this.extractSymbols(fileContent, filePath);
+    const signatures: string[] = [];
+
+    for (const sym of extracted) {
+      if (sym.symbolType === 'interface' || sym.symbolType === 'type') {
+        signatures.push(`  interface/type ${sym.symbolName}: ${sym.signature}`);
+      } else if (sym.symbolType === 'function' || sym.symbolType === 'method') {
+        signatures.push(`  fn ${sym.symbolName}: ${sym.signature}`);
+      } else if (sym.symbolType === 'route') {
+        signatures.push(`  route: ${sym.signature}`);
+      } else if (sym.symbolType === 'class') {
+        signatures.push(`  class: ${sym.symbolName}`);
+      }
+    }
+
+    // Busca trecho específico se houver menção na tarefa ou palavras-chave
+    const relevantLines: string[] = [];
+    if (taskHint) {
+      const hintTokens = taskHint
+        .toLowerCase()
+        .split(/[^a-zA-Z0-9_\-\/]+/)
+        .filter(t => t.length >= 3 && !['para', 'com', 'que', 'dos', 'das', 'uma', 'src', 'test'].includes(t));
+
+      for (let i = 0; i < lines.length; i++) {
+        const lineLower = lines[i].toLowerCase();
+        if (hintTokens.some(tok => lineLower.includes(tok))) {
+          const start = Math.max(0, i - 10);
+          const end = Math.min(lines.length, i + 25);
+          relevantLines.push(`  // --- Linhas ${start + 1} a ${end} (relevantes à tarefa) ---`);
+          for (let j = start; j < end; j++) {
+            relevantLines.push(`  ${lines[j]}`);
+          }
+          i = end;
+          if (relevantLines.length > 80) break;
+        }
+      }
+    }
+
+    const output: string[] = [
+      `// [ARQUIVO CONDENSADO: ${filePath} (${lines.length} linhas - Modo Cirúrgico < 3.500 tokens)]`,
+      '// Assinaturas de interfaces e funções:',
+      ...(signatures.length > 0 ? signatures.slice(0, 40) : ['  // Nenhuma assinatura exportada']),
+    ];
+
+    if (relevantLines.length > 0) {
+      output.push('', '// Trecho específico da função/rota em modificação:');
+      output.push(...relevantLines);
+    } else {
+      output.push('', `// Primeiras 40 linhas (${filePath}):`);
+      output.push(...lines.slice(0, 40).map(l => `  ${l}`));
+    }
+
+    return output.join('\n');
+  }
+
+  /**
+   * Lê e condensa arquivos do escopo respeitando o filtro de 200 linhas e orçamento restrito.
+   */
+  static readAndCondenseScopeFiles(
+    projectPath: string,
+    files: string[],
+    taskHint?: string,
+    maxTotalChars = 5000
+  ): string {
+    if (!files || files.length === 0 || !projectPath) return '';
+    const blocks: string[] = [];
+    let currentChars = 0;
+
+    for (const f of files) {
+      const fullPath = path.isAbsolute(f) ? f : path.join(projectPath, f);
+      if (!fs.existsSync(fullPath)) continue;
+      try {
+        const stat = fs.statSync(fullPath);
+        if (!stat.isFile()) continue;
+        const content = fs.readFileSync(fullPath, 'utf8');
+        const condensed = this.condenseFileContentForPrompt(f, content, taskHint);
+        if (currentChars + condensed.length > maxTotalChars) {
+          const remaining = maxTotalChars - currentChars;
+          if (remaining > 200) {
+            blocks.push(condensed.slice(0, remaining) + '\n// ... [truncado por limite de tokens]');
+          }
+          break;
+        }
+        blocks.push(condensed);
+        currentChars += condensed.length;
+      } catch {}
+    }
+
+    return blocks.join('\n\n');
+  }
 }

@@ -29,8 +29,72 @@ import {
   Sprout,
   Check,
   Wrench,
-  Rocket
+  Rocket,
+  ChevronDown,
+  ChevronUp,
+  Sliders
 } from 'lucide-react';
+
+export interface BlueprintOption {
+  id: string;
+  name: string;
+  suggestedName: string;
+  subtitle: string;
+  briefing: string;
+  icon: any;
+  badges: string[];
+}
+
+export const LOCAL_BLUEPRINTS: BlueprintOption[] = [
+  {
+    id: 'whatsapp_bot',
+    name: 'WhatsApp Bot & Disparador Operacional',
+    suggestedName: 'whatsapp-disparador',
+    subtitle: 'Baileys + Fila Local em SQLite WAL',
+    briefing: 'Disparador operacional e bot de WhatsApp usando Baileys e fila local em SQLite WAL. Interface para cadastro de templates com variáveis ({nome}, {pix}), tela de envio manual com status em tempo real, fila com reprocessamento e logs completos. Sem login, sem cobrança.',
+    icon: Zap,
+    badges: ['Baileys', 'Fila Local', 'Sem Login']
+  },
+  {
+    id: 'operational_dashboard',
+    name: 'Dashboard Operacional & Gestão Interna',
+    suggestedName: 'dashboard-operacional',
+    subtitle: 'SQLite WAL Puro sem burocracia',
+    briefing: 'Painel operacional e de gestão interna com SQLite WAL. Gestão de cadastros, métricas de produtividade, formulários operacionais rápidos e exportação de relatórios. Sem login, operação direta local.',
+    icon: Database,
+    badges: ['SQLite WAL', 'Gestão Interna', 'Rápido']
+  },
+  {
+    id: 'scraper_robot',
+    name: 'Robô Scraper & Automação de Arquivos',
+    suggestedName: 'automacao-scraper',
+    subtitle: 'Processamento e higienização local',
+    briefing: 'Robô automatizado para coleta de dados (scraping), processamento e higienização de planilhas/arquivos locais, salvamento em SQLite e exportação periódica. Operação direta em segundo plano com painel de controle.',
+    icon: Cpu,
+    badges: ['Scraper', 'Arquivos', 'Automação']
+  }
+];
+
+export const SAAS_BLUEPRINTS: BlueprintOption[] = [
+  {
+    id: 'microsaas_pix',
+    name: 'Micro-SaaS com Cobrança Pix/Cartão',
+    suggestedName: 'microsaas-pix',
+    subtitle: 'Cakto / PushinPay + Auth & Planos',
+    briefing: 'Micro-SaaS comercial completo com autenticação de usuários, planos de assinatura, integração de checkout PIX/Cartão (PushinPay/Cakto), Webhook Studio com simulador de eventos de teste e painel do assinante.',
+    icon: CreditCard,
+    badges: ['Pix / Cartão', 'Auth', 'Planos']
+  },
+  {
+    id: 'saas_b2b',
+    name: 'SaaS Multi-Tenant B2B',
+    suggestedName: 'saas-b2b-multitenant',
+    subtitle: 'Assinatura Recorrente & Equipe RBAC',
+    briefing: 'Plataforma SaaS B2B Multi-Tenant com isolamento de dados por organização (tenant_id), controle de permissões (RBAC), gestão de membros da equipe, cobrança recorrente e API keys.',
+    icon: Shield,
+    badges: ['Multi-Tenant', 'RBAC', 'Recorrente']
+  }
+];
 
 const GithubIcon: React.FC<{ className?: string }> = ({ className = "w-4 h-4" }) => (
   <svg className={className} fill="currentColor" viewBox="0 0 24 24">
@@ -87,14 +151,25 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
   // Perfil de Projeto e Capacidades Modulares
   const [projectProfile, setProjectProfile] = useState<ProjectProfileMode>('local_personal');
   const [capabilities, setCapabilities] = useState<ProjectCapabilities>(DEFAULT_CAPABILITIES_LOCAL_PERSONAL);
+  const [selectedBlueprintId, setSelectedBlueprintId] = useState<string | null>(null);
+  const [showCustomModules, setShowCustomModules] = useState(false);
 
   const handleProfileSelect = (mode: 'local_personal' | 'commercial_saas') => {
     setProjectProfile(mode);
+    setSelectedBlueprintId(null);
     if (mode === 'local_personal') {
       setCapabilities({ ...DEFAULT_CAPABILITIES_LOCAL_PERSONAL });
     } else {
       setCapabilities({ ...DEFAULT_CAPABILITIES_COMMERCIAL_SAAS });
     }
+  };
+
+  const handleApplyBlueprint = (bp: BlueprintOption) => {
+    setSelectedBlueprintId(bp.id);
+    if (!name.trim() || LOCAL_BLUEPRINTS.some(b => b.suggestedName === name.trim()) || SAAS_BLUEPRINTS.some(b => b.suggestedName === name.trim())) {
+      setName(bp.suggestedName);
+    }
+    setObjective(bp.briefing);
   };
 
   const handleCapabilityToggle = (key: keyof ProjectCapabilities) => {
@@ -119,6 +194,8 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
     setName('');
     setFolderPath('');
     setObjective('');
+    setSelectedBlueprintId(null);
+    setShowCustomModules(false);
     setInitGit(true);
     setSelectedModel('flash');
     setReasoningLevel('HIGH');
@@ -278,7 +355,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-[#0b0d16] border border-[#1e2338] w-full max-w-xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
+      <div className="bg-[#0b0d16] border border-[#1e2338] w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
         {/* Modal Header */}
         <div className="p-5 border-b border-[#1b2033] bg-[#0e111d] flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -308,27 +385,141 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
             </div>
           )}
 
-          {/* Quick Paths suggestions */}
-          {quickPaths.length > 0 && (
-            <div>
-              <span className="text-[11px] text-slate-400 block mb-1 font-medium">Sugestões de Pastas Rápidas:</span>
-              <div className="flex flex-wrap gap-1.5">
-                {quickPaths.map((qp, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => {
-                      setFolderPath(qp.path);
-                      if (!name) setName(qp.label);
-                    }}
-                    className="px-2 py-0.5 rounded bg-[#121522] hover:bg-[#181d2e] border border-[#1e243a] text-[11px] font-mono text-slate-300 transition-colors"
-                  >
-                    {qp.label}
-                  </button>
-                ))}
-              </div>
+          {/* 1. SELETOR DE MODO NOVO PROJETO (Em destaque no topo do modal) */}
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                <Layers className="w-4 h-4 text-indigo-400" />
+                <span>Modo do Projeto *</span>
+              </label>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-semibold border ${
+                projectProfile === 'local_personal'
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                  : projectProfile === 'commercial_saas'
+                    ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30'
+                    : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+              }`}>
+                {projectProfile === 'local_personal' ? '🛠️ FERRAMENTA LOCAL' : projectProfile === 'commercial_saas' ? '🌐 PRODUTO SAAS' : '⚙️ PERSONALIZADO'}
+              </span>
             </div>
-          )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Opção 1: Ferramenta Local */}
+              <button
+                type="button"
+                onClick={() => handleProfileSelect('local_personal')}
+                className={`p-3.5 rounded-xl border text-left transition-all relative ${
+                  projectProfile === 'local_personal'
+                    ? 'bg-emerald-950/25 border-emerald-500/60 shadow-lg shadow-emerald-950/30 ring-1 ring-emerald-500/40 text-white'
+                    : 'bg-[#101422] border-[#1e243a] text-slate-400 hover:text-slate-200 hover:bg-[#141829]'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2 mb-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">🛠️</span>
+                    <div>
+                      <span className="text-xs font-bold text-white block">Ferramenta Local / Meu Trabalho</span>
+                      <span className="text-[10px] text-emerald-400 font-mono">Uso próprio • Zero burocracia</span>
+                    </div>
+                  </div>
+                  {projectProfile === 'local_personal' && (
+                    <div className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 flex-shrink-0">
+                      <Check className="w-3 h-3" />
+                    </div>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-300 leading-relaxed mb-2.5">
+                  Para seu uso próprio. Sem login, sem cobrança, máxima velocidade no seu PC com SQLite WAL.
+                </p>
+                <div className="flex flex-wrap gap-1">
+                  <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-[10px] text-emerald-300 font-medium">Sem Login</span>
+                  <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-[10px] text-emerald-300 font-medium">Sem Cobrança</span>
+                  <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-[10px] text-emerald-300 font-medium">SQLite WAL</span>
+                </div>
+              </button>
+
+              {/* Opção 2: Produto SaaS */}
+              <button
+                type="button"
+                onClick={() => handleProfileSelect('commercial_saas')}
+                className={`p-3.5 rounded-xl border text-left transition-all relative ${
+                  projectProfile === 'commercial_saas'
+                    ? 'bg-indigo-950/25 border-indigo-500/60 shadow-lg shadow-indigo-950/30 ring-1 ring-indigo-500/40 text-white'
+                    : 'bg-[#101422] border-[#1e243a] text-slate-400 hover:text-slate-200 hover:bg-[#141829]'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2 mb-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">🌐</span>
+                    <div>
+                      <span className="text-xs font-bold text-white block">Produto SaaS / Comercial</span>
+                      <span className="text-[10px] text-indigo-400 font-mono">Para vender na internet</span>
+                    </div>
+                  </div>
+                  {projectProfile === 'commercial_saas' && (
+                    <div className="w-5 h-5 rounded-full bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 flex-shrink-0">
+                      <Check className="w-3 h-3" />
+                    </div>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-300 leading-relaxed mb-2.5">
+                  Para vender na internet. Com login de usuários, planos de assinatura, checkout/Pix e banco multi-tenant.
+                </p>
+                <div className="flex flex-wrap gap-1">
+                  <span className="px-1.5 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-[10px] text-indigo-300 font-medium">Auth & Sessão</span>
+                  <span className="px-1.5 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-[10px] text-indigo-300 font-medium">Checkout / Pix</span>
+                  <span className="px-1.5 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-[10px] text-indigo-300 font-medium">Multi-Tenant</span>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          {/* 2. CATÁLOGO DE BLUEPRINTS DINÂMICO (1-Clique) */}
+          <div className="p-3.5 rounded-xl bg-[#0c0f1a] border border-[#1b2138] space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Blueprints Prontos ({projectProfile === 'local_personal' ? 'Ferramentas Locais' : 'Produtos SaaS'}):</span>
+              </span>
+              <span className="text-[10px] text-slate-400">1 clique para auto-preencher</span>
+            </div>
+
+            <div className={`grid grid-cols-1 ${projectProfile === 'local_personal' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'} gap-2`}>
+              {(projectProfile === 'local_personal' ? LOCAL_BLUEPRINTS : SAAS_BLUEPRINTS).map(bp => {
+                const isSelected = selectedBlueprintId === bp.id;
+                const IconComp = bp.icon;
+                return (
+                  <button
+                    key={bp.id}
+                    type="button"
+                    onClick={() => handleApplyBlueprint(bp)}
+                    className={`p-2.5 rounded-lg border text-left transition-all ${
+                      isSelected
+                        ? projectProfile === 'local_personal'
+                          ? 'bg-emerald-900/30 border-emerald-500 text-white shadow-sm ring-1 ring-emerald-500/40'
+                          : 'bg-indigo-900/30 border-indigo-500 text-white shadow-sm ring-1 ring-indigo-500/40'
+                        : 'bg-[#121626] border-[#1e243a] text-slate-300 hover:bg-[#161c30] hover:border-slate-600'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <IconComp className={`w-3.5 h-3.5 flex-shrink-0 ${isSelected ? (projectProfile === 'local_personal' ? 'text-emerald-400' : 'text-indigo-400') : 'text-cyan-400'}`} />
+                      <span className="text-xs font-bold leading-tight line-clamp-1">{bp.name}</span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 line-clamp-2 leading-relaxed mb-2">
+                      {bp.subtitle}
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {bp.badges.map((b, i) => (
+                        <span key={i} className="text-[9px] px-1 py-0.5 bg-[#090b14] rounded border border-slate-700/60 text-slate-300 font-mono">
+                          {b}
+                        </span>
+                      ))}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           {/* Project Name */}
           <div>
@@ -342,6 +533,23 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
               placeholder="Ex: Simple IDE Test"
               required
               className="w-full bg-[#121522] border border-[#1e243a] focus:border-indigo-500 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none"
+            />
+          </div>
+
+          {/* Objective / Briefing Input */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-semibold text-slate-300">
+                Objetivo / Briefing Inicial do Projeto
+              </label>
+              <span className="text-[10px] text-slate-400">Guia a cognição do Supervisor</span>
+            </div>
+            <textarea
+              rows={3}
+              value={objective}
+              onChange={e => setObjective(e.target.value)}
+              placeholder="Descreva o objetivo funcional do software ou utilize um blueprint acima..."
+              className="w-full bg-[#121522] border border-[#1e243a] focus:border-indigo-500 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none resize-none leading-relaxed"
             />
           </div>
 
@@ -404,6 +612,28 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
               Se não informada, a pasta será criada em <code className="text-slate-400">{defaultComputedPath}</code>
             </span>
           </div>
+
+          {/* Quick Paths suggestions */}
+          {quickPaths.length > 0 && (
+            <div>
+              <span className="text-[11px] text-slate-400 block mb-1 font-medium">Sugestões de Pastas Rápidas:</span>
+              <div className="flex flex-wrap gap-1.5">
+                {quickPaths.map((qp, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => {
+                      setFolderPath(qp.path);
+                      if (!name) setName(qp.label);
+                    }}
+                    className="px-2 py-0.5 rounded bg-[#121522] hover:bg-[#181d2e] border border-[#1e243a] text-[11px] font-mono text-slate-300 transition-colors"
+                  >
+                    {qp.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Account Selector */}
           <div>
@@ -498,173 +728,124 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
             </div>
           </div>
 
-          {/* Tipo de Projeto & Módulos Inclusos */}
-          <div className="p-4 rounded-xl bg-[#0f121d] border border-[#1e2338] space-y-3.5">
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                  <Layers className="w-4 h-4 text-indigo-400" />
-                  Tipo de Projeto & Módulos Inclusos
+          {/* Módulos e Recursos Personalizáveis (Accordion) */}
+          <div className="rounded-xl bg-[#0f121d] border border-[#1e2338] overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setShowCustomModules(!showCustomModules)}
+              className="w-full p-3.5 flex items-center justify-between text-left hover:bg-[#141829] transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <Sliders className="w-3.5 h-3.5 text-indigo-400" />
+                <span className="text-xs font-bold text-slate-200">Personalizar Módulos do Projeto</span>
+                <span className="text-[10px] text-slate-400">
+                  ({Object.entries(capabilities).filter(([k, v]) => Boolean(v) && k !== 'multiTenant').length} ativos)
                 </span>
-                <p className="text-[11px] text-slate-400">
-                  {projectProfile === 'local_personal'
-                    ? 'Uso Pessoal / Local (Direto ao ponto, sem burocracia)'
-                    : projectProfile === 'commercial_saas'
-                      ? 'SaaS Comercial Completo (Login, PIX e Multi-usuário)'
-                      : 'Configuração Personalizada'}
-                </p>
               </div>
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-semibold border ${
-                projectProfile === 'local_personal'
-                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                  : projectProfile === 'commercial_saas'
-                    ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30'
-                    : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-              }`}>
-                {projectProfile === 'local_personal' ? 'LOCAL / PESSOAL' : projectProfile === 'commercial_saas' ? 'SAAS COMERCIAL' : 'CUSTOM'}
-              </span>
-            </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-slate-400">
+                  {showCustomModules ? 'Ocultar' : 'Ajustar Módulos'}
+                </span>
+                {showCustomModules ? (
+                  <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                )}
+              </div>
+            </button>
 
-            {/* 2 Botões Principais de Perfil Rápido */}
-            <div className="grid grid-cols-2 gap-2.5">
-              <button
-                type="button"
-                onClick={() => handleProfileSelect('local_personal')}
-                className={`p-3 rounded-xl border text-left transition-all ${
-                  projectProfile === 'local_personal'
-                    ? 'bg-emerald-600/15 border-emerald-500/60 text-white shadow-sm ring-1 ring-emerald-500/30'
-                    : 'bg-[#121522] border-[#1e243a] text-slate-400 hover:text-slate-200 hover:bg-[#161a29]'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-bold flex items-center gap-1.5 text-white">
-                    <Wrench className="w-3.5 h-3.5 text-emerald-400" />
-                    Uso Pessoal / Local
-                  </span>
-                  {projectProfile === 'local_personal' && (
-                    <Check className="w-3.5 h-3.5 text-emerald-400" />
-                  )}
-                </div>
-                <p className="text-[10px] text-slate-400 leading-relaxed">
-                  Para uso próprio. Direto na tela principal, sem PIX, sem planos e sem login obrigatório.
-                </p>
-              </button>
+            {showCustomModules && (
+              <div className="p-3.5 pt-0 space-y-1.5 border-t border-[#1b2033]/60 mt-1">
+                <span className="text-[10px] font-semibold text-slate-400 block uppercase tracking-wider pt-2">
+                  Toggles de Capacidades:
+                </span>
 
-              <button
-                type="button"
-                onClick={() => handleProfileSelect('commercial_saas')}
-                className={`p-3 rounded-xl border text-left transition-all ${
-                  projectProfile === 'commercial_saas'
-                    ? 'bg-indigo-600/15 border-indigo-500/60 text-white shadow-sm ring-1 ring-indigo-500/30'
-                    : 'bg-[#121522] border-[#1e243a] text-slate-400 hover:text-slate-200 hover:bg-[#161a29]'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-bold flex items-center gap-1.5 text-white">
-                    <Rocket className="w-3.5 h-3.5 text-indigo-400" />
-                    SaaS Comercial
-                  </span>
-                  {projectProfile === 'commercial_saas' && (
-                    <Check className="w-3.5 h-3.5 text-indigo-400" />
-                  )}
-                </div>
-                <p className="text-[10px] text-slate-400 leading-relaxed">
-                  Produto para venda com Login, Planos, Checkout PIX, Multi-usuário e BI.
-                </p>
-              </button>
-            </div>
-
-            {/* Grade de 5 Checkboxes/Toggles Modulares */}
-            <div className="space-y-1.5 pt-1">
-              <span className="text-[10px] font-semibold text-slate-400 block uppercase tracking-wider">
-                Módulos e Recursos Selecionados:
-              </span>
-
-              {/* 1. Banco de Dados Local (SQLite) */}
-              <label className="flex items-center justify-between p-2 rounded-lg bg-[#121522] border border-[#1e243a] hover:border-slate-700 cursor-pointer transition-colors select-none">
-                <div className="flex items-center gap-2">
-                  <Database className={`w-3.5 h-3.5 ${capabilities.database ? 'text-cyan-400' : 'text-slate-500'}`} />
-                  <div>
-                    <span className="text-xs font-semibold text-slate-200 block">Banco de Dados Local (SQLite)</span>
-                    <span className="text-[10px] text-slate-400">Salvar histórico, pesquisas e registros no banco</span>
+                {/* 1. Banco de Dados Local (SQLite) */}
+                <label className="flex items-center justify-between p-2 rounded-lg bg-[#121522] border border-[#1e243a] hover:border-slate-700 cursor-pointer transition-colors select-none">
+                  <div className="flex items-center gap-2">
+                    <Database className={`w-3.5 h-3.5 ${capabilities.database ? 'text-cyan-400' : 'text-slate-500'}`} />
+                    <div>
+                      <span className="text-xs font-semibold text-slate-200 block">Banco de Dados Local (SQLite WAL)</span>
+                      <span className="text-[10px] text-slate-400">Salvar histórico, pesquisas e registros no banco</span>
+                    </div>
                   </div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={capabilities.database}
-                  onChange={() => handleCapabilityToggle('database')}
-                  className="w-4 h-4 rounded bg-[#0b0d16] border-[#22283d] text-indigo-600 focus:ring-0 cursor-pointer"
-                />
-              </label>
+                  <input
+                    type="checkbox"
+                    checked={capabilities.database}
+                    onChange={() => handleCapabilityToggle('database')}
+                    className="w-4 h-4 rounded bg-[#0b0d16] border-[#22283d] text-indigo-600 focus:ring-0 cursor-pointer"
+                  />
+                </label>
 
-              {/* 2. Login e Autenticação */}
-              <label className="flex items-center justify-between p-2 rounded-lg bg-[#121522] border border-[#1e243a] hover:border-slate-700 cursor-pointer transition-colors select-none">
-                <div className="flex items-center gap-2">
-                  <Lock className={`w-3.5 h-3.5 ${capabilities.auth ? 'text-amber-400' : 'text-slate-500'}`} />
-                  <div>
-                    <span className="text-xs font-semibold text-slate-200 block">Login e Autenticação</span>
-                    <span className="text-[10px] text-slate-400">Tela de login/senha e controle de sessão</span>
+                {/* 2. Login e Autenticação */}
+                <label className="flex items-center justify-between p-2 rounded-lg bg-[#121522] border border-[#1e243a] hover:border-slate-700 cursor-pointer transition-colors select-none">
+                  <div className="flex items-center gap-2">
+                    <Lock className={`w-3.5 h-3.5 ${capabilities.auth ? 'text-amber-400' : 'text-slate-500'}`} />
+                    <div>
+                      <span className="text-xs font-semibold text-slate-200 block">Login e Autenticação</span>
+                      <span className="text-[10px] text-slate-400">Tela de login/senha e controle de sessão</span>
+                    </div>
                   </div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={capabilities.auth}
-                  onChange={() => handleCapabilityToggle('auth')}
-                  className="w-4 h-4 rounded bg-[#0b0d16] border-[#22283d] text-indigo-600 focus:ring-0 cursor-pointer"
-                />
-              </label>
+                  <input
+                    type="checkbox"
+                    checked={capabilities.auth}
+                    onChange={() => handleCapabilityToggle('auth')}
+                    className="w-4 h-4 rounded bg-[#0b0d16] border-[#22283d] text-indigo-600 focus:ring-0 cursor-pointer"
+                  />
+                </label>
 
-              {/* 3. Pagamentos e Planos (PIX) */}
-              <label className="flex items-center justify-between p-2 rounded-lg bg-[#121522] border border-[#1e243a] hover:border-slate-700 cursor-pointer transition-colors select-none">
-                <div className="flex items-center gap-2">
-                  <CreditCard className={`w-3.5 h-3.5 ${capabilities.payments ? 'text-emerald-400' : 'text-slate-500'}`} />
-                  <div>
-                    <span className="text-xs font-semibold text-slate-200 block">Pagamentos e Planos (PIX)</span>
-                    <span className="text-[10px] text-slate-400">Checkout PIX, faturas e planos de assinatura</span>
+                {/* 3. Pagamentos e Planos (PIX) */}
+                <label className="flex items-center justify-between p-2 rounded-lg bg-[#121522] border border-[#1e243a] hover:border-slate-700 cursor-pointer transition-colors select-none">
+                  <div className="flex items-center gap-2">
+                    <CreditCard className={`w-3.5 h-3.5 ${capabilities.payments ? 'text-emerald-400' : 'text-slate-500'}`} />
+                    <div>
+                      <span className="text-xs font-semibold text-slate-200 block">Pagamentos e Planos (PIX)</span>
+                      <span className="text-[10px] text-slate-400">Checkout PIX, faturas e planos de assinatura</span>
+                    </div>
                   </div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={capabilities.payments}
-                  onChange={() => handleCapabilityToggle('payments')}
-                  className="w-4 h-4 rounded bg-[#0b0d16] border-[#22283d] text-indigo-600 focus:ring-0 cursor-pointer"
-                />
-              </label>
+                  <input
+                    type="checkbox"
+                    checked={capabilities.payments}
+                    onChange={() => handleCapabilityToggle('payments')}
+                    className="w-4 h-4 rounded bg-[#0b0d16] border-[#22283d] text-indigo-600 focus:ring-0 cursor-pointer"
+                  />
+                </label>
 
-              {/* 4. Recursos Avançados SaaS */}
-              <label className="flex items-center justify-between p-2 rounded-lg bg-[#121522] border border-[#1e243a] hover:border-slate-700 cursor-pointer transition-colors select-none">
-                <div className="flex items-center gap-2">
-                  <Shield className={`w-3.5 h-3.5 ${capabilities.advancedSaas ? 'text-indigo-400' : 'text-slate-500'}`} />
-                  <div>
-                    <span className="text-xs font-semibold text-slate-200 block">Recursos Avançados SaaS</span>
-                    <span className="text-[10px] text-slate-400">Gestão de equipe (RBAC), API Keys e Webhooks</span>
+                {/* 4. Recursos Avançados SaaS */}
+                <label className="flex items-center justify-between p-2 rounded-lg bg-[#121522] border border-[#1e243a] hover:border-slate-700 cursor-pointer transition-colors select-none">
+                  <div className="flex items-center gap-2">
+                    <Shield className={`w-3.5 h-3.5 ${capabilities.advancedSaas ? 'text-indigo-400' : 'text-slate-500'}`} />
+                    <div>
+                      <span className="text-xs font-semibold text-slate-200 block">Recursos Avançados SaaS (Multi-Tenant RBAC)</span>
+                      <span className="text-[10px] text-slate-400">Gestão de equipe (RBAC), API Keys e Webhooks</span>
+                    </div>
                   </div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={capabilities.advancedSaas}
-                  onChange={() => handleCapabilityToggle('advancedSaas')}
-                  className="w-4 h-4 rounded bg-[#0b0d16] border-[#22283d] text-indigo-600 focus:ring-0 cursor-pointer"
-                />
-              </label>
+                  <input
+                    type="checkbox"
+                    checked={capabilities.advancedSaas}
+                    onChange={() => handleCapabilityToggle('advancedSaas')}
+                    className="w-4 h-4 rounded bg-[#0b0d16] border-[#22283d] text-indigo-600 focus:ring-0 cursor-pointer"
+                  />
+                </label>
 
-              {/* 5. Dados de Exemplo no Boot (Demo Seed) */}
-              <label className="flex items-center justify-between p-2 rounded-lg bg-[#121522] border border-[#1e243a] hover:border-slate-700 cursor-pointer transition-colors select-none">
-                <div className="flex items-center gap-2">
-                  <Sprout className={`w-3.5 h-3.5 ${capabilities.demoSeed ? 'text-green-400' : 'text-slate-500'}`} />
-                  <div>
-                    <span className="text-xs font-semibold text-slate-200 block">Dados de Exemplo no Boot (Demo Seed)</span>
-                    <span className="text-[10px] text-slate-400">Preencher tabelas com dados fictícios no 1º boot</span>
+                {/* 5. Dados de Exemplo no Boot (Demo Seed) */}
+                <label className="flex items-center justify-between p-2 rounded-lg bg-[#121522] border border-[#1e243a] hover:border-slate-700 cursor-pointer transition-colors select-none">
+                  <div className="flex items-center gap-2">
+                    <Sprout className={`w-3.5 h-3.5 ${capabilities.demoSeed ? 'text-green-400' : 'text-slate-500'}`} />
+                    <div>
+                      <span className="text-xs font-semibold text-slate-200 block">Dados de Exemplo no Boot (Demo Seed)</span>
+                      <span className="text-[10px] text-slate-400">Preencher tabelas com dados fictícios no 1º boot</span>
+                    </div>
                   </div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={capabilities.demoSeed}
-                  onChange={() => handleCapabilityToggle('demoSeed')}
-                  className="w-4 h-4 rounded bg-[#0b0d16] border-[#22283d] text-indigo-600 focus:ring-0 cursor-pointer"
-                />
-              </label>
-            </div>
+                  <input
+                    type="checkbox"
+                    checked={capabilities.demoSeed}
+                    onChange={() => handleCapabilityToggle('demoSeed')}
+                    className="w-4 h-4 rounded bg-[#0b0d16] border-[#22283d] text-indigo-600 focus:ring-0 cursor-pointer"
+                  />
+                </label>
+              </div>
+            )}
           </div>
 
           {/* Git Init Checkbox */}

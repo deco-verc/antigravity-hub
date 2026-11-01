@@ -3191,6 +3191,20 @@ export class IndependentEvaluator {
             ciDoctorDiagnosis = failureDiagnosis;
             ciDoctorPatchApplied = healResult.patchApplied;
 
+            try {
+              const { EngineeringContextService } = await import('./engineeringContextService.js');
+              EngineeringContextService.registerResolvedVaccine({
+                projectId: (contract as any)?.projectId || undefined,
+                projectPath,
+                taskId: contract.taskId,
+                problemSummary: failureDiagnosis?.assertionMessage || 'Falha corrigida por CI Doctor',
+                rootCause: failureDiagnosis?.errorType || failureDiagnosis?.assertionMessage || 'Erro detectado no gate de avaliação',
+                failedStrategy: 'Execução inicial com erro de verificação',
+                workingStrategy: healResult.patchApplied || 'Micro-patch cirúrgico aplicado com sucesso pelo CI Doctor',
+                affectedFiles: failureDiagnosis?.relativeFilePath ? [failureDiagnosis.relativeFilePath] : []
+              });
+            } catch {}
+
             for (const sr of stepsResults) {
               if (!sr.passed) {
                 sr.passed = true;

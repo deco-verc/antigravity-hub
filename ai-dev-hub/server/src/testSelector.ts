@@ -23,6 +23,76 @@ const BROAD_IMPACT_PATTERNS = [
 
 export class TestSelector {
   /**
+   * Seleção Cirúrgica de Testes via Git Diff / Arquivos Alterados.
+   * Durante as iterações intermediárias do Worker, NUNCA executa a suíte pesada inteira.
+   * Executa estritamente o teste unitário focado correspondente ao arquivo editado.
+   * Exemplo: se editou 'slugify.ts', executa apenas 'node --import tsx --test test/slugify.test.ts'.
+   */
+  static resolveTestForFiles(filesChanged: string[], projectPath?: string): string | null {
+    if (!filesChanged || filesChanged.length === 0) return null;
+
+    const root = projectPath ? path.resolve(projectPath) : process.cwd();
+    const availableTests = this.findProjectTestFiles(root);
+    const matchedTests = new Set<string>();
+
+    for (const changed of filesChanged) {
+      if (!changed || typeof changed !== 'string') continue;
+      const normalizedChanged = changed.replace(/\\/g, '/');
+      const basename = path.basename(normalizedChanged).replace(/\.[^.]+$/, '');
+
+      // Se o próprio arquivo alterado for um teste
+      if (/\.(?:test|spec)\.[cm]?[jt]sx?$/i.test(normalizedChanged)) {
+        const found = availableTests.find(t => t.toLowerCase() === normalizedChanged.toLowerCase() || t.endsWith(normalizedChanged));
+        if (found) {
+          matchedTests.add(found);
+        } else {
+          matchedTests.add(normalizedChanged);
+        }
+        continue;
+      }
+
+      // Mapeia arquivo fonte para arquivo de teste correspondente (ex: slugify.ts -> slugify.test.ts)
+      for (const t of availableTests) {
+        const testBasename = path.basename(t).replace(/\.(?:test|spec)\.[^.]+$/, '');
+        if (testBasename.toLowerCase() === basename.toLowerCase()) {
+          matchedTests.add(t);
+        }
+      }
+    }
+
+    if (matchedTests.size === 0) {
+      // Busca heurística em diretórios convencionais
+      for (const changed of filesChanged) {
+        if (!changed || typeof changed !== 'string') continue;
+        const normalizedChanged = changed.replace(/\\/g, '/');
+        const basename = path.basename(normalizedChanged).replace(/\.[^.]+$/, '');
+        const candidatePaths = [
+          `test/${basename}.test.ts`,
+          `test/${basename}.test.js`,
+          `tests/${basename}.test.ts`,
+          `tests/${basename}.test.js`,
+          `src/${basename}.test.ts`,
+          `src/${basename}.test.js`
+        ];
+        for (const cand of candidatePaths) {
+          if (fs.existsSync(path.join(root, cand))) {
+            matchedTests.add(cand);
+            break;
+          }
+        }
+      }
+    }
+
+    if (matchedTests.size === 0) return null;
+
+    const matchedList = Array.from(matchedTests).sort();
+    if (matchedList.every(t => t.endsWith('.ts') || t.endsWith('.tsx'))) {
+      return `node --import tsx --test ${matchedList.map(t => `"${t}"`).join(' ')}`;
+    }
+    return `node --test ${matchedList.map(t => `"${t}"`).join(' ')}`;
+  }
+
+  /**
    * Discovers existing test files in a project.
    */
   static findProjectTestFiles(projectPath: string): string[] {

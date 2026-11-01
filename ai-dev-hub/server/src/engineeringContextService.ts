@@ -32,6 +32,8 @@ export interface OperationalLesson {
   environmentLimitation?: string | null;
   resolved: boolean;
   occurrences: number;
+  stackTags?: string[];
+  isGlobal?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -1381,6 +1383,221 @@ export class EngineeringContextService {
   }
 
   /**
+   * Infere tags de tecnologia a partir dos caminhos de arquivos e do contexto textual do problema.
+   */
+  static inferStackTags(files: string[] = [], textContext = ''): string[] {
+    const tags = new Set<string>();
+    const combined = (files.join(' ') + ' ' + textContext).toLowerCase();
+
+    if (/whatsapp|baileys|socket|jid/i.test(combined)) tags.add('whatsapp');
+    if (/baileys/i.test(combined)) tags.add('baileys');
+    if (/cakto|funnel|funil|checkout|upsell|downsell/i.test(combined)) tags.add('cakto');
+    if (/sqlite|better-sqlite3|\.db\b|database|schema\.sql/i.test(combined)) tags.add('sqlite');
+    if (/webhook|payload|adapter|express|fastify|endpoint/i.test(combined)) tags.add('webhook');
+    if (/prisma/i.test(combined)) tags.add('prisma');
+    if (/supabase/i.test(combined)) tags.add('supabase');
+    if (/bullmq|redis|queue|fila/i.test(combined)) tags.add('bullmq');
+    if (/spintax/i.test(combined)) tags.add('spintax');
+    if (/react|tsx|jsx|tailwind|css|frontend/i.test(combined)) tags.add('react');
+    if (/typescript|\.ts\b|tsc/i.test(combined)) tags.add('typescript');
+    if (/pushinpay|pix|pagamento|payment/i.test(combined)) {
+      tags.add('pushinpay');
+      tags.add('pix');
+    }
+    if (/node|backend|server/i.test(combined)) tags.add('backend');
+
+    if (tags.size === 0) tags.add('general');
+    return Array.from(tags);
+  }
+
+  /**
+   * Registra ou atualiza uma Vacina Universal de Código na tabela operational_lessons,
+   * marcando resolved = 1 e is_global = 1 para que todos os projetos futuros aprendam com a solução.
+   */
+  static registerResolvedVaccine(params: {
+    projectId?: string;
+    projectPath?: string;
+    taskId?: string;
+    problemSummary: string;
+    rootCause?: string;
+    failedStrategy?: string;
+    workingStrategy: string;
+    affectedFiles?: string[];
+    stackTags?: string[];
+  }): OperationalLesson | null {
+    const nowIso = new Date().toISOString();
+    const tags = params.stackTags && params.stackTags.length > 0
+      ? params.stackTags
+      : this.inferStackTags(params.affectedFiles, params.problemSummary + ' ' + (params.rootCause || '') + ' ' + params.workingStrategy);
+
+    const summary = params.problemSummary.trim();
+    const rootCause = (params.rootCause || summary).trim();
+    const workingStrategy = params.workingStrategy.trim();
+
+    let lessonId = `lesson-${crypto.randomUUID().slice(0, 8)}`;
+    let occurrences = 1;
+
+    try {
+      const existing: any = params.taskId
+        ? db.prepare(`
+            SELECT * FROM operational_lessons
+            WHERE task_id = ?
+            ORDER BY updated_at DESC LIMIT 1
+          `).get(params.taskId)
+        : db.prepare(`
+            SELECT * FROM operational_lessons
+            WHERE problem_summary = ?
+            ORDER BY updated_at DESC LIMIT 1
+          `).get(summary);
+
+      if (existing) {
+        lessonId = existing.id;
+        occurrences = (existing.occurrences || 1) + 1;
+
+        let mergedTags = tags;
+        try {
+          const oldTags = typeof existing.stack_tags === 'string' ? JSON.parse(existing.stack_tags) : [];
+          if (Array.isArray(oldTags)) {
+            mergedTags = Array.from(new Set([...oldTags, ...tags]));
+          }
+        } catch {}
+
+        db.prepare(`
+          UPDATE operational_lessons
+          SET resolved = 1,
+              is_global = 1,
+              working_strategy = ?,
+              root_cause = COALESCE(?, root_cause),
+              stack_tags = ?,
+              occurrences = ?,
+              updated_at = ?
+          WHERE id = ?
+        `).run(
+          workingStrategy.slice(0, 1000),
+          rootCause.slice(0, 500),
+          JSON.stringify(mergedTags),
+          occurrences,
+          nowIso,
+          lessonId
+        );
+      } else {
+        db.prepare(`
+          INSERT INTO operational_lessons (
+            id, project_id, project_path, task_id, category, failure_classification,
+            problem_summary, root_cause, failed_strategy, working_strategy,
+            stack_tags, is_global, resolved, occurrences, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, 'IMPLEMENTATION_BUG', 'DEFECT', ?, ?, ?, ?, ?, 1, 1, 1, ?, ?)
+        `).run(
+          lessonId,
+          params.projectId || 'global',
+          params.projectPath || null,
+          params.taskId || null,
+          summary.slice(0, 300),
+          rootCause.slice(0, 500),
+          params.failedStrategy ? params.failedStrategy.slice(0, 500) : null,
+          workingStrategy.slice(0, 1000),
+          JSON.stringify(tags),
+          nowIso,
+          nowIso
+        );
+      }
+
+      Logger.success(`[Vaccine Memory] Nova vacina de código registrada para as tags: ${tags.join(', ')}`);
+
+      if (params.projectPath) {
+        try {
+          const lessons = this.getProjectLessons(params.projectId || params.projectPath, 25);
+          MemoryManager.syncLessonsMd(params.projectPath, lessons);
+        } catch {}
+      }
+
+      return {
+        id: lessonId,
+        projectId: params.projectId || 'global',
+        projectPath: params.projectPath || null,
+        taskId: params.taskId || null,
+        category: 'IMPLEMENTATION_BUG',
+        failureClassification: 'DEFECT' as OperationalFailureClassification,
+        problemSummary: summary,
+        rootCause,
+        failedStrategy: params.failedStrategy || null,
+        workingStrategy,
+        resolved: true,
+        occurrences,
+        stackTags: tags,
+        isGlobal: true,
+        createdAt: nowIso,
+        updatedAt: nowIso
+      };
+    } catch (err: any) {
+      Logger.warn(`[EngineeringContextService] Falha ao registrar vacina de código: ${err.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Formata e retorna o bloco de vacinas preventivas de código resolvidas
+   * com base nas tags de tecnologia coincidentes com o briefing, arquivos ou palavras-chave.
+   */
+  static getPreventiveVaccinesBlock(
+    contextTextOrKeywords: string | string[],
+    files: string[] = []
+  ): string {
+    try {
+      const globalVaccines: any[] = db.prepare(`
+        SELECT problem_summary, root_cause, working_strategy, stack_tags
+        FROM operational_lessons
+        WHERE resolved = 1 AND is_global = 1
+        ORDER BY occurrences DESC, updated_at DESC
+        LIMIT 10
+      `).all() as any[];
+
+      if (!globalVaccines || globalVaccines.length === 0) return '';
+
+      const normalizedContext = (
+        (Array.isArray(contextTextOrKeywords) ? contextTextOrKeywords.join(' ') : (contextTextOrKeywords || '')) +
+        ' ' +
+        files.join(' ')
+      ).toLowerCase();
+
+      const matchingVaccines: any[] = [];
+      for (const v of globalVaccines) {
+        let tags: string[] = [];
+        try {
+          tags = typeof v.stack_tags === 'string'
+            ? JSON.parse(v.stack_tags)
+            : (Array.isArray(v.stack_tags) ? v.stack_tags : []);
+        } catch {
+          tags = [];
+        }
+
+        const matchesTag = tags.length > 0 && tags.some(tag => tag && normalizedContext.includes(tag.toLowerCase()));
+        const matchesSummary = v.problem_summary && normalizedContext.includes(v.problem_summary.toLowerCase().slice(0, 25));
+
+        if (matchesTag || matchesSummary) {
+          matchingVaccines.push(v);
+        }
+      }
+
+      if (matchingVaccines.length === 0) return '';
+
+      const items = matchingVaccines.slice(0, 5).map(v => 
+        `- [Problema]: ${v.problem_summary}\n- [Causa Raiz]: ${v.root_cause}\n- [Solução Comprovada Obrigatória]: ${v.working_strategy}`
+      ).join('\n\n');
+
+      return [
+        '=== 💉 VACINAS PREVENTIVAS DE CÓDIGO (APRENDA COM ERROS PASSADOS) ===',
+        'O DecoHUB já enfrentou e resolveu os seguintes problemas nesta stack:',
+        items,
+        'VOCÊ DEVE APLICAR ESSAS SOLUÇÕES PREVENTIVAMENTE PARA EVITAR REGRESSÕES.'
+      ].join('\n');
+    } catch (err: any) {
+      Logger.warn(`[EngineeringContextService] Erro ao buscar vacinas preventivas: ${err.message}`);
+      return '';
+    }
+  }
+
+  /**
    * Resolves an open operational lesson when a task succeeds after a prior failure/retry,
    * recording the working repair strategy and any regression test created.
    */
@@ -1407,17 +1624,21 @@ export class EngineeringContextService {
 
       const testFiles = (params.filesChanged || []).filter(f => /(test|spec)\.[cm]?[jt]sx?$/i.test(f));
       const regressionTest = testFiles.length > 0 ? testFiles.join(', ') : openLesson.regression_test;
+      const tags = this.inferStackTags(params.filesChanged, (params.taskTitle || '') + ' ' + (openLesson.problem_summary || ''));
 
       db.prepare(`
         UPDATE operational_lessons
-        SET working_strategy = ?, regression_test = ?, resolved = 1, updated_at = ?
+        SET working_strategy = ?, regression_test = ?, resolved = 1, is_global = 1, stack_tags = ?, updated_at = ?
         WHERE id = ?
       `).run(
         params.workingStrategy.trim().slice(0, 500),
         regressionTest || null,
+        JSON.stringify(tags),
         nowIso,
         openLesson.id
       );
+
+      Logger.success(`[Vaccine Memory] Nova vacina de código registrada para as tags: ${tags.join(', ')}`);
 
       const lessons = this.getProjectLessons(params.projectId, 25);
       if (params.projectPath) {
@@ -1473,6 +1694,12 @@ export class EngineeringContextService {
         environmentLimitation: r.environment_limitation,
         resolved: Boolean(r.resolved),
         occurrences: r.occurrences || 1,
+        stackTags: (() => {
+          try {
+            return typeof r.stack_tags === 'string' ? JSON.parse(r.stack_tags) : (Array.isArray(r.stack_tags) ? r.stack_tags : []);
+          } catch { return []; }
+        })(),
+        isGlobal: r.is_global !== undefined ? Boolean(r.is_global) : true,
         createdAt: r.created_at,
         updatedAt: r.updated_at
       }));
@@ -1482,7 +1709,8 @@ export class EngineeringContextService {
   }
 
   /**
-   * Selects the most relevant operational lessons for a task within a character budget.
+   * Selects the most relevant operational lessons for a task within a character budget,
+   * including matching global preventive code vaccines.
    */
   static selectRelevantLessons(
     projectId: string | undefined,
@@ -1502,7 +1730,8 @@ export class EngineeringContextService {
       }
     }
 
-    if (lessons.length === 0) return '';
+    // Busca vacinas preventivas de código globais por correspondência de tags
+    const vaccinesBlock = this.getPreventiveVaccinesBlock(taskKeywords);
 
     const kws = taskKeywords.filter(w => w && w.length >= 3).map(w => w.toLowerCase());
     const scored = lessons.map((lesson, idx) => {
@@ -1536,7 +1765,12 @@ export class EngineeringContextService {
       }
     }
 
-    return blocks.join('\n');
+    const localLessonsText = blocks.join('\n');
+
+    if (vaccinesBlock && localLessonsText) {
+      return `${vaccinesBlock}\n\n${localLessonsText}`;
+    }
+    return vaccinesBlock || localLessonsText;
   }
 
   /**

@@ -9,7 +9,18 @@ import { RunControl } from './runControl.js';
 import { NativeExecutionPolicy } from './nativeExecutionPolicy.js';
 import { NativeWorkspaceBinding } from './nativeWorkspaceBinding.js';
 import { normalizeRuntimePath } from './runtimeProfileSelector.js';
-import { db, DB_PATH, deleteProjectCascading, purgeGhostTestProjectsFromProductionDb } from './db.js';
+import {
+  db,
+  DB_PATH,
+  deleteProjectCascading,
+  purgeGhostTestProjectsFromProductionDb,
+  ProjectProfileMode,
+  ProjectCapabilities,
+  resolveProjectProfileMode,
+  resolveProjectCapabilities,
+  DEFAULT_CAPABILITIES_LOCAL_PERSONAL,
+  DEFAULT_CAPABILITIES_COMMERCIAL_SAAS
+} from './db.js';
 import { MemoryManager } from './memoryManager.js';
 import { GitManager, GitInfo } from './gitManager.js';
 import { ProjectAnalyzer } from './analyzer.js';
@@ -104,6 +115,55 @@ apiRouter.delete('/system/logs', (req, res) => {
     Logger.clearLogs();
     res.json({ success: true });
   } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.get('/system/vaccines', (req, res) => {
+  try {
+    const rows = db.prepare(`
+      SELECT id, project_id, category, failure_classification,
+             problem_summary, root_cause, working_strategy, failed_strategy,
+             stack_tags, occurrences, is_global, resolved, created_at, updated_at
+      FROM operational_lessons
+      WHERE resolved = 1 AND is_global = 1
+      ORDER BY occurrences DESC, updated_at DESC
+    `).all() as any[];
+
+    const vaccines = rows.map(r => {
+      let tags: string[] = [];
+      try {
+        tags = typeof r.stack_tags === 'string'
+          ? JSON.parse(r.stack_tags)
+          : (Array.isArray(r.stack_tags) ? r.stack_tags : []);
+      } catch {
+        tags = [];
+      }
+      return {
+        id: r.id,
+        projectId: r.project_id,
+        category: r.category,
+        failureClassification: r.failure_classification,
+        problemSummary: r.problem_summary,
+        rootCause: r.root_cause,
+        workingStrategy: r.working_strategy,
+        failedStrategy: r.failed_strategy,
+        stackTags: tags,
+        occurrences: r.occurrences,
+        isGlobal: Boolean(r.is_global),
+        resolved: Boolean(r.resolved),
+        createdAt: r.created_at,
+        updatedAt: r.updated_at
+      };
+    });
+
+    res.json({
+      success: true,
+      total: vaccines.length,
+      vaccines
+    });
+  } catch (err: any) {
+    Logger.error(`Erro ao consultar vacinas do sistema: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1348,12 +1408,29 @@ apiRouter.post('/projects', async (req, res) => {
       reasoningLevel,
       githubAction,
       githubRepo,
-      githubToken
+      githubToken,
+      projectProfile,
+      project_profile,
+      capabilities
     } = req.body || {};
 
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Nome do projeto é obrigatório.' });
     }
+
+    const effectiveProfileMode: ProjectProfileMode =
+      (projectProfile as ProjectProfileMode) ||
+      (project_profile as ProjectProfileMode) ||
+      resolveProjectProfileMode(undefined, `${objective || ''} ${description || ''} ${name || ''}`);
+
+    const effectiveCapabilities: ProjectCapabilities =
+      capabilities && typeof capabilities === 'object'
+        ? resolveProjectCapabilities({ capabilities, projectProfile: effectiveProfileMode })
+        : effectiveProfileMode === 'commercial_saas'
+          ? { ...DEFAULT_CAPABILITIES_COMMERCIAL_SAAS }
+          : { ...DEFAULT_CAPABILITIES_LOCAL_PERSONAL };
+
+    const capabilitiesJson = JSON.stringify(effectiveCapabilities);
 
     if (!folderPath || !folderPath.trim()) {
       const slug = name.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'novo-projeto';
@@ -1389,9 +1466,9 @@ apiRouter.post('/projects', async (req, res) => {
 
       db.prepare(`
         UPDATE projects
-        SET name = ?, active_account_profile_id = ?, selected_model = ?, reasoning_level = ?, updated_at = ?
+        SET name = ?, active_account_profile_id = ?, selected_model = ?, reasoning_level = ?, project_profile = ?, capabilities_json = ?, updated_at = ?
         WHERE id = ?
-      `).run(name.trim(), effectiveProfileId, normalizedModel, normalizedReasoning, nowIso, existing.id);
+      `).run(name.trim(), effectiveProfileId, normalizedModel, normalizedReasoning, effectiveProfileMode, capabilitiesJson, nowIso, existing.id);
 
       try {
         ModelRegistry.setPreference({
@@ -1418,7 +1495,10 @@ apiRouter.post('/projects', async (req, res) => {
       name: name.trim(),
       objective: objective?.trim(),
       description: description?.trim(),
-      stack: stack?.trim()
+      stack: stack?.trim(),
+      project_profile: effectiveProfileMode,
+      projectProfile: effectiveProfileMode,
+      capabilities: effectiveCapabilities
     });
     GitManager.ensureGitIgnore(val.resolvedPath);
 
@@ -1434,8 +1514,8 @@ apiRouter.post('/projects', async (req, res) => {
 
     // 2. Insert into DB
     db.prepare(`
-      INSERT INTO projects (id, name, path, objective, description, stack, status, is_trusted, full_dev_autonomy, active_account_profile_id, selected_model, reasoning_level, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO projects (id, name, path, objective, description, stack, status, is_trusted, full_dev_autonomy, active_account_profile_id, selected_model, reasoning_level, project_profile, capabilities_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       name.trim(),
@@ -1448,6 +1528,8 @@ apiRouter.post('/projects', async (req, res) => {
       effectiveProfileId,
       normalizedModel,
       normalizedReasoning,
+      effectiveProfileMode,
+      capabilitiesJson,
       nowIso,
       nowIso
     );

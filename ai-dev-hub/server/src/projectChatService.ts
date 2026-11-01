@@ -415,6 +415,20 @@ export class ProjectChatService {
 
     const verdict: 'APROVADO' | 'REPROVADO' = typecheckPassed ? 'APROVADO' : 'REPROVADO';
 
+    if (reviewAttempts > 1 && typecheckPassed) {
+      try {
+        const { EngineeringContextService } = await import('./engineeringContextService.js');
+        EngineeringContextService.registerResolvedVaccine({
+          projectId,
+          problemSummary: `Erro de tipagem no Reviewer (${reviewAttempts} tentativa(s))`,
+          rootCause: lastStructuredErrors.map(e => `${e.file}:${e.line} ${e.code}: ${e.message}`).join('; ').slice(0, 300) || 'Erro no typecheck',
+          failedStrategy: 'Primeira versão do código falhou na checagem estrita tsc',
+          workingStrategy: 'Correção incremental aprovada pelo Reviewer com 0 erros',
+          affectedFiles
+        });
+      } catch {}
+    }
+
     SseStreamService.broadcast(projectId, 'timeline_event', {
       type: 'reviewer_validated',
       role: 'reviewer',

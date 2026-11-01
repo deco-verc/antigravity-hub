@@ -136,6 +136,7 @@ export interface ProjectCapabilities {
   auth: boolean;          // Login, Cadastro, Sessão, Supabase Auth / Turnstile
   payments: boolean;      // Checkout PIX, PushinPay, Planos de Assinatura, Billing
   advancedSaas: boolean;  // Multi-tenant/Equipe RBAC, API Keys, Webhooks Playground, /docs, Audit Trail comercial
+  multiTenant?: boolean;  // Multi-tenant com isolamento por organização/tenant_id
   demoSeed: boolean;      // Popular dados fictícios de exemplo no boot (seedIfEmpty)
 }
 
@@ -144,6 +145,7 @@ export const DEFAULT_CAPABILITIES_LOCAL_PERSONAL: ProjectCapabilities = {
   auth: false,
   payments: false,
   advancedSaas: false,
+  multiTenant: false,
   demoSeed: false
 };
 
@@ -152,28 +154,33 @@ export const DEFAULT_CAPABILITIES_COMMERCIAL_SAAS: ProjectCapabilities = {
   auth: true,
   payments: true,
   advancedSaas: true,
+  multiTenant: true,
   demoSeed: true
 };
 
 export function resolveProjectCapabilities(projectOrId?: any, briefing?: string): ProjectCapabilities {
   if (projectOrId && typeof projectOrId === 'object') {
     if (projectOrId.capabilities && typeof projectOrId.capabilities === 'object') {
+      const adv = Boolean(projectOrId.capabilities.advancedSaas ?? projectOrId.capabilities.multiTenant);
       return {
         database: projectOrId.capabilities.database ?? true,
         auth: Boolean(projectOrId.capabilities.auth),
         payments: Boolean(projectOrId.capabilities.payments),
-        advancedSaas: Boolean(projectOrId.capabilities.advancedSaas),
+        advancedSaas: adv,
+        multiTenant: adv,
         demoSeed: Boolean(projectOrId.capabilities.demoSeed)
       };
     }
     if (typeof projectOrId.capabilities_json === 'string' && projectOrId.capabilities_json.trim()) {
       try {
         const parsed = JSON.parse(projectOrId.capabilities_json);
+        const adv = Boolean(parsed.advancedSaas ?? parsed.multiTenant);
         return {
           database: parsed.database ?? true,
           auth: Boolean(parsed.auth),
           payments: Boolean(parsed.payments),
-          advancedSaas: Boolean(parsed.advancedSaas),
+          advancedSaas: adv,
+          multiTenant: adv,
           demoSeed: Boolean(parsed.demoSeed)
         };
       } catch {}
@@ -196,11 +203,13 @@ export function resolveProjectCapabilities(projectOrId?: any, briefing?: string)
         if (row.capabilities_json) {
           try {
             const parsed = JSON.parse(row.capabilities_json);
+            const adv = Boolean(parsed.advancedSaas ?? parsed.multiTenant);
             return {
               database: parsed.database ?? true,
               auth: Boolean(parsed.auth),
               payments: Boolean(parsed.payments),
-              advancedSaas: Boolean(parsed.advancedSaas),
+              advancedSaas: adv,
+              multiTenant: adv,
               demoSeed: Boolean(parsed.demoSeed)
             };
           } catch {}
@@ -1152,12 +1161,17 @@ export function initDatabase() {
       environment_limitation TEXT,
       resolved INTEGER NOT NULL DEFAULT 0,
       occurrences INTEGER NOT NULL DEFAULT 1,
+      stack_tags TEXT,
+      is_global INTEGER DEFAULT 1,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_operational_lessons_proj
       ON operational_lessons(project_id, updated_at);
+
+    CREATE INDEX IF NOT EXISTS idx_operational_lessons_global
+      ON operational_lessons(resolved, is_global, occurrences DESC);
 
     CREATE TABLE IF NOT EXISTS autonomous_major_tasks (
       id TEXT PRIMARY KEY,
@@ -1495,6 +1509,8 @@ export function initDatabase() {
     safeAddColumn(db, 'account_profiles', col, colType);
   }
 
+  safeAddColumn(db, 'operational_lessons', 'stack_tags', 'TEXT');
+  safeAddColumn(db, 'operational_lessons', 'is_global', 'INTEGER DEFAULT 1');
   safeAddColumn(db, 'model_preferences', 'intelligence_level', "TEXT NOT NULL DEFAULT 'HIGH'");
   safeAddColumn(db, 'messages', 'agent_role', 'TEXT');
   ensureDefensiveMigrations(db);
@@ -2049,6 +2065,8 @@ export function ensureDefensiveMigrations(targetDb: any = db): void {
     ['worker_leases', 'created_at', 'TEXT'],
     ['operational_lessons', 'updated_at', 'TEXT'],
     ['operational_lessons', 'created_at', 'TEXT'],
+    ['operational_lessons', 'stack_tags', 'TEXT'],
+    ['operational_lessons', 'is_global', 'INTEGER DEFAULT 1'],
     ['messages', 'agent_role', 'TEXT'],
     ['meta_chat_messages', 'thread_id', 'TEXT'],
     ['meta_chat_messages', 'executed_steps_json', 'TEXT'],
