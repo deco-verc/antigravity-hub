@@ -291,6 +291,11 @@ export interface MetaChatExecutionState {
   steps?: MetaChatTimelineStep[];
 }
 
+// Reconciliação imediata na inicialização do serviço: garante que threads nunca acordem presas em 'running'
+try {
+  db.prepare("UPDATE meta_chat_threads SET status = 'idle' WHERE status = 'running'").run();
+} catch {}
+
 export class MetaChatService {
   public static readonly MAX_SELF_HEAL_RETRIES = MAX_SELF_HEAL_RETRIES;
   private static _repoRoot: string | null = null;
@@ -315,8 +320,8 @@ export class MetaChatService {
   private static _currentExecutions: Map<string, MetaChatExecutionState> = new Map();
 
   public static getExecution(threadId?: string): MetaChatExecutionState | null {
-    if (threadId && this._currentExecutions.has(threadId)) {
-      return this._currentExecutions.get(threadId)!;
+    if (threadId) {
+      return this._currentExecutions.get(threadId) || null;
     }
     if (this._currentExecutions.size === 0) return null;
     const values = Array.from(this._currentExecutions.values());
@@ -922,7 +927,10 @@ ${cleanedReport ? `> **Execução:**\n${cleanedReport.split('\n').map(l => `> ${
           supervisorConvId,
           30000,
           options.root,
-          () => Boolean(this.getExecution(options.currentThreadId)?.cancelRequested)
+          () => Boolean(
+            this.getExecution(options.currentThreadId)?.cancelRequested ||
+            TurnCancellationManager.isCancelled(options.currentThreadId, supervisorConvId)
+          )
         );
 
         const raw = supervisorTurn.rawResponse || (supervisorTurn as any).finalResponse || '';
@@ -1030,11 +1038,11 @@ ${errorLines}
       if (isRunning && threadExec?.startedAt) {
         elapsedSeconds = Math.max(0, Math.floor((Date.now() - new Date(threadExec.startedAt).getTime()) / 1000));
       }
-      const currentPhase = isRunning && threadExec?.phase ? threadExec.phase : (this._liveStatus.phase || 'Pronto');
+      const currentPhase = isRunning && threadExec?.phase ? threadExec.phase : 'Pronto';
       return {
         isRunning,
         isExecuting: isRunning,
-        executingThreadId,
+        executingThreadId: isRunning ? threadId : null,
         phase: currentPhase,
         currentPhase,
         activeAccount: threadExec?.accountId || this._liveStatus.activeAccount,
@@ -1043,7 +1051,7 @@ ${errorLines}
         startedAt: isRunning ? threadExec?.startedAt : undefined,
         elapsedSeconds: isRunning ? elapsedSeconds : 0,
         cancelRequested: Boolean(threadExec?.cancelRequested),
-        lastStep: threadExec?.currentActionSummary || this._liveStatus.lastStep,
+        lastStep: isRunning ? (threadExec?.currentActionSummary || this._liveStatus.lastStep) : this._liveStatus.lastStep,
         activeTurnStatus: this.getActiveTurnStatus(threadId)
       };
     }
@@ -1086,7 +1094,7 @@ ${errorLines}
       }
       return {
         isRunning,
-        executingThreadId,
+        executingThreadId: isRunning ? threadId : null,
         startedAt: isRunning ? threadExec?.startedAt : undefined,
         elapsedSeconds: isRunning ? elapsedSeconds : 0,
         currentStage: isRunning
@@ -1125,15 +1133,38 @@ ${errorLines}
 
   static broadcastTelemetry(status: string, payload: Record<string, any> = {}): void {
     try {
+      const effectiveThreadId = payload.threadId || this._currentExecution?.threadId || this.getActiveThreadId();
       const data = {
+        ...payload,
         status,
-        timestamp: new Date().toISOString(),
-        ...payload
+        threadId: effectiveThreadId,
+        timestamp: new Date().toISOString()
       };
       SseStreamService.broadcast('metachat', 'activity', data);
       SseStreamService.broadcast('metachat', status, data);
     } catch (err: any) {
       Logger.warn(`[MetaChatService] Falha ao transmitir telemetria SSE: ${err.message}`);
+    }
+  }
+
+  static broadcastStatus(payload: { isRunning: boolean; threadId?: string; [key: string]: any }): void {
+    try {
+      const effectiveThreadId = payload.threadId || this._currentExecution?.threadId || this.getActiveThreadId();
+      this.updateLiveStatus({
+        isRunning: payload.isRunning,
+        isExecuting: payload.isRunning,
+        executingThreadId: payload.isRunning ? effectiveThreadId : null
+      });
+      const data = {
+        ...payload,
+        status: payload.isRunning ? 'running' : 'idle',
+        threadId: effectiveThreadId,
+        timestamp: new Date().toISOString()
+      };
+      SseStreamService.broadcast('metachat', 'status', data);
+      SseStreamService.broadcast('metachat', 'activity', data);
+    } catch (err: any) {
+      Logger.warn(`[MetaChatService] Falha ao transmitir broadcastStatus SSE: ${err.message}`);
     }
   }
 
@@ -1265,7 +1296,8 @@ ${errorLines}
   }
 
   static cancelActiveExecution(threadId?: string): { cancelled: boolean; message: string } {
-    if (threadId && this._currentExecution && this._currentExecution.threadId !== threadId) {
+    const targetExec = threadId ? (this._currentExecutions.get(threadId) || null) : this._currentExecution;
+    if (threadId && !targetExec) {
       return { cancelled: false, message: 'Nenhuma execução ativa nesta conversa.' };
     }
 
@@ -1287,61 +1319,64 @@ ${errorLines}
       }
     }
 
-    if (this._currentExecution) {
-      this._currentExecution.cancelRequested = true;
-      const convId = this._currentExecution.conversationId;
+    if (targetExec) {
+      targetExec.cancelRequested = true;
+      if (targetExec.threadId) {
+        TurnCancellationManager.requestCancellation(targetExec.threadId);
+      }
+      const convId = targetExec.conversationId;
       if (convId) {
         TurnCancellationManager.requestCancellation(convId);
         try {
           ExecutionCoordinator.releaseByContext({ scope: convId });
         } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "metaChatService",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:metaChatService]", err);
-      }
-    }
-      }
-
-      // Rollback files that were changed or diffed
-      if (this._currentExecution.baselineBefore && this._currentExecution.root) {
-        const changed = Array.from(this._currentExecution.filesChanged);
-        const currentDiff = this.diffFileBaseline(this._currentExecution.root, this._currentExecution.baselineBefore);
-        const allToRollback = [...new Set([...changed, ...currentDiff])];
-        if (allToRollback.length > 0) {
-          this.rollbackChangedFiles(this._currentExecution.root, allToRollback, this._currentExecution.baselineBefore);
+          if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+            (globalThis as any).logger.warn({
+              event: "server.handled_exception",
+              file: "metaChatService",
+              error: (err as any)?.message || String(err)
+            });
+          } else {
+            console.warn("[WARN][server:metaChatService]", err);
+          }
         }
       }
 
-      if (this._currentExecution.threadId) {
-        this.updateThread(this._currentExecution.threadId, { status: 'idle' });
+      // Rollback files that were changed or diffed
+      if (targetExec.baselineBefore && targetExec.root) {
+        const changed = Array.from(targetExec.filesChanged);
+        const currentDiff = this.diffFileBaseline(targetExec.root, targetExec.baselineBefore);
+        const allToRollback = [...new Set([...changed, ...currentDiff])];
+        if (allToRollback.length > 0) {
+          this.rollbackChangedFiles(targetExec.root, allToRollback, targetExec.baselineBefore);
+        }
+      }
+
+      if (targetExec.threadId) {
+        this.updateThread(targetExec.threadId, { status: 'idle' });
       }
 
       // Add cancellation record to Meta-Chat history
       this.addMessage({
         role: 'system',
         content: '[CANCELADO] Execução interrompida pelo usuário (arquivos preservados no estado íntegro)',
-        thread_id: this._currentExecution.threadId,
+        thread_id: targetExec.threadId,
         metadata: {
           cancelled: true,
-          phase: this._currentExecution.phase,
-          model: this._currentExecution.model,
-          accountId: this._currentExecution.accountId
+          phase: targetExec.phase,
+          model: targetExec.model,
+          accountId: targetExec.accountId
         }
       });
 
-      this._liveStatus = {
-        isRunning: false,
-        isExecuting: false,
+      this._currentExecutions.delete(targetExec.threadId);
+      this.updateLiveStatus({
+        isRunning: this._currentExecutions.size > 0,
+        isExecuting: this._currentExecutions.size > 0,
         phase: 'Pronto',
         currentPhase: 'Pronto',
         cancelRequested: true
-      };
-      this._currentExecution = null;
+      });
 
       return { cancelled: true, message: 'Execução do Meta-Chat cancelada com sucesso.' };
     }
@@ -1350,6 +1385,7 @@ ${errorLines}
     this.addMessage({
       role: 'system',
       content: '[CANCELADO] Execução interrompida pelo usuário (arquivos preservados no estado íntegro)',
+      thread_id: threadId,
       metadata: {
         cancelled: true
       }
@@ -1363,7 +1399,7 @@ ${errorLines}
       cancelRequested: true
     };
 
-    return { cancelled: true, message: 'Execução do Meta-Chat cancelada com sucesso.' };
+    return { cancelled: true, message: 'Nenhuma execução em andamento no momento.' };
   }
 
   // ==========================================
@@ -1454,6 +1490,14 @@ ${errorLines}
 
   static listThreads(): MetaChatThread[] {
     try {
+      if (this._currentExecutions.size === 0 && !this._liveStatus?.isRunning) {
+        db.prepare("UPDATE meta_chat_threads SET status = 'idle' WHERE status = 'running'").run();
+      } else if (this._currentExecutions.size > 0) {
+        const activeIds = Array.from(this._currentExecutions.keys());
+        const placeholders = activeIds.map(() => '?').join(',');
+        db.prepare(`UPDATE meta_chat_threads SET status = 'idle' WHERE status = 'running' AND id NOT IN (${placeholders})`).run(...activeIds);
+      }
+
       const rows = db.prepare(`
         SELECT id, title, provider_conversation_id, model, effort, account_id, status, files_modified_count, last_message_preview, created_at, updated_at
         FROM meta_chat_threads
@@ -1472,7 +1516,7 @@ ${errorLines}
         model: r.model || 'gemini-3.8-flash',
         effort: r.effort || 'HIGH',
         account_id: r.account_id || null,
-        status: (r.status === 'running' ? 'running' : 'idle') as 'idle' | 'running',
+        status: (this._currentExecutions.has(r.id) && !this._currentExecutions.get(r.id)?.cancelRequested ? 'running' : 'idle') as 'idle' | 'running',
         files_modified_count: Number(r.files_modified_count) || 0,
         last_message_preview: r.last_message_preview || null,
         created_at: r.created_at,
@@ -1494,6 +1538,18 @@ ${errorLines}
 
       if (!row) return null;
 
+      const isActuallyRunning = Boolean(
+        row.status === 'running' &&
+        this._currentExecutions.has(threadId) &&
+        !this._currentExecutions.get(threadId)?.cancelRequested
+      );
+
+      if (row.status === 'running' && !isActuallyRunning) {
+        try {
+          db.prepare("UPDATE meta_chat_threads SET status = 'idle' WHERE id = ?").run(threadId);
+        } catch {}
+      }
+
       return {
         id: row.id,
         title: row.title,
@@ -1501,7 +1557,7 @@ ${errorLines}
         model: row.model || 'gemini-3.8-flash',
         effort: row.effort || 'HIGH',
         account_id: row.account_id || null,
-        status: (row.status === 'running' ? 'running' : 'idle') as 'idle' | 'running',
+        status: (isActuallyRunning ? 'running' : 'idle') as 'idle' | 'running',
         files_modified_count: Number(row.files_modified_count) || 0,
         last_message_preview: row.last_message_preview || null,
         created_at: row.created_at,
@@ -2707,19 +2763,22 @@ ${errorLines}
           }
         }
 
-        // 3. Se a thread existir, tiver provider_conversation_id === null e ainda não possuir nenhuma mensagem do assistente,
-        // retorna null (forçando abertura de uma conversa nova e limpa no Antigravity para essa thread!)
-        if (threadRow && !threadRow.provider_conversation_id) {
-          const assistantMsgCount = (db.prepare(
-            "SELECT count(*) as cnt FROM meta_chat_messages WHERE thread_id = ? AND role = 'assistant'"
-          ).get(threadId) as any)?.cnt || 0;
-          if (assistantMsgCount === 0) {
-            return null;
+        // 3. Se threadId não possuir sessão própria, verifica se há sessão ativa explícita para a conta
+        if (accountProfileId && this._accountConversations.has(accountProfileId)) {
+          return this._accountConversations.get(accountProfileId)!;
+        }
+        if (accountProfileId) {
+          const accRow = db
+            .prepare('SELECT value FROM system_settings WHERE key = ?')
+            .get(`metachat_conversation_id:${accountProfileId}`) as any;
+          if (accRow?.value) {
+            return accRow.value;
           }
         }
+        return null;
       }
 
-      // Fallback legado por conta ou global
+      // Fallback legado por conta ou global (apenas quando chamado sem threadId)
       if (accountProfileId && this._accountConversations.has(accountProfileId)) {
         return this._accountConversations.get(accountProfileId)!;
       }
@@ -4221,6 +4280,13 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
     userContent: string,
     options?: MetaChatHandleOptions
   ): Promise<MetaChatResponse> {
+    return this.executeTurn(userContent, options);
+  }
+
+  static async executeTurn(
+    userContent: string,
+    options?: MetaChatHandleOptions
+  ): Promise<MetaChatResponse> {
     const root = this.getDecoHubRoot();
     const filesChanged: string[] = [];
     const backups = new Map<string, string | null>();
@@ -4233,6 +4299,9 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
     this.setActiveThreadId(effectiveThreadId);
     const currentThread = this.getThread(effectiveThreadId) || this.createThread();
     this.updateThread(currentThread.id, { status: 'running' });
+    this.broadcastStatus({ isRunning: true, threadId: currentThread.id });
+
+    let isRetrying = false;
 
     // 1. Process attachments if provided
     const savedAttachments = options?.attachments?.length ? this.saveAttachments(options.attachments) : [];
@@ -4256,6 +4325,17 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
     });
 
     let activeConvId = this.getActiveConversationId(requestedAccountId, currentThread.id);
+
+    // Limpa tokens antigos para que a nova mensagem NUNCA seja cancelada por resíduos do passado
+    TurnCancellationManager.clearCancellation('metachat', activeConvId, currentThread.id);
+    if (this._currentExecution) {
+      this._currentExecution.cancelRequested = false;
+    }
+    const existingThreadExec = this.getExecution(currentThread.id);
+    if (existingThreadExec) {
+      existingThreadExec.cancelRequested = false;
+    }
+
     const baselineBefore = this.captureFileBaseline(root);
 
     this._currentExecution = {
@@ -4404,6 +4484,7 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
           }
         });
         SseStreamService.broadcast('metachat', 'timeline_event', {
+          threadId: currentThread.id,
           type: 'supervisor_dag_created',
           role: 'supervisor',
           phase: 'DAG_COMPOSED',
@@ -4457,6 +4538,7 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
         this.updatePipelineTask('task-worker', 'completed', `${filesChanged.length} arquivo(s) modificados`, currentThread.id);
         recordTimelineStep('Worker (Execução)', 'done');
         SseStreamService.broadcast('metachat', 'timeline_event', {
+          threadId: currentThread.id,
           type: 'worker_executed',
           role: 'worker',
           phase: 'SURGICAL_EDIT_EXECUTED',
@@ -4540,6 +4622,7 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
             this.updatePipelineTask('task-reviewer', 'completed', `[APROVADO] tsc --noEmit em ${typecheckResult.durationMs}ms`, currentThread.id);
             recordTimelineStep('Reviewer (Auditoria)', 'done');
             SseStreamService.broadcast('metachat', 'timeline_event', {
+              threadId: currentThread.id,
               type: 'reviewer_validated',
               role: 'reviewer',
               phase: 'TYPECHECK_VALIDATED',
@@ -4553,6 +4636,7 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
           this.updatePipelineTask('task-reviewer', 'completed', '[APROVADO] Nenhum arquivo modificado', currentThread.id);
           recordTimelineStep('Reviewer (Auditoria)', 'done');
           SseStreamService.broadcast('metachat', 'timeline_event', {
+            threadId: currentThread.id,
             type: 'reviewer_validated',
             role: 'reviewer',
             phase: 'TYPECHECK_VALIDATED',
@@ -4591,8 +4675,10 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
         const attachmentsBlock = this.buildAttachmentsBlock(savedAttachments);
 
         const projectBinding = this.ensureDecoHubProject(requestedAccountId);
-        effectiveAccountId = projectBinding.accountProfile.id;
-        activeConvId = this.getActiveConversationId(effectiveAccountId, currentThread.id);
+        effectiveAccountId = requestedAccountId || projectBinding.accountProfile?.id;
+        activeConvId = this.getActiveConversationId(effectiveAccountId, currentThread.id)
+          || (requestedAccountId ? this.getActiveConversationId(requestedAccountId, currentThread.id) : null)
+          || activeConvId;
 
         const resolvedConfig = ModelRegistry.resolveModelConfig({
           preference: requestedModel,
@@ -4634,6 +4720,7 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
           });
 
           SseStreamService.broadcast('metachat', 'timeline_event', {
+            threadId: currentThread.id,
             type: 'supervisor_dag_created',
             role: 'supervisor',
             phase: 'DAG_COMPOSED',
@@ -4764,6 +4851,7 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
           );
           recordTimelineStep('Worker (Execução)', 'done');
           SseStreamService.broadcast('metachat', 'timeline_event', {
+            threadId: currentThread.id,
             type: 'worker_executed',
             role: 'worker',
             phase: 'SURGICAL_EDIT_EXECUTED',
@@ -4792,6 +4880,7 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
           });
 
           SseStreamService.broadcast('metachat', 'timeline_event', {
+            threadId: currentThread.id,
             type: 'reviewer_validated',
             role: 'reviewer',
             phase: 'TYPECHECK_VALIDATED',
@@ -4974,6 +5063,7 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
           });
 
           SseStreamService.broadcast('metachat', 'timeline_event', {
+            threadId: currentThread.id,
             type: 'supervisor_dag_created',
             role: 'supervisor',
             phase: 'DAG_COMPOSED',
@@ -5168,7 +5258,10 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
             activeConvId!,
             1500000,
             root,
-            () => Boolean(this.getExecution(currentThread.id)?.cancelRequested || TurnCancellationManager.isCancelled('metachat', activeConvId))
+            () => Boolean(
+              this.getExecution(currentThread.id)?.cancelRequested ||
+              TurnCancellationManager.isCancelled(currentThread.id, activeConvId)
+            )
           );
           let agentReport = (turnResult.rawResponse || (turnResult as any).finalResponse || '').trim();
 
@@ -5299,6 +5392,7 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
             currentThread.id
           );
           SseStreamService.broadcast('metachat', 'timeline_event', {
+            threadId: currentThread.id,
             type: 'worker_executed',
             role: 'worker',
             phase: 'SURGICAL_EDIT_EXECUTED',
@@ -5418,7 +5512,10 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
                     activeConvId,
                     180000,
                     root,
-                    () => Boolean(this._currentExecution?.cancelRequested || TurnCancellationManager.isCancelled('metachat', activeConvId))
+                    () => Boolean(
+                      this.getExecution(currentThread.id)?.cancelRequested ||
+                      TurnCancellationManager.isCancelled(currentThread.id, activeConvId)
+                    )
                   );
 
                   const repairReport = (repairTurnResult.rawResponse || (repairTurnResult as any).finalResponse || '').trim();
@@ -5480,6 +5577,7 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
                       affectedFiles: filesChanged
                     });
                     SseStreamService.broadcast('metachat', 'timeline_event', {
+                      threadId: currentThread.id,
                       type: 'reviewer_validated',
                       role: 'reviewer',
                       phase: 'TYPECHECK_VALIDATED',
@@ -5531,6 +5629,7 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
                 affectedFiles: filesChanged
               });
               SseStreamService.broadcast('metachat', 'timeline_event', {
+                threadId: currentThread.id,
                 type: 'reviewer_validated',
                 role: 'reviewer',
                 phase: 'TYPECHECK_VALIDATED',
@@ -5553,6 +5652,7 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
               output: 'Auditoria de integridade aprovada com 0 erros.'
             });
             SseStreamService.broadcast('metachat', 'timeline_event', {
+              threadId: currentThread.id,
               type: 'reviewer_validated',
               role: 'reviewer',
               phase: 'TYPECHECK_VALIDATED',
@@ -5864,12 +5964,17 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
         visualGate: clientGateResult ? { passed: clientGateResult.passed, buildPassed: clientGateResult.buildPassed, visualPassed: clientGateResult.visualPassed, details: clientGateResult.details } : undefined
       };
     } catch (err: any) {
+      const wasCancelRequested = Boolean(
+        this.getExecution(currentThread.id)?.cancelRequested ||
+        this._currentExecution?.cancelRequested ||
+        TurnCancellationManager.isCancelled(currentThread.id, activeConvId)
+      );
       this._currentExecutions.delete(currentThread.id);
-      if (this._currentExecution?.cancelRequested || err.message?.includes('RUN_CANCELLED')) {
+      if (wasCancelRequested || err.message?.includes('RUN_CANCELLED')) {
         this.rollbackChangedFiles(root, filesChanged, this._currentExecution?.baselineBefore);
         this.updateLiveStatus({ isRunning: this._currentExecutions.size > 0, isExecuting: this._currentExecutions.size > 0, phase: 'Pronto', currentPhase: 'Pronto' });
         this.updateThread(currentThread.id, { status: 'idle' });
-        TurnCancellationManager.clearCancellation('metachat', activeConvId);
+        TurnCancellationManager.clearCancellation('metachat', activeConvId, currentThread.id);
 
         const cancelMsg = this.addMessage({
           role: 'system',
@@ -5917,7 +6022,8 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
                 account_id: failoverRes.activeProfile.id,
                 provider_conversation_id: null
               });
-              return this.handleUserMessage(userContent, {
+              isRetrying = true;
+              return await this.executeTurn(userContent, {
                 ...options,
                 threadId: currentThread.id,
                 accountId: failoverRes.activeProfile.id,
@@ -6035,6 +6141,7 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
           threadId: currentThread?.id || effectiveThreadId
         });
         SseStreamService.broadcast('metachat', 'done', {
+          threadId: currentThread?.id || effectiveThreadId,
           status: 'error',
           error: err.message
         });
@@ -6047,6 +6154,18 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
         selfHealed: false,
         conversationId: activeConvId || undefined
       };
+    } finally {
+      if (!isRetrying) {
+        this._currentExecutions.delete(currentThread.id);
+        this.updateLiveStatus({
+          isRunning: this._currentExecutions.size > 0,
+          isExecuting: this._currentExecutions.size > 0,
+          phase: 'Pronto',
+          currentPhase: 'Pronto'
+        });
+        this.updateThread(effectiveThreadId, { status: 'idle' });
+        this.broadcastStatus({ isRunning: false, threadId: effectiveThreadId });
+      }
     }
   }
 

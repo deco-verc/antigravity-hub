@@ -839,6 +839,48 @@ apiRouter.post('/autonomous/runs/:id/force-unlock', async (req, res) => {
   }
 });
 
+apiRouter.post('/autonomous/runs/reconcile', async (req, res) => {
+  try {
+    const { runId, projectId, projectNameQuery } = req.body || {};
+    const result = await AutonomousRunnerService.forceCompleteStuckRun({ runId, projectId, projectNameQuery });
+    const targetProjId = projectId || (runId ? (db.prepare('SELECT project_id FROM autonomous_runs WHERE id = ?').get(runId) as any)?.project_id : null);
+    if (targetProjId) {
+      SseStreamService.broadcast(targetProjId, 'run_updated', { runId, status: 'completed', progressPct: 100 });
+      SseStreamService.broadcast(targetProjId, 'activity', { status: 'completed', message: 'Reconciliação concluída: 100% sincronizado.' });
+    }
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.post('/autonomous/runs/:id/reconcile', async (req, res) => {
+  try {
+    const runId = req.params.id;
+    const run: any = db.prepare('SELECT project_id FROM autonomous_runs WHERE id = ?').get(runId);
+    const result = await AutonomousRunnerService.forceCompleteStuckRun({ runId, projectId: run?.project_id });
+    if (run?.project_id) {
+      SseStreamService.broadcast(run.project_id, 'run_updated', { runId, status: 'completed', progressPct: 100 });
+      SseStreamService.broadcast(run.project_id, 'activity', { status: 'completed', message: 'Reconciliação concluída: 100% sincronizado.' });
+    }
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.post('/projects/:id/reconcile', async (req, res) => {
+  try {
+    const projectId = req.params.id;
+    const result = await AutonomousRunnerService.forceCompleteStuckRun({ projectId });
+    SseStreamService.broadcast(projectId, 'run_updated', { status: 'completed', progressPct: 100 });
+    SseStreamService.broadcast(projectId, 'activity', { status: 'completed', message: 'Reconciliação concluída: 100% sincronizado.' });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 apiRouter.post('/autonomous/runs/:id/stop', (req, res) => {
   try {
     const activeWorkers: any[] = db.prepare(`SELECT account_profile_id, conversation_id FROM workers
@@ -2132,6 +2174,105 @@ apiRouter.post('/system/open-meta-terminal', (req, res) => {
   } catch (err: any) {
     Logger.error(`Erro ao abrir terminal da engine DecoHUB: ${err.message}`);
     res.status(400).json({ error: err.message });
+  }
+});
+
+apiRouter.post('/system/github-sync', async (_req, res) => {
+  try {
+    const decoRoot = MetaChatService.getDecoHubRoot();
+    let gitRoot = decoRoot;
+
+    // 1. Resolve o diretório raiz do repositório Git com remote origin configurado
+    let hasRemote = false;
+    try {
+      const remotes = execFileSync('git', ['remote'], { cwd: decoRoot, stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim();
+      if (remotes.length > 0) hasRemote = true;
+    } catch {}
+
+    if (!hasRemote) {
+      const parentDir = path.dirname(decoRoot);
+      try {
+        const remotes = execFileSync('git', ['remote'], { cwd: parentDir, stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim();
+        if (remotes.length > 0) {
+          gitRoot = parentDir;
+          hasRemote = true;
+        }
+      } catch {}
+    }
+
+    if (!hasRemote) {
+      const fallbackDir = 'C:\\IA\\Antigravity HUB';
+      if (fs.existsSync(fallbackDir)) {
+        try {
+          const remotes = execFileSync('git', ['remote'], { cwd: fallbackDir, stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim();
+          if (remotes.length > 0) {
+            gitRoot = fallbackDir;
+            hasRemote = true;
+          }
+        } catch {}
+      }
+    }
+
+    Logger.info(`[System] Executando One-Click GitHub Sync em: "${gitRoot}"`);
+
+    // 2. Executa git add .
+    execFileSync('git', ['add', '.'], { cwd: gitRoot, stdio: 'pipe' });
+
+    // 3. Obtém arquivos em stage
+    const stagedOutput = execFileSync('git', ['diff', '--name-only', '--cached'], { cwd: gitRoot, stdio: 'pipe' }).toString().trim();
+    const stagedFiles = stagedOutput ? stagedOutput.split(/\r?\n/).map(f => f.trim()).filter(Boolean) : [];
+
+    let committed = false;
+    // 4. Executa git commit se houver arquivos staged
+    if (stagedFiles.length > 0) {
+      const commitMessage = 'chore: auto-sync DecoHUB update';
+      execFileSync('git', ['commit', '-m', commitMessage], { cwd: gitRoot, stdio: 'pipe' });
+      committed = true;
+      Logger.info(`[System] Commit efetuado: "${commitMessage}" (${stagedFiles.length} arquivos alterados)`);
+    }
+
+    // 5. Obtém o commit hash atual
+    let commitHash = '';
+    try {
+      commitHash = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: gitRoot, stdio: 'pipe' }).toString().trim();
+    } catch {}
+
+    // 6. Executa git push
+    let pushOutput = '';
+    try {
+      pushOutput = execFileSync('git', ['push'], { cwd: gitRoot, stdio: 'pipe', timeout: 60000 }).toString().trim();
+    } catch (pushErr: any) {
+      const errMsg = pushErr.stderr?.toString() || pushErr.message || '';
+      if (errMsg.includes('no upstream branch') || errMsg.includes('set-upstream')) {
+        pushOutput = execFileSync('git', ['push', '-u', 'origin', 'HEAD'], { cwd: gitRoot, stdio: 'pipe', timeout: 60000 }).toString().trim();
+      } else {
+        throw new Error(`Falha no git push: ${errMsg || pushErr.message}`);
+      }
+    }
+
+    const nowIso = new Date().toISOString();
+    Logger.info(`[System] GitHub Sync concluído com sucesso em "${gitRoot}" (commit: ${commitHash ? commitHash.slice(0, 7) : 'n/a'})`);
+
+    res.json({
+      success: true,
+      message: committed
+        ? `Sincronização com o GitHub concluída com sucesso (${stagedFiles.length} arquivos enviados).`
+        : 'Nenhuma alteração pendente para commit. Repositório já está sincronizado com o GitHub.',
+      gitRoot,
+      commitHash,
+      committed,
+      pushed: true,
+      files: stagedFiles,
+      filesCount: stagedFiles.length,
+      pushOutput,
+      syncedAt: nowIso
+    });
+  } catch (err: any) {
+    Logger.error(`[System] Erro no GitHub Sync: ${err.message}`);
+    res.status(500).json({
+      success: false,
+      error: err.message || 'Erro ao sincronizar com o GitHub'
+    });
   }
 });
 
@@ -4949,9 +5090,10 @@ apiRouter.get('/skills/slash-commands', (req, res) => {
 // META-CHAT (AUTO-EVOLUÇÃO & MODIFICAÇÃO DO DECOHUB)
 // -------------------------------------------------------------
 
-apiRouter.get('/metachat/status', (_req, res) => {
+apiRouter.get('/metachat/status', (req, res) => {
   try {
-    const status = MetaChatService.getLiveStatus();
+    const threadId = (req.query.threadId as string) || undefined;
+    const status = MetaChatService.getLiveStatus(threadId);
     res.json(status);
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
@@ -5055,9 +5197,10 @@ apiRouter.delete('/metachat/threads/:threadId', (req, res) => {
   }
 });
 
-apiRouter.post('/metachat/cancel', (_req, res) => {
+apiRouter.post('/metachat/cancel', (req, res) => {
   try {
-    const result = MetaChatService.cancelActiveExecution();
+    const threadId = (req.body?.threadId || req.query?.threadId) as string | undefined;
+    const result = MetaChatService.cancelActiveExecution(threadId);
     res.json(result);
   } catch (err: any) {
     Logger.error(`[Routes] Erro ao cancelar execução no Meta-Chat: ${err.message}`);
@@ -5132,15 +5275,17 @@ apiRouter.post('/metachat/chat', async (req, res) => {
       });
 
       setImmediate(async () => {
+        const effectiveThreadId = threadId || MetaChatService.getActiveThreadId();
         try {
           SseStreamService.broadcast('metachat', 'activity', {
             turnId,
+            threadId: effectiveThreadId,
             status: 'started',
             message: 'Iniciando processamento no Meta-Chat...'
           });
 
           const result = await MetaChatService.handleUserMessage(message, {
-            threadId,
+            threadId: effectiveThreadId,
             codeActions,
             runTests: Boolean(runTests),
             testFile,
@@ -5151,26 +5296,31 @@ apiRouter.post('/metachat/chat', async (req, res) => {
             attachments
           });
 
+          const finalThreadId = result.message?.thread_id || effectiveThreadId;
+
           SseStreamService.broadcast('metachat', 'message', {
             turnId,
             result,
             message: result.message,
-            threadId: result.message?.thread_id || threadId
+            threadId: finalThreadId
           });
 
           SseStreamService.broadcast('metachat', 'activity', {
             turnId,
+            threadId: finalThreadId,
             status: 'completed',
-            telemetry: MetaChatService.getLiveActivity(result.message?.thread_id || threadId)
+            telemetry: MetaChatService.getLiveActivity(finalThreadId)
           });
 
           SseStreamService.broadcast('metachat', 'done', {
             turnId,
+            threadId: finalThreadId,
             status: 'completed'
           });
         } catch (bgErr: any) {
           SseStreamService.broadcast('metachat', 'error', {
             turnId,
+            threadId: effectiveThreadId,
             error: bgErr.message
           });
         }

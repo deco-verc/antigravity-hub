@@ -8,7 +8,7 @@ title DecoHUB - Central de Desenvolvimento Autonomo v1.1
 :: ============================================================================
 
 :: 1. Localizacao robusta do repositorio raiz
-set "DECOHUB_DIR=C:\IA\IA\Antigravity HUB\ai-dev-hub"
+set "DECOHUB_DIR=C:\IA\Antigravity HUB\ai-dev-hub"
 
 if exist "%DECOHUB_DIR%\package.json" (
   cd /d "%DECOHUB_DIR%"
@@ -54,7 +54,7 @@ taskkill /F /IM "DecoHUB.exe" /T >nul 2>&1
 taskkill /F /IM "AI DEV.exe" /T >nul 2>&1
 taskkill /F /IM "electron.exe" /T >nul 2>&1
 
-node -e "try{const{execSync}=require('child_process');const out=execSync('netstat -ano -p tcp',{encoding:'utf8'});out.split('\n').forEach(l=>{if(l.includes('LISTENING')&&l.includes(':3001')){const p=l.trim().split(/\s+/).pop();if(p&&+p>0)try{process.kill(+p,'SIGKILL');console.log('[INFO] Finalizando processo preso na porta 3001 (PID '+p+')...');}catch(e){}}});}catch(e){}" >nul 2>&1
+node -e "try{const{execSync,execFileSync}=require('child_process');const out=execSync('netstat -ano -p tcp',{encoding:'utf8'});out.split(/\r?\n/).forEach(l=>{if(l.includes('LISTENING')&&(l.includes(':3001 ')||l.includes(':3001\t')||l.includes('127.0.0.1:3001')||l.includes('0.0.0.0:3001'))){const p=l.trim().split(/\s+/).pop();if(p&&+p>0&&+p!==process.pid)try{execFileSync('taskkill',['/F','/PID',String(p),'/T'],{stdio:'ignore',timeout:3000});console.log('[INFO] Finalizando processo preso na porta 3001 (PID '+p+')...');}catch(e){}}});}catch(e){}" >nul 2>&1
 
 :: 4. Verificacao de dependencias
 if not exist "node_modules" (

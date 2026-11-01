@@ -877,6 +877,12 @@ const MetaChatActiveProgressWidget: React.FC<{
   );
 };
 
+const GithubIcon: React.FC<{ className?: string }> = ({ className = "w-4 h-4" }) => (
+  <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+    <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
+  </svg>
+);
+
 export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
   onBack,
   onShowToast,
@@ -901,6 +907,7 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
   const [showDetailedCockpit, setShowDetailedCockpit] = useState<boolean>(false);
   const [isRecompiling, setIsRecompiling] = useState(false);
   const [recompileResult, setRecompileResult] = useState<MetaChatRecompileResult | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // Autopilot State (Zero-Prompt Auto-Evolução)
   const [autopilotStatus, setAutopilotStatus] = useState<MetaChatAutopilotStatus | null>(null);
@@ -1181,6 +1188,7 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
     setActiveThreadId(threadId);
     localStorage.setItem('decohub_active_metachat_thread_id', threadId);
     // Limpa imediatamente o estado visual da thread anterior para isolar completamente a experiência
+    setMessages([]);
     setServerActiveTurnStatus(null);
     setLiveStatus(null);
     setLiveActivity(null);
@@ -1360,11 +1368,25 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
     const sseClient = createMetaChatSseClient();
 
     sseClient.on('activity', (data: any) => {
-      if (data.threadId && data.threadId !== activeThreadId) {
+      if (data?.threadId && data.threadId !== activeThreadId) {
         if (data.status) {
-          setThreads(prev => prev.map(t => t.id === data.threadId ? { ...t, status: data.status === 'completed' || data.status === 'error' ? 'idle' : 'running' } : t));
+          const isDone = data.status === 'completed' || data.status === 'error' || data.status === 'idle' || data.isRunning === false;
+          setThreads(prev => prev.map(t => t.id === data.threadId ? { ...t, status: isDone ? 'idle' : 'running' } : t));
+          if (isDone) {
+            setThreadLoading(data.threadId, false);
+          }
         }
         return;
+      }
+      if (data?.threadId && data.threadId === activeThreadId) {
+        if (data.status) {
+          const isDone = data.status === 'completed' || data.status === 'error' || data.status === 'idle' || data.isRunning === false;
+          setThreads(prev => prev.map(t => t.id === activeThreadId ? { ...t, status: isDone ? 'idle' : 'running' } : t));
+          if (isDone) {
+            setThreadLoading(activeThreadId, false);
+            setServerActiveTurnStatus(null);
+          }
+        }
       }
       if (data.telemetry) {
         setLiveActivity(data.telemetry);
@@ -1372,9 +1394,10 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
         setLiveActivity(data);
       }
       if (data.status) {
+        const isDone = data.status === 'completed' || data.status === 'error' || data.status === 'idle' || data.isRunning === false;
         setLiveStatus(prev => ({
           ...(prev || { isRunning: true, phase: 'idle', currentPhase: 'idle' }),
-          isRunning: data.status !== 'completed' && data.status !== 'error',
+          isRunning: !isDone,
           phase: data.message || data.status,
           currentPhase: data.message || data.status
         }));
@@ -1382,7 +1405,7 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
     });
 
     sseClient.on('tool_call', (data: any) => {
-      if (data.threadId && data.threadId !== activeThreadId) return;
+      if (data?.threadId && data.threadId !== activeThreadId) return;
       setLiveActivity(prev => {
         if (!prev) return prev;
         const toolStr = String(data.tool || '').toLowerCase();
@@ -1427,14 +1450,28 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
       setThreadLoading(activeThreadId, false);
     });
 
-    sseClient.on('done', () => {
+    sseClient.on('done', (data: any) => {
+      const tId = data?.threadId;
+      if (tId && tId !== activeThreadId) {
+        setThreads(prev => prev.map(t => t.id === tId ? { ...t, status: 'idle' } : t));
+        setThreadLoading(tId, false);
+        return;
+      }
       setThreadLoading(activeThreadId, false);
+      setServerActiveTurnStatus(null);
       loadMessages(activeThreadId);
       loadThreads(activeThreadId);
     });
 
     sseClient.on('error', (data: any) => {
+      const tId = data?.threadId;
+      if (tId && tId !== activeThreadId) {
+        setThreads(prev => prev.map(t => t.id === tId ? { ...t, status: 'idle' } : t));
+        setThreadLoading(tId, false);
+        return;
+      }
       setThreadLoading(activeThreadId, false);
+      setServerActiveTurnStatus(null);
       if (data?.error) {
         onShowToast?.('error', `Erro no Meta-Chat: ${data.error}`);
       }
@@ -1764,6 +1801,33 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
       onShowToast?.('success', res.message || 'Terminal aberto na engine DecoHUB');
     } catch (err: any) {
       onShowToast?.('error', err.message || 'Falha ao abrir terminal da engine');
+    }
+  };
+
+  const handleGithubSync = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const res = await fetch('/api/system/github-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Falha ao sincronizar com o GitHub');
+      }
+      const filesCount = Array.isArray(data.files) ? data.files.length : (data.filesCount || 0);
+      const commitShort = data.commitHash ? ` (${data.commitHash.slice(0, 7)})` : '';
+      onShowToast?.(
+        'success',
+        filesCount > 0
+          ? `GitHub sincronizado com sucesso! ${filesCount} arquivo(s) enviados${commitShort}.`
+          : `GitHub em dia! Nenhum arquivo pendente para envio${commitShort}.`
+      );
+    } catch (err: any) {
+      onShowToast?.('error', `Erro ao sincronizar com o GitHub: ${err.message}`);
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -2139,6 +2203,22 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
             <span>Terminal Engine</span>
           </button>
 
+          {/* GitHub Sync */}
+          <button
+            type="button"
+            onClick={handleGithubSync}
+            disabled={isSyncing}
+            title="Executa: git add . -> git commit -> git push na raiz do repositório"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 hover:text-white text-xs font-semibold transition-all shadow-sm disabled:opacity-50"
+          >
+            {isSyncing ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <GithubIcon className="w-3.5 h-3.5" />
+            )}
+            <span>{isSyncing ? "Enviando..." : "Github"}</span>
+          </button>
+
           {/* D. Recompilar e Atualizar Produção */}
           <button
             type="button"
@@ -2232,8 +2312,8 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
                 threads.map(t => {
                   const isCur = t.id === activeThreadId;
                   const isThreadActiveRunning = Boolean(
-                    t.status === 'running' ||
                     loadingThreadIds[t.id] ||
+                    (t.status === 'running') ||
                     (serverActiveTurnStatus?.isRunning && (serverActiveTurnStatus?.threadId === t.id || serverActiveTurnStatus?.executingThreadId === t.id))
                   );
 

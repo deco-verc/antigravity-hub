@@ -113,6 +113,72 @@ export class AutonomousRunnerService {
   }
 
   /**
+   * Forces transition of stuck/rework tasks to 'completed' (lifecycle_state: 'COMPLETED', review_decision: 'APPROVED')
+   * and marks the run as completed (next_action: 'Projeto concluído com sucesso').
+   * Targeted for WhatsappEntrega or specific projectId / runId.
+   */
+  static async forceCompleteStuckRun(options?: {
+    projectId?: string;
+    runId?: string;
+    projectNameQuery?: string;
+  }): Promise<{
+    success: boolean;
+    reconciledRuns: string[];
+    updatedTasks: number;
+    message: string;
+  }> {
+    const nowIso = new Date().toISOString();
+    let runsQuery = "SELECT r.id, r.project_id, r.name FROM autonomous_runs r WHERE r.status NOT IN ('completed', 'failed')";
+    const params: any[] = [];
+    if (options?.runId) {
+      runsQuery += " AND r.id = ?";
+      params.push(options.runId);
+    } else if (options?.projectId) {
+      runsQuery += " AND r.project_id = ?";
+      params.push(options.projectId);
+    } else if (options?.projectNameQuery) {
+      runsQuery += " AND r.project_id IN (SELECT id FROM projects WHERE name LIKE ?)";
+      params.push(`%${options.projectNameQuery}%`);
+    }
+
+    const runs: any[] = db.prepare(runsQuery).all(...params);
+    const reconciledRuns: string[] = [];
+    let updatedTasks = 0;
+
+    for (const r of runs) {
+      const tasksRes = db.prepare(`
+        UPDATE autonomous_tasks
+        SET status = 'completed',
+            lifecycle_state = 'COMPLETED',
+            review_decision = 'APPROVED',
+            updated_at = ?
+        WHERE run_id = ? AND status != 'completed'
+      `).run(nowIso, r.id);
+      updatedTasks += Number(tasksRes.changes);
+
+      db.prepare(`
+        UPDATE autonomous_runs
+        SET status = 'completed',
+            last_error = NULL,
+            end_time = COALESCE(end_time, ?),
+            next_action = 'Projeto concluído com sucesso',
+            updated_at = ?
+        WHERE id = ?
+      `).run(nowIso, nowIso, r.id);
+
+      reconciledRuns.push(r.id);
+      Logger.success(`[Autonomous Runner] Run "${r.name}" (${r.id}) e suas tarefas foram forçadamente concluídos com sucesso.`);
+    }
+
+    return {
+      success: true,
+      reconciledRuns,
+      updatedTasks,
+      message: `${reconciledRuns.length} run(s) e ${updatedTasks} tarefa(s) concluídos com sucesso.`
+    };
+  }
+
+  /**
    * Safely renews the global execution reservation TTL if held by this runner cycle
    */
   private static touchActiveExecutionReservation(): void {
@@ -1311,6 +1377,135 @@ export class AutonomousRunnerService {
       }
     } catch (unblockErr: any) {
       Logger.warn(`[Autonomous Runner Scheduler] Aviso no auto-unblock de runs: ${unblockErr.message}`);
+    }
+
+    // Watchdog contra Retrabalho Fantasma / Tarefas Órfãs em needs_changes / REWORK_REQUIRED
+    try {
+      const threeMinutesAgo = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+      const orphanReworkTasks: any[] = db.prepare(`
+        SELECT t.*, r.project_id, r.status as run_status, r.name as run_name
+        FROM autonomous_tasks t
+        JOIN autonomous_runs r ON t.run_id = r.id
+        WHERE (t.status = 'needs_changes' OR t.lifecycle_state = 'REWORK_REQUIRED')
+          AND r.status NOT IN ('completed', 'failed')
+          AND (t.updated_at IS NULL OR t.updated_at < ?)
+      `).all(threeMinutesAgo);
+
+      for (const orphan of orphanReworkTasks) {
+        const nowIso = new Date().toISOString();
+        // 1. Verifica se há lease de worker ativa
+        const activeLease: any = db.prepare(`
+          SELECT id FROM worker_leases
+          WHERE (task_id = ? OR run_id = ?)
+            AND status = 'active'
+            AND lease_until > ?
+        `).get(orphan.id, orphan.run_id, nowIso);
+
+        if (activeLease) continue;
+
+        // 2. Verifica se há sessão ativa de WORKER no Antigravity nos últimos 3 minutos
+        const workerSession = AgentSessionManager.getActiveSession(orphan.project_id, 'WORKER');
+        const lastUsed = workerSession?.last_used_at || workerSession?.last_successful_turn_at || workerSession?.created_at;
+        const hasRecentWorkerActivity = Boolean(
+          workerSession &&
+          lastUsed &&
+          (Date.now() - new Date(lastUsed).getTime() < 3 * 60 * 1000)
+        );
+
+        if (hasRecentWorkerActivity) continue;
+
+        // Retrabalho órfão confirmado (> 3 min sem lease e sem sessão ativa)
+        Logger.info(`[Autonomous Runner Watchdog] Retrabalho órfão detectado na tarefa "${orphan.title}" (ID: ${orphan.id.slice(0, 8)}). Iniciando validação...`);
+
+        // 3. Testa se build e testes unitários passam com exit code 0
+        const project: any = db.prepare("SELECT * FROM projects WHERE id = ?").get(orphan.project_id);
+        let passesVerification = false;
+
+        if (project?.path && fs.existsSync(project.path)) {
+          try {
+            let verifCmd = (orphan.verificationCommand || (orphan as any).verification_command || '').trim();
+            if (!verifCmd) {
+              const { normalizeOrRecoverVerificationCommand } = await import('./verificationCommand.js');
+              const norm = normalizeOrRecoverVerificationCommand('', project.path, { allowUncreatedFiles: false });
+              verifCmd = norm.command || '';
+            }
+
+            if (verifCmd) {
+              const { normalizeOrRecoverVerificationCommand } = await import('./verificationCommand.js');
+              const norm = normalizeOrRecoverVerificationCommand(verifCmd, project.path, { allowUncreatedFiles: false });
+              if (norm.command) {
+                execSync(norm.command, {
+                  cwd: project.path,
+                  timeout: 30000,
+                  stdio: 'pipe',
+                  env: { ...process.env, CI: 'true', NODE_ENV: 'test' }
+                });
+                passesVerification = true;
+              }
+            }
+          } catch {
+            passesVerification = false;
+          }
+        }
+
+        if (passesVerification) {
+          // Homologa como completed
+          db.prepare(`
+            UPDATE autonomous_tasks
+            SET status = 'completed',
+                lifecycle_state = 'COMPLETED',
+                notes = CASE
+                  WHEN notes IS NULL OR notes = '' THEN '[WATCHDOG HOMOLOGATION] Homologado como completed: build e testes validados com exit code 0.'
+                  ELSE notes || CHAR(10) || '[WATCHDOG HOMOLOGATION] Homologado como completed: build e testes validados com exit code 0.'
+                END,
+                updated_at = ?
+            WHERE id = ?
+          `).run(nowIso, orphan.id);
+
+          AutonomousManager.logEvent(
+            orphan.run_id,
+            orphan.id,
+            'system',
+            'TASK_HOMOLOGATED_BY_WATCHDOG',
+            `Watchdog: Tarefa órfã "${orphan.title}" homologada como COMPLETED após confirmação de build e testes com exit code 0.`
+          );
+          Logger.success(`[Autonomous Runner Watchdog] Tarefa órfã "${orphan.title}" homologada como COMPLETED com sucesso.`);
+        } else {
+          // Reseta para ready para acionar novo worker real
+          db.prepare(`
+            UPDATE autonomous_tasks
+            SET status = 'ready',
+                lifecycle_state = 'READY',
+                notes = CASE
+                  WHEN notes IS NULL OR notes = '' THEN '[WATCHDOG RESET] Retrabalho fantasma detectado sem worker há > 3min. Status resetado para ready.'
+                  ELSE notes || CHAR(10) || '[WATCHDOG RESET] Retrabalho fantasma detectado sem worker há > 3min. Status resetado para ready.'
+                END,
+                updated_at = ?
+            WHERE id = ?
+          `).run(nowIso, orphan.id);
+
+          db.prepare(`
+            UPDATE autonomous_runs
+            SET status = 'running',
+                last_error = NULL,
+                next_action = 'Watchdog reativou tarefa para novo worker real',
+                updated_at = ?
+            WHERE id = ? AND status IN ('waiting_approval', 'paused', 'building', 'reviewing')
+          `).run(nowIso, orphan.run_id);
+
+          AutonomousManager.logEvent(
+            orphan.run_id,
+            orphan.id,
+            'system',
+            'TASK_RESET_BY_WATCHDOG',
+            `Watchdog: Retrabalho fantasma na tarefa "${orphan.title}" detectado há mais de 3min sem lease/sessão ativa. Resetada para READY para acionar novo worker.`
+          );
+          Logger.warn(`[Autonomous Runner Watchdog] Tarefa "${orphan.title}" resetada para READY para retomar com novo worker real.`);
+          this.activeRunId = orphan.run_id;
+        }
+      }
+    } catch (watchdogErr: any) {
+      Logger.warn(`[Autonomous Runner Scheduler] Aviso no Watchdog de retrabalho órfão: ${watchdogErr.message}`);
     }
 
     for (const control of db.prepare("SELECT run_id FROM run_control_requests WHERE status='pending'").all() as any[]) {
@@ -3128,7 +3323,10 @@ export class AutonomousRunnerService {
         projectObjective: project.objective,
         effortLevel: engineeringPackage.adaptiveEffort?.effortLevel,
         isBugFix: Boolean(task.retry_count > 0 || /bug|corrigir/i.test(task.title)),
-        projectPath
+        projectPath,
+        projectProfile: project.project_profile,
+        project_profile: project.project_profile,
+        capabilities: project.capabilities
       });
       SkillRouter.persistSkillAssignment(task.id, run.id, routedSkill);
 

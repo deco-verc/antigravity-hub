@@ -83,6 +83,49 @@ class ProcessManager extends EventEmitter {
     });
   }
 
+  killProcessOnPort(port) {
+    try {
+      if (process.platform === 'win32') {
+        const { execSync, execFileSync } = require('child_process');
+        try {
+          const out = execSync('netstat -ano -p tcp', { encoding: 'utf8', windowsHide: true });
+          const lines = out.split(/\r?\n/);
+          const pidsToKill = new Set();
+          for (const line of lines) {
+            if (!line.includes('LISTENING')) continue;
+            const parts = line.trim().split(/\s+/);
+            if (parts.length < 5) continue;
+            const localAddress = parts[1] || '';
+            const isTargetPort =
+              localAddress.endsWith(`:${port}`) ||
+              localAddress === `0.0.0.0:${port}` ||
+              localAddress === `127.0.0.1:${port}` ||
+              localAddress === `[::]:${port}` ||
+              line.includes(`:${port} `) ||
+              line.includes(`:${port}\t`);
+
+            if (isTargetPort) {
+              const pidStr = parts[parts.length - 1];
+              const pid = parseInt(pidStr, 10);
+              if (pid && pid > 0 && pid !== process.pid) {
+                pidsToKill.add(pid);
+              }
+            }
+          }
+
+          for (const pid of pidsToKill) {
+            logger.info(`[ProcessManager] Limpando processo preso na porta ${port} (PID: ${pid})...`);
+            try {
+              execFileSync('taskkill', ['/F', '/PID', String(pid), '/T'], { stdio: 'ignore', timeout: 3000, windowsHide: true });
+            } catch {}
+          }
+        } catch (netErr) {
+          logger.warn(`[ProcessManager] Falha ao verificar netstat para porta ${port}: ${netErr.message}`);
+        }
+      }
+    } catch {}
+  }
+
   async findAvailablePort(startPort) {
     let port = startPort;
     while (port < startPort + 30) {

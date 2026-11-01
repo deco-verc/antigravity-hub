@@ -70,8 +70,10 @@ class ServiceManager extends EventEmitter {
     this.startTime = null;
     this.isShuttingDown = false;
     this.restartCount = 0;
-    this.maxRestarts = 3;
+    this.maxRestarts = 50;
     this.isAttachedExisting = false;
+    this.isStarting = false;
+    this.lastStderr = '';
 
     // Conceptual Services State
     this.services = {
@@ -104,7 +106,18 @@ class ServiceManager extends EventEmitter {
           else resolve(false);
         })
         .once('listening', () => {
-          tester.once('close', () => resolve(false)).close();
+          tester.once('close', () => {
+            // Verifica também se 0.0.0.0 está em uso
+            const tester2 = net.createServer()
+              .once('error', err2 => {
+                if (err2.code === 'EADDRINUSE') resolve(true);
+                else resolve(false);
+              })
+              .once('listening', () => {
+                tester2.once('close', () => resolve(false)).close();
+              })
+              .listen(port, '0.0.0.0');
+          }).close();
         })
         .listen(port, '127.0.0.1');
     });
@@ -114,20 +127,54 @@ class ServiceManager extends EventEmitter {
     try {
       if (process.platform === 'win32') {
         const { execSync, execFileSync } = require('child_process');
-        const out = execSync(`netstat -ano -p tcp | findstr :${port}`, { encoding: 'utf8', windowsHide: true });
-        const lines = out.split('\n');
-        for (const line of lines) {
-          if (line.includes('LISTENING')) {
+        try {
+          const out = execSync('netstat -ano -p tcp', { encoding: 'utf8', windowsHide: true });
+          const lines = out.split(/\r?\n/);
+          const pidsToKill = new Set();
+          for (const line of lines) {
+            if (!line.includes('LISTENING')) continue;
             const parts = line.trim().split(/\s+/);
-            const pid = parseInt(parts[parts.length - 1], 10);
-            if (pid && pid > 0 && pid !== process.pid) {
-              logger.info(`[ServiceManager] Limpando processo preso na porta ${port} (PID: ${pid})...`);
-                try {
-                  execFileSync('taskkill', ['/pid', String(pid), '/f', '/t'], { stdio: 'ignore', timeout: 4000, windowsHide: true });
-                } catch {}
+            if (parts.length < 5) continue;
+            // Exemplo de linha do netstat: TCP  0.0.0.0:3001  0.0.0.0:0  LISTENING  1234
+            const localAddress = parts[1] || '';
+            const isTargetPort =
+              localAddress.endsWith(`:${port}`) ||
+              localAddress === `0.0.0.0:${port}` ||
+              localAddress === `127.0.0.1:${port}` ||
+              localAddress === `[::]:${port}` ||
+              line.includes(`:${port} `) ||
+              line.includes(`:${port}\t`);
+
+            if (isTargetPort) {
+              const pidStr = parts[parts.length - 1];
+              const pid = parseInt(pidStr, 10);
+              if (pid && pid > 0 && pid !== process.pid) {
+                pidsToKill.add(pid);
+              }
             }
           }
+
+          for (const pid of pidsToKill) {
+            logger.info(`[ServiceManager] Limpando processo preso na porta ${port} (PID: ${pid})...`);
+            try {
+              execFileSync('taskkill', ['/F', '/PID', String(pid), '/T'], { stdio: 'ignore', timeout: 3000, windowsHide: true });
+            } catch {}
+          }
+        } catch (netErr) {
+          logger.warn(`[ServiceManager] Falha ao verificar netstat para porta ${port}: ${netErr.message}`);
         }
+      } else {
+        const { execSync } = require('child_process');
+        try {
+          const out = execSync(`lsof -t -i:${port}`, { encoding: 'utf8' });
+          const pids = out.trim().split(/\s+/);
+          for (const p of pids) {
+            const pid = parseInt(p, 10);
+            if (pid && pid > 0 && pid !== process.pid) {
+              try { process.kill(pid, 'SIGKILL'); } catch {}
+            }
+          }
+        } catch {}
       }
     } catch {}
   }
@@ -196,6 +243,7 @@ class ServiceManager extends EventEmitter {
 
   async start() {
     this.isShuttingDown = false;
+    this.isStarting = true;
     this.services.BACKEND.status = 'STARTING';
 
     // 1. Antigravity Discovery Check
@@ -204,83 +252,150 @@ class ServiceManager extends EventEmitter {
     this.services.ANTIGRAVITY.path = agDiscovery.languageServerExe;
     logger.info(`[ServiceManager] Antigravity Status: ${this.services.ANTIGRAVITY.status} (${agDiscovery.languageServerExe || 'Nenhum'})`);
 
-    // 2. Limpar qualquer processo órfão na porta 3001 para que o server/dist/index.js recém-compilado seja carregado do zero
-    const portTakenBefore = await this.isPortTaken(this.backendPort);
-    if (portTakenBefore) {
-      logger.info(`[ServiceManager] Porta ${this.backendPort} em uso por processo anterior. Limpando processo órfão para carregar build atualizado...`);
+    // 2. Limpar qualquer processo zumbi anterior escutando em 0.0.0.0:3001 ou 127.0.0.1:3001 antes do spawn
+    logger.info(`[ServiceManager] Verificando e liberando porta ${this.backendPort}...`);
+    this.killProcessOnPort(this.backendPort);
+
+    // Aguarda liberação da porta se estava presa
+    let taken = false;
+    for (let i = 0; i < 15; i++) {
+      taken = await this.isPortTaken(this.backendPort);
+      if (!taken) break;
+      await new Promise(r => setTimeout(r, 100));
+    }
+
+    if (taken) {
+      logger.warn(`[ServiceManager] Porta ${this.backendPort} ainda ocupada após limpeza inicial. Tentando segunda rodada forçada...`);
       this.killProcessOnPort(this.backendPort);
-      for (let i = 0; i < 20; i++) {
-        const stillBusy = await this.isPortTaken(this.backendPort);
-        if (!stillBusy) break;
+      for (let i = 0; i < 10; i++) {
+        taken = await this.isPortTaken(this.backendPort);
+        if (!taken) break;
         await new Promise(r => setTimeout(r, 100));
       }
     }
 
-    // 3. Dynamic Port Allocation se a porta ainda estiver ocupada por serviço externo
-    const taken = await this.isPortTaken(this.backendPort);
+    // 3. Fallback Automático de Porta: Se a porta 3001 continuar presa por algum serviço do Windows,
+    // aloque a porta 3002 ou 3003 e repasse a variável PORT para o processo filho e para a janela do Electron
     if (taken) {
-      this.backendPort = await this.findAvailablePort(this.backendPort + 1);
-      logger.info(`Porta padrão ocupada. Alocada nova porta dinâmica: ${this.backendPort}`);
+      const fallbackPort = await this.findAvailablePort(this.backendPort + 1);
+      logger.warn(`[ServiceManager] Porta ${this.backendPort} inamovível (ocupada por serviço do sistema). Aplicando fallback automático para porta ${fallbackPort}.`);
+      this.backendPort = fallbackPort;
+      this.killProcessOnPort(this.backendPort);
     }
 
-    // 4. Spawn Node backend child process
-    logger.info(`Iniciando backend Node.js como child process isolado (porta ${this.backendPort})...`);
-    this.serverProcess = spawn(
-      process.execPath,
-      [this.distIndex],
-      {
-        cwd: this.serverDir,
-        env: {
-          ...process.env,
-          PORT: String(this.backendPort),
-          CLIENT_DIST_PATH: this.clientDir,
-          AI_DEV_HUB_DATA_DIR: this.appData.dataDir,
-          NODE_PATH: this.nodePath,
-          NODE_ENV: 'production',
-          ELECTRON_RUN_AS_NODE: '1'
-        },
-        windowsHide: true,
-        stdio: ['ignore', 'pipe', 'pipe']
+    // 4. Garantir presença do server/dist/index.js antes do spawn
+    if (!fs.existsSync(this.distIndex)) {
+      logger.info(`[ServiceManager] server/dist/index.js não encontrado em ${this.distIndex}. Executando compilação rápida de emergência...`);
+      try {
+        const { execFileSync } = require('child_process');
+        const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+        const targetServerDir = fs.existsSync(path.join(this.serverDir, 'package.json'))
+          ? this.serverDir
+          : path.resolve(__dirname, '..', 'server');
+
+        execFileSync(npmCmd, ['--prefix', targetServerDir, 'run', 'build'], {
+          stdio: 'inherit',
+          timeout: 60000,
+          windowsHide: true
+        });
+
+        if (!fs.existsSync(this.distIndex)) {
+          const altDist = path.resolve(__dirname, '..', 'server', 'dist', 'index.js');
+          if (fs.existsSync(altDist)) {
+            this.distIndex = altDist;
+            this.serverDir = path.dirname(path.dirname(altDist));
+          }
+        }
+        logger.info(`[ServiceManager] Compilação de emergência concluída com sucesso.`);
+      } catch (buildErr) {
+        logger.error(`[ServiceManager] Falha na compilação de emergência: ${buildErr.message}`);
       }
-    );
+    }
 
-    this.backendPid = this.serverProcess.pid;
-    this.startTime = new Date().toISOString();
-    this.services.BACKEND.pid = this.backendPid;
-    this.services.BACKEND.port = this.backendPort;
-    try {
-      fs.writeFileSync(path.join(this.appData.dataDir, 'backend.pid'), String(this.backendPid));
-    } catch {}
+    // 5. Spawn Node backend child process
+    const spawnProcess = (portToUse) => {
+      logger.info(`Iniciando backend Node.js como child process isolado (porta ${portToUse})...`);
+      this.serverProcess = spawn(
+        process.execPath,
+        [this.distIndex],
+        {
+          cwd: this.serverDir,
+          env: {
+            ...process.env,
+            PORT: String(portToUse),
+            CLIENT_DIST_PATH: this.clientDir,
+            AI_DEV_HUB_DATA_DIR: this.appData.dataDir,
+            NODE_PATH: this.nodePath,
+            NODE_ENV: 'production',
+            ELECTRON_RUN_AS_NODE: '1'
+          },
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'pipe']
+        }
+      );
 
-    this.serverProcess.stdout.on('data', data => {
-      const str = data.toString();
-      logger.logBackend(`[STDOUT] ${str.trim()}`);
-    });
+      this.backendPid = this.serverProcess.pid;
+      this.startTime = new Date().toISOString();
+      this.services.BACKEND.pid = this.backendPid;
+      this.services.BACKEND.port = portToUse;
+      try {
+        fs.writeFileSync(path.join(this.appData.dataDir, 'backend.pid'), String(this.backendPid));
+      } catch {}
 
-    this.serverProcess.stderr.on('data', data => {
-      const str = data.toString();
-      logger.logBackend(`[STDERR] ${str.trim()}`);
-    });
+      this.serverProcess.stdout.on('data', data => {
+        const str = data.toString();
+        logger.logBackend(`[STDOUT] ${str.trim()}`);
+      });
 
-    this.serverProcess.on('exit', (code, signal) => {
-      logger.warn(`Processo do backend encerrou (PID: ${this.backendPid}, code: ${code}, signal: ${signal})`);
-      this.serverProcess = null;
-      this.backendPid = null;
+      this.serverProcess.stderr.on('data', data => {
+        const str = data.toString();
+        this.lastStderr = str.trim();
+        logger.logBackend(`[STDERR] ${this.lastStderr}`);
+      });
 
-      if (!this.isShuttingDown) {
-        this.services.BACKEND.status = 'RESTARTING';
-        this.emit('crashed', { code, signal, errorType: 'INFRASTRUCTURE_FAILURE' });
-        this.handleAutoRestart();
-      } else {
-        this.services.BACKEND.status = 'STOPPED';
+      this.serverProcess.on('exit', (code, signal) => {
+        logger.warn(`Processo do backend encerrou (PID: ${this.backendPid}, code: ${code}, signal: ${signal})`);
+        this.serverProcess = null;
+        this.backendPid = null;
+
+        if (!this.isShuttingDown && !this.isStarting) {
+          this.services.BACKEND.status = 'RESTARTING';
+          this.emit('crashed', { code, signal, errorType: 'INFRASTRUCTURE_FAILURE' });
+          this.handleAutoRestart();
+        } else {
+          this.services.BACKEND.status = 'STOPPED';
+        }
+      });
+    };
+
+    this.lastStderr = '';
+    spawnProcess(this.backendPort);
+
+    // 6. Wait for readiness
+    let ready = await this.waitForReady(this.backendPort, 15000);
+
+    // Contingência: se falhou e a porta era 3001 ou 3002, tenta alocar imediatamente porta alternativa
+    if (!ready && (this.backendPort === 3001 || this.backendPort === 3002)) {
+      const nextPort = await this.findAvailablePort(this.backendPort + 1);
+      logger.warn(`[ServiceManager] Falha ao inicializar na porta ${this.backendPort}. Tentando fallback secundário na porta ${nextPort}...`);
+      if (this.serverProcess) {
+        try { this.serverProcess.kill('SIGKILL'); } catch {}
+        this.serverProcess = null;
       }
-    });
+      this.killProcessOnPort(this.backendPort);
+      this.backendPort = nextPort;
+      this.killProcessOnPort(this.backendPort);
 
-    // 5. Wait for readiness
-    const ready = await this.waitForReady(this.backendPort, 15000);
+      spawnProcess(this.backendPort);
+      ready = await this.waitForReady(this.backendPort, 15000);
+    }
+
+    this.isStarting = false;
+
     if (!ready) {
       this.services.BACKEND.status = 'FAILED';
-      throw new Error(`Timeout ao inicializar backend na porta ${this.backendPort}`);
+      const detail = this.lastStderr ? ` (Stderr: ${this.lastStderr})` : '';
+      throw new Error(`Timeout ao inicializar backend na porta ${this.backendPort}${detail}`);
     }
 
     this.services.BACKEND.status = 'READY';
@@ -293,6 +408,10 @@ class ServiceManager extends EventEmitter {
   async waitForReady(port, timeoutMs = 15000) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
+      if (!this.serverProcess || this.isShuttingDown) {
+        logger.warn(`[ServiceManager] Processo do backend finalizou prematuramente durante waitForReady.`);
+        return false;
+      }
       const ok = await this.checkHealth(port);
       if (ok) return true;
       await new Promise(r => setTimeout(r, 400));
@@ -334,7 +453,7 @@ class ServiceManager extends EventEmitter {
       try {
         if (process.platform === 'win32') {
           const { execFileSync } = require('child_process');
-          execFileSync('taskkill', ['/pid', String(this.backendPid), '/f', '/t'], { stdio: 'ignore', timeout: 4000, windowsHide: true });
+          execFileSync('taskkill', ['/F', '/PID', String(this.backendPid), '/T'], { stdio: 'ignore', timeout: 3000, windowsHide: true });
         } else {
           this.serverProcess.kill('SIGTERM');
         }

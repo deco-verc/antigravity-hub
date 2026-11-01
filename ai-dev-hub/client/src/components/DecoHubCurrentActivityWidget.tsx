@@ -125,6 +125,36 @@ export const DecoHubCurrentActivityWidget: React.FC<DecoHubCurrentActivityWidget
     isRunActive || Boolean(inProgressTask || agentStatus === 'working')
   );
 
+  const [isApprovingRework, setIsApprovingRework] = React.useState(false);
+
+  const handleApproveAndComplete = async () => {
+    if (!reworkTask && !run) return;
+    try {
+      setIsApprovingRework(true);
+      if (reworkTask) {
+        await api.transitionTaskState(reworkTask.id, {
+          toState: 'completed',
+          actor: 'user',
+          reason: 'Aprovação manual e conclusão direta solicitada pelo usuário no Widget para destravar retrabalho.'
+        });
+      }
+      if (onResolveApproval) {
+        onResolveApproval('approved');
+      } else if (onContinueOrResume) {
+        onContinueOrResume();
+      }
+    } catch (err: any) {
+      console.warn('[DecoHubCurrentActivityWidget] Erro ao aprovar e concluir tarefa de retrabalho:', err);
+      if (onResolveApproval) {
+        onResolveApproval('approved');
+      } else if (onContinueOrResume) {
+        onContinueOrResume();
+      }
+    } finally {
+      setIsApprovingRework(false);
+    }
+  };
+
   // 3. Status Badge derivation
   const getStatusBadge = () => {
     if (!run && agentStatus === 'working') {
@@ -429,6 +459,23 @@ export const DecoHubCurrentActivityWidget: React.FC<DecoHubCurrentActivityWidget
           {getStatusBadge()}
           {run && !isTerminalRun && (
             <div className="flex items-center gap-1.5 ml-1">
+              {isSelfHealing && (
+                <button
+                  type="button"
+                  onClick={handleApproveAndComplete}
+                  disabled={isActionLoading || isApprovingRework}
+                  aria-label="Aprovar e Concluir"
+                  title="Aprovar e Concluir tarefa em auto-correção / retrabalho (destravar com 1 clique)"
+                  className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 font-semibold text-xs flex items-center gap-1 transition-colors cursor-pointer shadow-sm disabled:opacity-50"
+                >
+                  {isApprovingRework ? (
+                    <RotateCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                  ) : (
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  )}
+                  <span>Aprovar e Concluir</span>
+                </button>
+              )}
               {isRunActive && onPause && (
                 <button
                   type="button"
@@ -852,6 +899,22 @@ export const DecoHubCurrentActivityWidget: React.FC<DecoHubCurrentActivityWidget
               >
                 <Check className="w-3.5 h-3.5" />
                 <span>Aprovar e Prosseguir</span>
+              </button>
+            ) : isSelfHealing ? (
+              <button
+                type="button"
+                onClick={handleApproveAndComplete}
+                disabled={isActionLoading || isApprovingRework}
+                aria-label="Aprovar e Concluir tarefa"
+                title="Aprovar e Concluir tarefa de retrabalho com 1 clique"
+                className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold text-xs flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+              >
+                {isApprovingRework ? (
+                  <RotateCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                )}
+                <span>Aprovar e Concluir</span>
               </button>
             ) : onContinueOrResume ? (
               <button

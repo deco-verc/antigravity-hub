@@ -604,7 +604,7 @@ app.on('will-quit', () => {
   if (serviceManager && serviceManager.serverProcess) {
     try {
       if (process.platform === 'win32' && serviceManager.backendPid) {
-        require('child_process').execFileSync('taskkill', ['/pid', String(serviceManager.backendPid), '/f', '/t'], { stdio: 'ignore', timeout: 4000, windowsHide: true });
+        require('child_process').execFileSync('taskkill', ['/F', '/PID', String(serviceManager.backendPid), '/T'], { stdio: 'ignore', timeout: 3000, windowsHide: true });
       } else if (serviceManager.serverProcess) {
         serviceManager.serverProcess.kill('SIGKILL');
       }

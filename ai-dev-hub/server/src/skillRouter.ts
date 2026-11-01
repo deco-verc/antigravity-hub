@@ -4,7 +4,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { db } from './db.js';
+import { db, resolveProjectProfileMode, resolveProjectCapabilities } from './db.js';
 import { Logger } from './logger.js';
 import { AutonomousManager } from './autonomousManager.js';
 
@@ -44,6 +44,10 @@ export interface SkillRoutingOptions {
   effortLevel?: 'MINIMAL' | 'STANDARD' | 'DEEP';
   isBugFix?: boolean;
   projectPath?: string;
+  projectId?: string;
+  projectProfile?: string;
+  project_profile?: string;
+  capabilities?: { auth?: boolean; [key: string]: any };
 }
 
 /**
@@ -866,19 +870,61 @@ export class SkillRouter {
   }
 
   /**
-   * Analyzes task attributes and classifies into the optimal technical specialty.
-   * Evaluates task-specific signals first so project-wide stack/objective keywords do not hijack task routing.
+   * Helper to determine whether the target project is local personal or has auth disabled.
    */
-  static routeTask(
+  static isLocalPersonalProject(
+    options?: SkillRoutingOptions,
+    task?: { project_profile?: string; projectProfile?: string; capabilities?: any; projectPath?: string; projectId?: string; path?: string }
+  ): boolean {
+    const profile =
+      options?.projectProfile ||
+      options?.project_profile ||
+      task?.project_profile ||
+      task?.projectProfile;
+
+    if (profile === 'local_personal') return true;
+    if (profile === 'commercial_saas') return false;
+
+    const authCap =
+      options?.capabilities?.auth ??
+      task?.capabilities?.auth;
+
+    if (authCap === false) return true;
+
+    const targetPathOrId = options?.projectId || options?.projectPath || task?.projectId || task?.projectPath || task?.path;
+    if (targetPathOrId && typeof targetPathOrId === 'string') {
+      try {
+        const resolvedMode = resolveProjectProfileMode(targetPathOrId);
+        if (resolvedMode === 'local_personal') return true;
+        const resolvedCaps = resolveProjectCapabilities(targetPathOrId);
+        if (resolvedCaps && resolvedCaps.auth === false) return true;
+      } catch {}
+    }
+
+    return false;
+  }
+
+  /**
+   * Resolves the specialized technical skill for a task, respecting project profile constraints.
+   * Disables SECURITY_REVIEWER when project_profile === 'local_personal' or capabilities.auth === false,
+   * redirecting interface tasks to FRONTEND_SPECIALIST and route/api tasks to BACKEND_API.
+   */
+  static resolveTechnicalSkill(
     task: {
       title: string;
       description?: string;
       criteria?: string[];
       expectedScopeFiles?: string[];
       mode?: string;
+      projectPath?: string;
+      projectId?: string;
+      project_id?: string;
+      project_profile?: string;
+      projectProfile?: string;
+      capabilities?: any;
     },
     options?: SkillRoutingOptions
-  ): RoutedSkill {
+  ): TechnicalSkill {
     const titleLower = (task.title || '').toLowerCase();
     const sanitizedCriteria = this.stripVerificationBoilerplate((task.criteria || []).join(' '));
 
@@ -917,6 +963,42 @@ export class SkillRouter {
         this.matchSkillFromText(fullText, titleLower, task.mode, options?.effortLevel) ||
         'FULL_STACK';
     }
+
+    // Safety Invariant: Local personal tools / auth:false projects must NEVER be locked by SECURITY_REVIEWER
+    if (selectedSkill === 'SECURITY_REVIEWER') {
+      const isLocal = this.isLocalPersonalProject(options, task);
+      if (isLocal) {
+        const candidateText = `${task.title || ''} ${task.description || ''} ${sanitizedCriteria} ${effectiveScopeFiles.join(' ')}`.toLowerCase();
+        const isInterface = /(interface|frontend|front-end|\bui\b|\bux\b|component|componente|visual|layout|dashboard|tela|html|\bcss\b|style|tailwind|react|vue|svelte|p[aá]gina|browser|form|formul[aá]rio)/i.test(candidateText);
+        selectedSkill = isInterface ? 'FRONTEND_SPECIALIST' : 'BACKEND_API';
+        Logger.info(`[SkillRouter] SECURITY_REVIEWER suprimido para projeto local_personal/auth:false. Redirecionado para ${selectedSkill} (Tarefa: "${task.title}")`);
+      }
+    }
+
+    return selectedSkill;
+  }
+
+  /**
+   * Analyzes task attributes and classifies into the optimal technical specialty.
+   * Evaluates task-specific signals first so project-wide stack/objective keywords do not hijack task routing.
+   */
+  static routeTask(
+    task: {
+      title: string;
+      description?: string;
+      criteria?: string[];
+      expectedScopeFiles?: string[];
+      mode?: string;
+      projectPath?: string;
+      projectId?: string;
+      project_id?: string;
+      project_profile?: string;
+      projectProfile?: string;
+      capabilities?: any;
+    },
+    options?: SkillRoutingOptions
+  ): RoutedSkill {
+    const selectedSkill = this.resolveTechnicalSkill(task, options);
 
     const def = this.SKILL_DEFINITIONS[selectedSkill];
     const externalKnowledge = this.externalKnowledgeRegistry.get(selectedSkill) || [];

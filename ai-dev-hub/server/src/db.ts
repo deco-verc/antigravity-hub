@@ -1169,10 +1169,19 @@ export function initDatabase() {
 
     CREATE INDEX IF NOT EXISTS idx_operational_lessons_proj
       ON operational_lessons(project_id, updated_at);
+  `);
 
-    CREATE INDEX IF NOT EXISTS idx_operational_lessons_global
-      ON operational_lessons(resolved, is_global, occurrences DESC);
+  safeAddColumn(db, 'operational_lessons', 'stack_tags', 'TEXT');
+  safeAddColumn(db, 'operational_lessons', 'is_global', 'INTEGER DEFAULT 1');
 
+  try {
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_operational_lessons_global
+        ON operational_lessons(resolved, is_global, occurrences DESC);
+    `);
+  } catch {}
+
+  db.exec(`
     CREATE TABLE IF NOT EXISTS autonomous_major_tasks (
       id TEXT PRIMARY KEY,
       run_id TEXT NOT NULL,
@@ -2134,6 +2143,17 @@ export function ensureDefensiveMigrations(targetDb: any = db): void {
         CREATE INDEX IF NOT EXISTS idx_meta_chat_thread_id
           ON meta_chat_messages(thread_id, created_at ASC);
       `);
+    }
+
+    const hasOperationalLessons = Boolean(targetDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='operational_lessons'").get());
+    if (hasOperationalLessons) {
+      const olCols = (targetDb.prepare("PRAGMA table_info(operational_lessons)").all() || []) as any[];
+      if (olCols.some((c: any) => c.name === 'is_global')) {
+        targetDb.exec(`
+          CREATE INDEX IF NOT EXISTS idx_operational_lessons_global
+            ON operational_lessons(resolved, is_global, occurrences DESC);
+        `);
+      }
     }
   } catch (err) {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {

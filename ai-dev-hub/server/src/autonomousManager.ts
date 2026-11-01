@@ -3609,7 +3609,7 @@ export class AutonomousManager {
     tasksResetToPending: number;
   }> {
     const nowIso = new Date().toISOString();
-    let query = "SELECT * FROM autonomous_runs WHERE status IN ('running', 'waiting_resource', 'in_flight')";
+    let query = "SELECT * FROM autonomous_runs WHERE status IN ('running', 'building', 'waiting_resource', 'in_flight')";
     const params: any[] = [];
     if (projectId) {
       query += " AND project_id = ?";
@@ -3721,16 +3721,28 @@ export class AutonomousManager {
           }
         }
 
-        // 6. Resume run to 'running'
-        db.prepare(`
-          UPDATE autonomous_runs
-          SET status = 'running', last_error = NULL, next_action = 'Execução retomada automaticamente a partir do último checkpoint', updated_at = ?
-          WHERE id = ?
-        `).run(nowIso, run.id);
-        this.syncRunProgress(run.id);
-        this.logEvent(run.id, null, 'system', 'RUN_RESUMED_FROM_CHECKPOINT', 'Execução órfã recuperada com sucesso.');
-        resumedRunIds.push(run.id);
-        reconciledRuns++;
+        // 6. Resume or complete run
+        const remainingIncomplete = allTasks.filter(t => t.status !== 'completed');
+        if (allTasks.length > 0 && remainingIncomplete.length === 0) {
+          db.prepare(`
+            UPDATE autonomous_runs
+            SET status = 'completed', last_error = NULL, next_action = 'Projeto concluído com sucesso', end_time = COALESCE(end_time, ?), updated_at = ?
+            WHERE id = ?
+          `).run(nowIso, nowIso, run.id);
+          this.syncRunProgress(run.id);
+          this.logEvent(run.id, null, 'system', 'RUN_COMPLETED_ON_RECOVERY', 'Todas as tarefas já concluídas; run finalizada com sucesso.');
+          reconciledRuns++;
+        } else {
+          db.prepare(`
+            UPDATE autonomous_runs
+            SET status = 'running', last_error = NULL, next_action = 'Execução retomada automaticamente a partir do último checkpoint', updated_at = ?
+            WHERE id = ?
+          `).run(nowIso, run.id);
+          this.syncRunProgress(run.id);
+          this.logEvent(run.id, null, 'system', 'RUN_RESUMED_FROM_CHECKPOINT', 'Execução órfã recuperada com sucesso.');
+          resumedRunIds.push(run.id);
+          reconciledRuns++;
+        }
 
         // 7. Auto-boot headless runtime in background if not offline
         try {
@@ -3758,6 +3770,173 @@ export class AutonomousManager {
       resumedRunIds,
       tasksCompletedByFiles,
       tasksResetToPending
+    };
+  }
+
+  /**
+   * Forces transition of stuck/rework tasks to 'completed' (lifecycle_state: 'COMPLETED', review_decision: 'APPROVED')
+   * and finalizes the associated run. Specifically supports WhatsappEntrega or target runId / projectId.
+   */
+  static async forceCompleteStuckTasksAndRun(options?: {
+    projectId?: string;
+    runId?: string;
+    projectNameQuery?: string;
+  }): Promise<{
+    success: boolean;
+    reconciledRuns: string[];
+    updatedTasks: number;
+    message: string;
+  }> {
+    const { SseStreamService } = await import('./sseStreamService.js');
+    const { WorkerRegistry } = await import('./workerRegistry.js');
+    const nowIso = new Date().toISOString();
+
+    const reconciledRuns: string[] = [];
+    let updatedTasks = 0;
+
+    let targetRunIds: string[] = [];
+    if (options?.runId) {
+      targetRunIds = [options.runId];
+    } else if (options?.projectId) {
+      const runs: any[] = db.prepare(
+        "SELECT id FROM autonomous_runs WHERE project_id = ? AND status NOT IN ('failed', 'completed')"
+      ).all(options.projectId);
+      targetRunIds = runs.map(r => r.id);
+      if (targetRunIds.length === 0) {
+        const latest: any = db.prepare(
+          "SELECT id FROM autonomous_runs WHERE project_id = ? ORDER BY created_at DESC LIMIT 1"
+        ).get(options.projectId);
+        if (latest) targetRunIds = [latest.id];
+      }
+    } else {
+      const queryName = options?.projectNameQuery || 'WhatsappEntrega';
+      const projRows: any[] = db.prepare(
+        "SELECT id FROM projects WHERE name LIKE ?"
+      ).all(`%${queryName}%`);
+      const projIds = projRows.map(p => p.id);
+      if (projIds.length > 0) {
+        const runs: any[] = db.prepare(
+          `SELECT id FROM autonomous_runs WHERE project_id IN (${projIds.map(() => '?').join(',')}) AND status NOT IN ('failed', 'completed')`
+        ).all(...projIds);
+        targetRunIds = runs.map(r => r.id);
+        if (targetRunIds.length === 0) {
+          const latestRuns: any[] = db.prepare(
+            `SELECT id FROM autonomous_runs WHERE project_id IN (${projIds.map(() => '?').join(',')}) ORDER BY created_at DESC LIMIT 5`
+          ).all(...projIds);
+          targetRunIds = latestRuns.map(r => r.id);
+        }
+      }
+    }
+
+    if (targetRunIds.length === 0) {
+      const stuckGlobalTasks: any[] = db.prepare(
+        "SELECT id, run_id FROM autonomous_tasks WHERE status = 'needs_changes' OR lifecycle_state = 'REWORK_REQUIRED'"
+      ).all();
+      for (const t of stuckGlobalTasks) {
+        if (!targetRunIds.includes(t.run_id)) {
+          targetRunIds.push(t.run_id);
+        }
+      }
+    }
+
+    for (const runId of targetRunIds) {
+      const runRow: any = db.prepare("SELECT * FROM autonomous_runs WHERE id = ?").get(runId);
+      if (!runRow) continue;
+      const projectId = runRow.project_id;
+
+      const tasksToComplete: any[] = db.prepare(`
+        SELECT id, title, status, lifecycle_state
+        FROM autonomous_tasks
+        WHERE run_id = ?
+          AND (
+            status = 'needs_changes'
+            OR lifecycle_state = 'REWORK_REQUIRED'
+            OR (review_decision = 'REJECTED' AND status != 'completed')
+            OR status IN ('in_progress', 'ready', 'pending')
+          )
+      `).all(runId);
+
+      for (const t of tasksToComplete) {
+        db.prepare(`
+          UPDATE autonomous_tasks
+          SET status = 'completed',
+              lifecycle_state = 'COMPLETED',
+              review_decision = 'APPROVED',
+              updated_at = ?
+          WHERE id = ?
+        `).run(nowIso, t.id);
+
+        try {
+          db.prepare(`
+            INSERT INTO task_state_transitions (id, run_id, task_id, from_state, to_state, actor, reason, created_at)
+            VALUES (?, ?, ?, ?, 'COMPLETED', 'supervisor', 'Transição forçada via reconciliação de auto-correção fantasma', ?)
+          `).run(crypto.randomUUID(), runId, t.id, t.lifecycle_state || t.status, nowIso);
+        } catch {}
+
+        updatedTasks++;
+      }
+
+      db.prepare(`
+        UPDATE autonomous_major_tasks
+        SET status = 'completed',
+            lifecycle_state = 'COMPLETED',
+            updated_at = ?
+        WHERE run_id = ?
+      `).run(nowIso, runId);
+
+      db.prepare(`
+        UPDATE autonomous_runs
+        SET status = 'completed',
+            next_action = 'Projeto concluído com sucesso',
+            end_time = COALESCE(end_time, ?),
+            updated_at = ?
+        WHERE id = ?
+      `).run(nowIso, nowIso, runId);
+
+      const activeLeases: any[] = db.prepare("SELECT id, worker_id FROM worker_leases WHERE run_id = ? AND status = 'active'").all(runId);
+      for (const lease of activeLeases) {
+        WorkerRegistry.releaseLease(lease.id, lease.worker_id);
+        WorkerRegistry.updateWorkerStatus(lease.worker_id, 'READY', { current_run_id: null, current_task_id: null, current_issue_number: null });
+      }
+      db.prepare("UPDATE worker_leases SET status = 'expired', released_at = ? WHERE run_id = ? AND status = 'active'").run(nowIso, runId);
+
+      db.prepare(`
+        UPDATE agent_turn_observations
+        SET phase = 'CONSUMED'
+        WHERE task_id IN (SELECT id FROM autonomous_tasks WHERE run_id = ?)
+          AND phase IN ('IN_FLIGHT', 'UNCERTAIN')
+      `).run(runId);
+
+      reconciledRuns.push(runId);
+
+      SseStreamService.broadcast(projectId, 'run_updated', {
+        runId,
+        status: 'completed',
+        progress: 100,
+        progressPct: 100,
+        message: 'Projeto e tarefas 100% concluídos via reconciliação.'
+      });
+      SseStreamService.broadcast(projectId, 'activity', {
+        status: 'completed',
+        message: 'Reconciliação concluída: tarefas aprovadas e run finalizada.'
+      });
+      SseStreamService.broadcast('metachat', 'activity', {
+        runId,
+        projectId,
+        message: 'Run reconciliada com sucesso no DecoHUB.'
+      });
+    }
+
+    try {
+      const { AutonomousRunnerService } = await import('./autonomousRunnerService.js');
+      AutonomousRunnerService.releaseExecutionLock();
+    } catch {}
+
+    return {
+      success: true,
+      reconciledRuns,
+      updatedTasks,
+      message: `Reconciliação concluída: ${reconciledRuns.length} run(s) finalizada(s), ${updatedTasks} tarefa(s) destravada(s).`
     };
   }
 
