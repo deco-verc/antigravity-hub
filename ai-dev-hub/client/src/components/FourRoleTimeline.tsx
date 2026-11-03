@@ -22,7 +22,7 @@ import { createProjectSseClient, createMetaChatSseClient, DecoHubSseClient } fro
 export type TimelineFacadeStatus = 'idle' | 'received' | 'active' | 'completed';
 export type TimelineSupervisorStatus = 'idle' | 'planning' | 'completed' | 'failed';
 export type TimelineWorkerStatus = 'idle' | 'executing' | 'completed' | 'failed';
-export type TimelineReviewerStatus = 'idle' | 'verifying' | 'approved' | 'rejected';
+export type TimelineReviewerStatus = 'idle' | 'verifying' | 'approved' | 'approved_with_reservations' | 'rejected';
 
 export interface DagNode {
   id: string;
@@ -74,7 +74,7 @@ interface TimelineState {
     timestamp?: string;
   };
   reviewer: {
-    status: 'idle' | 'verifying' | 'approved' | 'rejected';
+    status: 'idle' | 'verifying' | 'approved' | 'approved_with_reservations' | 'rejected';
     verdict?: 'APROVADO' | 'REJEITADO - EM CORREÇÃO' | string;
     typecheckPassed?: boolean;
     typecheckOutput?: string;
@@ -352,7 +352,8 @@ export const FourRoleTimeline: React.FC<FourRoleTimelineProps> = ({
       } else if (data.type === 'worker_executed' || data.role === 'worker') {
         handleWorkerExecuting(data);
       } else if (data.type === 'reviewer_validated' || data.role === 'reviewer') {
-        const passed = Boolean(data.typecheckPassed ?? (data.verdict === 'APROVADO'));
+        const passed = Boolean(data.typecheckPassed ?? (data.verdict === 'APROVADO' || String(data.verdict).includes('APROVADO')));
+        const hasReservations = String(data.verdict).includes('RESSALVAS') || data.clientBuildPassed === false;
         if (passed) {
           setIsMiddleCollapsed(true); // RECOLHIMENTO AUTOMÁTICO DISCRETO QUANDO APROVADO
           setState(prev => ({
@@ -361,10 +362,10 @@ export const FourRoleTimeline: React.FC<FourRoleTimelineProps> = ({
             supervisor: { ...prev.supervisor, status: 'completed' },
             worker: { ...prev.worker, status: 'completed' },
             reviewer: {
-              status: 'approved',
-              verdict: 'APROVADO',
+              status: hasReservations ? 'approved_with_reservations' : 'approved',
+              verdict: data.verdict || (hasReservations ? 'APROVADO COM RESSALVAS' : 'APROVADO'),
               typecheckPassed: true,
-              typecheckOutput: data.output || 'tsc --noEmit concluído com 0 erros.',
+              typecheckOutput: data.output || (hasReservations ? 'tsc --noEmit OK. Build pendente.' : 'tsc --noEmit concluído com 0 erros.'),
               timestamp: data.timestamp || new Date().toISOString()
             }
           }));
@@ -392,16 +393,18 @@ export const FourRoleTimeline: React.FC<FourRoleTimelineProps> = ({
       } else if (data?.role === 'worker') {
         handleWorkerExecuting(data);
       } else if (data?.role === 'reviewer') {
-        if (data.verdict === 'APROVADO' || data.typecheckPassed) {
+        const passed = Boolean(data.typecheckPassed ?? (data.verdict === 'APROVADO' || String(data.verdict).includes('APROVADO')));
+        const hasReservations = String(data.verdict).includes('RESSALVAS') || data.clientBuildPassed === false;
+        if (passed) {
           setIsMiddleCollapsed(true);
           setState(prev => ({
             ...prev,
             hasActivity: true,
             reviewer: {
-              status: 'approved',
-              verdict: 'APROVADO',
+              status: hasReservations ? 'approved_with_reservations' : 'approved',
+              verdict: data.verdict || (hasReservations ? 'APROVADO COM RESSALVAS' : 'APROVADO'),
               typecheckPassed: true,
-              typecheckOutput: data.detail || 'Auditoria tsc aprovada com 0 erros.',
+              typecheckOutput: data.detail || (hasReservations ? 'Auditoria tsc aprovada. Build pendente.' : 'Auditoria tsc aprovada com 0 erros.'),
               timestamp: new Date().toISOString()
             }
           }));
@@ -492,7 +495,9 @@ export const FourRoleTimeline: React.FC<FourRoleTimelineProps> = ({
     );
   }
 
-  const isApproved = state.reviewer.status === 'approved';
+  const isApprovedWithReservations = state.reviewer.status === 'approved_with_reservations' || Boolean(state.reviewer.verdict && state.reviewer.verdict.includes('RESSALVAS'));
+  const isPureApproved = state.reviewer.status === 'approved' && !isApprovedWithReservations;
+  const isApproved = isPureApproved || isApprovedWithReservations;
   const isRejected = state.reviewer.status === 'rejected';
 
   return (
@@ -502,9 +507,14 @@ export const FourRoleTimeline: React.FC<FourRoleTimelineProps> = ({
         <div className="flex items-center gap-2 text-xs font-semibold text-slate-300">
           <Layers className="w-4 h-4 text-indigo-400" />
           <span>PIPELINE REATIVO DE 4 PAPÉIS</span>
-          {isApproved && (
+          {isPureApproved && (
             <span className="ml-1 text-[10px] font-semibold tracking-wider px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
               AUDITADO & APROVADO
+            </span>
+          )}
+          {isApprovedWithReservations && (
+            <span className="ml-1 text-[10px] font-semibold tracking-wider px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+              APROVADO COM RESSALVAS
             </span>
           )}
           {isRejected && (
@@ -757,7 +767,9 @@ export const FourRoleTimeline: React.FC<FourRoleTimelineProps> = ({
         <div className={`flex flex-col rounded-lg border p-2.5 transition-all ${
           isRejected
             ? 'border-rose-500/50 bg-rose-950/30'
-            : isApproved
+            : isApprovedWithReservations
+            ? 'border-amber-500/40 bg-amber-950/20'
+            : isPureApproved
             ? 'border-emerald-500/40 bg-emerald-950/20'
             : 'border-slate-800 bg-slate-950/30'
         }`}>
@@ -765,7 +777,7 @@ export const FourRoleTimeline: React.FC<FourRoleTimelineProps> = ({
             <div className="flex items-center gap-1.5">
               <span className="text-sm">🛡️</span>
               <span className={`text-xs font-semibold ${
-                isRejected ? 'text-rose-300' : isApproved ? 'text-emerald-300' : 'text-slate-300'
+                isRejected ? 'text-rose-300' : isApprovedWithReservations ? 'text-amber-300' : isPureApproved ? 'text-emerald-300' : 'text-slate-300'
               }`}>
                 Reviewer
               </span>
@@ -776,7 +788,12 @@ export const FourRoleTimeline: React.FC<FourRoleTimelineProps> = ({
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/50 animate-pulse">
                 [REJEITADO - EM CORREÇÃO]
               </span>
-            ) : isApproved ? (
+            ) : isApprovedWithReservations ? (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1">
+                <AlertTriangle className="w-2.5 h-2.5 text-amber-400" />
+                [COM RESSALVAS]
+              </span>
+            ) : isPureApproved ? (
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
                 <CheckCircle2 className="w-2.5 h-2.5" />
                 [APROVADO]

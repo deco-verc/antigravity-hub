@@ -30,8 +30,8 @@ const EMBEDDED_GLOBAL_GUIDELINES = `
 1. THINK BEFORE CODING: Identifique premissas, ambiguidades, tradeoffs e a solução mais simples antes de modificar código. Em execuções autônomas (run_id ativo), é ESTRITAMENTE PROIBIDO invocar ask_question ou abrir modais bloqueantes; resolva ambiguidades via evidências do repositório, DESIGN.md e contratos locais (clarificationRequired: false).
 2. SIMPLICITY FIRST: Menor implementação de código correta que resolve 100% do problema. Zero abstrações para uso único e zero dependências externas desnecessárias. Simplicidade de código NUNCA significa produto raso: entregue os 7 Pilares SaaS Master, estados visuais completos (Loading, Empty, Populated, Error) e povoamento realista via seedIfEmpty().
 3. SURGICAL CHANGES: Toque apenas nos arquivos indispensáveis ao escopo da tarefa. Proibido reformatar ou alterar código funcional adjacente ou destruir tabelas/testes existentes em modo DELTA_EVOLUTION.
-4. GOAL-DRIVEN EXECUTION: Estruture cada tarefa com OBJECTIVE, ACCEPTANCE CRITERIA, VERIFICATION (comando único simples compatível com controlledVerification.ts, sem ";", "&&", "||", "|" ou "node -e") e DONE WHEN.
-5. OPERATIONAL AUTONOMY & INTELLIGENT EXECUTION: Execução autônoma com encerramento obrigatório de processos/servidores efêmeros em blocos try/finally, proibição absoluta de adulterar testes protegidos (TAMPERING_DETECTED) e ciclo ativo de autocorreção (Self-Healing) guiado pelos logs do Independent Evaluator.
+4. GOAL-DRIVEN EXECUTION & PROTOCOLO TDD RED-GREEN OBRIGATÓRIO (VERIFY BEFORE DECLARING SUCCESS): Estruture cada tarefa com OBJECTIVE, ACCEPTANCE CRITERIA (2 a 4 critérios binários PASS/FAIL factuais, proibindo critérios vagos como "Implementação concluída"), VERIFICATION (comando focado compatível com controlledVerification.ts, sem encadeamento) e DONE WHEN. O Worker NUNCA pode declarar uma tarefa como concluída baseando-se apenas em texto ou suposição; DEVE cumprir o ciclo TDD: (1) RED: Criar ou apontar teste unitário focado em test/ e executar no terminal para confirmar a falha inicial ou baseline esperado; (2) GREEN: Implementar o código mínimo estritamente necessário no arquivo de produção até que o teste unitário passe com exit code 0 e verificação de tipagem limpa (tsc --noEmit); (3) PROVA DE CONCLUSÃO: Executar obrigatoriamente o verificationCommand da tarefa no terminal e incluir a saída real (código de saída 0) no relatório final para o Reviewer.
+5. OPERATIONAL AUTONOMY, SYSTEMATIC DEBUGGING & PROTOCOLO ANTI-RETRABALHO: Execução autônoma com encerramento obrigatório de processos/servidores efêmeros em blocos try/finally e proibição absoluta de adulterar testes protegidos (TAMPERING_DETECTED). Diante de retrabalho (CHANGES_REQUESTED ou retentativa), é TERMINANTEMENTE PROIBIDO tentar adivinhar a causa, reescrever arquivos aleatórios ou aplicar refatorações cosméticas por tentativa e erro. O Worker deve obrigatoriamente: (1) Isolar a linha ou asserção que falhou; (2) Fazer a menor intervenção de código possível para corrigir o ponto exato da falha; (3) Reexecutar o comando de teste específico da tarefa para comprovar o reparo com código 0.
 6. FULL-STACK, APPSEC & ANTI-SLOP INVARIANTS: Respeite o PORT_GUARD (portas 4000-4999, proibindo 3001/3000/5173), sirva a SPA em GET / e isole JSON em GET /api/health, aplique Dual-Mode DOCSIMP (Graceful Mock Fallback), use tokens :root + SVGs Lucide inline (zero emojis como ícones) + [role="tab"] / data-tab para capturas enumeradas (01-Secao.png), e blinde contra SQLi (?), XSS (escapeHtml), Path Traversal e valores negativos (HTTP 400).
 `.trim();
 
@@ -114,7 +114,8 @@ ${objective || 'Definir o objetivo principal e metas verificáveis do projeto.'}
 - **Think Before Coding & Full Autonomy**: Explicitar premissas e opções tecnicamente; em execuções autônomas do DecoHUB, nunca invocar \`ask_question\` nem bloquear o pipeline — resolver ambiguidades via contratos locais e \`DESIGN.md\`.
 - **Simplicity First & Product Density**: Menor código correto e direto, sem classes ou abstrações especulativas para uso único, mas garantindo densidade funcional completa (estados Loading, Empty, Populated, Error e \`seedIfEmpty()\` realista).
 - **Surgical Changes**: Toda linha modificada deve ser diretamente rastreável à tarefa solicitada; sem alterações cosméticas ortogonais ou regressão em módulos prontos.
-- **Goal-Driven Execution**: Toda tarefa possui objetivo declarado, critérios de aceitação binários e comando de verificação simples compatível com \`controlledVerification.ts\`.
+- **Goal-Driven Execution & Prova Binária de Conclusão**: Toda tarefa possui objetivo declarado, critérios de aceitação binários e comando de verificação simples compatível com \`controlledVerification.ts\`. O Worker NUNCA declara conclusão por suposição; executa obrigatoriamente o \`verificationCommand\` no terminal comprovando código 0 e aplica ciclo Red-Green com testes em \`test/\` para rotas e regras de negócio.
+- **Systematic Debugging & Anti-Retrabalho**: Em tarefas rejeitadas (\`CHANGES_REQUESTED\`), é terminantemente proibido tentar palpites ou refatorações cosméticas aleatórias. O Worker deve isolar a linha/asserção falha, aplicar a menor intervenção e reexecutar o teste específico para comprovar o reparo com código 0.
 
 ## Technical & Full-Stack Constraints
 - **Port Guard**: Utilizar exclusivamente portas na faixa \`4000-4999\` (\`Number(process.env.PORT) || 4000\`). As portas \`3001\`, \`3000\` e \`5173\` são estritamente reservadas ao DecoHUB.
@@ -136,7 +137,7 @@ ${objective || 'Definir o objetivo principal e metas verificáveis do projeto.'}
 ## Verification
 - Testes automatizados executáveis no terminal (\`npm test\`, \`node --test\`, \`npm run build\`, \`tsc --noEmit\`).
 - Aprovação nos 4 Portões de Qualidade: Dev Tests, PlaywrightVisualInspector, UserExperienceSimulator (persistência pós-F5) e SecurityPentestSimulator.
-- **Critério de término (DONE WHEN)**: 100% dos critérios de aceitação atendidos e comando de verificação com saída 0.
+- **Prova Binária Obrigatória (DONE WHEN)**: 100% dos critérios de aceitação atendidos e comando de verificação executado com saída real 0 comprovada no relatório final.
 
 ## Quality Standards
 - Código tipado, limpo, modular e sem dead code ou placeholders (\`TODO\`, mocks estáticos falsos).
@@ -146,11 +147,14 @@ ${objective || 'Definir o objetivo principal e metas verificáveis do projeto.'}
 ## Autonomous Behavior
 - O agente tem autonomia total para iterar e corrigir erros apontados pelo Independent Evaluator até que todos os portões passem.
 - Se uma abordagem causar quebra irrecuperável, reverter as alterações (rollback cirúrgico) antes de tentar nova abordagem.
+- Em retrabalho, seguir estritamente o Systematic Debugging sem refatorações aleatórias fora do ponto de falha.
 
 ## Forbidden Changes
+- Proibido declarar tarefas como concluídas baseando-se apenas em texto ou suposição sem comprovação do comando no terminal.
 - Proibido refatorar arquivos funcionais adjacentes que não façam parte do objetivo da tarefa.
 - Proibido alterar, comentar, pular (\`.skip\`) ou enfraquecer arquivos de testes protegidos (\`TAMPERING_DETECTED\`).
 - Proibido usar comandos compostos (\`&&\`, \`;\`, \`||\`, \`|\`, \`node -e\`) no campo \`verificationCommand\`.
+- Proibido aplicar alterações cosméticas ou chutes no código durante ciclo de retrabalho.
 `;
 }
 

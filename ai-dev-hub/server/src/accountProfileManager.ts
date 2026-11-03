@@ -22,6 +22,7 @@ import {
 } from './runtimeProfileSelector.js';
 import { NativeWorkspaceBinding } from './nativeWorkspaceBinding.js';
 import { UsageTracker } from './usageTracker.js';
+import { isRawToolOrCommandOutput } from './agentTurnState.js';
 
 export interface AccountTelemetryProcessInfo {
   pid: number | null;
@@ -550,8 +551,7 @@ export class AccountProfileManager {
       if (p.quota_resets_at && new Date(p.quota_resets_at).getTime() > Date.now()) {
         return false;
       }
-      const evidence = this.inspectLocalAuthEvidence(p.environment_path);
-      return (p.auth_status === 'READY' || p.auth_status === 'ACTIVE') && (evidence.hasAuthEvidence || this.isAutomatedTestRuntime());
+      return (p.auth_status === 'READY' || p.auth_status === 'ACTIVE');
     });
 
     if (readyList.length === 0) return null;
@@ -2119,6 +2119,20 @@ export class AccountProfileManager {
         ? String((errorOrMessage as any).message)
         : String(errorOrMessage || '');
 
+    // Se o texto for uma saída crua de ferramenta/comando ou log de telemetria, classifique como NONE (falso positivo blindado)
+    if (
+      isRawToolOrCommandOutput(rawMsg) ||
+      rawMsg.startsWith('Created At:') ||
+      rawMsg.includes('Service.broadcast') ||
+      rawMsg.includes('SseStreamService.broadcast')
+    ) {
+      return {
+        isAccountOrQuotaError: false,
+        kind: 'NONE',
+        reason: 'raw_tool_command_output_ignored'
+      };
+    }
+
     // Se o texto contiver "% left", "% remaining" ou "% restante" com valor maior que 0 (ex.: "53% left", "71% left"),
     // classifique imediatamente como kind: 'NONE' (cota disponível).
     const percentLeftMatch = rawMsg.match(/(\d+(?:\.\d+)?)\s*%\s*(?:left|remaining|restante)/i);
@@ -2706,6 +2720,17 @@ export class AccountProfileManager {
     const now = new Date();
     const rawMsg = errorMsg || 'Limite de cota individual atingido (RESOURCE_EXHAUSTED 429).';
 
+    // Defesa contra falso positivo de saída de comando / terminal / telemetria
+    if (
+      isRawToolOrCommandOutput(rawMsg) ||
+      rawMsg.startsWith('Created At:') ||
+      rawMsg.includes('Service.broadcast') ||
+      rawMsg.includes('SseStreamService.broadcast')
+    ) {
+      Logger.info(`[AccountProfileManager] Saída de comando/ferramenta detectada no erro. Ignorando marcação de QUOTA_EXHAUSTED para "${profileId}".`);
+      return this.getProfile(profileId)!;
+    }
+
     // Defesa contra falso positivo: se a mensagem de erro indicar porcentagem positiva restante, não marcar como esgotado!
     const percentMatch = rawMsg.match(/(\d+(?:\.\d+)?)\s*%\s*(?:left|remaining|restante)/i);
     if (percentMatch && parseFloat(percentMatch[1]) > 0) {
@@ -3030,22 +3055,8 @@ export class AccountProfileManager {
   }
 
   private static _rowToProfile(row: any): AccountProfile {
-    let resolvedStatus = row.auth_status as AuthStatus;
-    if (
-      !AccountProfileManager.isAutomatedTestRuntime() &&
-      ['READY', 'ACTIVE'].includes(row.auth_status)
-    ) {
-      const evidence = AccountProfileManager.inspectLocalAuthEvidence(row.environment_path);
-      if (!evidence.hasAuthEvidence) {
-        const lastReady = AccountProfileManager.lastReadyTimestamps.get(row.id) ||
-          (row.last_tested ? new Date(row.last_tested).getTime() : 0);
-        if (!lastReady || (Date.now() - lastReady) >= AccountProfileManager.TRANSIENT_FAULT_TOLERANCE_MS) {
-          resolvedStatus = 'AUTH_UNKNOWN';
-        }
-      } else {
-        AccountProfileManager.lastReadyTimestamps.set(row.id, Date.now());
-      }
-    } else if (['READY', 'ACTIVE'].includes(row.auth_status)) {
+    const resolvedStatus = row.auth_status as AuthStatus;
+    if (['READY', 'ACTIVE'].includes(row.auth_status)) {
       AccountProfileManager.lastReadyTimestamps.set(row.id, Date.now());
     }
     const globalActiveId = AccountProfileManager.getGlobalActiveProfileIdSafe();

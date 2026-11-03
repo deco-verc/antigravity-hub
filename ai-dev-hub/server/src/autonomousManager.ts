@@ -856,7 +856,8 @@ export class AutonomousManager {
     config?: any
   ): Promise<void> {
     const { HierarchicalOrchestrationService } = await import('./hierarchicalOrchestrationService.js');
-    let plannedTasks = (rawTasks || []).map((t, idx) => {
+    const coalescedRaw = HierarchicalOrchestrationService.coalesceFragmentedTasks(rawTasks || []);
+    let plannedTasks = (coalescedRaw || []).map((t: any, idx: number) => {
       const title = (t.title || `Tarefa ${idx + 1}`).trim();
       const description = (t.description || title || `Implementação de ${title}`).trim();
       const criteria = Array.isArray(t.criteria) && t.criteria.length > 0
@@ -891,13 +892,13 @@ export class AutonomousManager {
     const titleToId = new Map<string, string>();
     const codeToId = new Map<string, string>();
     const idToId = new Map<string, string>();
-    plannedTasks.forEach((t, i) => {
+    plannedTasks.forEach((t: any, i: number) => {
       titleToId.set(t.title.trim().toLowerCase(), ids[i]);
       if ((t as any).code) codeToId.set(String((t as any).code).trim().toLowerCase(), ids[i]);
       if ((t as any).id) idToId.set(String((t as any).id).trim().toLowerCase(), ids[i]);
     });
 
-    const dependencies = plannedTasks.map((task, index) => {
+    const dependencies = plannedTasks.map((task: any, index: number) => {
       const taskDeps = Array.isArray(task.dependencies) ? task.dependencies : [];
       const resolved: string[] = [];
       for (const rawDep of taskDeps) {
@@ -936,14 +937,14 @@ export class AutonomousManager {
       visiting.delete(index);
       visited.add(index);
     };
-    plannedTasks.forEach((_task, i) => visit(i));
+    plannedTasks.forEach((_task: any, i: number) => visit(i));
     // Persist the complete plan atomically. GitHub synchronization occurs on task dispatch.
     db.exec('BEGIN IMMEDIATE');
     try {
       const count = (db.prepare('SELECT COUNT(*) n FROM autonomous_tasks WHERE run_id=?').get(runId) as any).n;
       if (!count) {
         const { SkillRouter } = await import('./skillRouter.js');
-        plannedTasks.forEach((task, i) => {
+        plannedTasks.forEach((task: any, i: number) => {
           const routed = SkillRouter.routeTask(task, { stack: project.stack, projectObjective: project.objective, projectPath: project.path });
           const normCmd = (task as any).verificationCommandMeta || normalizeOrRecoverVerificationCommand((task as any).verificationCommand, project.path || '.', { allowUncreatedFiles: true });
           (task as any).verificationCommand = normCmd.command;
@@ -1016,7 +1017,7 @@ export class AutonomousManager {
           requirements: config?.requirements,
           successCriteria: config?.successCriteria,
           majorTasks: config?.majorTasks,
-          flatTasks: plannedTasks.map((t, idx) => ({
+          flatTasks: plannedTasks.map((t: any, idx: number) => ({
             ...(t as any),
             id: ids[idx],
             dependencies: dependencies[idx],

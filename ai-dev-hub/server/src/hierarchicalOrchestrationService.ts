@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, execSync } from 'node:child_process';
-import { db, resolveProjectCapabilities, resolveProjectProfileMode, ProjectCapabilities, ProjectProfileMode } from './db.js';
+import { db } from './db.js';
 import { Logger } from './logger.js';
 import { GitManager } from './gitManager.js';
 import { IndependentEvaluator, EvaluationResult } from './independentEvaluator.js';
@@ -12,8 +12,7 @@ import { DagAutoHealer, TaskGraphNode } from './dagAutoHealer.js';
 import { DeltaFeatureEngine, type ProjectInventory, type DeltaPlanOptions } from './deltaFeatureEngine.js';
 import { ReaSaaSMasterService } from './reaSaaSMasterService.js';
 import { SessionCircuitBreaker } from './sessionCircuitBreaker.js';
-import { MarketDiscoveryService } from './marketDiscoveryService.js';
-import { ProjectLivingSpecService } from './projectLivingSpecService.js';
+import { TestSelector } from './testSelector.js';
 
 export { DeltaFeatureEngine, ReaSaaSMasterService, type ProjectInventory, type DeltaPlanOptions };
 
@@ -43,25 +42,6 @@ export type MicrotaskLifecycleState = TaskLifecycleState;
 export type AgentRole = AgentRoleType;
 export type AgentRoleType = 'supervisor' | 'worker' | 'review' | 'system' | 'user';
 export type ReviewDecisionVerdict = 'APPROVED' | 'REJECTED' | 'BLOCKED';
-
-export interface BriefingSubsection {
-  subNumber?: string;
-  title: string;
-  rawContent: string;
-  items: string[];
-  targetFiles: string[];
-}
-
-export interface BriefingPhase {
-  phaseNumber: number;
-  title: string;
-  cleanTitle?: string;
-  description: string;
-  rawContent?: string;
-  items: string[];
-  subsections?: BriefingSubsection[];
-  targetFiles?: string[];
-}
 
 export type AgentMessageType =
   | 'TASK_PLANNED'
@@ -680,17 +660,7 @@ export class HierarchicalOrchestrationService {
         JSON.stringify(eventMeta),
         nowIso
       );
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "hierarchicalOrchestrationService",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
-      }
-    }
+    } catch {}
 
     const created: any = db.prepare('SELECT * FROM agent_communications WHERE id = ?').get(id);
     return {
@@ -978,6 +948,103 @@ export class HierarchicalOrchestrationService {
     });
   }
 
+  static isVagueCriterion(criterion: string): boolean {
+    const norm = (criterion || '').trim().toLowerCase();
+    if (!norm) return true;
+    return (
+      /^(implementa[çc][ãa]o|funcionalidade|tarefa|c[oó]digo|requisito|escopo)\s+(conclu[íi]d[ao]|pront[ao]|feita?|atendid[ao]s?|finalizad[ao]|complet[ao])/i.test(norm) ||
+      /^implementar\s+["'].*["']\s+atendendo\s+aos\s+requisitos\s+funcionais/i.test(norm) ||
+      /^executar\s+comando\s+de\s+verifica[çc][ãa]o\s+automatizada/i.test(norm) ||
+      norm === 'implementação concluída' ||
+      norm === 'funcionalidade pronta' ||
+      norm === 'requisitos atendidos' ||
+      norm === 'código pronto' ||
+      norm.includes('concluída dentro do escopo permitido')
+    );
+  }
+
+  static enrichBinaryCriteria(title: string, scopeFiles: string[] = []): string[] {
+    const criteria: string[] = [];
+    const filesJoined = scopeFiles.join(' ').toLowerCase();
+    const titleLower = title.toLowerCase();
+
+    if (/(?:api|route|server|controller|endpoint|express|fastify)/i.test(filesJoined + ' ' + titleLower)) {
+      criteria.push(`Rotas e contratos de API em ${scopeFiles.length ? scopeFiles.join(', ') : 'src/'} respondem HTTP 200/201 para entradas válidas e HTTP 400 para payloads inválidos`);
+    } else if (/(?:db|database|schema|sqlite|repository|migration)/i.test(filesJoined + ' ' + titleLower)) {
+      criteria.push(`Tabelas SQLite e operações de persistência em ${scopeFiles.length ? scopeFiles.join(', ') : 'src/'} utilizam queries parametrizadas (?) com integridade referencial`);
+    } else if (/(?:ui|frontend|component|page|css|html|view)/i.test(filesJoined + ' ' + titleLower)) {
+      criteria.push(`Interface renderiza componentes com tokens semânticos :root, SVGs inline e sobrevive a recarregamento F5`);
+    } else {
+      criteria.push(`Contrato e lógica de "${title}" implementados com tipagem estrita e exportações funcionais sem placeholders ou TODOs`);
+    }
+
+    criteria.push(`Isolamento estrito nos arquivos de escopo (${scopeFiles.length ? scopeFiles.join(', ') : 'escopo do módulo'}) sem quebra de contratos adjacentes`);
+    criteria.push(`Comando de verificação focado executa com exit code 0 e tipagem estrita validada (tsc --noEmit ou suíte unitária)`);
+
+    return criteria;
+  }
+
+  /**
+   * Coalesce fragmented sub-steps or structural markdown headers into cohesive atomic tasks (TASK COALESCING).
+   */
+  static coalesceFragmentedTasks(tasks: any[]): any[] {
+    if (!Array.isArray(tasks) || tasks.length === 0) return [];
+    const coalesced: any[] = [];
+    const seenFiles = new Map<string, any>();
+
+    for (const t of tasks) {
+      const title = (t.title || '').trim();
+      if (/^(#+|\*{2,}|Endpoints?:|Módulos?:|Backend:|Frontend:)/i.test(title)) {
+        continue;
+      }
+      const files = Array.isArray(t.expectedFiles) ? t.expectedFiles : (Array.isArray(t.allowedScope) ? t.allowedScope : []);
+      const primaryFile = files[0] ? String(files[0]).toLowerCase() : null;
+
+      if (primaryFile && seenFiles.has(primaryFile)) {
+        const existing = seenFiles.get(primaryFile);
+        existing.description = `${existing.description}\n\n- ${title}: ${t.description || title}`;
+        if (Array.isArray(t.criteria)) {
+          existing.criteria = Array.from(new Set([...(existing.criteria || []), ...t.criteria]));
+        }
+      } else {
+        const copy = { ...t };
+        if (primaryFile) seenFiles.set(primaryFile, copy);
+        coalesced.push(copy);
+      }
+    }
+
+    return coalesced.length > 0 ? coalesced : tasks;
+  }
+
+  /**
+   * Extrai o stack tecnológico e arquitetura inferida a partir do briefing
+   */
+  static extractTechStackFromBriefing(briefing: string): {
+    framework: string;
+    architecture: string;
+    database?: string;
+  } {
+    const text = (briefing || '').toLowerCase();
+    let framework = 'Node.js Vanilla / TypeScript';
+    if (text.includes('fastify')) framework = 'Fastify';
+    else if (text.includes('express')) framework = 'Express';
+    else if (text.includes('next')) framework = 'Next.js';
+    else if (text.includes('react')) framework = 'React';
+
+    let architecture = 'Arquitetura Modular em Camadas com SQLite WAL';
+    if (text.includes('clean architecture') || text.includes('hexagonal')) {
+      architecture = 'Arquitetura Limpa / Hexagonal';
+    } else if (text.includes('microservice') || text.includes('microsserviço')) {
+      architecture = 'Arquitetura Orientada a Serviços';
+    }
+
+    return {
+      framework,
+      architecture,
+      database: text.includes('sqlite') ? 'SQLite (WAL)' : undefined
+    };
+  }
+
   /**
    * Validates microtask quality: rejects vague tasks and subdivides overly complex tasks
    * with a depth-bounded recursive algorithm (preventing infinite subdivision loops).
@@ -987,8 +1054,7 @@ export class HierarchicalOrchestrationService {
     microtasks: HierarchicalMicrotaskInput[],
     options?: { subdivideOversized?: boolean; strictVagueCheck?: boolean; maxSubdivisionDepth?: number }
   ): HierarchicalMicrotaskInput[] {
-    const isAlreadyDecomposedPlan = Array.isArray(microtasks) && microtasks.length >= 10;
-    const subdivide = options?.subdivideOversized !== false && !isAlreadyDecomposedPlan;
+    const subdivide = options?.subdivideOversized !== false;
     const strictVague = options?.strictVagueCheck === true;
     const maxDepth = Math.min(options?.maxSubdivisionDepth ?? 2, 3);
 
@@ -1037,14 +1103,24 @@ export class HierarchicalOrchestrationService {
           .replace(/\s*\((?:Parte|Part)\s*[\d.]+[^)]*\)/gi, '')
           .trim();
 
-        const criteria = Array.isArray(task.criteria) && task.criteria.length > 0
-          ? task.criteria
-          : [
-              `Implementação de "${normalizedTitle}" concluída dentro do escopo permitido`,
-              `Verificação automatizada executada com código de saída 0`
-            ];
-
         const scopeFiles = task.allowedScope || task.expectedFiles || [];
+
+        const rawCriteria = Array.isArray(task.criteria) ? task.criteria : [];
+        const nonVagueCriteria = rawCriteria
+          .map((c: any) => String(c || '').trim())
+          .filter((c: string) => c.length > 0 && !HierarchicalOrchestrationService.isVagueCriterion(c));
+
+        const criteria = nonVagueCriteria.length > 0
+          ? nonVagueCriteria
+          : HierarchicalOrchestrationService.enrichBinaryCriteria(cleanTitle, scopeFiles);
+
+        let verificationCommand = task.verificationCommand || '';
+        if (!verificationCommand) {
+          const focusedCmd = TestSelector.resolveTestForFiles(scopeFiles);
+          if (focusedCmd) {
+            verificationCommand = focusedCmd;
+          }
+        }
         const taskDepth = task.subdivisionDepth ?? currentPassDepth;
         const parentOriginId = task.parentTaskId || task.id || undefined;
 
@@ -1056,8 +1132,7 @@ export class HierarchicalOrchestrationService {
           anySplitInPass = true;
           const nextDepth = taskDepth + 1;
           const baseCode = task.code || 'UI';
-          const taskCaps = resolveProjectCapabilities(undefined, cleanTitle);
-          const requiredUiTasks = ReaSaaSMasterService.getRequiredSaaSMasterMicrotasks(cleanTitle, taskCaps);
+          const requiredUiTasks = ReaSaaSMasterService.getRequiredSaaSMasterMicrotasks(cleanTitle);
 
           const generatedTasks: HierarchicalMicrotaskInput[] = [];
           let previousTitle: string | null = null;
@@ -1199,11 +1274,6 @@ export class HierarchicalOrchestrationService {
           continue;
         }
 
-        if (isAlreadyDecomposedPlan) {
-          passResult.push(task);
-          continue;
-        }
-
         // Subdivide oversized microtasks (> 5 distinct acceptance criteria OR > 6 substantial files on pass 0,
         // or >= 4 criteria/substantial files on recursive pass when subdivided from a large monolithic task)
         // Guarded by maxDepth to prevent infinite subdivision loops (Scenario 17).
@@ -1303,7 +1373,8 @@ export class HierarchicalOrchestrationService {
             title: normalizedTitle,
             objective: task.objective || normalizedTitle,
             subdivisionDepth: taskDepth,
-            criteria
+            criteria,
+            verificationCommand: verificationCommand || task.verificationCommand
           });
         }
       }
@@ -1387,17 +1458,7 @@ export class HierarchicalOrchestrationService {
         nowIso,
         input.projectId
       );
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "hierarchicalOrchestrationService",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
-      }
-    }
+    } catch {}
 
     try {
       db.prepare(`
@@ -1412,17 +1473,7 @@ export class HierarchicalOrchestrationService {
         nowIso,
         input.runId
       );
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "hierarchicalOrchestrationService",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
-      }
-    }
+    } catch {}
 
     // Convert flatTasks into Major Tasks if majorTasks wasn't explicitly passed
     let majorTaskInputs: HierarchicalMajorTaskInput[] = [];
@@ -1430,16 +1481,7 @@ export class HierarchicalOrchestrationService {
       majorTaskInputs = input.majorTasks.map((mt, idx) => {
         // Flatten stage microtasks if stages were passed with embedded microtasks
         const stageFromList = Array.isArray(mt.stages) ? mt.stages : [];
-        const mtCodeNorm = (mt.code || `GT-${idx + 1}`).toUpperCase();
-        let combinedMicrotasks = [...(mt.microtasks || (mt as any).tasks || [])];
-        // HYDRATE_EMPTY_MAJOR_MICROTASKS_FROM_FLAT: Se a GT veio sem microtasks embutidas, vincula as tarefas correspondentes de flatTasks
-        if (combinedMicrotasks.length === 0 && Array.isArray(input.flatTasks) && input.flatTasks.length > 0) {
-          combinedMicrotasks = input.flatTasks.filter((ft: any) => {
-            const ftMajor = String(ft.majorTaskCode || ft.milestone || '').toUpperCase();
-            const ftCode = String(ft.code || '');
-            return ftMajor === mtCodeNorm || ftCode.startsWith(`${idx + 1}.`);
-          });
-        }
+        let combinedMicrotasks = [...(mt.microtasks || [])];
         if (combinedMicrotasks.length === 0 && stageFromList.length > 0) {
           for (const st of stageFromList) {
             for (const stm of st.microtasks || []) {
@@ -1465,15 +1507,6 @@ export class HierarchicalOrchestrationService {
     } else {
       const flat = this.validateAndSubdivideMicrotasks(input.flatTasks || [], {
         subdivideOversized: input.subdivideOversized,
-        maxSubdivisionDepth: input.maxSubdivisionDepth
-      });
-      majorTaskInputs = this.groupFlatTasksIntoMajorTasks(flat, input.originalDescription, requirements);
-    }
-    // FALLBACK_TO_FLAT_IF_ZERO_MICROTASKS: Nunca permitir GTs vazias (0/0) se flatTasks possui tarefas!
-    const totalMappedMicros = majorTaskInputs.reduce((acc, m) => acc + ((m.microtasks || []).length), 0);
-    if (totalMappedMicros === 0 && Array.isArray(input.flatTasks) && input.flatTasks.length > 0) {
-      const flat = this.validateAndSubdivideMicrotasks(input.flatTasks, {
-        subdivideOversized: false,
         maxSubdivisionDepth: input.maxSubdivisionDepth
       });
       majorTaskInputs = this.groupFlatTasksIntoMajorTasks(flat, input.originalDescription, requirements);
@@ -1600,16 +1633,8 @@ export class HierarchicalOrchestrationService {
         dependencies: item.raw.dependencies || []
       }));
       const healedMicros = this.autoHealAndNormalizeTaskGraph(microItemsToHeal);
-      // SYNC_HEALED_TITLE_AND_CHAIN: Sincroniza títulos e garante encadeamento sequencial (apenas 1.1 nasce READY)
       allMicrotasksToInsert.forEach((item, idx) => {
-        if (healedMicros[idx]?.title) {
-          item.raw.title = healedMicros[idx].title;
-        }
-        const deps = healedMicros[idx]?.dependencies || [];
-        if (idx > 0 && deps.length === 0) {
-          deps.push(allMicrotasksToInsert[idx - 1].id);
-        }
-        item.raw.dependencies = deps;
+        item.raw.dependencies = healedMicros[idx]?.dependencies || [];
       });
     }
 
@@ -2393,26 +2418,8 @@ export class HierarchicalOrchestrationService {
       'SELECT * FROM autonomous_tasks WHERE run_id = ? ORDER BY order_index ASC'
     ).all(runId);
 
-    return majors.map((m, mIdx) => {
-      // AUTO_HEAL_ORPHAN_SUBORDINATE_TASKS: Vincula por UUID (m.id), por código (GT-X), por milestone ou por prefixo numérico
-      const subordinate = tasks.filter(t => {
-        if (t.major_task_id === m.id) return true;
-        if (t.major_task_id === m.code) return true;
-        if (!t.major_task_id || !majors.some(mj => mj.id === t.major_task_id)) {
-          if (t.milestone && String(t.milestone).toUpperCase() === String(m.code).toUpperCase()) return true;
-          const prefix = `${m.order_index || (mIdx + 1)}.`;
-          if (t.code && String(t.code).startsWith(prefix)) return true;
-        }
-        return false;
-      });
-      for (const st of subordinate) {
-        if (st.major_task_id !== m.id) {
-          try {
-            db.prepare('UPDATE autonomous_tasks SET major_task_id = ? WHERE id = ?').run(m.id, st.id);
-            st.major_task_id = m.id;
-          } catch {}
-        }
-      }
+    return majors.map(m => {
+      const subordinate = tasks.filter(t => t.major_task_id === m.id);
       const activeSubordinate = subordinate.filter(t => t.status !== 'waived');
       const completedCount = activeSubordinate.filter(t => t.status === 'completed').length;
       const validationEvidence = m.validation_evidence_json ? JSON.parse(m.validation_evidence_json) : {};
@@ -2492,9 +2499,6 @@ export class HierarchicalOrchestrationService {
         validationEvidence,
         history: m.history_json ? JSON.parse(m.history_json) : [],
         progressPct,
-        descendantsTotal: subordinate.length,
-        descendantsCompleted: completedCount,
-        descendantsPending: Math.max(0, subordinate.length - completedCount),
         stages,
         microtasks: subordinate.map(t => ({
           id: t.id,
@@ -2711,30 +2715,11 @@ export class HierarchicalOrchestrationService {
       params.independentEvaluation ??
       IndependentEvaluator.getEvaluationByTaskId(params.taskId);
     const criteria: string[] = task.criteria_json ? JSON.parse(task.criteria_json) : ['Implementação concluída'];
-    const rawAllowedScope: string[] = task.allowed_scope_json
+    const allowedScope: string[] = task.allowed_scope_json
       ? JSON.parse(task.allowed_scope_json)
       : task.expected_files_json
       ? JSON.parse(task.expected_files_json)
       : [];
-
-    // Context-Aware Scope Expansion:
-    // 1. Extrair menções de arquivos contidas no título, objetivo, descrição e critérios da tarefa
-    const taskContextText = `${task.title || ''} ${task.objective || ''} ${task.description || ''} ${task.criteria_json || ''}`;
-    const mentionedFileMatches = taskContextText.match(/(?:[a-zA-Z0-9_\-\.\/]+)\.(?:[cm]?[jt]sx?|html|css|json|sql|ya?ml|env\.example|md)/gi) || [];
-    const extractedMentionedFiles = mentionedFileMatches
-      .map(m => m.replace(/^[(`'"<\s]+|[)`'">\s]+$/g, '').trim())
-      .filter(m => m && !m.includes('://') && !m.startsWith('node_modules'));
-
-    // 2. Se for Intervenção Cirúrgica ou Bugfix, o escopo operacional cobre os arquivos de código do projeto
-    const isSurgicalTask = task.milestone === 'Intervenção Cirúrgica' ||
-      (typeof task.title === 'string' && /Intervenção Cirúrgica|Diagnosticar e Corrigir|Bugfix/i.test(task.title)) ||
-      task.replan_type === 'SURGICAL';
-
-    const allowedScope = Array.from(new Set([
-      ...rawAllowedScope,
-      ...extractedMentionedFiles,
-      ...(isSurgicalTask ? ['src/', 'public/', 'app/', 'pages/', 'components/', 'lib/', 'server.js', 'server.ts', 'app.js', 'app.ts', 'index.js', 'index.ts'] : [])
-    ]));
 
     const effectiveReport = params.builderReport || params.workerReport;
     const reportFiles: string[] = Array.isArray(effectiveReport?.filesChanged)
@@ -2747,122 +2732,36 @@ export class HierarchicalOrchestrationService {
     const regressionsDetected: string[] = [];
     const problemsFound: string[] = [];
 
-    // Whitelist estrita de arquivos estruturais de repositório, configuração e testes auxiliares
-    const isWhitelistedStructuralOrAuxiliaryFile = (file: string): boolean => {
-      const norm = file.replace(/\\/g, '/').trim();
-      const base = path.basename(norm).toLowerCase();
-      const normLower = norm.toLowerCase();
-
-      const allowedBaseNames = new Set([
-        '.gitignore',
-        '.env.example',
-        '.dockerignore',
-        'dockerfile',
-        'package.json',
-        'package-lock.json',
-        'tsconfig.json',
-        'readme.md',
-        'design.md',
-        'agents.md',
-        'architecture.md',
-        'project.md',
-        'decisions.md',
-        'tasks.md',
-        'changes.md',
-        'session-summary.md',
-        'program.md',
-        'rea-blueprint.md',
-        'market-research-rea.md',
-        'lessons.md',
-        'server.js',
-        'server.ts',
-        'server.mjs',
-        'server.cjs',
-        'app.js',
-        'app.ts',
-        'index.js',
-        'index.ts',
-        'main.js',
-        'main.ts',
-        'page.tsx',
-        'page.jsx',
-        'page.js',
-        'page.ts',
-        'layout.tsx',
-        'layout.jsx',
-        'layout.js',
-        'layout.ts',
-        'loading.tsx',
-        'error.tsx',
-        'not-found.tsx',
-        'route.ts',
-        'route.js',
-        'globals.css',
-        'app.tsx',
-        'app.jsx',
-        'index.tsx',
-        'index.jsx',
-        'main.tsx',
-        'main.jsx',
-        'vite.config.js',
-        'vite.config.ts',
-        'vite.config.mjs',
-        'next.config.js',
-        'next.config.mjs',
-        'next.config.ts',
-        'tailwind.config.js',
-        'tailwind.config.ts',
-        'postcss.config.js',
-        'postcss.config.mjs',
-        'knexfile.js',
-        'drizzle.config.ts',
-        'drizzle.config.js'
-      ]);
-
-      if (allowedBaseNames.has(base)) return true;
-      if (normLower.endsWith('.md')) return true;
-      if (normLower.startsWith('.ai-dev-hub/') || normLower.startsWith('ai-dev-hub/')) return true;
-      if (normLower.startsWith('.agents/') || normLower.startsWith('agents/')) return true;
-      if (normLower.startsWith('.gemini/') || normLower.startsWith('gemini/')) return true;
-      if (normLower.startsWith('test/') || normLower.startsWith('tests/') || /(test|spec)\.[cm]?[jt]sx?$/i.test(norm)) return true;
-      if (normLower.startsWith('src/types/') || normLower.endsWith('.d.ts')) return true;
-      if (normLower.startsWith('src/config/') || normLower.startsWith('config/')) return true;
-      if (normLower.startsWith('src/database/') || normLower.startsWith('database/') || normLower.startsWith('data/database/') || normLower.startsWith('data/') || normLower.startsWith('src/db/') || normLower.startsWith('db/') || normLower.startsWith('prisma/')) return true;
-      if (normLower.startsWith('scripts/') || normLower.startsWith('tools/')) return true;
-      if (normLower.startsWith('e2e/') || normLower.startsWith('playwright/')) return true;
-      if (normLower.startsWith('docs/')) return true;
-      if (normLower.startsWith('.github/')) return true;
-      return false;
-    };
-
     // 1. Check for forbidden/secret/runtime files and scope compliance in reportFiles
     const shouldCheckScope = params.enforceScopeCheck !== false && allowedScope.length > 0;
     for (const rawFile of reportFiles) {
-      const normalized = String(rawFile || '').replace(/\\/g, '/').trim().replace(/^\.\//, '');
+      const normalized = String(rawFile || '').replace(/\\/g, '/').trim();
       if (!normalized) continue;
       if (
-        (/(^|\/)\.env(\.local|\.production|\.development)?$/i.test(normalized) && !normalized.endsWith('.env.example')) ||
+        /(^|\/)\.env(\.|$)/i.test(normalized) ||
         /\.(pem|key)$/i.test(normalized) ||
         /(^|\/)hub\.db(-wal|-shm)?$/i.test(normalized) ||
         /(^|\/)\.decohub-data(\/|$)/i.test(normalized)
       ) {
         securityOrIsolationIssues.push(`Arquivo proibido/sensível incluído nas alterações: ${normalized}`);
       }
-      if (shouldCheckScope && !isWhitelistedStructuralOrAuxiliaryFile(normalized)) {
+      if (shouldCheckScope) {
         const matchesScope = allowedScope.some(allowed => {
           const cleanAllowed = allowed.replace(/\\/g, '/').trim();
           if (
             normalized === cleanAllowed ||
-            (cleanAllowed.endsWith('/') && normalized.startsWith(cleanAllowed)) ||
-            normalized.startsWith(cleanAllowed + '/') ||
-            (cleanAllowed.includes('*') && normalized.startsWith(cleanAllowed.replace(/\*.*$/, '')))
+            normalized.startsWith(cleanAllowed.replace(/\*.*$/, '')) ||
+            /(test|spec)\.[cm]?[jt]sx?$/i.test(normalized) ||
+            normalized === 'package.json' ||
+            normalized.startsWith('.ai-dev-hub/') ||
+            normalized.startsWith('data/') ||
+            /\.(sqlite|db|sqlite3)$/i.test(normalized)
           ) return true;
 
-          // Extension Equivalence (.js <-> .cjs <-> .mjs <-> .ts <-> .tsx)
+          // Extension Equivalence (.js <-> .cjs <-> .mjs)
           const normExt = path.extname(normalized).toLowerCase();
           const allowExt = path.extname(cleanAllowed).toLowerCase();
-          const jsTsEquiv = ['.js', '.cjs', '.mjs', '.ts', '.tsx'];
-          if (jsTsEquiv.includes(normExt) && jsTsEquiv.includes(allowExt)) {
+          if (['.js', '.cjs', '.mjs'].includes(normExt) && ['.js', '.cjs', '.mjs'].includes(allowExt)) {
             const normBase = normalized.slice(0, -normExt.length);
             const allowBase = cleanAllowed.slice(0, -allowExt.length);
             if (normBase === allowBase) return true;
@@ -2881,17 +2780,7 @@ export class HierarchicalOrchestrationService {
     if (hasGitWorkspace) {
       try {
         gitInfo = GitManager.getGitInfo(params.projectPath);
-      } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "hierarchicalOrchestrationService",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
-      }
-    }
+      } catch {}
     }
 
     if (hasGitWorkspace && !task.task_commit_sha && reportFiles.length === 0 && allowedScope.length > 0 && params.supervisorVerdict !== 'BLOCKED' && evalRes?.verdict !== 'BLOCKED') {
@@ -2920,19 +2809,6 @@ export class HierarchicalOrchestrationService {
     for (const relFile of reportFiles) {
       const normalized = GitManager.normalizeRepoPath(params.projectPath, relFile);
       if (!normalized) continue;
-      // Arquivos de documentação, memória e governança do AI DEV HUB são ignorados na inspeção de falhas de código
-      if (
-        normalized.startsWith('.ai-dev-hub/') ||
-        normalized.startsWith('ai-dev-hub/') ||
-        normalized.startsWith('.agents/') ||
-        normalized.startsWith('agents/') ||
-        normalized.startsWith('.gemini/') ||
-        normalized.startsWith('gemini/') ||
-        normalized === 'AGENTS.md' ||
-        normalized === 'DESIGN.md'
-      ) {
-        continue;
-      }
       let fullPath = path.join(params.projectPath, normalized);
       let existsOnDisk = fs.existsSync(fullPath);
       if (!existsOnDisk && hasGitWorkspace) {
@@ -2966,17 +2842,7 @@ export class HierarchicalOrchestrationService {
           if (/TODO:\s*implement(ar(\s+depois|\s+cálculo.*)?|\s+later)|FIXME:\s*placeholder|throw new Error\(['"]Not implemented['"]\)/i.test(content)) {
             placeholdersOrMocksDetected.push(`Placeholder não implementado detectado em ${normalized}`);
           }
-        } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "hierarchicalOrchestrationService",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
-      }
-    }
+        } catch {}
       }
     }
 
@@ -2993,45 +2859,37 @@ export class HierarchicalOrchestrationService {
       }
     }
 
-    // Arquivos estruturais de repositório, configuração e testes auxiliares nunca geram REJECTED
-    const actionableOutOfScope = outOfScopeFiles.filter(file => {
-      return !isWhitelistedStructuralOrAuxiliaryFile(file);
-    });
-
     // 3. Determine decision (APPROVED, REJECTED, or BLOCKED)
     let decision: 'APPROVED' | 'REJECTED' | 'BLOCKED' = 'APPROVED';
-
-    const testsPassed = Boolean(evalRes && evalRes.verdict === 'PASS' && evalRes.taskIsDone === true);
-    const hasFatalIssues = problemsFound.length > 0 ||
-      securityOrIsolationIssues.length > 0 ||
-      regressionsDetected.length > 0 ||
-      placeholdersOrMocksDetected.length > 0 ||
-      (evalRes && evalRes.verdict !== 'PASS') ||
-      params.supervisorVerdict === 'CHANGES_REQUESTED' ||
-      params.supervisorVerdict === 'REJECTED';
 
     if (params.supervisorVerdict === 'BLOCKED' || (evalRes?.verdict === 'BLOCKED' && !params.allowReworkOnBlocked)) {
       decision = 'BLOCKED';
       problemsFound.push(params.supervisorFeedback || evalRes?.evaluatorNotes || 'Avaliação bloqueada por dependência ou comando incompatível.');
-    } else if (hasFatalIssues) {
+    } else if (
+      problemsFound.length > 0 ||
+      securityOrIsolationIssues.length > 0 ||
+      regressionsDetected.length > 0 ||
+      placeholdersOrMocksDetected.length > 0 ||
+      outOfScopeFiles.length > 0 ||
+      evalRes?.verdict === 'FAIL' ||
+      evalRes?.verdict === 'BLOCKED' ||
+      evalRes?.verdict === 'TAMPERING_DETECTED' ||
+      params.supervisorVerdict === 'CHANGES_REQUESTED' ||
+      params.supervisorVerdict === 'REJECTED'
+    ) {
       decision = 'REJECTED';
       problemsFound.push(
         ...securityOrIsolationIssues,
         ...regressionsDetected,
-        ...placeholdersOrMocksDetected
+        ...placeholdersOrMocksDetected,
+        ...outOfScopeFiles.map(f => `Arquivo fora do escopo permitido: ${f}`)
       );
-      if (actionableOutOfScope.length > 0) {
-        problemsFound.push(...actionableOutOfScope.map(f => `Arquivo fora do escopo permitido: ${f}`));
-      }
       if (evalRes && evalRes.verdict !== 'PASS') {
         problemsFound.push(evalRes.evaluatorNotes || `Avaliação independente retornou ${evalRes.verdict}`);
       }
       if (params.supervisorFeedback && params.supervisorVerdict !== 'APPROVED') {
         problemsFound.push(params.supervisorFeedback);
       }
-    } else if (actionableOutOfScope.length > 0) {
-      decision = 'REJECTED';
-      problemsFound.push(...actionableOutOfScope.map(f => `Arquivo fora do escopo permitido: ${f}`));
     }
 
     // 4. Evaluate individual criteria
@@ -3071,10 +2929,25 @@ export class HierarchicalOrchestrationService {
       outputExcerpt: (evalRes?.actual || params.supervisorFeedback || '').slice(0, 500)
     }));
 
+    let surgicalDiagnosisText = '';
+    if (decision === 'REJECTED') {
+      const diag = evalRes?.evidence?.ciDoctorDiagnosis;
+      const rootCause = IndependentEvaluator.extractSurgicalRootCauseDiagnosis({
+        output: (evalRes?.evidence as any)?.terminalOutput || evalRes?.evidence?.output || evalRes?.actual || params.supervisorFeedback || '',
+        failureDiagnosis: diag,
+        projectPath: params.projectPath,
+        fallbackFile: reportFiles[0] || allowedScope[0] || 'src/',
+        fallbackError: problemsFound[0] || evalRes?.actual || 'Critérios obrigatórios não atendidos na avaliação independente',
+        fallbackDirective: `Isolar a quebra em "${task.verification_command || 'npm test'}" e corrigir pontualmente sem alterar testes.`
+      });
+      surgicalDiagnosisText = rootCause.formatted;
+    }
+
     const recommendedCorrections =
       decision === 'APPROVED'
         ? []
         : [
+            ...(surgicalDiagnosisText ? [surgicalDiagnosisText] : []),
             ...problemsFound.map(p => `Corrigir: ${p}`),
             `Garantir que o comando "${task.verification_command || 'npm test'}" passe com código 0`
           ];
@@ -3096,15 +2969,14 @@ export class HierarchicalOrchestrationService {
       securityOrIsolationIssues,
       problemsFound,
       justification:
-        decision === 'APPROVED'
-          ? (actionableOutOfScope.length > 0
-              ? `${params.supervisorFeedback || evalRes?.evaluatorNotes || 'Todos os critérios obrigatórios e verificações independentes foram comprovados'} (escopo adaptativo: ${actionableOutOfScope.length} arquivo(s) adicional(is) integrado(s): ${actionableOutOfScope.join(', ')}).`
-              : (params.supervisorFeedback || evalRes?.evaluatorNotes || 'Todos os critérios obrigatórios e verificações independentes foram comprovados.'))
-          : problemsFound.length > 0
-          ? `Reprovado no Review independente: ${problemsFound.join('; ')}`
-          : (evalRes && evalRes.verdict !== 'PASS'
-            ? `Reprovado pelo Evaluator: ${evalRes.actual || evalRes.evaluatorNotes}`
-            : 'Critérios obrigatórios não atendidos na avaliação independente.'),
+        (decision === 'APPROVED' ? (params.supervisorFeedback || evalRes?.evaluatorNotes) : null) ||
+        (decision === 'APPROVED'
+          ? 'Todos os critérios obrigatórios e verificações independentes foram comprovados.'
+          : (evalRes?.evaluatorNotes && evalRes.evaluatorNotes.includes('[ARQUIVO E LINHA]')
+            ? evalRes.evaluatorNotes
+            : (surgicalDiagnosisText
+              ? `Reprovado no Review independente:\n${surgicalDiagnosisText}`
+              : (problemsFound.length > 0 ? `Reprovado no Review independente: ${problemsFound.join('; ')}` : 'Critérios obrigatórios não atendidos na avaliação independente.')))),
       recommendedCorrections,
       evaluatedAt: new Date().toISOString()
     };
@@ -3289,43 +3161,21 @@ export class HierarchicalOrchestrationService {
         const norm = GitManager.normalizeRepoPath(params.projectPath, f);
         if (!norm) return false;
         if (
-          (/(^|\/)\.env(\.|$)/i.test(norm) && !/(^|\/)\.env\.(example|sample|template|test)$/i.test(norm)) ||
+          /(^|\/)\.env(\.|$)/i.test(norm) ||
           /\.(pem|key)$/i.test(norm) ||
           /(^|\/)hub\.db(-wal|-shm)?$/i.test(norm) ||
           /(^|\/)\.decohub-data(\/|$)/i.test(norm)
         ) {
           return false;
         }
-        if (
-          norm.startsWith('.ai-dev-hub/') ||
-          norm === '.gitignore' ||
-          norm === '.env.example' ||
-          norm === '.env.sample' ||
-          norm === '.env.template'
-        ) {
+        if (norm.startsWith('.ai-dev-hub/') || norm === '.gitignore') {
           return true;
         }
         if (hasExplicitOrScopedRestriction) {
           const inExplicit = explicitFiles.includes(norm);
           const inAllowedScope = allowedScope.some(allowed => {
             const cleanAllowed = allowed.replace(/\\/g, '/').trim();
-            if (
-              norm === cleanAllowed ||
-              (cleanAllowed.endsWith('/') && norm.startsWith(cleanAllowed)) ||
-              norm.startsWith(cleanAllowed + '/') ||
-              (cleanAllowed.includes('*') && norm.startsWith(cleanAllowed.replace(/\*.*$/, '')))
-            ) return true;
-
-            // Extension Equivalence (.js <-> .cjs <-> .mjs <-> .ts <-> .tsx)
-            const normExt = path.extname(norm).toLowerCase();
-            const allowExt = path.extname(cleanAllowed).toLowerCase();
-            const jsTsEquiv = ['.js', '.cjs', '.mjs', '.ts', '.tsx'];
-            if (jsTsEquiv.includes(normExt) && jsTsEquiv.includes(allowExt)) {
-              const normBase = norm.slice(0, -normExt.length);
-              const allowBase = cleanAllowed.slice(0, -allowExt.length);
-              if (normBase === allowBase) return true;
-            }
-            return false;
+            return norm === cleanAllowed || norm.startsWith(cleanAllowed.replace(/\*.*$/, ''));
           });
           return inExplicit || inAllowedScope;
         }
@@ -3381,17 +3231,7 @@ export class HierarchicalOrchestrationService {
           encoding: 'utf-8',
           stdio: ['ignore', 'pipe', 'ignore']
         }).trim();
-      } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "hierarchicalOrchestrationService",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
-      }
-    }
+      } catch {}
 
       let commitSha = task.task_commit_sha || null;
       if (!commitSha && candidateFiles.length > 0) {
@@ -3406,76 +3246,20 @@ export class HierarchicalOrchestrationService {
             if (headAfter !== headBefore) {
               commitSha = headAfter;
             }
-          } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "hierarchicalOrchestrationService",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
-      }
-    }
+          } catch {}
         }
       }
 
       if (!commitSha && headBefore) {
-        // Reuse HEAD if:
-        // 1. Commit message mentions task code, title, ID, or order index
-        // 2. OR the commit actually touched the candidate files
-        // 3. OR the working tree is clean (work already committed)
+        // Only reuse HEAD if the commit message explicitly references this task, proving it was already committed for this task
         const commitDetails = GitManager.getCommitDetails(params.projectPath, headBefore);
-        let matchesThisTask = false;
-        if (commitDetails) {
-          const msgLower = commitDetails.message.toLowerCase();
-          const titleLower = task.title.toLowerCase();
-          const orderMatch = typeof task.order_index === 'number' && (
-            new RegExp(`(?:task|tarefa)\\s*(?:[0-9]+\\.)?${task.order_index}\\b`, 'i').test(commitDetails.message) ||
-            commitDetails.message.includes(`[${task.order_index}]`)
-          );
-          if (
-            (taskCode && commitDetails.message.includes(`[${taskCode}]`)) ||
-            msgLower.includes(titleLower) ||
-            commitDetails.message.includes(task.id) ||
-            orderMatch
-          ) {
-            matchesThisTask = true;
-          } else {
-            // Check if headBefore touched candidateFiles
-            try {
-              const diffFiles = execFileSync('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', headBefore], {
-                cwd: params.projectPath,
-                encoding: 'utf-8',
-                stdio: ['ignore', 'pipe', 'ignore'],
-                timeout: 5000
-              }).split(/\r?\n/).map(f => f.trim().replace(/\\/g, '/')).filter(Boolean);
-
-              const touchesCandidate = candidateFiles.some(cf => {
-                const normCf = cf.replace(/\\/g, '/');
-                return diffFiles.includes(normCf) || diffFiles.some(df => df.endsWith(normCf) || normCf.endsWith(df));
-              });
-              if (touchesCandidate) {
-                matchesThisTask = true;
-              }
-            } catch {}
-          }
-        }
-        // If working directory is clean and evaluator passed, accept headBefore as valid commit
-        if (matchesThisTask || candidateFiles.length === 0 || !commitSha) {
-          try {
-            const statusOut = execFileSync('git', ['status', '--porcelain'], {
-              cwd: params.projectPath,
-              encoding: 'utf-8',
-              stdio: ['ignore', 'pipe', 'ignore'],
-              timeout: 5000
-            }).trim();
-            if (!statusOut || matchesThisTask) {
-              commitSha = headBefore;
-            }
-          } catch {
-            if (matchesThisTask) commitSha = headBefore;
-          }
+        const matchesThisTask = commitDetails && (
+          (taskCode && commitDetails.message.includes(`[${taskCode}]`)) ||
+          commitDetails.message.includes(task.title) ||
+          commitDetails.message.includes(task.id)
+        );
+        if (matchesThisTask) {
+          commitSha = headBefore;
         }
       }
 
@@ -3577,17 +3361,7 @@ export class HierarchicalOrchestrationService {
       try {
         SessionCircuitBreaker.resetTaskWindow(projectId, task.id);
         SessionCircuitBreaker.resetProjectWindow(projectId);
-      } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "hierarchicalOrchestrationService",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
-      }
-    }
+      } catch {}
 
       this.recordAgentCommunication({
         idempotencyKey: `completed:${params.runId}:${task.id}`,
@@ -5147,1276 +4921,21 @@ export class HierarchicalOrchestrationService {
   }
 
   /**
-   * Helper to extract explicit file targets from a line or block of text.
-   */
-  public static extractTargetFilesFromText(text: string): string[] {
-    if (!text || typeof text !== 'string') return [];
-    const found = new Set<string>();
-
-    // 1. Parenthesized file paths: (types/ad.ts), (app/api/mine/route.ts), (components/SearchFilters.tsx)
-    const parenMatches = text.match(/\(([^)\n\r]+\.[a-zA-Z0-9]+)\)/g);
-    if (parenMatches) {
-      for (const pm of parenMatches) {
-        const clean = pm.slice(1, -1).trim().replace(/^[./\\]+/, '');
-        if (clean && !clean.includes(' ') && /\.(?:ts|tsx|js|jsx|json|css|scss|html|md|prisma|sql)$/i.test(clean)) {
-          found.add(clean.replace(/\\/g, '/'));
-        }
-      }
-    }
-
-    // 2. Paths with slashes or code blocks: `types/ad.ts` or components/AdCard.tsx or app/api/mine/route.ts
-    const pathMatches = text.match(/`?([a-zA-Z0-9_.\-]+\/[a-zA-Z0-9_.\-/]+\.[a-zA-Z0-9]+)`?/g);
-    if (pathMatches) {
-      for (const pm of pathMatches) {
-        const clean = pm.replace(/[`']/g, '').trim().replace(/^[./\\]+/, '');
-        if (clean && !clean.includes(' ') && /\.(?:ts|tsx|js|jsx|json|css|scss|html|md|prisma|sql)$/i.test(clean)) {
-          found.add(clean.replace(/\\/g, '/'));
-        }
-      }
-    }
-
-    // 3. Known root project files
-    const rootFileMatches = text.match(/`?(package\.json|tsconfig\.json|\.env\.example|\.env|Dockerfile|README\.md)`?/gi);
-    if (rootFileMatches) {
-      for (const rm of rootFileMatches) {
-        found.add(rm.replace(/[`']/g, '').trim());
-      }
-    }
-
-    return Array.from(found);
-  }
-
-  /**
-   * Extracts explicitly numbered execution phases and their sub-requirements from a user briefing.
-   */
-  public static extractPhasesFromBriefing(briefing: string): BriefingPhase[] {
-    if (!briefing || typeof briefing !== 'string') return [];
-    const lines = briefing.split(/\r?\n/);
-    const phases: BriefingPhase[] = [];
-
-    let currentPhase: BriefingPhase | null = null;
-    let currentSubsection: BriefingSubsection | null = null;
-
-    const phaseRegex = /^(?:#{1,4}\s*)?(?:Fase|Etapa|Phase|Stage|Passo)\s*(\d+)[\s:—–-]+([^\n\r]+)/i;
-    const numberedHeaderRegex = /^(?:#{1,3}\s*)(\d+)\.\s+([A-ZÀ-Ú][^\n\r]+)/;
-    const subsectionRegex = /^(?:#{3,4}\s*)(?:(?:Subetapa|Subfase|Parte)\s*)?(\d+(?:\.\d+)+)?[\s:—–.-]*([^\n\r]+)/i;
-
-    const finalizeSubsection = () => {
-      if (currentSubsection && currentPhase) {
-        if (!currentPhase.subsections) currentPhase.subsections = [];
-        currentPhase.subsections.push(currentSubsection);
-        currentSubsection = null;
-      }
-    };
-
-    const finalizePhase = () => {
-      finalizeSubsection();
-      if (currentPhase) {
-        phases.push(currentPhase);
-        currentPhase = null;
-      }
-    };
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
-
-      // 1. Main Phase check
-      const pMatch = line.match(phaseRegex);
-      if (pMatch) {
-        finalizePhase();
-        const rawTitle = pMatch[2].trim().replace(/^[-—–:\s]+|[-—–:\s]+$/g, '');
-        currentPhase = {
-          phaseNumber: parseInt(pMatch[1], 10),
-          title: rawTitle,
-          cleanTitle: rawTitle.replace(/^(?:Etapa|Fase|Phase|Stage|Passo)\s*\d+[\s:—–-]+/i, '').trim(),
-          description: '',
-          rawContent: line + '\n',
-          items: [],
-          subsections: [],
-          targetFiles: HierarchicalOrchestrationService.extractTargetFilesFromText(line)
-        };
-        continue;
-      }
-
-      // Check numbered header as main phase if after phase 1 or multiple numbered
-      if (!currentPhase && phases.length >= 2) {
-        const hMatch = line.match(numberedHeaderRegex);
-        if (hMatch && !line.includes('.' + hMatch[1])) {
-          finalizePhase();
-          const rawTitle = hMatch[2].trim();
-          currentPhase = {
-            phaseNumber: parseInt(hMatch[1], 10),
-            title: rawTitle,
-            cleanTitle: rawTitle,
-            description: '',
-            rawContent: line + '\n',
-            items: [],
-            subsections: [],
-            targetFiles: HierarchicalOrchestrationService.extractTargetFilesFromText(line)
-          };
-          continue;
-        }
-      }
-
-      if (currentPhase) {
-        // If a new ## section appears that is not a phase regex
-        if (/^##\s+\d+\.\s+/i.test(line) && !line.match(phaseRegex)) {
-          finalizePhase();
-          continue;
-        }
-
-        // 2. Subsection check (e.g. ### 4.1. Barra de Busca... or ### Card do Anúncio)
-        if (/^#{3,4}\s+/.test(line)) {
-          const subMatch = line.match(subsectionRegex);
-          finalizeSubsection();
-          const subTitle = (subMatch ? subMatch[2] : line.replace(/^#{3,4}\s+/, '')).trim();
-          const subNumber = subMatch && subMatch[1] ? subMatch[1] : undefined;
-          currentSubsection = {
-            subNumber,
-            title: subTitle,
-            rawContent: line + '\n',
-            items: [],
-            targetFiles: HierarchicalOrchestrationService.extractTargetFilesFromText(line)
-          };
-          currentPhase.rawContent = (currentPhase.rawContent || '') + line + '\n';
-          continue;
-        }
-
-        // 3. Bullets / Specification items
-        if (/^[-*•]\s+/.test(line) || /^\d+(\.\d+)?\.\s+/.test(line)) {
-          const itemText = line.replace(/^[-*•]\s+|\d+(\.\d+)?\.\s+/, '').trim();
-          if (itemText.length > 2) {
-            const detectedFiles = HierarchicalOrchestrationService.extractTargetFilesFromText(line);
-            if (currentSubsection) {
-              currentSubsection.items.push(itemText);
-              currentSubsection.rawContent += line + '\n';
-              if (detectedFiles.length > 0) {
-                currentSubsection.targetFiles.push(...detectedFiles);
-              }
-            } else {
-              currentPhase.items.push(itemText);
-              if (detectedFiles.length > 0 && currentPhase.targetFiles) {
-                currentPhase.targetFiles.push(...detectedFiles);
-              }
-            }
-          }
-          currentPhase.rawContent = (currentPhase.rawContent || '') + line + '\n';
-        } else {
-          // Regular text
-          if (currentSubsection) {
-            currentSubsection.rawContent += line + '\n';
-            const detectedFiles = HierarchicalOrchestrationService.extractTargetFilesFromText(line);
-            if (detectedFiles.length > 0) {
-              currentSubsection.targetFiles.push(...detectedFiles);
-            }
-          } else {
-            currentPhase.rawContent = (currentPhase.rawContent || '') + line + '\n';
-            if (!currentPhase.description && line.length > 10) {
-              currentPhase.description = line;
-            }
-            const detectedFiles = HierarchicalOrchestrationService.extractTargetFilesFromText(line);
-            if (detectedFiles.length > 0 && currentPhase.targetFiles) {
-              currentPhase.targetFiles.push(...detectedFiles);
-            }
-          }
-        }
-      }
-    }
-
-    finalizePhase();
-
-    // Deduplicate targetFiles inside each phase & subsection
-    for (const p of phases) {
-      if (p.targetFiles) {
-        p.targetFiles = Array.from(new Set(p.targetFiles));
-      }
-      if (p.subsections) {
-        for (const s of p.subsections) {
-          s.targetFiles = Array.from(new Set(s.targetFiles));
-        }
-      }
-    }
-
-    const uniquePhases: BriefingPhase[] = [];
-    const seen = new Set<number>();
-    for (const p of phases) {
-      if (!seen.has(p.phaseNumber)) {
-        seen.add(p.phaseNumber);
-        uniquePhases.push(p);
-      }
-    }
-
-    return uniquePhases.sort((a, b) => a.phaseNumber - b.phaseNumber);
-  }
-
-  /**
-   * Builds high-fidelity Major Tasks and atomic microtasks directly from the user's explicit briefing phases.
-   * PROIBIÇÃO ABSOLUTA de picotar bullets individuais em microtarefas separadas.
-   * 1 Tarefa = 1 Etapa / Subseção / Arquivo Completo.
-   */
-  public static buildBlueprintsFromPhases(
-    phases: BriefingPhase[],
-    projectName: string,
-    briefingExtraction: { entities: string[]; services: string[]; filters: string[] }
-  ): any[] {
-    const blueprints: any[] = [];
-    let hasHomologation = false;
-
-    phases.forEach((phase, idx) => {
-      const gtNumber = phase.phaseNumber || idx + 1;
-      const gtCode = `GT-${gtNumber}`;
-      const stageCode = `ET-${gtNumber}.1`;
-      const microtasks: any[] = [];
-
-      const cleanPhaseTitle = (phase.cleanTitle || phase.title)
-        .replace(/^(?:Etapa|Fase|Phase|Stage|Passo)\s*\d+[\s:—–-]+/i, '')
-        .trim();
-
-      if (/(homologa|build|valida.*(tsc|compila)|homologação)/i.test(phase.title)) {
-        hasHomologation = true;
-      }
-
-      // Caso A: A Etapa possui subseções explícitas (ex: 4.1 Barra de Busca, 4.2 Card do Anúncio)
-      if (phase.subsections && phase.subsections.length > 0) {
-        phase.subsections.forEach((sub, subIdx) => {
-          const subNumStr = sub.subNumber || `${gtNumber}.${subIdx + 1}`;
-          const cleanSubTitle = sub.title
-            .replace(/^(?:\d+(?:\.\d+)?[\s:—–.-]+)/, '')
-            .trim();
-
-          const subFiles = sub.targetFiles && sub.targetFiles.length > 0
-            ? sub.targetFiles
-            : (phase.targetFiles && phase.targetFiles.length > 0
-                ? phase.targetFiles
-                : [`src/components/${cleanSubTitle.replace(/[^a-zA-Z0-9]/g, '') || 'Component'}.tsx`]);
-
-          const bulletsText = sub.items.length > 0
-            ? '\n\nEspecificações e regras detalhadas:\n' + sub.items.map(it => `- ${it}`).join('\n')
-            : '';
-          const desc = `${sub.rawContent.trim() || `Implementar ${cleanSubTitle} atendendo integralmente ao escopo definido.`}${bulletsText}`;
-
-          const criteria: string[] = [];
-          if (sub.items.length > 0) {
-            sub.items.slice(0, 8).forEach(it => criteria.push(it));
-            if (sub.items.length > 8) {
-              criteria.push(`Atender integralmente às ${sub.items.length} regras e especificações de ${cleanSubTitle}`);
-            }
-          } else {
-            criteria.push(`Implementação completa de ${cleanSubTitle} atendendo a todos os requisitos`);
-          }
-          criteria.push('Código sem erros de compilação TypeScript e pronto para integração');
-
-          const actionPrefix = /^(?:Criar|Implementar|Configurar|Construir|Desenvolver|Integrar|Validar)\b/i.test(cleanSubTitle)
-            ? ''
-            : 'Implementar ';
-
-          microtasks.push({
-            subCode: subNumStr,
-            title: `${actionPrefix}${cleanSubTitle}`,
-            desc,
-            files: subFiles,
-            criteria
-          });
-        });
-      } else {
-        // Caso B: A Etapa trata de um único arquivo ou rota coesa (ex: types/ad.ts ou app/api/mine/route.ts)
-        const phaseFiles = phase.targetFiles && phase.targetFiles.length > 0
-          ? phase.targetFiles
-          : (idx === 0
-              ? ['package.json', 'tsconfig.json', 'src/types/index.ts']
-              : [`src/modules/${cleanPhaseTitle.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || 'module'}.ts`]);
-
-        const bulletsText = phase.items.length > 0
-          ? '\n\nEspecificações e regras detalhadas:\n' + phase.items.map(it => `- ${it}`).join('\n')
-          : '';
-        const fullDesc = `${(phase.rawContent || '').trim() || phase.description || `Implementar ${cleanPhaseTitle} atendendo integralmente ao escopo definido.`}${bulletsText}`;
-
-        // Se a etapa for grande e possuir múltiplos arquivos alvo distintos e muitos itens (> 12 itens),
-        // divide em até 2 microtarefas coesas (ex: rota core + heurísticas/filtros)
-        if (phaseFiles.length >= 2 && phase.items.length >= 12) {
-          const half = Math.ceil(phase.items.length / 2);
-          const items1 = phase.items.slice(0, half);
-          const items2 = phase.items.slice(half);
-
-          microtasks.push({
-            subCode: `${gtNumber}.1`,
-            title: `Implementar ${cleanPhaseTitle} — Estrutura e Serviços Core`,
-            desc: `${fullDesc}\n\nFoco da Parte 1:\n${items1.map(it => `- ${it}`).join('\n')}`,
-            files: [phaseFiles[0]],
-            criteria: [
-              ...items1.slice(0, 6),
-              'Estrutura e serviços core implementados com tipagem estrita e validação'
-            ]
-          });
-
-          microtasks.push({
-            subCode: `${gtNumber}.2`,
-            title: `Implementar ${cleanPhaseTitle} — Heurísticas, Integrações e Filtros`,
-            desc: `${fullDesc}\n\nFoco da Parte 2:\n${items2.map(it => `- ${it}`).join('\n')}`,
-            files: phaseFiles.slice(1),
-            criteria: [
-              ...items2.slice(0, 6),
-              'Heurísticas, integrações e validações complementares funcionando sem erros'
-            ]
-          });
-        } else {
-          // 1 única microtarefa coesa para o arquivo/módulo completo!
-          const criteria: string[] = [];
-          if (phase.items.length > 0) {
-            phase.items.slice(0, 10).forEach(it => criteria.push(it));
-            if (phase.items.length > 10) {
-              criteria.push(`Atender a todas as ${phase.items.length} regras e propriedades de ${cleanPhaseTitle}`);
-            }
-          } else {
-            criteria.push(`Implementação completa de ${cleanPhaseTitle} atendendo a todos os requisitos`);
-          }
-          criteria.push('Código compilando sem erros e validado');
-
-          const actionPrefix = /^(?:Criar|Implementar|Configurar|Construir|Desenvolver|Integrar|Validar)\b/i.test(cleanPhaseTitle)
-            ? ''
-            : 'Implementar ';
-
-          microtasks.push({
-            subCode: `${gtNumber}.1`,
-            title: `${actionPrefix}${cleanPhaseTitle}`,
-            desc: fullDesc,
-            files: phaseFiles,
-            criteria
-          });
-        }
-      }
-
-      blueprints.push({
-        code: gtCode,
-        title: phase.title,
-        stageCode,
-        stageTitle: phase.title,
-        reqCats: ['general', 'persistence', 'api_contracts'],
-        microtasks
-      });
-    });
-
-    // Se nenhuma etapa explícita de homologação/build foi encontrada, adiciona 1 etapa final de Homologação e Build
-    if (!hasHomologation) {
-      const finalGtNum = phases.length + 1;
-      const finalGtCode = `GT-${finalGtNum}`;
-      blueprints.push({
-        code: finalGtCode,
-        title: 'Homologação, Build e Validação Integrada',
-        stageCode: `ET-${finalGtNum}.1`,
-        stageTitle: 'Homologação e Build Final',
-        reqCats: ['testing_verification'],
-        microtasks: [
-          {
-            subCode: `${finalGtNum}.1`,
-            title: 'Validar compilação TypeScript (tsc / next build), .env.example e funcionamento integrado de todas as rotas e componentes',
-            desc: 'Executar verificação estática de tipos, compilação de produção, conferência de variáveis de ambiente no .env.example e teste integrado de todas as rotas e componentes do projeto.',
-            files: ['package.json', 'tsconfig.json', '.env.example', 'README.md'],
-            criteria: [
-              'Compilação TypeScript estrita sem erros de tipo (tsc / next build)',
-              'Arquivo .env.example completo documentando todas as chaves e variáveis necessárias',
-              'Todas as rotas e componentes integrados funcionando sem quebras ou dependências órfãs'
-            ]
-          }
-        ]
-      });
-    }
-
-    return blueprints;
-  }
-
-  /**
-   * Extrai a stack tecnológica real descrita no briefing do usuário.
-   * Evita fixar stacks estáticas (como Next.js/React) quando o prompt especifica Node.js, Baileys, SQLite WAL, Fastify, etc.
-   */
-  public static extractTechStackFromBriefing(briefing: string): {
-    framework: string;
-    architecture: string;
-    details?: string[];
-  } {
-    if (!briefing || typeof briefing !== 'string') {
-      return {
-        framework: 'Node.js / TypeScript',
-        architecture: 'Arquitetura Modular em Camadas'
-      };
-    }
-
-    const lower = briefing.toLowerCase();
-    const details: string[] = [];
-
-    // WhatsApp / Baileys + Cakto + SQLite WAL
-    const hasBaileys = lower.includes('baileys') || lower.includes('@whiskeysockets/baileys');
-    const hasWhatsApp = lower.includes('whatsapp') || hasBaileys;
-    const hasCakto = lower.includes('cakto');
-    const hasSqlite = lower.includes('sqlite') || lower.includes('better-sqlite3');
-    const hasWal = lower.includes('wal');
-    const hasFastify = lower.includes('fastify');
-    const hasExpress = lower.includes('express');
-    const hasFfmpeg = lower.includes('ffmpeg') || lower.includes('libopus') || lower.includes('opus') || lower.includes('ptt');
-
-    if (hasWhatsApp && (hasBaileys || hasCakto || hasSqlite)) {
-      const httpPart = (hasFastify && hasExpress) ? 'Fastify/Express' : (hasFastify ? 'Fastify' : (hasExpress ? 'Express' : 'Fastify/Express'));
-      const dbPart = hasWal ? 'SQLite WAL' : 'SQLite';
-      return {
-        framework: `Node.js • TypeScript • Baileys • ${dbPart} • ${httpPart}`,
-        architecture: 'Arquitetura Monolítica Modular com Fila Anti-Ban, Máquina de Estados e SQLite WAL',
-        details: [
-          'Node.js (LTS) + TypeScript (Strict Mode)',
-          `Servidor HTTP: ${httpPart}`,
-          'Motor WhatsApp: @whiskeysockets/baileys',
-          'Banco de Dados: better-sqlite3 (PRAGMA journal_mode = WAL)',
-          ...(hasFfmpeg ? ['Áudio: FFmpeg (PTT Opus)'] : []),
-          ...(hasCakto ? ['Webhooks: Cakto com Idempotência'] : []),
-          'Infraestrutura: VPS Google Cloud (Ubuntu LTS) + PM2 + Caddy Server'
-        ]
-      };
-    }
-
-    // Python / FastAPI / Django
-    if (lower.includes('fastapi') || (lower.includes('python') && !lower.includes('javascript'))) {
-      const framework = lower.includes('fastapi') ? 'Python • FastAPI' : 'Python';
-      return {
-        framework,
-        architecture: hasSqlite ? 'Arquitetura Modular em Camadas com SQLite' : 'Arquitetura Modular em Camadas',
-        details: [framework]
-      };
-    }
-
-    // Next.js / React
-    const isNext = lower.includes('next.js') || lower.includes('nextjs');
-    const isReact = lower.includes('react');
-    if (isNext || isReact) {
-      const framework = isNext ? 'Next.js • React • TypeScript' : 'React • TypeScript';
-      return {
-        framework,
-        architecture: hasSqlite ? 'Arquitetura Modular Full-Stack com SQLite' : 'Arquitetura Modular Full-Stack',
-        details: [framework]
-      };
-    }
-
-    // Backend Node.js padrão
-    const httpFramework = hasFastify ? 'Fastify' : (hasExpress ? 'Express' : 'Node.js');
-    const dbName = hasSqlite ? (hasWal ? 'SQLite WAL' : 'SQLite') : (lower.includes('postgres') ? 'PostgreSQL' : '');
-    const frameworkParts = ['Node.js', 'TypeScript'];
-    if (httpFramework !== 'Node.js') frameworkParts.push(httpFramework);
-    if (dbName) frameworkParts.push(dbName);
-
-    return {
-      framework: frameworkParts.join(' • '),
-      architecture: hasSqlite ? 'Arquitetura Modular em Camadas com SQLite WAL' : 'Arquitetura Modular em Camadas',
-      details: frameworkParts
-    };
-  }
-
-  /**
-   * Garante a separação estrita entre ferramentas locais (local_personal) e produtos comerciais (commercial_saas).
-   * Para local_personal: PROÍBE terminantemente tarefas de telas de login, cadastro, recuperação de senha,
-   * planos de assinatura e checkout. Foca 100% no valor operacional direto.
-   * Para commercial_saas: ASSEGURA o pipeline comercial com autenticação, multi-tenant (tenant_id),
-   * webhooks/checkout e dashboard do assinante.
-   */
-  public static enforceProfileConstraints(
-    tasks: PlannedTask[],
-    projectProfile: ProjectProfileMode = 'local_personal',
-    capabilities?: ProjectCapabilities
-  ): PlannedTask[] {
-    if (!tasks || tasks.length === 0) return tasks;
-
-    const isLocal = projectProfile === 'local_personal';
-    const isCommercial = projectProfile === 'commercial_saas';
-
-    if (isLocal) {
-      // 1. Filtrar tarefas estritamente de telas de login, cadastro de usuário, recuperação de senha, checkout de assinatura ou planos
-      const filtered = tasks.filter(t => {
-        const title = (t.title || '').toLowerCase();
-        const desc = (t.description || '').toLowerCase();
-        const full = `${title} ${desc}`;
-
-        const isAuthScreen =
-          /\b(tela de login|login screen|cadastro de usu[aá]rios?|sign[\s-]?up screen|recupera[cç][aã]o de senha|password recovery|esqueci a senha)\b/i.test(full) ||
-          (/\b(autentica[cç][aã]o|login)\b/i.test(title) && /\b(jwt|sess[aã]o de usu[aá]rio|supabase|turnstile|bcrypt|auth middleware)\b/i.test(desc));
-
-        const isBillingPlan =
-          /\b(planos? de assinatura|tabela de pre[cç]os?|pricing table|checkout pix de assinatura|checkout de planos?|faturas? de cobran[cç]a|assinatura recorrente)\b/i.test(full) &&
-          !/\b(cakto|webhook)\b/i.test(title);
-
-        if (isAuthScreen || isBillingPlan) {
-          Logger.info(`[HierarchicalOrchestrationService] Removendo tarefa incompatível com modo Local / Pessoal (${projectProfile}): "${t.title}"`);
-          return false;
-        }
-
-        return true;
-      });
-
-      // 2. Sanitizar descrições, títulos, critérios e arquivos de tarefas remanescentes que citem autenticação ou login
-      const sanitized = filtered.map(t => {
-        let updatedTitle = t.title;
-        let updatedDesc = t.description;
-        let updatedCriteria = Array.isArray(t.criteria) ? [...t.criteria] : [];
-        let updatedFiles = Array.isArray(t.expectedFiles) ? [...t.expectedFiles] : [];
-
-        updatedFiles = updatedFiles
-          .map(f => f.includes('authMiddleware') ? f.replace('authMiddleware', 'errorHandler') : f)
-          .filter(f => !/auth\.(ts|js)|login\.(tsx|jsx|html)|billing\.(ts|js)|plans\.(ts|js)/i.test(f));
-
-        if (/autentica[cç][aã]o|login|sess[aã]o/i.test(updatedTitle)) {
-          updatedTitle = updatedTitle
-            .replace(/\b(?:de\s+)?autentica[cç][aã]o,?\s*(?:autoriza[cç][aã]o\s*e\s*)?/gi, 'de segurança local e ')
-            .replace(/\blogin(?:\s*e\s*cadastro)?\b/gi, 'operação direta')
-            .trim();
-        }
-
-        if (/autentica[cç][aã]o|login|sess[aã]o/i.test(updatedDesc)) {
-          updatedDesc = updatedDesc
-            .replace(/\b(?:desde\s+)?autentica[cç][aã]o\s+at[eé]\b/gi, 'desde o disparo operacional até')
-            .replace(/\bvalidando tokens,?\s*sess[oõ]es\s*e\s*permiss[oõ]es\s*de\s*acesso\b/gi, 'com validação de integridade e tratamento local de erros')
-            .replace(/\b(login|cadastro|sessão de usuário)\b/gi, 'operação local direta')
-            .trim();
-        }
-
-        updatedCriteria = updatedCriteria.map(c =>
-          c.replace(/\b(?:login|autenticação)\s*->\s*/gi, 'painel operacional -> ')
-           .replace(/\b(?:desde\s+)?autentica[cç][aã]o\b/gi, 'operação direta')
-        );
-
-        return {
-          ...t,
-          title: updatedTitle,
-          description: updatedDesc,
-          criteria: updatedCriteria,
-          expectedFiles: updatedFiles,
-          allowedScope: t.allowedScope ? t.allowedScope.filter(s => !/auth|login/i.test(s)) : undefined
-        };
-      });
-
-      return DagAutoHealer.autoHealAndNormalizeTaskGraph(sanitized as any) as PlannedTask[];
-    }
-
-    if (isCommercial) {
-      Logger.info(`[HierarchicalOrchestrationService] Assegurando pipeline comercial SaaS (${tasks.length} tarefas) com Auth, Multi-Tenant e Checkout.`);
-      return DagAutoHealer.autoHealAndNormalizeTaskGraph(tasks as any) as PlannedTask[];
-    }
-
-    return tasks;
-  }
-
-  /**
-   * Decompõe briefings arquiteturais completos em etapas modulares reais e coesas,
-   * separando estritamente PRÉ-PLANEJAMENTO (Bootstrap Dia 0) de PÓS-PLANEJAMENTO (Evolução / Delta Planning).
-   */
-  public static decomposeArchitecturalBriefing(params: {
-    briefing: string;
-    projectName: string;
-    projectPath?: string;
-    projectId?: string;
-    projectProfile?: ProjectProfileMode;
-  }): PlannedTask[] | null {
-    const { briefing, projectName, projectPath, projectId } = params;
-    if (!briefing || typeof briefing !== 'string') return null;
-
-    const projectProfile = params.projectProfile || resolveProjectProfileMode(projectId || projectPath, briefing);
-    const capabilities = resolveProjectCapabilities(projectId || projectPath, briefing);
-
-    // 1. Inspeção de Estado Existente (Day 0 vs Brownfield)
-    let existingTasks: Array<{ code?: string; order_index?: number; status?: string; title?: string }> = [];
-
-    if (projectId) {
-      try {
-        existingTasks = db.prepare('SELECT code, order_index, status, title FROM autonomous_tasks WHERE project_id = ? ORDER BY order_index ASC').all(projectId) as any[];
-      } catch {
-        try {
-          existingTasks = db.prepare(`
-            SELECT t.code, t.order_index, t.status, t.title 
-            FROM autonomous_tasks t
-            JOIN autonomous_runs r ON t.run_id = r.id
-            WHERE r.project_id = ?
-            ORDER BY t.order_index ASC
-          `).all(projectId) as any[];
-        } catch {}
-      }
-    }
-
-    if (existingTasks.length === 0 && projectPath) {
-      try {
-        const tasksMdPath = path.join(path.resolve(projectPath), '.ai-dev-hub', 'tasks.md');
-        if (fs.existsSync(tasksMdPath)) {
-          const content = fs.readFileSync(tasksMdPath, 'utf-8');
-          const matches = content.match(/TK-(\d+)/gi);
-          if (matches && matches.length > 0) {
-            const seenNums = new Set<number>();
-            for (const m of matches) {
-              const num = parseInt(m.replace(/TK-/i, ''), 10);
-              if (!isNaN(num) && !seenNums.has(num)) {
-                seenNums.add(num);
-                existingTasks.push({
-                  code: `TK-${num}`,
-                  order_index: num,
-                  title: `Task ${num}`,
-                  status: 'completed'
-                });
-              }
-            }
-          } else {
-            const taskLines = content.split('\n').filter(line => /^\s*-\s*\[[ xX/]\]\s*\*\*/.test(line));
-            taskLines.forEach((line, idx) => {
-              existingTasks.push({
-                code: `TK-${idx + 1}`,
-                order_index: idx + 1,
-                title: line.replace(/^\s*-\s*\[[ xX/]\]\s*\*\*/, '').replace(/\*\*.*$/, '').trim(),
-                status: line.includes('[x]') ? 'completed' : 'pending'
-              });
-            });
-          }
-        }
-      } catch {}
-    }
-
-    const isEvolutionPhase = existingTasks.length > 0;
-
-    // =========================================================================
-    // MODO 2: PÓS-PLANEJAMENTO (Evolução / Delta Planning)
-    // =========================================================================
-    if (isEvolutionPhase) {
-      Logger.info(`[HierarchicalOrchestrationService] Modo PÓS-PLANEJAMENTO (Evolução / Delta Planning) ativado para "${projectName}". ${existingTasks.length} tarefas prévias encontradas.`);
-
-      let maxOrderIndex = 0;
-      for (const t of existingTasks) {
-        if (typeof t.order_index === 'number' && t.order_index > maxOrderIndex) {
-          maxOrderIndex = t.order_index;
-        }
-        if (t.code) {
-          const m = t.code.match(/TK-(\d+)/i) || t.code.match(/(\d+)/);
-          if (m) {
-            const n = parseInt(m[1], 10);
-            if (!isNaN(n) && n > maxOrderIndex) {
-              maxOrderIndex = n;
-            }
-          }
-        }
-      }
-      if (maxOrderIndex === 0) {
-        maxOrderIndex = existingTasks.length;
-      }
-      const nextIndex = maxOrderIndex + 1;
-
-      // Código da última tarefa estável do projeto anterior
-      let lastStableTaskCode = `TK-${maxOrderIndex}`;
-      const sorted = [...existingTasks].sort((a, b) => (b.order_index || 0) - (a.order_index || 0));
-      if (sorted[0]?.code) {
-        lastStableTaskCode = sorted[0].code.startsWith('TK-') ? sorted[0].code : `TK-${sorted[0].code}`;
-      }
-
-      const lower = briefing.toLowerCase();
-      const incrementalTasks: PlannedTask[] = [];
-      let currentIdx = nextIndex;
-      let prevCode = lastStableTaskCode;
-
-      // 1. Detecção: Disparador Manual / Quick Dispatch
-      const hasManualDispatch =
-        lower.includes('disparador manual') ||
-        lower.includes('disparo manual') ||
-        lower.includes('envio manual') ||
-        lower.includes('disparo rápido') ||
-        lower.includes('disparo rapido') ||
-        lower.includes('disparador rápido') ||
-        lower.includes('disparador rapido') ||
-        lower.includes('disparar mensagem') ||
-        lower.includes('quick dispatch') ||
-        lower.includes('disparo avulso');
-
-      if (hasManualDispatch) {
-        const taskCode = `TK-${currentIdx}`;
-        incrementalTasks.push({
-          code: taskCode,
-          title: 'Módulo de Disparo Rápido Manual (UI + Endpoint direto de Envio)',
-          description: 'Implementar endpoint POST /api/messages/manual-send no servidor HTTP para disparo avulso imediato via WhatsApp Baileys com sanitização de telefone, suporte a textos e mídias PTT/áudio, integrando interface visual dedicada com status de entrega em tempo real.',
-          milestone: `M${currentIdx} - Disparo Manual`,
-          orderIndex: currentIdx,
-          dependencies: [prevCode],
-          criteria: [
-            'Endpoint POST /api/messages/manual-send validando payload e disparando via dispatcher Baileys',
-            'Interface web limpa permitindo digitar número, selecionar mídia e disparar com feedback visual',
-            'Tratamento de erros de conexão e resposta com status 200/400 estruturado'
-          ],
-          verificationCommand: 'npx tsc --noEmit',
-          doneWhen: 'Módulo de disparo manual implementado com endpoint HTTP e interface visual validados sem erros de tipo.',
-          expectedFiles: ['src/routes/manual-send.ts', 'src/whatsapp/dispatcher.ts', 'public/manual-send.html'],
-          expectedScopeFiles: ['src/routes/manual-send.ts', 'src/whatsapp/dispatcher.ts', 'public/manual-send.html']
-        });
-        prevCode = taskCode;
-        currentIdx++;
-      }
-
-      // 2. Detecção: Editor de Templates / Tags Dinâmicas
-      const hasTemplateEditor =
-        lower.includes('template') ||
-        lower.includes('editor de template') ||
-        lower.includes('editor de mensagem') ||
-        lower.includes('tags dinâmicas') ||
-        lower.includes('tags dinamicas') ||
-        lower.includes('tag dinâmica') ||
-        lower.includes('tag dinamica') ||
-        lower.includes('variáveis dinâmicas') ||
-        lower.includes('variaveis dinamicas') ||
-        lower.includes('spintax');
-
-      if (hasTemplateEditor) {
-        const taskCode = `TK-${currentIdx}`;
-        incrementalTasks.push({
-          code: taskCode,
-          title: 'Editor de Templates com Tags Dinâmicas (Tabela SQLite + CRUD UI)',
-          description: 'Criar tabela message_templates no SQLite WAL (id, name, content, tags_json, media_path, created_at, updated_at), repositório transacional com prepared statements e interface visual completa para criar, editar, listar e testar templates com substituição dinâmica de tags ({first_name}, {pix_code}, {product_name}) e validação Spintax.',
-          milestone: `M${currentIdx} - Editor de Templates`,
-          orderIndex: currentIdx,
-          dependencies: [prevCode],
-          criteria: [
-            'Tabela message_templates criada no SQLite com índices e campos para tags e mídias',
-            'Repositório transacional em src/database/templates-repo.ts com operações CRUD completas',
-            'Interface visual para gerenciamento de templates com preview de tags e renderização Spintax',
-            'Rotas de API REST (/api/templates) para manipulação dos modelos de mensagem'
-          ],
-          verificationCommand: 'npx tsc --noEmit',
-          doneWhen: 'Editor de templates implementado com tabela SQLite, repositório CRUD e UI interativa.',
-          expectedFiles: ['src/database/templates-repo.ts', 'src/routes/templates.ts', 'public/templates-editor.html'],
-          expectedScopeFiles: ['src/database/templates-repo.ts', 'src/routes/templates.ts', 'public/templates-editor.html']
-        });
-        prevCode = taskCode;
-        currentIdx++;
-      }
-
-      // 3. Detecção: Webhook Studio / Simulador de Payloads
-      const hasWebhookStudio =
-        lower.includes('webhook studio') ||
-        lower.includes('simulador de webhook') ||
-        lower.includes('simulador de payload') ||
-        lower.includes('webhook inspector') ||
-        lower.includes('simular webhook') ||
-        lower.includes('simular evento') ||
-        lower.includes('simulador de eventos') ||
-        lower.includes('teste de webhook');
-
-      if (hasWebhookStudio) {
-        const taskCode = `TK-${currentIdx}`;
-        incrementalTasks.push({
-          code: taskCode,
-          title: 'Hub de Webhook com Simulador de Payloads e Chave Secreta',
-          description: 'Implementar painel Webhook Studio para inspeção, depuração e simulação de eventos Cakto (purchase_approved, pix_generated, boleto_generated) com envio para o endpoint local /webhook/cakto, validação de header de assinatura secreta, histórico de requisições e botão de replay com 1 clique.',
-          milestone: `M${currentIdx} - Webhook Studio`,
-          orderIndex: currentIdx,
-          dependencies: [prevCode],
-          criteria: [
-            'Simulador visual de payloads Cakto com presets prontos (Pix, Cartão, Boleto)',
-            'Inspeção do log de webhooks recebidos exibindo timestamp, secret status e corpo JSON',
-            'Capacidade de reprocessar qualquer evento anterior (replay) com integridade de idempotência'
-          ],
-          verificationCommand: 'npx tsc --noEmit',
-          doneWhen: 'Webhook Studio implementado com simulador interativo e inspeção de payloads.',
-          expectedFiles: ['src/webhooks/simulator.ts', 'src/routes/webhook-studio.ts', 'public/webhook-studio.html'],
-          expectedScopeFiles: ['src/webhooks/simulator.ts', 'src/routes/webhook-studio.ts', 'public/webhook-studio.html']
-        });
-        prevCode = taskCode;
-        currentIdx++;
-      }
-
-      // 4. Detecção: Dashboard / Métricas
-      const hasDashboard =
-        lower.includes('dashboard') ||
-        lower.includes('painel de controle') ||
-        lower.includes('métricas') ||
-        lower.includes('metricas') ||
-        lower.includes('analytics') ||
-        lower.includes('relatório') ||
-        lower.includes('relatorio');
-
-      if (hasDashboard) {
-        const taskCode = `TK-${currentIdx}`;
-        incrementalTasks.push({
-          code: taskCode,
-          title: 'Dashboard de Métricas, Conversão do Funil e Status em Tempo Real',
-          description: 'Implementar painel visual de métricas em tempo real consumindo estatísticas do banco SQLite: total de clientes, conversão Pix gerado vs pago, volume de disparos na fila e status da conexão WhatsApp.',
-          milestone: `M${currentIdx} - Dashboard & Analytics`,
-          orderIndex: currentIdx,
-          dependencies: [prevCode],
-          criteria: [
-            'Endpoint de agregação de métricas (/api/metrics) com queries otimizadas',
-            'Dashboard visual com cards de KPI e gráficos ou barras de conversão do funil',
-            'Atualização automática periódica sem travamento do event loop'
-          ],
-          verificationCommand: 'npx tsc --noEmit',
-          doneWhen: 'Dashboard de métricas e conversão implementado e integrado ao backend.',
-          expectedFiles: ['src/routes/metrics.ts', 'public/dashboard.html'],
-          expectedScopeFiles: ['src/routes/metrics.ts', 'public/dashboard.html']
-        });
-        prevCode = taskCode;
-        currentIdx++;
-      }
-
-      // Fallback ou Extensões Customizadas: Se nenhuma das especializadas foi detectada
-      if (incrementalTasks.length === 0) {
-        const customTasks = HierarchicalOrchestrationService.extractEvolutionClauses({
-          briefing,
-          startIndex: currentIdx,
-          initialPrevCode: prevCode,
-          projectName
-        });
-        incrementalTasks.push(...customTasks);
-      }
-
-      return incrementalTasks.length > 0
-        ? HierarchicalOrchestrationService.enforceProfileConstraints(incrementalTasks, projectProfile, capabilities)
-        : null;
-    }
-
-    // =========================================================================
-    // MODO 1: PRÉ-PLANEJAMENTO (Projeto Vazio / Day 0)
-    // =========================================================================
-    const lower = briefing.toLowerCase();
-
-    // 1. Cenário Especializado A: Sistema de Automação WhatsApp + Cakto + Baileys + SQLite WAL
-    const isWhatsAppCaktoFunnel =
-      (lower.includes('baileys') || lower.includes('@whiskeysockets/baileys') || lower.includes('whatsapp')) &&
-      (lower.includes('cakto') || lower.includes('funil') || lower.includes('pix recovery') || lower.includes('upsell')) &&
-      (lower.includes('sqlite') || lower.includes('better-sqlite3'));
-
-    if (isWhatsAppCaktoFunnel) {
-      Logger.info(`[HierarchicalOrchestrationService] Decompondo briefing em 6 etapas modulares para Automação WhatsApp Cakto Baileys SQLite WAL (${projectName}).`);
-
-      const t1: PlannedTask = {
-        code: 'TK-1',
-        title: 'Configuração Base, Variáveis de Ambiente e Catálogo de Produtos',
-        description: 'Configurar ambiente TypeScript Strict, package.json com dependências rigorosas (@whiskeysockets/baileys, better-sqlite3, fastify ou express, pino, dotenv), tsconfig.json, validação estrita de variáveis de ambiente em src/config/env.ts (porta HTTP, CAKTO_WEBHOOK_SECRET, telefone para Pairing Code, diretórios /data/auth_info, /data/database, /data/media) e catálogo declarativo de produtos/ofertas Cakto em src/config/catalog.ts (MAIN, UPSELL_1, UPSELL_2, DOWNSELL com mídias locais, delays e links de checkout).',
-        milestone: 'M1 - Configuração & Catálogo',
-        orderIndex: 1,
-        dependencies: [],
-        criteria: [
-          'package.json e tsconfig.json configurados com strict mode e dependências do Baileys e better-sqlite3',
-          'src/config/env.ts carregando e validando todas as variáveis obrigatórias com fail-fast',
-          'src/config/catalog.ts mapeando produtos MAIN, UPSELL_1, UPSELL_2 e DOWNSELL com links e mídias',
-          'Arquivo .env.example provisionado documentando todas as variáveis'
-        ],
-        verificationCommand: 'npx tsc --noEmit',
-        doneWhen: 'Arquivos de configuração e catálogo criados e TypeScript compilando com código 0.',
-        expectedFiles: ['package.json', 'tsconfig.json', 'src/config/env.ts', 'src/config/catalog.ts', '.env.example'],
-        expectedScopeFiles: ['package.json', 'tsconfig.json', 'src/config/env.ts', 'src/config/catalog.ts', '.env.example']
-      };
-
-      const t2: PlannedTask = {
-        code: 'TK-2',
-        title: 'Camada de Banco de Dados SQLite em Modo WAL, Schema DDL e Repositórios Transacionais',
-        description: 'Inicializar better-sqlite3 em src/database/connection.ts ativando obrigatoriamente PRAGMA journal_mode = WAL e PRAGMA synchronous = NORMAL. Criar schema DDL completo em src/database/schema.sql com tabelas customers (id, phone, jid, name, email, current_state, created_at, updated_at), orders (id, transaction_id, customer_id, product_id, offer_id, event_type, status, paid_at, raw_payload) com constraint UNIQUE(transaction_id, event_type) para idempotência estrita, message_queue (id, customer_id, phone, jid, message_type, content, media_path, scheduled_at, status, attempts, last_error) com índices para scheduled_at e status. Implementar em src/database/repositories.ts repositórios transacionais atômicos com queries preparadas.',
-        milestone: 'M2 - Banco SQLite WAL & Repositórios',
-        orderIndex: 2,
-        dependencies: ['TK-1'],
-        criteria: [
-          'Conexão better-sqlite3 configurada em src/database/connection.ts com modo WAL ativado',
-          'Schema SQL em src/database/schema.sql com tabelas customers, orders, message_queue e índices otimizados',
-          'Constraint UNIQUE(transaction_id, event_type) garantindo idempotência estrita de webhooks',
-          'Repositórios transacionais em src/database/repositories.ts com métodos de inserção, busca e agendamento'
-        ],
-        verificationCommand: 'npx tsc --noEmit',
-        doneWhen: 'Camada SQLite WAL e repositórios transacionais implementados e compilando sem erros.',
-        expectedFiles: ['src/database/connection.ts', 'src/database/repositories.ts', 'src/database/schema.sql'],
-        expectedScopeFiles: ['src/database/connection.ts', 'src/database/repositories.ts', 'src/database/schema.sql']
-      };
-
-      const t3: PlannedTask = {
-        code: 'TK-3',
-        title: 'Motor WhatsApp Baileys, JID Resolver do 9º Dígito e Dispatcher com Simulação Humana e PTT',
-        description: 'Implementar ciclo de vida completo da conexão Baileys em src/whatsapp/socket.ts utilizando useMultiFileAuthState armazenando chaves em /data/auth_info, suporte a Pairing Code no terminal para conexão sem QR code, reconexão automática resiliente e escuta de connection.update e messages.upsert (fromMe: false). Implementar em src/whatsapp/dispatcher.ts o JID Resolver via sock.onWhatsApp(phone) para normalização do 9º dígito brasileiro (salvando JID real Meta no banco), simulação de presença humana (composing por 2.5s-5s antes de texto, recording por 4s-7s antes de áudio) e envio de áudios nativos no formato .ogg com codec Opus e ptt: true.',
-        milestone: 'M3 - Motor WhatsApp Baileys',
-        orderIndex: 3,
-        dependencies: ['TK-1', 'TK-2'],
-        criteria: [
-          'Gerenciador de conexão Baileys em src/whatsapp/socket.ts com auth state em /data/auth_info e pairing code',
-          'Resolver do 9º dígito sanitizando telefone (DDI 55) e consultando sock.onWhatsApp() antes do primeiro envio',
-          'Dispatcher em src/whatsapp/dispatcher.ts com presença humana (composing/recording) e envio de áudios PTT nativos',
-          'Ouvinte de mensagens recebidas (messages.upsert) direcionando para a máquina de estados'
-        ],
-        verificationCommand: 'npx tsc --noEmit',
-        doneWhen: 'Conexão Baileys, JID resolver e dispatcher de mensagens implementados com tipagem estrita.',
-        expectedFiles: ['src/whatsapp/socket.ts', 'src/whatsapp/dispatcher.ts'],
-        expectedScopeFiles: ['src/whatsapp/socket.ts', 'src/whatsapp/dispatcher.ts']
-      };
-
-      const t4: PlannedTask = {
-        code: 'TK-4',
-        title: 'Servidor HTTP de Webhooks Cakto, Validação de Secret e Adapters de Normalização',
-        description: 'Implementar servidor HTTP Fastify ou Express em src/webhooks/server.ts expondo endpoint POST /webhook/cakto respondendo 200 OK imediato (< 100ms) para evitar timeouts da plataforma Cakto. Validar assinatura/secret via header ou query param (CAKTO_WEBHOOK_SECRET). Implementar em src/webhooks/adapters.ts adapters para normalização dos payloads da Cakto (purchase_approved, pix_generated, boleto_generated), extraindo customer (telefone sanitizado, nome, email), dados do pedido (transaction_id, produto, oferta, código Pix) e registrando a transação no SQLite com garantia de idempotência estrita.',
-        milestone: 'M4 - Webhooks Cakto & Ingestão',
-        orderIndex: 4,
-        dependencies: ['TK-1', 'TK-2'],
-        criteria: [
-          'Servidor HTTP em src/webhooks/server.ts ouvindo POST /webhook/cakto e respondendo 200 OK imediatamente',
-          'Validação segura do CAKTO_WEBHOOK_SECRET rejeitando requisições não autorizadas',
-          'Adapters em src/webhooks/adapters.ts normalizando payloads da Cakto para DTOs internos limpos',
-          'Bloqueio de eventos duplicados através da constraint de unicidade no SQLite'
-        ],
-        verificationCommand: 'npx tsc --noEmit',
-        doneWhen: 'Servidor de webhooks Cakto e adapters implementados com resposta rápida e idempotência.',
-        expectedFiles: ['src/webhooks/server.ts', 'src/webhooks/adapters.ts'],
-        expectedScopeFiles: ['src/webhooks/server.ts', 'src/webhooks/adapters.ts']
-      };
-
-      const t5: PlannedTask = {
-        code: 'TK-5',
-        title: 'Máquina de Estados Híbrida do Funil de Vendas e Recuperação por Micro-Comprometimento',
-        description: 'Implementar em src/engine/state-machine.ts a máquina de estados híbrida do funil integrando gatilhos temporais e conversacionais: 1. Pix Gerado: agenda PIX_RECOVERY para now + 7min com Pix Copia e Cola; 2. Compra MAIN Aprovada: cancela recuperação Pix, agenda DELIVERY_MAIN imediato com micro-comprometimento no último balão ("Conseguiu abrir o material? Me responde SIM"), atualiza estado para DELIVERED_MAIN e agenda PITCH_UPSELL_1 para now + 15min; 3. Gatilho de Micro-comprometimento (resposta no WhatsApp): se cliente em DELIVERED_MAIN responder, antecipa PITCH_UPSELL_1 para imediato (now); 4. Compra UPSELL_1: cancela downsell, entrega imediata e agenda UPSELL_2; 5. Downsell por tempo: caso UPSELL_1 não seja comprado, agenda PITCH_DOWNSELL_1 com oferta alternativa.',
-        milestone: 'M5 - Máquina de Estados do Funil',
-        orderIndex: 5,
-        dependencies: ['TK-2', 'TK-3', 'TK-4'],
-        criteria: [
-          'Máquina de estados gerenciando transições: PIX_PENDING, DELIVERED_MAIN, PITCH_UPSELL_1, DELIVERED_UPSELL_1, PITCH_UPSELL_2, DOWNSELL',
-          'Cancelamento automático de jobs de recuperação Pix pendentes quando a compra principal for aprovada',
-          'Antecipação imediata do pitch de Upsell 1 quando o cliente responde ao micro-comprometimento no WhatsApp',
-          'Agendamento automático de follow-ups e pitches de Downsell com cálculo correto de delays'
-        ],
-        verificationCommand: 'npx tsc --noEmit',
-        doneWhen: 'Máquina de estados híbrida implementada e validada com regras de micro-comprometimento e funil.',
-        expectedFiles: ['src/engine/state-machine.ts'],
-        expectedScopeFiles: ['src/engine/state-machine.ts']
-      };
-
-      const t6: PlannedTask = {
-        code: 'TK-6',
-        title: 'Worker de Fila Anti-Banimento com Spintax, Entrypoint Unificado e Infraestrutura GCP VPS',
-        description: 'Implementar o worker de fila em src/engine/worker.ts com concorrência controlada (fila indiana estrita, 1 job por vez, loop a cada 5 segundos). Integrar motor de Spintax ({Olá|Oi|Fala}, {{first_name}}) para unicidade de hash de mensagens na Meta e delays elásticos aleatórios (jitter entre 3s e 6s entre mensagens do mesmo pacote). Criar o entrypoint principal src/index.ts orquestrando inicialização do banco, Baileys, servidor HTTP e worker com encerramento gracioso (SIGINT/SIGTERM). Provisionar arquivos de produção para VPS Ubuntu Google Cloud: Caddyfile (Reverse Proxy Auto-HTTPS), PM2 ecosystem.config.js (auto-restart resiliente) e script setup.sh de provisionamento de VPS.',
-        milestone: 'M6 - Worker Anti-Ban & Infraestrutura',
-        orderIndex: 6,
-        dependencies: ['TK-1', 'TK-2', 'TK-3', 'TK-4', 'TK-5'],
-        criteria: [
-          'Worker em src/engine/worker.ts consumindo a message_queue em fila indiana com 1 envio por vez',
-          'Motor Spintax variando mensagens e aplicando delays elásticos anti-bloqueio',
-          'Entrypoint src/index.ts iniciando todos os módulos de forma coordenada com graceful shutdown',
-          'Arquivos de deploy para GCP VPS provisionados: ecosystem.config.js, Caddyfile e setup.sh'
-        ],
-        verificationCommand: 'npx tsc --noEmit',
-        doneWhen: 'Worker anti-ban, entrypoint unificado e arquivos de infraestrutura GCP criados e validados.',
-        expectedFiles: ['src/engine/worker.ts', 'src/index.ts', 'ecosystem.config.js', 'Caddyfile', 'setup.sh'],
-        expectedScopeFiles: ['src/engine/worker.ts', 'src/index.ts', 'ecosystem.config.js', 'Caddyfile', 'setup.sh']
-      };
-
-      return HierarchicalOrchestrationService.enforceProfileConstraints([t1, t2, t3, t4, t5, t6], projectProfile, capabilities);
-    }
-
-    // 2. Cenário Arquitetural Genérico com Múltiplos Módulos e Arquivos /src/
-    const srcMatches = briefing.match(/(?:\/src\/|src\/)[a-zA-Z0-9_\-\./]+\.(?:ts|js|tsx|jsx|sql|json)/gi) || [];
-    const uniqueFiles = Array.from(new Set(srcMatches.map(f => f.replace(/^\//, ''))));
-
-    if (uniqueFiles.length >= 3) {
-      Logger.info(`[HierarchicalOrchestrationService] Decompondo briefing arquitetural genérico com ${uniqueFiles.length} arquivos mapeados.`);
-
-      // Agrupa os arquivos por módulos lógicos
-      const configFiles = uniqueFiles.filter(f => /config|env|catalog|types|constants/i.test(f));
-      const dbFiles = uniqueFiles.filter(f => /database|db|schema|repositor|model|entity|entities/i.test(f));
-      const coreFiles = uniqueFiles.filter(f => /core|service|whatsapp|socket|bot|client/i.test(f));
-      const apiFiles = uniqueFiles.filter(f => /webhook|api|server|route|controller|adapter/i.test(f));
-      const engineFiles = uniqueFiles.filter(f => /engine|workflow|machine|logic|domain/i.test(f));
-      const workerFiles = uniqueFiles.filter(f => /worker|queue|cron|index|main|app/i.test(f));
-
-      const tasks: PlannedTask[] = [];
-      let order = 1;
-
-      // Etapa 1: Configuração e Tipos
-      const stage1Files = Array.from(new Set(['package.json', 'tsconfig.json', '.env.example', ...configFiles]));
-      tasks.push({
-        code: `TK-${order}`,
-        title: `Configuração Base, Dependências e Módulo de Configuração de ${projectName}`,
-        description: `Configurar package.json com scripts e dependências de produção, tsconfig.json com strict mode e implementar módulos de configuração (${configFiles.join(', ') || 'src/config/env.ts'}).`,
-        milestone: 'M1 - Scaffolding & Configuração',
-        orderIndex: order++,
-        dependencies: [],
-        criteria: [
-          'package.json e tsconfig.json configurados com strict mode',
-          'Módulos de configuração e variáveis de ambiente implementados com validação',
-          'Compilação inicial do TypeScript sem erros'
-        ],
-        verificationCommand: 'npx tsc --noEmit',
-        doneWhen: 'Arquivos de configuração provisionados e TypeScript compilando com código 0.',
-        expectedFiles: stage1Files,
-        expectedScopeFiles: stage1Files
-      });
-
-      // Etapa 2: Banco de Dados e Schemas
-      if (dbFiles.length > 0 || lower.includes('database') || lower.includes('sqlite') || lower.includes('banco')) {
-        const stage2Files = dbFiles.length > 0 ? dbFiles : ['src/database/connection.ts', 'src/database/schema.sql'];
-        tasks.push({
-          code: `TK-${order}`,
-          title: `Modelagem de Banco de Dados, Schemas DDL e Camada de Persistência de ${projectName}`,
-          description: `Implementar conexão de banco de dados, schemas DDL e repositórios de dados para os arquivos: ${stage2Files.join(', ')}.`,
-          milestone: 'M2 - Persistência & Schemas',
-          orderIndex: order++,
-          dependencies: [`TK-${order - 2}`],
-          criteria: [
-            'Conexão com banco de dados configurada com integridade referencial',
-            'Schemas relacionais e repositórios com queries preparadas implementados',
-            'Compilação de tipos de dados sem divergências'
-          ],
-          verificationCommand: 'npx tsc --noEmit',
-          doneWhen: 'Camada de dados e schemas relacionais implementados com sucesso.',
-          expectedFiles: stage2Files,
-          expectedScopeFiles: stage2Files
-        });
-      }
-
-      // Etapa 3: Módulo Core / Serviços de Domínio
-      if (coreFiles.length > 0) {
-        tasks.push({
-          code: `TK-${order}`,
-          title: `Implementação dos Serviços Centrais e Motores de Domínio de ${projectName}`,
-          description: `Implementar serviços de comunicação e motores principais nos arquivos: ${coreFiles.join(', ')}.`,
-          milestone: 'M3 - Motores & Serviços Centrais',
-          orderIndex: order++,
-          dependencies: [`TK-${order - 2}`],
-          criteria: [
-            'Serviços centrais de comunicação e domínio implementados',
-            'Tratamento de conexões, eventos e ciclo de vida de instâncias',
-            'Tipagem estrita e ausência de erros de build'
-          ],
-          verificationCommand: 'npx tsc --noEmit',
-          doneWhen: 'Serviços centrais e motores de domínio implementados e verificados.',
-          expectedFiles: coreFiles,
-          expectedScopeFiles: coreFiles
-        });
-      }
-
-      // Etapa 4: Servidor HTTP, Rotas e Webhooks
-      if (apiFiles.length > 0 || lower.includes('webhook') || lower.includes('api') || lower.includes('rota')) {
-        const stage4Files = apiFiles.length > 0 ? apiFiles : ['src/server.ts', 'src/routes.ts'];
-        tasks.push({
-          code: `TK-${order}`,
-          title: `Servidor HTTP, Endpoints de API e Webhooks com Validação de ${projectName}`,
-          description: `Implementar servidor HTTP, roteamento, validação de payload e adapters de ingestão nos arquivos: ${stage4Files.join(', ')}.`,
-          milestone: 'M4 - API & Ingestão',
-          orderIndex: order++,
-          dependencies: [`TK-${order - 2}`],
-          criteria: [
-            'Servidor HTTP e endpoints de recebimento configurados com resposta rápida',
-            'Validação de dados de entrada e adapters de normalização implementados',
-            'Idempotência e tratamento seguro de erros de rota'
-          ],
-          verificationCommand: 'npx tsc --noEmit',
-          doneWhen: 'Endpoints HTTP e webhooks implementados com sucesso.',
-          expectedFiles: stage4Files,
-          expectedScopeFiles: stage4Files
-        });
-      }
-
-      // Etapa 5: Máquina de Estados / Lógica de Negócio
-      if (engineFiles.length > 0 || lower.includes('engine') || lower.includes('funil') || lower.includes('state')) {
-        const stage5Files = engineFiles.length > 0 ? engineFiles : ['src/engine/state-machine.ts'];
-        tasks.push({
-          code: `TK-${order}`,
-          title: `Máquina de Estados e Orquestração do Fluxo de Negócio de ${projectName}`,
-          description: `Implementar a máquina de estados, regras de negócio e transições de fluxo nos arquivos: ${stage5Files.join(', ')}.`,
-          milestone: 'M5 - Fluxo de Negócio & Estados',
-          orderIndex: order++,
-          dependencies: tasks.map(t => t.code || ''),
-          criteria: [
-            'Regras de transição de estado e orquestração de negócios implementadas',
-            'Cancelamento de estados obsoletos e agendamento de novas etapas',
-            'Integridade com a camada de persistência'
-          ],
-          verificationCommand: 'npx tsc --noEmit',
-          doneWhen: 'Máquina de estados e regras de negócio implementadas e tipadas.',
-          expectedFiles: stage5Files,
-          expectedScopeFiles: stage5Files
-        });
-      }
-
-      // Etapa 6: Workers em Background, Entrypoint e Infraestrutura
-      const deployFiles = ['ecosystem.config.js', 'Caddyfile', 'Dockerfile', 'setup.sh'].filter(f => lower.includes(f.toLowerCase()));
-      const stage6Files = Array.from(new Set([...(workerFiles.length > 0 ? workerFiles : ['src/index.ts']), ...deployFiles]));
-      tasks.push({
-        code: `TK-${order}`,
-        title: `Workers em Segundo Plano, Entrypoint Unificado e Arquivos de Infraestrutura de ${projectName}`,
-        description: `Implementar workers assíncronos, loop de processamento, ponto de entrada do sistema e arquivos de infraestrutura nos arquivos: ${stage6Files.join(', ')}.`,
-        milestone: 'M6 - Workers & Produção',
-        orderIndex: order++,
-        dependencies: tasks.map(t => t.code || ''),
-        criteria: [
-          'Worker de fila e processamento assíncrono implementado com intervalos seguros',
-          'Entrypoint unificado coordenando inicialização e shutdown de todos os módulos',
-          'Arquivos de deploy e infraestrutura provisionados'
-        ],
-        verificationCommand: 'npx tsc --noEmit',
-        doneWhen: 'Workers, entrypoint e infraestrutura implementados e prontos para produção.',
-        expectedFiles: stage6Files,
-        expectedScopeFiles: stage6Files
-      });
-
-      return HierarchicalOrchestrationService.enforceProfileConstraints(tasks, projectProfile, capabilities);
-    }
-
-    return null;
-  }
-
-  /**
-   * Extrai tarefas incrementais customizadas a partir do briefing do usuário
-   * para projetos em fase de evolução quando palavras-chave padrão não cobrem todo o escopo.
-   */
-  public static extractEvolutionClauses(params: {
-    briefing: string;
-    startIndex: number;
-    initialPrevCode: string;
-    projectName: string;
-  }): PlannedTask[] {
-    const { briefing, startIndex, initialPrevCode, projectName } = params;
-    const tasks: PlannedTask[] = [];
-    let currentIdx = startIndex;
-    let prevCode = initialPrevCode;
-
-    // Procura por tópicos com marcadores (ex: "- [ ]", "-", "*", "1.", "Etapa", "Passo")
-    const lines = briefing.split(/\r?\n/).map(l => l.trim());
-    const candidateLines = lines.filter(l => 
-      /^(?:[-*]|\d+\.|\bETAPA\b|\bFASE\b|\bPASSO\b)/i.test(l) &&
-      l.length >= 10 &&
-      !/^(?:[-*]\s*\[\s*\]\s*)?#/.test(l)
-    );
-
-    if (candidateLines.length > 0) {
-      for (const line of candidateLines.slice(0, 5)) {
-        const cleanTitle = line
-          .replace(/^(?:[-*]\s*(?:\[[ xX/]\]\s*)?|\d+\.\s*|(?:ETAPA|FASE|PASSO)\s*\d*[:\-]?\s*)/i, '')
-          .replace(/\*\*([^*]+)\*\*/g, '$1')
-          .replace(/`([^`]+)`/g, '$1')
-          .trim();
-
-        if (cleanTitle.length < 5) continue;
-
-        const taskCode = `TK-${currentIdx}`;
-        tasks.push({
-          code: taskCode,
-          title: `Implementar ${cleanTitle.slice(0, 70)}`,
-          description: `Desenvolver e integrar o recurso "${cleanTitle}" no projeto ${projectName}, assegurando conformidade de tipagem e persistência.`,
-          milestone: `M${currentIdx} - ${cleanTitle.slice(0, 30)}`,
-          orderIndex: currentIdx,
-          dependencies: [prevCode],
-          criteria: [
-            `Implementação completa de "${cleanTitle.slice(0, 50)}"`,
-            'Integração com módulos existentes do projeto',
-            'Compilação sem erros de tipagem estrita'
-          ],
-          verificationCommand: 'npx tsc --noEmit',
-          doneWhen: `Recurso "${cleanTitle.slice(0, 50)}" implementado e verificado.`,
-          expectedFiles: [`src/features/feature-${currentIdx}.ts`],
-          expectedScopeFiles: [`src/features/feature-${currentIdx}.ts`]
-        });
-        prevCode = taskCode;
-        currentIdx++;
-      }
-    }
-
-    if (tasks.length === 0) {
-      // Se não houver marcadores, utiliza o texto consolidado
-      const cleanBriefing = briefing.replace(/[#*`]/g, '').trim();
-      const taskCode = `TK-${currentIdx}`;
-      tasks.push({
-        code: taskCode,
-        title: `Implementação Incremental: ${cleanBriefing.slice(0, 60)}`,
-        description: `Implementar a evolução solicitada no projeto ${projectName}: ${cleanBriefing}`,
-        milestone: `M${currentIdx} - Evolução`,
-        orderIndex: currentIdx,
-        dependencies: [prevCode],
-        criteria: [
-          'Desenvolvimento da funcionalidade incremental solicitada',
-          'Integração segura com os serviços existentes do sistema',
-          'Validação estrita de tipos sem regressões'
-        ],
-        verificationCommand: 'npx tsc --noEmit',
-        doneWhen: 'Evolução funcional concluída e verificada com TypeScript.',
-        expectedFiles: ['src/features/evolution.ts'],
-        expectedScopeFiles: ['src/features/evolution.ts']
-      });
-    }
-
-    return tasks;
-  }
-
-  /**
    * Deterministic Two-Wave Multi-Pass Generator:
    * Divides a project briefing into 6 domain-aligned Major Tasks (Scaffolding, Models/Persistence,
    * Domain Logic, APIs, UI/Views, and Testing/Verification), each with atomic microtasks (>15 total),
    * explicit file scopes, acceptance criteria, normalized verification commands, and chained cycle-free DAG.
    */
-  static generateMultiPassPlannedTasks(
-    paramsOrBriefing: {
-      briefing: string;
-      projectPath: string;
-      projectName?: string;
-      projectId?: string;
-      requirements?: string[];
-    } | string,
-    legacyProjectName?: string,
-    legacyProjectPath?: string,
-    legacyRequirements?: string[]
-  ): PlannedTask[] {
-    let originalDescription: string;
-    let projectPath: string = '';
-    let projectName: string | undefined;
-    let projectId: string | undefined;
-    let requirements: string[] | undefined;
-    let projectProfile: ProjectProfileMode;
-    let capabilities: ProjectCapabilities;
-
-    if (typeof paramsOrBriefing === 'string') {
-      originalDescription = (paramsOrBriefing || '').trim();
-      projectName = legacyProjectName;
-      projectPath = legacyProjectPath || '';
-      requirements = legacyRequirements;
-    } else {
-      originalDescription = (paramsOrBriefing.briefing || '').trim();
-      projectPath = paramsOrBriefing.projectPath || '';
-      projectName = paramsOrBriefing.projectName;
-      projectId = paramsOrBriefing.projectId;
-      requirements = paramsOrBriefing.requirements;
-    }
-
-    const params = {
-      briefing: originalDescription,
-      projectPath,
-      projectName,
-      projectId,
-      requirements
-    };
-
-    capabilities = resolveProjectCapabilities(projectId || projectPath, originalDescription);
-    projectProfile = resolveProjectProfileMode(projectId || projectPath, originalDescription);
-
-    // PILAR 2: Validação estrita de modo cirúrgico vs decomposição arquitetural
-    const hasCode = projectPath ? DeltaFeatureEngine.hasImplementedCode(projectPath, projectId) : false;
-    const isArchitectural = DeltaFeatureEngine.isArchitecturalBriefing(originalDescription);
-    const isSurgical = !isArchitectural && hasCode && DeltaFeatureEngine.isSurgicalOrBugfixPrompt(originalDescription, projectPath, projectId);
-
-    if (isSurgical) {
-      Logger.info(`[HierarchicalOrchestrationService] Modo cirúrgico ativado para "${projectName || 'projeto'}". Gerando plano enxuto (1 tarefa).`);
-      return DeltaFeatureEngine.planSurgicalIteration({
-        briefing: originalDescription,
-        projectPath,
-        projectName,
-        projectId
-      });
-    }
-
-    // PILAR 2.5: Decomposição arquitetural fiel ao prompt do usuário (5 a 8 etapas coesas mapeadas do briefing)
-    // OU Modo PÓS-PLANEJAMENTO (Evolução Incremental / Delta Planning)
-    capabilities = resolveProjectCapabilities(params.projectId || params.projectPath, originalDescription);
-    projectProfile = resolveProjectProfileMode(params.projectId || params.projectPath, originalDescription);
-
-    const architecturalOrEvolutionPlan = HierarchicalOrchestrationService.decomposeArchitecturalBriefing({
-      briefing: originalDescription,
-      projectName: projectName || 'Projeto',
-      projectPath,
-      projectId,
-      projectProfile
-    });
-    if (architecturalOrEvolutionPlan && architecturalOrEvolutionPlan.length >= 1) {
-      Logger.info(`[HierarchicalOrchestrationService] Plano estruturado obtido via decomposeArchitecturalBriefing (${architecturalOrEvolutionPlan.length} tarefas).`);
-      return architecturalOrEvolutionPlan;
-    }
-
-    const structuredReqs = this.extractStructuredRequirements(originalDescription, requirements);
-    const complexity = this.analyzeProjectComplexity(originalDescription, requirements);
+  static generateMultiPassPlannedTasks(params: {
+    briefing: string;
+    projectPath: string;
+    projectName?: string;
+    projectId?: string;
+    requirements?: string[];
+  }): PlannedTask[] {
+    const originalDescription = (params.briefing || '').trim();
+    const structuredReqs = this.extractStructuredRequirements(originalDescription, params.requirements);
+    const complexity = this.analyzeProjectComplexity(originalDescription, params.requirements);
 
     const reqMapByCategory: Record<string, string[]> = {};
     for (const r of structuredReqs) {
@@ -6432,15 +4951,8 @@ export class HierarchicalOrchestrationService {
       return res.length > 0 ? res : fallback;
     };
 
-    const domainProfile = MarketDiscoveryService.inferDomainProfile(originalDescription);
-    const isDomainKnown = domainProfile.domainName && !domainProfile.domainName.includes('Geral');
-    const hasLivingSpecs = params.projectPath ? fs.existsSync(path.join(path.resolve(params.projectPath), '.ai-dev-hub', 'specs', 'CONTEUDO.md')) : false;
-    const isSaaS = projectProfile === 'commercial_saas' ||
-      hasLivingSpecs ||
-      (projectProfile !== 'local_personal' && (
-        ReaSaaSMasterService.isSaaSOrFullStackProject(originalDescription) ||
-        isDomainKnown
-      ));
+    const isSaaS = ReaSaaSMasterService.isSaaSOrFullStackProject(originalDescription) ||
+      (params.projectPath ? fs.existsSync(path.join(path.resolve(params.projectPath), '.ai-dev-hub', 'specs', 'CONTEUDO.md')) : false);
     const isSimple = !isSaaS && complexity.complexityTier === 'SIMPLE' && structuredReqs.length <= 2;
     if (isSimple) {
       const t1: PlannedTask = {
@@ -6490,28 +5002,8 @@ export class HierarchicalOrchestrationService {
 
     if (params.projectPath && isSaaS) {
       try {
-        ReaSaaSMasterService.provisionReaBlueprintForProject(params.projectPath, originalDescription).catch((err) => {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "hierarchicalOrchestrationService",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
-      }
-    });
-      } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "hierarchicalOrchestrationService",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
-      }
-    }
+        ReaSaaSMasterService.provisionReaBlueprintForProject(params.projectPath, originalDescription).catch(() => {});
+      } catch {}
     }
 
     if (params.projectPath && isSaaS) {
@@ -6523,53 +5015,12 @@ export class HierarchicalOrchestrationService {
             projectPath: params.projectPath,
             projectId: params.projectId,
             requirements: params.requirements
-          }).catch((err) => {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "hierarchicalOrchestrationService",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
-      }
-    });
-        }).catch((err) => {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "hierarchicalOrchestrationService",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
-      }
-    });
-      } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "hierarchicalOrchestrationService",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:hierarchicalOrchestrationService]", err);
-      }
-    }
+          }).catch(() => {});
+        }).catch(() => {});
+      } catch {}
     }
 
     const pName = params.projectName || 'SaaS';
-    const briefingExtraction = MarketDiscoveryService.extractBriefingEntitiesAndRules(originalDescription);
-    const domainBlueprint = ProjectLivingSpecService.resolveDomainBlueprint(originalDescription);
-    const hasExplicitBilling = capabilities.payments && briefingExtraction.hasExplicitBilling;
-    const hasExplicitKanban = briefingExtraction.hasExplicitKanban;
-
-    // 1. Extração dinâmica de Fases enumeradas no briefing do usuário (Fase 1, Fase 2, etc.)
-    const extractedPhases = HierarchicalOrchestrationService.extractPhasesFromBriefing(originalDescription);
-    const dynamicPhaseBlueprints = extractedPhases.length >= 2
-      ? HierarchicalOrchestrationService.buildBlueprintsFromPhases(extractedPhases, pName, briefingExtraction)
-      : null;
-
     const saasEncyclopediaBlueprints = [
       {
         code: 'GT-1',
@@ -6612,13 +5063,11 @@ export class HierarchicalOrchestrationService {
       },
       {
         code: 'GT-2',
-        title: capabilities.database
-          ? 'Modelagem Relacional SQLite Completa & Migrations Idempotentes'
-          : 'Armazenamento e Camada de Estado em Memória / JSON Leve',
+        title: 'Modelagem Relacional SQLite Completa & Migrations Idempotentes',
         stageCode: 'ET-2.1',
-        stageTitle: capabilities.database ? 'Modelagem Relacional e Schemas' : 'Persistência Leve em Memória/JSON',
+        stageTitle: 'Modelagem Relacional e Schemas',
         reqCats: ['persistence'],
-        microtasks: capabilities.database ? [
+        microtasks: [
           {
             subCode: '2.1',
             title: `Modelar schemas relacionais de banco de dados e migrations das entidades de domínio de ${pName}`,
@@ -6631,33 +5080,13 @@ export class HierarchicalOrchestrationService {
           },
           {
             subCode: '2.2',
-            title: hasExplicitBilling
-              ? `Modelar schemas de suporte SaaS: team_members, api_keys, webhooks e notifications de ${pName}`
-              : capabilities.advancedSaas
-                ? `Modelar schemas de suporte: coleções de domínio, presets de busca, api_keys e webhooks de ${pName}`
-                : `Modelar schemas de suporte: coleções de domínio e presets de busca de ${pName}`,
-            desc: hasExplicitBilling
-              ? 'Implementar tabelas relacionais de infraestrutura comercial cobrindo membros da equipe, chaves de API, webhooks e notificações.'
-              : capabilities.advancedSaas
-                ? `Implementar tabelas relacionais de suporte analítico cobrindo coleções salvas, presets de filtros rápidos do domínio (${domainBlueprint.domainName}), chaves de API e webhooks.`
-                : `Implementar tabelas relacionais de suporte analítico cobrindo coleções salvas e presets de filtros rápidos do domínio (${domainBlueprint.domainName}).`,
-            files: hasExplicitBilling
-              ? ['src/db/saasSchema.sql', 'src/db/saasModels.ts']
-              : ['src/db/supportSchema.sql', 'src/db/supportModels.ts'],
-            criteria: hasExplicitBilling
-              ? [
-                  'Tabelas team_members, api_keys, webhooks e notifications criadas com chaves primárias tipadas',
-                  'Constraints de integridade e índices para consultas por chave e workspace'
-                ]
-              : capabilities.advancedSaas
-                ? [
-                    'Tabelas de coleções salvas, presets de pesquisa e configurações analíticas criadas com integridade relacional',
-                    'Constraints de integridade e índices para consultas rápidas por tag, data e workspace'
-                  ]
-                : [
-                    'Tabelas de coleções salvas e presets de pesquisa criadas com integridade relacional',
-                    'Constraints de integridade e índices para consultas rápidas por tag e data'
-                  ]
+            title: `Modelar schemas de suporte SaaS: team_members, api_keys, webhooks e notifications de ${pName}`,
+            desc: 'Implementar tabelas relacionais de infraestrutura comercial cobrindo membros da equipe, chaves de API, webhooks e notificações.',
+            files: ['src/db/saasSchema.sql', 'src/db/saasModels.ts'],
+            criteria: [
+              'Tabelas team_members, api_keys, webhooks e notifications criadas com chaves primárias tipadas',
+              'Constraints de integridade e índices para consultas por chave e workspace'
+            ]
           },
           {
             subCode: '2.3',
@@ -6679,28 +5108,15 @@ export class HierarchicalOrchestrationService {
               'Tratamento preventivo de colisões de chave e constraints relacionais'
             ]
           }
-        ] : [
-          {
-            subCode: '2.1',
-            title: `Modelar entidades e estruturas de dados em memória / JSON de ${pName}`,
-            desc: 'Criar interfaces TypeScript e repositório simples em memória ou arquivo JSON para persistência leve sem banco relacional.',
-            files: ['src/state/store.ts', 'src/state/types.ts'],
-            criteria: [
-              'Estruturas de dados tipadas e operações CRUD em memória/JSON',
-              'Validação de integridade sem dependência de SQLite'
-            ]
-          }
         ]
       },
       {
         code: 'GT-3',
-        title: capabilities.demoSeed
-          ? 'Smart Demo Seeding Denso (seedIfEmpty com 30 a 50 Registros)'
-          : 'Fixtures de Teste e Inicialização em Estado Limpo',
+        title: 'Smart Demo Seeding Denso (seedIfEmpty com 30 a 50 Registros)',
         stageCode: 'ET-3.1',
-        stageTitle: capabilities.demoSeed ? 'Seeding Denso e Fixtures' : 'Estado Limpo e Fixtures Determinísticas',
+        stageTitle: 'Seeding Denso e Fixtures',
         reqCats: ['persistence'],
-        microtasks: capabilities.demoSeed ? [
+        microtasks: [
           {
             subCode: '3.1',
             title: `Implementar seeder de entidades centrais com relacionamentos e dados realistas de ${pName}`,
@@ -6713,24 +5129,13 @@ export class HierarchicalOrchestrationService {
           },
           {
             subCode: '3.2',
-            title: hasExplicitBilling
-              ? `Implementar seeder de ecossistema SaaS: faturas de cobrança, membros da equipe e API keys de ${pName}`
-              : `Implementar seeder de coleções, filtros rápidos e registros de suporte de ${pName}`,
-            desc: hasExplicitBilling
-              ? 'Popular registros de suporte incluindo faturas simuladas, histórico de cobranças, membros com papéis RBAC e chaves de exemplo.'
-              : `Popular registros de suporte incluindo nichos/coleções monitoradas, presets de busca analítica e configurações de sistema de ${pName}.`,
-            files: hasExplicitBilling
-              ? ['src/db/seedSaaS.ts', 'src/db/seedBilling.ts']
-              : ['src/db/seedSupport.ts', 'src/db/seedPresets.ts'],
-            criteria: hasExplicitBilling
-              ? [
-                  'Registros realistas nas tabelas team_members, api_keys, webhooks e faturas de cobrança',
-                  'Logs de auditoria populados para alimentar a timeline inicial do sistema'
-                ]
-              : [
-                  'Registros realistas nas tabelas de coleções, tags de tração e configurações de análise do domínio',
-                  'Fixtures determinísticas prontas para demonstrar visualizações analíticas sem depender de mock externo'
-                ]
+            title: `Implementar seeder de ecossistema SaaS: faturas de cobrança, membros da equipe e API keys de ${pName}`,
+            desc: 'Popular registros de suporte incluindo faturas simuladas, histórico de cobranças, membros com papéis RBAC e chaves de exemplo.',
+            files: ['src/db/seedSaaS.ts', 'src/db/seedBilling.ts'],
+            criteria: [
+              'Registros realistas nas tabelas team_members, api_keys, webhooks e faturas de cobrança',
+              'Logs de auditoria populados para alimentar a timeline inicial do sistema'
+            ]
           },
           {
             subCode: '3.3',
@@ -6740,27 +5145,6 @@ export class HierarchicalOrchestrationService {
             criteria: [
               'seedIfEmpty() popula entre 30 e 50 registros interconectados no primeiro boot',
               'Execução subsequente detecta dados existentes e não duplica registros'
-            ]
-          }
-        ] : [
-          {
-            subCode: '3.1',
-            title: `Implementar fixtures determinísticas para testes automatizados de ${pName}`,
-            desc: 'Criar fixtures puras e isoladas para testes de unidade e integração sem poluir ambiente real.',
-            files: ['test/fixtures/domainFixtures.ts'],
-            criteria: [
-              'Fixtures tipadas e determinísticas para execução segura de testes',
-              'Isolamento total de fixtures sem injeção de dados falsos em produção'
-            ]
-          },
-          {
-            subCode: '3.2',
-            title: `Configurar inicialização segura do servidor em estado limpo de ${pName}`,
-            desc: 'Garantir que a aplicação inicialize em estado limpo, pronta para receber dados reais do usuário sem mock data forçado.',
-            files: ['src/server.ts'],
-            criteria: [
-              'Aplicação inicia sem erros com estado vazio/limpo',
-              'Tratamento adequado de empty states na interface e rotas'
             ]
           }
         ]
@@ -6784,44 +5168,13 @@ export class HierarchicalOrchestrationService {
           },
           {
             subCode: '4.2',
-            title: domainBlueprint.domainKey === 'ad_intelligence'
-              ? `Implementar motor de Opportunity Score, longevidade de veiculação e agrupamento de anúncios de ${pName}`
-              : (domainBlueprint.domainKey === 'creator_video_analytics' || domainBlueprint.domainKey === 'creator_economy')
-              ? `Implementar motor de cálculos analíticos: Outlier Multiplier, taxa de engajamento e velocidade VPH de ${pName}`
-              : domainBlueprint.domainKey === 'ai_automation_agents'
-              ? `Implementar motor de métricas de telemetria: latência P95, contabilidade de tokens e custo de inferência de ${pName}`
-              : hasExplicitBilling
-              ? `Implementar motor de cálculos analíticos, agregação de métricas e indicadores de desempenho de ${pName}`
-              : `Implementar motor de cálculos analíticos, métricas de agregação e fórmulas do domínio de ${pName}`,
-            desc: domainBlueprint.domainKey === 'ad_intelligence'
-              ? 'Construir algoritmos de normalização de anúncios da Meta Ads Library, deduplicação de criativos e cálculo de Opportunity Score (0 a 100) baseado em dados observáveis.'
-              : (domainBlueprint.domainKey === 'creator_video_analytics' || domainBlueprint.domainKey === 'creator_economy')
-              ? 'Construir algoritmos de consolidação de dados de viralidade, cálculo de Outlier Score em relação ao baseline do canal, Engagement Rate e Views Per Hour (VPH).'
-              : domainBlueprint.domainKey === 'ai_automation_agents'
-              ? 'Construir algoritmos de cálculo de latência percentil P95, consumo acumulado de prompt/completion tokens e estimativa financeira por modelo.'
-              : hasExplicitBilling
-              ? 'Construir algoritmos de consolidação de dados, médias móveis, variações percentuais (Δ%) e somatórios.'
-              : `Construir algoritmos analíticos de consolidação, agregações e fórmulas essenciais do domínio (${domainBlueprint.formulas.slice(0, 2).join('; ') || 'médias móveis e variações percentuais'}).`,
+            title: `Implementar motor de cálculos analíticos, agregação de métricas e KPIs financeiros de ${pName}`,
+            desc: 'Construir algoritmos de consolidação de dados, médias móveis, variações percentuais (Δ%) e somatórios.',
             files: ['src/domain/calculator.ts', 'src/services/analyticsService.ts'],
-            criteria: domainBlueprint.domainKey === 'ad_intelligence'
-              ? [
-                  'Cálculo preciso de Opportunity Score considerando longevidade, multiplicidade de anúncios e criativos',
-                  'Algoritmo de deduplicação e agrupamento por anunciante e página'
-                ]
-              : (domainBlueprint.domainKey === 'creator_video_analytics' || domainBlueprint.domainKey === 'creator_economy')
-              ? [
-                  'Cálculo preciso de Outlier Score com baseline histórico e detecção de virais autênticos (>= 3x a 50x)',
-                  'Cálculo de taxa de engajamento percentual e velocidade de visualizações por hora (VPH)'
-                ]
-              : domainBlueprint.domainKey === 'ai_automation_agents'
-              ? [
-                  'Cálculo de latência P95 e agregação de tokens com divisão por provedor e modelo',
-                  'Fórmulas de custo por 1k tokens e taxas de sucesso em tempo real'
-                ]
-              : [
-                  'Cálculo preciso dos indicadores centrais do domínio e variações temporais (Δ%)',
-                  'Agregação de séries temporais para geração de gráficos analíticos'
-                ]
+            criteria: [
+              'Cálculo preciso de KPIs executivos com comparação entre períodos (Δ%)',
+              'Agregação de séries temporais para geração de gráficos de tendência'
+            ]
           },
           {
             subCode: '4.3',
@@ -6864,20 +5217,12 @@ export class HierarchicalOrchestrationService {
           },
           {
             subCode: '5.3',
-            title: domainBlueprint.domainKey === 'ad_intelligence'
-              ? `Implementar filtros de tempo ativo (7d, 30d, 90d), presença multi-plataforma e exportação CSV de ${pName}`
-              : (domainBlueprint.domainKey === 'creator_video_analytics' || domainBlueprint.domainKey === 'creator_economy')
-              ? `Implementar filtros de engajamento, Outlier Multiplier (>3x, >5x, >10x), busca e exportação CSV de ${pName}`
-              : `Implementar filtros compostos do domínio, ordenação dinâmica, paginação e exportação CSV RFC-4180 de ${pName}`,
-            desc: domainBlueprint.domainKey === 'ad_intelligence'
-              ? `Suportar busca por palavra-chave, filtros por país, plataforma, tempo ativo, tipo de mídia e exportação tabular formatada em CSV RFC-4180 de ${pName}.`
-              : (domainBlueprint.domainKey === 'creator_video_analytics' || domainBlueprint.domainKey === 'creator_economy')
-              ? 'Suportar busca textual com debounce (250ms), filtros multi-range por Outlier Score, views mínimas, engajamento e exportação tabular formatada em CSV RFC-4180.'
-              : `Suportar busca textual com debounce (250ms), filtros combinados específicos do domínio (${briefingExtraction.filters.join(', ') || 'status e categorias'}) e exportação tabular formatada em CSV RFC-4180.`,
+            title: `Implementar filtros compostos, ordenação dinâmica, paginação e exportação CSV RFC-4180 de ${pName}`,
+            desc: 'Suportar busca textual com debounce, filtros combinados por status/período e exportação tabular formatada em CSV.',
             files: ['src/services/filterService.ts', 'src/routes/exportRoutes.ts'],
             criteria: [
-              'Query parameters de busca textual, filtros combinados e ordenação dinâmica respondendo com precisão',
-              'Endpoint /api/export/csv gerando download com escape RFC-4180 dos registros filtrados'
+              'Query parameters de busca, ordenação (asc/desc) e filtros combinados funcionando em harmonia',
+              'Endpoint /api/export/csv gerando download com escape RFC-4180'
             ]
           },
           {
@@ -6894,11 +5239,9 @@ export class HierarchicalOrchestrationService {
       },
       {
         code: 'GT-6',
-        title: capabilities.advancedSaas
-          ? 'Endpoints de Ecossistema SaaS, Billing, Webhooks e Audit Trail'
-          : 'Endpoints de Domínio, Analytics e Healthcheck',
+        title: 'Endpoints de Ecossistema SaaS, Billing, Webhooks e Audit Trail',
         stageCode: 'ET-6.1',
-        stageTitle: capabilities.advancedSaas ? 'APIs de Ecossistema SaaS' : 'APIs de Domínio e Analytics',
+        stageTitle: 'APIs de Ecossistema SaaS',
         reqCats: ['authentication', 'security', 'api_contracts'],
         microtasks: [
           {
@@ -6913,67 +5256,54 @@ export class HierarchicalOrchestrationService {
           },
           {
             subCode: '6.2',
-            title: hasExplicitBilling
-              ? `Implementar endpoints de billing e planos (/api/billing/plans, /api/billing/invoices) de ${pName}`
-              : `Implementar endpoints de operações analíticas e coleções (/api/operations, /api/collections) de ${pName}`,
-            desc: hasExplicitBilling
-              ? 'Expor catálogo de planos de assinatura, medidores de uso (usage meters) e histórico de faturas com simulação de PIX.'
-              : `Expor endpoints para gerenciar coleções salvas, filtros pré-configurados e histórico de varreduras/análises de ${pName}.`,
-            files: hasExplicitBilling
-              ? ['src/controllers/billingController.ts', 'src/routes/billingRoutes.ts']
-              : ['src/controllers/operationController.ts', 'src/routes/operationRoutes.ts'],
-            criteria: hasExplicitBilling
-              ? [
-                  'Endpoints de billing retornando planos (Starter/Pro/Enterprise) e consumo de cotas',
-                  'Geração de cobrança com simulação de código PIX Copia-e-Cola e recibo'
-                ]
-              : [
-                  'Endpoints RESTful para salvar coleções, registrar operações de análise e consultar histórico',
-                  'Respostas formatadas em JSON com paginação e integridade referencial'
-                ]
+            title: `Implementar endpoints de billing e planos (/api/billing/plans, /api/billing/invoices) de ${pName}`,
+            desc: 'Expor catálogo de planos de assinatura, medidores de uso (usage meters) e histórico de faturas com simulação de PIX.',
+            files: ['src/controllers/billingController.ts', 'src/routes/billingRoutes.ts'],
+            criteria: [
+              'Endpoints de billing retornando planos (Starter/Pro/Enterprise) e consumo de cotas',
+              'Geração de cobrança com simulação de código PIX Copia-e-Cola e recibo'
+            ]
           },
-          ...(capabilities.advancedSaas ? [
-            {
-              subCode: '6.3',
-              title: `Implementar endpoints de gestão de API Keys mascaradas (/api/api-keys) de ${pName}`,
-              desc: 'Construir rotas para listar, criar com máscara de visualização única e revogar chaves de integração.',
-              files: ['src/controllers/apiKeyController.ts', 'src/routes/apiKeyRoutes.ts'],
-              criteria: [
-                'Criação de API Keys seguras com hash no banco e exibição da chave completa apenas no momento da criação',
-                'Revogação imediata de credenciais de acesso'
-              ]
-            },
-            {
-              subCode: '6.4',
-              title: `Implementar dispatcher e playground de Webhooks (/api/webhooks, /api/webhooks/test) de ${pName}`,
-              desc: 'Construir gerenciador de URLs de webhook e endpoint de teste com simulação de despacho e retorno HTTP.',
-              files: ['src/services/webhookDispatcher.ts', 'src/routes/webhookRoutes.ts'],
-              criteria: [
-                'CRUD de configurações de webhooks por evento',
-                'Endpoint /api/webhooks/test despachando payload real de teste e retornando status da resposta'
-              ]
-            },
-            {
-              subCode: '6.5',
-              title: `Implementar endpoints de gestão de equipe RBAC (/api/team) e trilha global (/api/audit-logs) de ${pName}`,
-              desc: 'Expor membros do workspace com papéis (Admin, Manager, Viewer) e endpoint paginado de audit_logs.',
-              files: ['src/controllers/teamController.ts', 'src/routes/auditRoutes.ts'],
-              criteria: [
-                'Gestão de equipe com atribuição de permissões por papel',
-                'GET /api/audit-logs com paginação, filtros por entidade e timeline de eventos'
-              ]
-            },
-            {
-              subCode: '6.6',
-              title: `Implementar endpoint de especificação do catálogo da documentação (/api/docs-spec) de ${pName}`,
-              desc: 'Disponibilizar especificação OpenAPI/REST interativa estruturada para alimentar a aba de documentação /docs.',
-              files: ['src/controllers/docsController.ts', 'src/routes/docsRoutes.ts'],
-              criteria: [
-                'GET /api/docs-spec retornando catálogo estruturado de todos os endpoints REST',
-                'Metadados completos com parâmetros, corpos de exemplo e respostas'
-              ]
-            }
-          ] : [])
+          {
+            subCode: '6.3',
+            title: `Implementar endpoints de gestão de API Keys mascaradas (/api/api-keys) de ${pName}`,
+            desc: 'Construir rotas para listar, criar com máscara de visualização única e revogar chaves de integração.',
+            files: ['src/controllers/apiKeyController.ts', 'src/routes/apiKeyRoutes.ts'],
+            criteria: [
+              'Criação de API Keys seguras com hash no banco e exibição da chave completa apenas no momento da criação',
+              'Revogação imediata de credenciais de acesso'
+            ]
+          },
+          {
+            subCode: '6.4',
+            title: `Implementar dispatcher e playground de Webhooks (/api/webhooks, /api/webhooks/test) de ${pName}`,
+            desc: 'Construir gerenciador de URLs de webhook e endpoint de teste com simulação de despacho e retorno HTTP.',
+            files: ['src/services/webhookDispatcher.ts', 'src/routes/webhookRoutes.ts'],
+            criteria: [
+              'CRUD de configurações de webhooks por evento',
+              'Endpoint /api/webhooks/test despachando payload real de teste e retornando status da resposta'
+            ]
+          },
+          {
+            subCode: '6.5',
+            title: `Implementar endpoints de gestão de equipe RBAC (/api/team) e trilha global (/api/audit-logs) de ${pName}`,
+            desc: 'Expor membros do workspace com papéis (Admin, Manager, Viewer) e endpoint paginado de audit_logs.',
+            files: ['src/controllers/teamController.ts', 'src/routes/auditRoutes.ts'],
+            criteria: [
+              'Gestão de equipe com atribuição de permissões por papel',
+              'GET /api/audit-logs com paginação, filtros por entidade e timeline de eventos'
+            ]
+          },
+          {
+            subCode: '6.6',
+            title: `Implementar endpoint de especificação do catálogo da documentação (/api/docs-spec) de ${pName}`,
+            desc: 'Disponibilizar especificação OpenAPI/REST interativa estruturada para alimentar a aba de documentação /docs.',
+            files: ['src/controllers/docsController.ts', 'src/routes/docsRoutes.ts'],
+            criteria: [
+              'GET /api/docs-spec retornando catálogo estruturado de todos os endpoints REST',
+              'Metadados completos com parâmetros, corpos de exemplo e respostas'
+            ]
+          }
         ]
       },
       {
@@ -7095,22 +5425,13 @@ export class HierarchicalOrchestrationService {
           },
           {
             subCode: '9.3',
-            title: hasExplicitKanban
-              ? `Implementar visão alternativa em Quadro Kanban com colunas de status e cards de ${pName}`
-              : `Implementar visualização híbrida em Quadro Kanban / Galeria de Cards 16:9 alternável com Tabela Analítica de ${pName}`,
-            desc: hasExplicitKanban
-              ? 'Construir visualização em formato Kanban permitindo alternar entre lista e quadro com atualização de estado.'
-              : 'Construir galeria responsiva com cards 16:9 destacando thumbnails/métricas, pílulas de status/score e toggle de alternância instantânea com Data Grid denso.',
+            title: `Implementar visão alternativa em Quadro Kanban com colunas de status e cards de ${pName}`,
+            desc: 'Construir visualização em formato Kanban permitindo alternar entre lista e quadro com atualização de estado.',
             files: ['public/index.html', 'public/app.js', 'public/style.css'],
-            criteria: hasExplicitKanban
-              ? [
-                  'Toggle de alternância fluido entre visualização em Tabela e Quadro Kanban',
-                  'Cards organizados por status com contadores por coluna e movimentação de estado'
-                ]
-              : [
-                  'Toggle de visualização fluido entre Tabela Analítica e Galeria de Cards 16:9 com aspect-ratio preservado',
-                  'Cards exibindo pílulas de destaque semântico (ex: scores de oportunidade e métricas em tabular-nums)'
-                ]
+            criteria: [
+              'Toggle de alternância fluido entre visualização em Tabela e Quadro Kanban',
+              'Cards organizados por status com contadores por coluna e movimentação de estado'
+            ]
           },
           {
             subCode: '9.4',
@@ -7126,69 +5447,41 @@ export class HierarchicalOrchestrationService {
       },
       {
         code: 'GT-10',
-        title: hasExplicitBilling
-          ? 'Central de Billing, Planos (Usage Meters, QR Code PIX) & Gestão de Equipe (RBAC)'
-          : capabilities.advancedSaas
-            ? 'Comparador Analítico, Simulador Preditivo de Score & Gestão de Equipe (RBAC)'
-            : 'Comparador Analítico, Simulador Preditivo de Score e Preferências da Interface',
+        title: 'Central de Billing, Planos (Usage Meters, QR Code PIX) & Gestão de Equipe (RBAC)',
         stageCode: 'ET-10.1',
-        stageTitle: hasExplicitBilling
-          ? 'Billing, Planos e Equipe RBAC'
-          : capabilities.advancedSaas
-            ? 'Comparador, Simulador e Equipe RBAC'
-            : 'Comparador, Simulador e Preferências',
+        stageTitle: 'Billing, Planos e Equipe RBAC',
         reqCats: ['authentication', 'reports'],
         microtasks: [
           {
             subCode: '10.1',
-            title: hasExplicitBilling
-              ? `Implementar comparador de planos (Starter/Pro/Enterprise) e medidores de cota (Usage Meters) de ${pName}`
-              : `Implementar Comparador Analítico Lado a Lado e Seletor de Métricas de Referência de ${pName}`,
-            desc: hasExplicitBilling
-              ? 'Construir secção de assinatura com cards de precificação comparativa e barras de progresso de consumo de recursos.'
-              : 'Construir secção de benchmark permitindo selecionar dois ou mais registros do domínio e comparar métricas analíticas e diferenciais lado a lado.',
+            title: `Implementar comparador de planos (Starter/Pro/Enterprise) e medidores de cota (Usage Meters) de ${pName}`,
+            desc: 'Construir secção de assinatura com cards de precificação comparativa e barras de progresso de consumo de recursos.',
             files: ['public/index.html', 'public/app.js', 'public/style.css'],
-            criteria: hasExplicitBilling
-              ? [
-                  'Cards de planos com toggle mensal/anual e badges de recursos inclusos',
-                  'Barras de consumo de cota (Usage Progress Meters) indicando utilização de limites'
-                ]
-              : [
-                  'Painel comparativo lado a lado renderizando métricas selecionadas e variações relativas (Δ%)',
-                  'Interface com chips de seleção rápida e visualização comparativa clara'
-                ]
+            criteria: [
+              'Cards de planos com toggle mensal/anual e badges de recursos inclusos',
+              'Barras de consumo de cota (Usage Progress Meters) indicando utilização de limites'
+            ]
           },
           {
             subCode: '10.2',
-            title: hasExplicitBilling
-              ? `Implementar modal de checkout com simulação de QR-Code PIX Copia-e-Cola e recibo de ${pName}`
-              : `Implementar Simulador Preditivo de Score e Calculadora do Domínio de ${pName}`,
-            desc: hasExplicitBilling
-              ? 'Desenvolver fluxo de contratação com geração de código PIX Copia-e-Cola simulado, botão de cópia e emissão de recibo.'
-              : 'Desenvolver ferramenta interativa na interface permitindo simular cenários, testar parâmetros de fórmulas do domínio e projetar resultados com feedback visual imediato.',
+            title: `Implementar modal de checkout com simulação de QR-Code PIX Copia-e-Cola e recibo de ${pName}`,
+            desc: 'Desenvolver fluxo de contratação com geração de código PIX Copia-e-Cola simulado, botão de cópia e emissão de recibo.',
             files: ['public/index.html', 'public/app.js', 'public/style.css'],
-            criteria: hasExplicitBilling
-              ? [
-                  'Modal de checkout gerando QR-Code PIX e código copia-e-cola com feedback de cópia',
-                  'Exibição de recibo de transação com status confirmado e download de comprovante'
-                ]
-              : [
-                  'Simulador interativo recalculando score e métricas em tempo real conforme ajuste dos inputs',
-                  'Exibição gráfica ou em pílulas dos resultados da simulação com indicação de confiança'
-                ]
+            criteria: [
+              'Modal de checkout gerando QR-Code PIX e código copia-e-cola com feedback de cópia',
+              'Exibição de recibo de transação com status confirmado e download de comprovante'
+            ]
           },
-          ...(capabilities.advancedSaas ? [
-            {
-              subCode: '10.3',
-              title: `Implementar secção de membros da equipe com perfis RBAC (Admin, Manager, Viewer) e convites de ${pName}`,
-              desc: 'Construir interface de gerenciamento de membros com controle de permissões por perfil e formulário de convite.',
-              files: ['public/index.html', 'public/app.js'],
-              criteria: [
-                'Listagem de membros com avatares, status de convite e seletor de papel RBAC',
-                'Ações de alteração de papel e revogação de acesso integradas à API'
-              ]
-            }
-          ] : []),
+          {
+            subCode: '10.3',
+            title: `Implementar secção de membros da equipe com perfis RBAC (Admin, Manager, Viewer) e convites de ${pName}`,
+            desc: 'Construir interface de gerenciamento de membros com controle de permissões por perfil e formulário de convite.',
+            files: ['public/index.html', 'public/app.js'],
+            criteria: [
+              'Listagem de membros com avatares, status de convite e seletor de papel RBAC',
+              'Ações de alteração de papel e revogação de acesso integradas à API'
+            ]
+          },
           {
             subCode: '10.4',
             title: `Implementar configurações de Workspace e preferências de notificação/tema de ${pName}`,
@@ -7201,57 +5494,55 @@ export class HierarchicalOrchestrationService {
           }
         ]
       },
-      ...(capabilities.advancedSaas ? [
-        {
-          code: 'GT-11',
-          title: 'Portal de Documentação Técnica Embutido (/docs) & Developer Hub',
-          stageCode: 'ET-11.1',
-          stageTitle: 'Documentação /docs e Developer Hub',
-          reqCats: ['api_contracts'],
-          microtasks: [
-            {
-              subCode: '11.1',
-              title: `Construir secção /docs com Guia Quickstart, visão de arquitetura e catálogo REST de ${pName}`,
-              desc: 'Implementar aba de documentação técnica integrada acessível diretamente no SaaS com navegação por tópicos.',
-              files: ['public/index.html', 'public/app.js', 'public/style.css'],
-              criteria: [
-                'Aba de navegação dedicada [data-tab="docs"] com Guia Quickstart e visão de arquitetura',
-                'Catálogo interativo de rotas da API com métodos HTTP, rotas e descrições detalhadas'
-              ]
-            },
-            {
-              subCode: '11.2',
-              title: `Implementar snippets copiáveis em 1 clique para curl e fetch nos endpoints do catálogo de ${pName}`,
-              desc: 'Gerar blocos de código com comandos curl e requisições fetch dinamicamente parametrizadas com botão de cópia.',
-              files: ['public/index.html', 'public/app.js', 'public/style.css'],
-              criteria: [
-                'Blocos de código com realce de sintaxe contendo exemplos funcionais de curl e fetch()',
-                'Botão de copiar código em 1 clique com feedback visual de confirmação'
-              ]
-            },
-            {
-              subCode: '11.3',
-              title: `Implementar gerenciador de Chaves de API no Developer Hub com criação e revogação de ${pName}`,
-              desc: 'Construir secção para geração de chaves de API com máscara de visualização segura e botão de revogação imediata.',
-              files: ['public/index.html', 'public/app.js'],
-              criteria: [
-                'Criação de novas chaves de API com cópia segura e aviso de visualização única',
-                'Tabela de chaves ativas com prefixo visível, data de criação e ação de revogação'
-              ]
-            },
-            {
-              subCode: '11.4',
-              title: `Implementar Webhooks Playground interativo com configuração de URL e disparo de testes de ${pName}`,
-              desc: 'Desenvolver simulador de webhooks permitindo testar o disparo de eventos contra endpoints externos ou locais.',
-              files: ['public/index.html', 'public/app.js', 'public/style.css'],
-              criteria: [
-                'Interface para cadastrar URL de destino e selecionar evento a ser simulado',
-                'Botão de disparo de teste consumindo /api/webhooks/test e exibindo painel de resposta HTTP'
-              ]
-            }
-          ]
-        }
-      ] : []),
+      {
+        code: 'GT-11',
+        title: 'Portal de Documentação Técnica Embutido (/docs) & Developer Hub',
+        stageCode: 'ET-11.1',
+        stageTitle: 'Documentação /docs e Developer Hub',
+        reqCats: ['api_contracts'],
+        microtasks: [
+          {
+            subCode: '11.1',
+            title: `Construir secção /docs com Guia Quickstart, visão de arquitetura e catálogo REST de ${pName}`,
+            desc: 'Implementar aba de documentação técnica integrada acessível diretamente no SaaS com navegação por tópicos.',
+            files: ['public/index.html', 'public/app.js', 'public/style.css'],
+            criteria: [
+              'Aba de navegação dedicada [data-tab="docs"] com Guia Quickstart e visão de arquitetura',
+              'Catálogo interativo de rotas da API com métodos HTTP, rotas e descrições detalhadas'
+            ]
+          },
+          {
+            subCode: '11.2',
+            title: `Implementar snippets copiáveis em 1 clique para curl e fetch nos endpoints do catálogo de ${pName}`,
+            desc: 'Gerar blocos de código com comandos curl e requisições fetch dinamicamente parametrizadas com botão de cópia.',
+            files: ['public/index.html', 'public/app.js', 'public/style.css'],
+            criteria: [
+              'Blocos de código com realce de sintaxe contendo exemplos funcionais de curl e fetch()',
+              'Botão de copiar código em 1 clique com feedback visual de confirmação'
+            ]
+          },
+          {
+            subCode: '11.3',
+            title: `Implementar gerenciador de Chaves de API no Developer Hub com criação e revogação de ${pName}`,
+            desc: 'Construir secção para geração de chaves de API com máscara de visualização segura e botão de revogação imediata.',
+            files: ['public/index.html', 'public/app.js'],
+            criteria: [
+              'Criação de novas chaves de API com cópia segura e aviso de visualização única',
+              'Tabela de chaves ativas com prefixo visível, data de criação e ação de revogação'
+            ]
+          },
+          {
+            subCode: '11.4',
+            title: `Implementar Webhooks Playground interativo com configuração de URL e disparo de testes de ${pName}`,
+            desc: 'Desenvolver simulador de webhooks permitindo testar o disparo de eventos contra endpoints externos ou locais.',
+            files: ['public/index.html', 'public/app.js', 'public/style.css'],
+            criteria: [
+              'Interface para cadastrar URL de destino e selecionar evento a ser simulado',
+              'Botão de disparo de teste consumindo /api/webhooks/test e exibindo painel de resposta HTTP'
+            ]
+          }
+        ]
+      },
       {
         code: 'GT-12',
         title: 'Suíte Exaustiva de Testes, E2E User Journey & Homologação AppSec',
@@ -7285,9 +5576,7 @@ export class HierarchicalOrchestrationService {
             desc: 'Construir teste E2E validando fluxo da casca da aplicação até relatórios com verificação de persistência após reload.',
             files: ['test/e2e/workflow.test.ts', 'test/e2e/storePersistence.test.ts'],
             criteria: [
-              (capabilities.auth || capabilities.payments)
-                ? 'Jornada completa do usuário validada ponta a ponta (login/shell -> criação -> dashboard -> faturamento)'
-                : 'Jornada completa do usuário validada ponta a ponta (shell da aplicação -> criação/consulta -> visualização analítica)',
+              'Jornada completa do usuário validada ponta a ponta (login/shell -> criação -> dashboard -> faturamento)',
               'Persistência reativa do estado comprovada sem regressões'
             ]
           },
@@ -7432,17 +5721,11 @@ export class HierarchicalOrchestrationService {
         microtasks: [
           {
             subCode: '4.1',
-            title: capabilities.auth
-              ? 'Implementar middlewares de autenticação, autorização e sanitização'
-              : 'Implementar middlewares de segurança local, sanitização e tratamento de requisições',
-            desc: capabilities.auth
-              ? 'Proteger rotas da aplicação validando tokens, sessões e permissões de acesso.'
-              : 'Proteger rotas da aplicação com sanitização de cabeçalhos e tratamento seguro de erros locais.',
-            files: capabilities.auth
-              ? ['src/middlewares/authMiddleware.ts', 'src/middlewares/sanitize.ts']
-              : ['src/middlewares/errorHandler.ts', 'src/middlewares/sanitize.ts'],
+            title: 'Implementar middlewares de autenticação, autorização e sanitização',
+            desc: 'Proteger rotas da aplicação validando tokens, sessões e permissões de acesso.',
+            files: ['src/middlewares/authMiddleware.ts', 'src/middlewares/sanitize.ts'],
             criteria: [
-              'Intercepção segura de requisições e validação de permissões',
+              'Intercepção de requisições não autorizadas com código HTTP 401/403',
               'Sanitização de cabeçalhos e payloads contra injeções'
             ]
           },
@@ -7527,9 +5810,7 @@ export class HierarchicalOrchestrationService {
           {
             subCode: '6.2',
             title: 'Implementar testes de ponta a ponta dos fluxos críticos de usuário',
-            desc: capabilities.auth
-              ? 'Validar cenários completos desde autenticação até geração de relatórios ou resultados.'
-              : 'Validar cenários completos do fluxo operacional local até geração de relatórios ou resultados.',
+            desc: 'Validar cenários completos desde autenticação até geração de relatórios ou resultados.',
             files: ['test/e2e/workflow.test.ts'],
             criteria: [
               'Fluxo de ponta a ponta executado com sucesso simulando jornada do usuário',
@@ -7550,38 +5831,7 @@ export class HierarchicalOrchestrationService {
       }
     ];
 
-    // PROIBIDO GERAR PLANOS DE 36 ETAPAS ESTÁTICAS:
-    // Se o usuário não definiu fases explícitas ("Fase 1", "Fase 2"), gera plano dinâmico e direto baseado na instrução real
-    const cleanObjective = originalDescription.split('\n')[0].replace(/^#+\s*/, '').trim() || `Implementação de ${pName}`;
-    const dynamicDirectBlueprint = [
-      {
-        code: 'GT-1',
-        title: `Implementação: ${cleanObjective.slice(0, 60)}`,
-        stageCode: 'ET-1.1',
-        stageTitle: 'Implementação Direta',
-        reqCats: ['general'],
-        microtasks: [
-          {
-            subCode: '1.1',
-            title: `Implementar: ${cleanObjective.slice(0, 50)}`,
-            desc: originalDescription.slice(0, 400),
-            files: ['server.js', 'public/app.js'],
-            criteria: ['Funcionalidade implementada conforme especificado']
-          },
-          {
-            subCode: '1.2',
-            title: `Validar: ${cleanObjective.slice(0, 50)}`,
-            desc: `Testar e validar a implementação de: ${cleanObjective.slice(0, 50)}`,
-            files: ['test/validation.test.js'],
-            criteria: ['Testes e verificação executados com sucesso']
-          }
-        ]
-      }
-    ];
-
-    const majorBlueprints = dynamicPhaseBlueprints && dynamicPhaseBlueprints.length >= 2
-      ? dynamicPhaseBlueprints
-      : (isSaaS ? saasEncyclopediaBlueprints : dynamicDirectBlueprint);
+    const majorBlueprints = isSaaS ? saasEncyclopediaBlueprints : standardBlueprints;
 
     const plannedTasks: PlannedTask[] = [];
     let globalOrder = 1;
@@ -7618,16 +5868,7 @@ export class HierarchicalOrchestrationService {
           verificationCommand: 'npm test',
           doneWhen: 'Critérios verificados e comando "npm test" retornando exitCode 0.',
           expectedFiles: micro.files,
-          allowedScope: Array.from(new Set([
-            ...micro.files,
-            'src/**',
-            'public/**',
-            'test/**',
-            'tests/**',
-            '.ai-dev-hub/**',
-            'package.json',
-            'tsconfig.json'
-          ])),
+          allowedScope: micro.files,
           requirementIds: linkedReqs.length > 0 ? linkedReqs : [`REQ-${gIdx + 1}`]
         };
 
@@ -7653,7 +5894,7 @@ export class HierarchicalOrchestrationService {
     }
 
     const healedTasks = DagAutoHealer.autoHealAndNormalizeTaskGraph(plannedTasks as any);
-    return HierarchicalOrchestrationService.enforceProfileConstraints(healedTasks as PlannedTask[], projectProfile, capabilities);
+    return healedTasks as PlannedTask[];
   }
 
   /**

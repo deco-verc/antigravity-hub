@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { execFileSync, execSync } from 'node:child_process';
 import { Logger } from './logger.js';
 import { ObservabilityService } from './observability/observabilityService.js';
+import { GitManager } from './gitManager.js';
 
 export const DEFAULT_BRANCH_PREFIX = 'ephemeral';
 
@@ -89,26 +90,32 @@ export function parseWorktreePorcelain(porcelainOutput: string): WorktreePorcela
 
 export class EphemeralWorktreeService {
   /**
-   * Remove arquivos de lock obsoletos (.git/index.lock) caso tenham mais de 60 segundos.
+   * Remove arquivos de lock obsoletos (.git/index.lock) caso tenham mais de 2 segundos.
    */
-  static cleanStaleGitLocks(gitDirOrRepo: string): void {
+  static cleanStaleGitLocks(gitDirOrRepo: string, maxAgeMs: number = 2000): void {
     if (!gitDirOrRepo || !fs.existsSync(gitDirOrRepo)) return;
 
-    const possibleLockFiles = [
-      path.join(gitDirOrRepo, 'index.lock'),
-      path.join(gitDirOrRepo, '.git', 'index.lock')
-    ];
+    try {
+      GitManager.cleanupOrphanIndexLock(gitDirOrRepo, maxAgeMs);
+    } catch {
+      const possibleLockFiles = [
+        path.join(gitDirOrRepo, 'index.lock'),
+        path.join(gitDirOrRepo, '.git', 'index.lock'),
+        path.join(gitDirOrRepo, 'HEAD.lock'),
+        path.join(gitDirOrRepo, '.git', 'HEAD.lock')
+      ];
 
-    for (const lockFile of possibleLockFiles) {
-      if (fs.existsSync(lockFile)) {
-        try {
-          const lockStat = fs.statSync(lockFile);
-          if (Date.now() - lockStat.mtimeMs > 60000) {
-            fs.unlinkSync(lockFile);
-            Logger.info(`[EphemeralWorktreeService] Lock obsoleto removido com sucesso: ${lockFile}`);
+      for (const lockFile of possibleLockFiles) {
+        if (fs.existsSync(lockFile)) {
+          try {
+            const lockStat = fs.statSync(lockFile);
+            if (Date.now() - lockStat.mtimeMs > maxAgeMs) {
+              fs.unlinkSync(lockFile);
+              Logger.info(`[EphemeralWorktreeService] Lock obsoleto removido com sucesso: ${lockFile}`);
+            }
+          } catch (err: any) {
+            Logger.warn(`[EphemeralWorktreeService] Falha ao verificar/remover lock ${lockFile}: ${err.message}`);
           }
-        } catch (err: any) {
-          Logger.warn(`[EphemeralWorktreeService] Falha ao verificar/remover lock ${lockFile}: ${err.message}`);
         }
       }
     }
@@ -210,6 +217,8 @@ export class EphemeralWorktreeService {
       try {
         execFileSync('git', ['-C', baseRepo, 'worktree', 'remove', '--force', worktreePath], {
           encoding: 'utf8',
+          timeout: 10000,
+          env: GitManager.getSafeGitEnv(),
           stdio: ['ignore', 'pipe', 'pipe']
         });
       } catch {}
@@ -222,6 +231,8 @@ export class EphemeralWorktreeService {
     try {
       execFileSync('git', ['-C', baseRepo, 'branch', '-D', branchName], {
         encoding: 'utf8',
+        timeout: 10000,
+        env: GitManager.getSafeGitEnv(),
         stdio: ['ignore', 'pipe', 'pipe']
       });
     } catch {}
@@ -234,6 +245,8 @@ export class EphemeralWorktreeService {
         ['-C', baseRepo, 'worktree', 'add', '-b', branchName, worktreePath, baseCommit],
         {
           encoding: 'utf8',
+          timeout: 15000,
+          env: GitManager.getSafeGitEnv(),
           stdio: ['ignore', 'pipe', 'pipe']
         }
       );
@@ -245,6 +258,8 @@ export class EphemeralWorktreeService {
           ['-C', baseRepo, 'worktree', 'add', worktreePath, branchName],
           {
             encoding: 'utf8',
+            timeout: 15000,
+            env: GitManager.getSafeGitEnv(),
             stdio: ['ignore', 'pipe', 'pipe']
           }
         );
@@ -327,6 +342,8 @@ export class EphemeralWorktreeService {
       try {
         execFileSync('git', ['-C', baseRepo, 'worktree', 'remove', '--force', worktreePath], {
           encoding: 'utf8',
+          timeout: 10000,
+          env: GitManager.getSafeGitEnv(),
           stdio: ['ignore', 'pipe', 'pipe']
         });
         pathRemoved = !fs.existsSync(worktreePath);
@@ -348,6 +365,8 @@ export class EphemeralWorktreeService {
       try {
         execFileSync('git', ['-C', baseRepo, 'worktree', 'prune'], {
           encoding: 'utf8',
+          timeout: 10000,
+          env: GitManager.getSafeGitEnv(),
           stdio: ['ignore', 'pipe', 'pipe']
         });
       } catch {}
@@ -357,6 +376,8 @@ export class EphemeralWorktreeService {
         try {
           execFileSync('git', ['-C', baseRepo, 'branch', '-D', branch], {
             encoding: 'utf8',
+            timeout: 10000,
+            env: GitManager.getSafeGitEnv(),
             stdio: ['ignore', 'pipe', 'pipe']
           });
           branchDeleted = true;
@@ -421,6 +442,8 @@ export class EphemeralWorktreeService {
     try {
       const stdout = execFileSync('git', ['-C', baseRepo, 'worktree', 'list', '--porcelain'], {
         encoding: 'utf8',
+        timeout: 10000,
+        env: GitManager.getSafeGitEnv(),
         stdio: ['ignore', 'pipe', 'pipe']
       });
       const worktrees = parseWorktreePorcelain(stdout);
@@ -438,6 +461,8 @@ export class EphemeralWorktreeService {
     try {
       execFileSync('git', ['-C', baseRepo, 'worktree', 'prune'], {
         encoding: 'utf8',
+        timeout: 10000,
+        env: GitManager.getSafeGitEnv(),
         stdio: ['ignore', 'pipe', 'pipe']
       });
     } catch (err: any) {

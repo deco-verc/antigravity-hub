@@ -13,7 +13,7 @@ import { AntigravityDiscovery } from './antigravityDiscovery.js';
 import { PromptArchitectureService } from './promptArchitectureService.js';
 import { AgentApiGateway } from './agentApiGateway.js';
 import { ModelRegistry } from './modelRegistry.js';
-import { AgentTurnState, captureFileInventory, changedFiles, observeTranscript, isRawToolOrCommandOutput, FATAL_QUOTA_OR_AUTH_REGEX } from './agentTurnState.js';
+import { AgentTurnState, captureFileInventory, changedFiles, observeTranscript, isRawToolOrCommandOutput, FATAL_QUOTA_OR_AUTH_REGEX, isFatalQuotaOrAuthError } from './agentTurnState.js';
 import { TurnCancellationManager, activeTurnCancellations } from './turnCancellationManager.js';
 
 export const isToolDump = (txt: string): boolean => {
@@ -693,6 +693,8 @@ export class AntigravityProvider implements AgentProvider {
       0;
 
     let isComplete = false;
+    let consecutiveCompleteCount = 0;
+    let lastCompleteLineCount = -1;
 
     do {
       if (shouldCancel?.() || TurnCancellationManager.isCancelled(sessionId)) {
@@ -717,17 +719,19 @@ export class AntigravityProvider implements AgentProvider {
 
         if (progress.state === 'ERROR') {
           const fatalEntry = progress.entries.find(
-            e => FATAL_QUOTA_OR_AUTH_REGEX.test(String(e.error || e.content || e.message || '')) ||
+            e => isFatalQuotaOrAuthError(String(e.error || e.content || e.message || ''), e) ||
                  e.type === 'ERROR_MESSAGE' ||
                  e.status === 'ERROR'
           );
           const detail = String(fatalEntry?.error || fatalEntry?.content || fatalEntry?.message || 'Native authentication/quota error');
-          AgentTurnState.setPhase(sessionId, 'CONSUMED');
-          throw new Error(
-            /RESOURCE_EXHAUSTED|QUOTA|429|limit|cota|upgrade|credits/i.test(detail)
-              ? `QUOTA_EXHAUSTED: ${detail}`
-              : `AUTH_ERROR: ${detail}`
-          );
+          if (isFatalQuotaOrAuthError(detail, fatalEntry)) {
+            AgentTurnState.setPhase(sessionId, 'CONSUMED');
+            throw new Error(
+              /RESOURCE_EXHAUSTED|QUOTA|429|limit|cota|upgrade|credits/i.test(detail)
+                ? `QUOTA_EXHAUSTED: ${detail}`
+                : `AUTH_ERROR: ${detail}`
+            );
+          }
         }
         if (progress.state === 'COMPLETE' && entriesAfterUser.length > 0) {
           isComplete = true;
@@ -804,43 +808,29 @@ export class AntigravityProvider implements AgentProvider {
 
       if (progress.state === 'ERROR') {
         const fatalEntry = progress.entries.find(
-          e => FATAL_QUOTA_OR_AUTH_REGEX.test(String(e.error || e.content || e.message || '')) ||
+          e => isFatalQuotaOrAuthError(String(e.error || e.content || e.message || ''), e) ||
                e.type === 'ERROR_MESSAGE' ||
                e.status === 'ERROR'
         );
         const detail = String(fatalEntry?.error || fatalEntry?.content || fatalEntry?.message || 'Native authentication/quota error');
-        AgentTurnState.setPhase(sessionId, 'CONSUMED');
-        throw new Error(
-          /RESOURCE_EXHAUSTED|QUOTA|429|limit|cota|upgrade|credits/i.test(detail)
-            ? `QUOTA_EXHAUSTED: ${detail}`
-            : `AUTH_ERROR: ${detail}`
-        );
-      }
-      if (progress.state === 'COMPLETE' && entriesAfterUser.length > 0) {
-        if (effectiveTimeoutMs > 5000 && !isTestEnv) {
-          // Exige 3 segundos de estabilidade sem novas ferramentas pendentes ou novas linhas
-          let quiet = true;
-          const prevCount = progress.entries.length;
-          await new Promise(r => setTimeout(r, 3000));
-          const recheck = observeTranscript(transcriptPath, initialLineCount);
-          if (recheck.entries.length > prevCount || recheck.pendingTools.length > 0) {
-            quiet = false;
-          }
-          if (!quiet) {
-            continue;
-          }
+        if (isFatalQuotaOrAuthError(detail, fatalEntry)) {
+          AgentTurnState.setPhase(sessionId, 'CONSUMED');
+          throw new Error(
+            /RESOURCE_EXHAUSTED|QUOTA|429|limit|cota|upgrade|credits/i.test(detail)
+              ? `QUOTA_EXHAUSTED: ${detail}`
+              : `AUTH_ERROR: ${detail}`
+          );
         }
-        isComplete = true;
-        break;
       }
+      const isCompleteCandidate = progress.state === 'COMPLETE' && entriesAfterUser.length > 0;
+      let isModelFinalCandidate = false;
 
-      // Verificação imediata: se a última entrada posterior ao USER_MESSAGE for uma resposta do modelo sem ferramentas pendentes
-      if (!isComplete && entriesAfterUser.length > 0 && progress.pendingTools.length === 0) {
+      if (!isCompleteCandidate && entriesAfterUser.length > 0 && progress.pendingTools.length === 0) {
         const lastEntry = entriesAfterUser.filter(e => e.type !== 'CHECKPOINT').at(-1);
         const lastEntryText = String(lastEntry?.content || lastEntry?.text || '');
         const isRawTool = isRawToolOrCommandOutput(lastEntryText);
 
-        const isModelFinal = Boolean(
+        isModelFinalCandidate = Boolean(
           !isRawTool &&
           lastEntry &&
           lastEntry.type !== 'GENERIC' &&
@@ -865,24 +855,38 @@ export class AntigravityProvider implements AgentProvider {
             (typeof lastEntry.text === 'string' && lastEntry.text.trim().length > 0)
           )
         );
+      }
 
-        if (isModelFinal) {
-          if (effectiveTimeoutMs > 5000 && !isTestEnv) {
-            // Exige 3 segundos de estabilidade sem ferramentas pendentes
-            let quiet = true;
-            const prevCount = progress.entries.length;
-            await new Promise(r => setTimeout(r, 3000));
-            const recheck = observeTranscript(transcriptPath, initialLineCount);
-            if (recheck.entries.length > prevCount || recheck.pendingTools.length > 0) {
-              quiet = false;
-            }
-            if (!quiet) {
-              continue;
-            }
-          }
+      if (isCompleteCandidate || isModelFinalCandidate) {
+        const currentLines = progress.entries.length;
+        if (effectiveTimeoutMs <= 5000 || isTestEnv) {
+          // Em testes unitários curtos ou ambiente mockado de teste, finaliza imediatamente
           isComplete = true;
           break;
         }
+
+        // Janela de estabilização e exigência de 2 leituras consecutivas com estado COMPLETE
+        // separadas por pelo menos 2.500ms sem nenhuma nova linha adicionada ao transcript.jsonl
+        if (consecutiveCompleteCount === 0) {
+          consecutiveCompleteCount = 1;
+          lastCompleteLineCount = currentLines;
+          await new Promise(r => setTimeout(r, 2500));
+          continue;
+        } else {
+          // Segunda leitura consecutiva: verifica se não surgiram novas linhas ou ferramentas pendentes
+          if (currentLines === lastCompleteLineCount && progress.pendingTools.length === 0) {
+            isComplete = true;
+            break;
+          } else {
+            // Houve atividade ou novas linhas adicionadas durante os 2.500ms, reinicia a contagem
+            consecutiveCompleteCount = 0;
+            lastCompleteLineCount = currentLines;
+            continue;
+          }
+        }
+      } else {
+        consecutiveCompleteCount = 0;
+        lastCompleteLineCount = -1;
       }
 
       const totalElapsed = Date.now() - startTime;
@@ -990,10 +994,13 @@ export class AntigravityProvider implements AgentProvider {
         try {
           const entry = JSON.parse(lineStr);
 
-          const rawText = String(entry.error || entry.content || entry.message || '');
-          if (FATAL_QUOTA_OR_AUTH_REGEX.test(rawText)) {
-            AgentTurnState.setPhase(sessionId, 'CONSUMED');
-            throw new Error(`QUOTA_EXHAUSTED: ${rawText}`);
+          const isErrorEntry = entry.status === 'ERROR' || entry.type === 'ERROR_MESSAGE' || Boolean(entry.error);
+          if (isErrorEntry) {
+            const errorText = String(entry.error || entry.message || entry.content || '');
+            if (isFatalQuotaOrAuthError(errorText, entry)) {
+              AgentTurnState.setPhase(sessionId, 'CONSUMED');
+              throw new Error(`QUOTA_EXHAUSTED: ${errorText}`);
+            }
           }
 
           if (entry.tool_calls && Array.isArray(entry.tool_calls)) {
@@ -1075,11 +1082,6 @@ export class AntigravityProvider implements AgentProvider {
                 }
               }
             }
-          }
-
-          if (FATAL_QUOTA_OR_AUTH_REGEX.test(rawText)) {
-            AgentTurnState.setPhase(sessionId, 'CONSUMED');
-            throw new Error(`QUOTA_EXHAUSTED: ${rawText}`);
           }
 
           if (entry.status === 'ERROR') {
@@ -1176,9 +1178,13 @@ export class AntigravityProvider implements AgentProvider {
     }
 
     if (projectPath && observation?.project_path === path.resolve(projectPath) && baselineInventory) {
+      const toolTouched = new Set(filesChanged);
       filesChanged.clear();
       for (const file of changedFiles(baselineInventory, captureFileInventory(projectPath))) {
         filesChanged.add(file);
+      }
+      for (const f of toolTouched) {
+        filesChanged.add(f);
       }
     }
 

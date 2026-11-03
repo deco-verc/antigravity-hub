@@ -132,6 +132,50 @@ export const FATAL_QUOTA_OR_AUTH_REGEX =
   /RESOURCE_EXHAUSTED|QUOTA_EXHAUSTED|QUOTA_BLOCKED|\b429\b|Individual quota reached|baseline quota will refresh|Weekly Limit|upgrade your subscription to increase your limits|Resets in \d+|AI credits balance is too low|Out of credits|rate limit|UNAUTHENTICATED|AUTH_ERROR|LOGIN_REQUIRED|Verify your account|invalid_grant/i;
 
 /**
+ * Verifica se um texto representa um erro fatal real de cota ou autenticação,
+ * blindado cirurgicamente contra falsos positivos de saídas de ferramentas, comandos ou telemetria com porcentagem restante.
+ */
+export function isFatalQuotaOrAuthError(rawText: string, entry?: any): boolean {
+  if (!rawText || typeof rawText !== 'string') return false;
+  const trimmed = rawText.trim();
+  if (!trimmed) return false;
+
+  // 0. Se a entrada for fornecida, a checagem só deve disparar se for explicitamente um erro nativo.
+  // NUNCA disparar contra corpo livre de mensagem ou código gerado pelo modelo (entry.content)
+  if (entry) {
+    const isErrorEntry = entry.status === 'ERROR' || entry.type === 'ERROR_MESSAGE' || Boolean(entry.error);
+    if (!isErrorEntry) {
+      return false;
+    }
+  }
+
+  // 1. Defesa contra falso positivo de saída de ferramenta / comando / terminal
+  if (
+    isRawToolOrCommandOutput(trimmed) ||
+    trimmed.startsWith('Created At:') ||
+    /^Created At:\s+\d{4}-\d{2}-\d{2}/m.test(trimmed) ||
+    trimmed.startsWith('Service.broadcast') ||
+    trimmed.includes('Service.broadcast') ||
+    trimmed.includes('SseStreamService.broadcast')
+  ) {
+    return false;
+  }
+
+  // Se a entrada vier explicitamente de uma chamada ou resultado de ferramenta
+  if (entry && (entry.type === 'GENERIC' || entry.type === 'GENERIC_TOOL_CALL_RESULT' || entry.type === 'TOOL_OUTPUT' || entry.type === 'COMMAND_OUTPUT' || entry.source === 'TOOL')) {
+    return false;
+  }
+
+  // 2. Defesa contra falso positivo: se contiver porcentagem positiva restante (% left / % remaining / % restante > 0), ignore!
+  const percentLeftMatch = trimmed.match(/(\d+(?:\.\d+)?)\s*%\s*(?:left|remaining|restante)/i);
+  if (percentLeftMatch && parseFloat(percentLeftMatch[1]) > 0) {
+    return false;
+  }
+
+  return FATAL_QUOTA_OR_AUTH_REGEX.test(trimmed);
+}
+
+/**
  * Predicado utilitário que detecta se um bloco de texto é na verdade uma saída crua de ferramenta/terminal
  * (run_command, grep, listing, etc.) e NÃO uma resposta narrativa ou conclusão real emitida pelo modelo.
  */
@@ -186,6 +230,21 @@ export function isRawToolOrCommandOutput(text: string): boolean {
   return false;
 }
 
+/**
+ * Detecta se uma mensagem do modelo é uma resposta curta de transição intermediária
+ * (ex: textos que terminam com ':' ou anunciam que vão iniciar análise/inspeção enquanto continuam surgindo passos).
+ */
+export function isIntermediateTransitionText(text: string): boolean {
+  if (!text || typeof text !== 'string') return false;
+  const trimmed = text.trim();
+  if (trimmed.length > 500) return false;
+  if (trimmed.endsWith(':')) return true;
+  if (/^(?:vou|vamos|iniciando|analisando|começando|procedendo|irei)\s+(?:analisar|inspecionar|verificar|ler|buscar|investigar|olhar|iniciar|proceder)/i.test(trimmed)) {
+    return true;
+  }
+  return false;
+}
+
 export function observeTranscript(file: string,baselineLines=0) {
   let entries: any[]=[];
   if (fs.existsSync(file)) {
@@ -212,6 +271,13 @@ export function observeTranscript(file: string,baselineLines=0) {
   const operationalEntries = entries.filter(e => e.type !== 'CHECKPOINT');
   const last = operationalEntries.at(-1);
 
+  // Identifica se houve qualquer chamada ou execução de ferramenta durante este turno
+  const hasToolCallsInTurn = operationalEntries.some(
+    e => (Array.isArray(e.tool_calls) && e.tool_calls.length > 0) ||
+         e.type === 'GENERIC' ||
+         e.type === 'GENERIC_TOOL_CALL_RESULT'
+  );
+
   // Ferramentas pendentes só existem se a última entrada operacional for uma chamada de ferramenta do modelo
   const isLastToolResult = Boolean(
     last &&
@@ -223,12 +289,10 @@ export function observeTranscript(file: string,baselineLines=0) {
     : [];
 
   const fatal = entries.find(entry => {
-    const text = String(entry.error || entry.content || entry.message || '');
-    if (FATAL_QUOTA_OR_AUTH_REGEX.test(text)) return true;
-    if ((entry.type === 'ERROR_MESSAGE' || entry.status === 'ERROR') && /quota|limit|cota|upgrade|credits|auth/i.test(text)) {
-      return true;
-    }
-    return false;
+    const isErrorEntry = entry.status === 'ERROR' || entry.type === 'ERROR_MESSAGE' || Boolean(entry.error);
+    if (!isErrorEntry) return false;
+    const text = String(entry.error || entry.message || entry.content || '');
+    return isFatalQuotaOrAuthError(text, entry);
   });
   const abortedOnStepError = Boolean(!fatal && last && last.type !== 'PLANNER_RESPONSE' && !isLastToolResult && (last.status === 'ERROR' || last.status === 'CANCELED') && !pendingTools.length);
 
@@ -258,6 +322,22 @@ export function observeTranscript(file: string,baselineLines=0) {
     : (typeof last?.text === 'string' ? last.text : '');
 
   const isRawOutput = isRawToolOrCommandOutput(lastContent);
+  const isIntermediateTransition = isIntermediateTransitionText(lastContent);
+
+  // Janela de quiescência real de 4.000ms após execução de ferramentas
+  const isTestEnv = process.env.NODE_ENV === 'test' || Boolean(process.env.NODE_TEST_CONTEXT);
+  let isWithinQuiescence = false;
+  if (!isTestEnv && hasToolCallsInTurn && fs.existsSync(file)) {
+    try {
+      const fileStat = fs.statSync(file);
+      const lastCreatedAt = last?.created_at ? new Date(last.created_at).getTime() : 0;
+      const lastActivityTime = Math.max(fileStat.mtimeMs, lastCreatedAt);
+      const elapsed = Date.now() - lastActivityTime;
+      if (elapsed >= 0 && elapsed < 4000) {
+        isWithinQuiescence = true;
+      }
+    } catch {}
+  }
 
   const hasModelContent = Boolean(
     last &&
@@ -269,14 +349,23 @@ export function observeTranscript(file: string,baselineLines=0) {
     )
   );
 
-  const isComplete = Boolean(!fatal && isModelTurnEntry && pendingTools.length === 0 && hasModelContent && !isRawOutput);
+  const isComplete = Boolean(
+    !fatal &&
+    isModelTurnEntry &&
+    pendingTools.length === 0 &&
+    hasModelContent &&
+    !isRawOutput &&
+    !isIntermediateTransition &&
+    !isWithinQuiescence
+  );
+
   const state = fatal
     ? 'ERROR'
     : isComplete
       ? 'COMPLETE'
       : (pendingTools.length > 0)
         ? 'PENDING_TOOL'
-        : (isRawOutput || entries.length > 0)
+        : (isRawOutput || isIntermediateTransition || isWithinQuiescence || entries.length > 0)
           ? 'RUNNING'
           : 'UNAVAILABLE';
   return {state,entries,pendingTools,lastStep:last?.step_index??null,abortedOnStepError};
@@ -355,5 +444,8 @@ export class AgentTurnState {
       status: phase,
       metadata: { previousPhase: oldPhase, newPhase: phase }
     });
+  }
+  static setBaselineLines(conversationId: string, lines: number) {
+    db.prepare('UPDATE agent_turn_observations SET baseline_lines=? WHERE conversation_id=?').run(lines, conversationId);
   }
 }

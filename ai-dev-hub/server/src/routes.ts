@@ -169,6 +169,75 @@ apiRouter.get('/system/vaccines', (req, res) => {
 });
 
 // -------------------------------------------------------------
+// GITHUB ONE-CLICK SYNC
+// -------------------------------------------------------------
+
+apiRouter.post('/system/github-sync', (req, res) => {
+  try {
+    const repoRoot = MetaChatService.getDecoHubRoot();
+
+    // 1. git add .
+    execSync('git add .', { cwd: repoRoot, stdio: 'pipe' });
+
+    // 2. Verifica se há algo para commitar
+    let statusOut = '';
+    try {
+      statusOut = execSync('git status --porcelain', { cwd: repoRoot, encoding: 'utf8' });
+    } catch { statusOut = ''; }
+
+    let commitHash: string | null = null;
+    let filesCommitted: string[] = [];
+    let committed = false;
+
+    if (statusOut.trim().length > 0) {
+      // Coleta lista de arquivos staged
+      const stagedOut = execSync('git diff --cached --name-only', { cwd: repoRoot, encoding: 'utf8' });
+      filesCommitted = stagedOut.trim().split('\n').filter(Boolean);
+
+      const commitMsg = req.body?.message || 'chore: auto-sync DecoHUB update';
+      execSync(`git commit -m "${commitMsg.replace(/"/g, '\\"')}"`, { cwd: repoRoot, stdio: 'pipe' });
+
+      commitHash = execSync('git rev-parse --short HEAD', { cwd: repoRoot, encoding: 'utf8' }).trim();
+      committed = true;
+    }
+
+    // 3. git push
+    let pushOutput = '';
+    try {
+      pushOutput = execSync('git push', { cwd: repoRoot, encoding: 'utf8', stdio: 'pipe' }).toString();
+    } catch (pushErr: any) {
+      pushOutput = pushErr.stderr?.toString() || pushErr.message;
+      // Se nada havia para commitar e push falha por "up-to-date", não é erro
+      const upToDate = /Everything up-to-date|up to date/i.test(pushOutput);
+      if (!upToDate) {
+        Logger.error(`[github-sync] git push falhou: ${pushOutput}`);
+        return res.status(500).json({
+          success: false,
+          error: 'git push falhou',
+          detail: pushOutput,
+          repoRoot
+        });
+      }
+    }
+
+    Logger.info(`[github-sync] Sincronizado: committed=${committed}, hash=${commitHash}, files=${filesCommitted.length}`);
+
+    res.json({
+      success: true,
+      committed,
+      commitHash,
+      filesCommitted,
+      pushOutput: pushOutput.trim(),
+      repoRoot,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err: any) {
+    Logger.error(`[github-sync] Erro: ${err.message}`);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
 // AUTO-UPDATE & DISTRIBUTION ENDPOINTS
 // -------------------------------------------------------------
 
@@ -2851,7 +2920,34 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
         /^(continuar|retomar|desbloquear|aprovar|resolver|tentar novamente)[.!]?$/i.test(trimmed)
       );
 
-      if (!forceNew && !isContinue && (intentResult.intent === 'CONVERSATION' || intentResult.intent === 'STATE_QUERY' || intentResult.intent === 'AMBIGUOUS')) {
+      const isMultiModuleRunRequest = /(?:\b(?:\d+|dez|duas|tr[eê]s|quatro|cinco)\s*m[oó]dulos\b|crie\s+[a-z0-9_\-]+\s+com|planejar\s+\d+\s+etapas)/i.test(content);
+      const isFullProjectPrompt = content.trim().length > 500 || /^(?:#?\s*PROJETO:|OBJETIVO DO PRODUTO:)/i.test(content.trim());
+      const isFourRoleIntent = Boolean(req.body?.pipeline === 'four_roles' || req.body?.fourRole) ||
+        (!forceNew && !isContinue && !isFullProjectPrompt && !isMultiModuleRunRequest && (
+          intentResult.intent === 'CODE_MODIFICATION' ||
+          intentResult.intent === 'FEATURE_REQUEST' ||
+          (intentResult.intent === 'EXECUTION_INSTRUCTION' && (intentResult.subType === 'CODE_MODIFICATION' || intentResult.subType === 'FEATURE_REQUEST'))
+        ));
+
+      if (isFourRoleIntent) {
+        const pipelineRes = await ProjectChatService.executeFourRolePipeline({
+          projectId: id,
+          content,
+          intentResult
+        });
+        replyContent = pipelineRes.replyContent;
+        execution = {
+          status: 'completed',
+          pipeline: 'four_roles',
+          intent: intentResult.intent,
+          subType: intentResult.subType,
+          confidence: intentResult.confidence,
+          source: pipelineRes.source,
+          verdict: pipelineRes.metadata?.reviewer?.verdict || 'APROVADO',
+          affectedFiles: pipelineRes.metadata?.supervisor?.affectedFiles || [],
+          pipelineMetadata: pipelineRes.metadata
+        };
+      } else if (!forceNew && !isContinue && (intentResult.intent === 'CONVERSATION' || intentResult.intent === 'STATE_QUERY' || intentResult.intent === 'AMBIGUOUS')) {
         const chatRes = await ProjectChatService.handleConversationalMessageAsync({
           projectId: id,
           content,
@@ -3071,7 +3167,12 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
     const replyId = crypto.randomUUID();
     const replyTime = new Date().toISOString();
 
-    const replyMetadata = JSON.stringify({agentRole:'system',execution,runId:autonomousRun?.id || null});
+    const replyMetadata = JSON.stringify({
+      agentRole: execution?.pipeline === 'four_roles' ? 'assistant' : 'system',
+      execution,
+      runId: autonomousRun?.id || null,
+      pipeline: execution?.pipeline || null
+    });
     db.prepare(`
       INSERT INTO messages (id, project_id, role, content, created_at, metadata)
       VALUES (?, ?, 'assistant', ?, ?, ?)

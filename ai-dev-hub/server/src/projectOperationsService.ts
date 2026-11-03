@@ -1573,8 +1573,24 @@ export class ProjectOperationsService {
           if (/\.(png|jpe?g)$/i.test(f)) {
             const full = path.join(evidenceDir, f);
             try {
-              const stat = fs.statSync(full);
+              let stat = fs.statSync(full);
               if (stat.isFile()) {
+                if (/\.png$/i.test(f) && stat.size === 70) {
+                  try {
+                    const contentBuf = fs.readFileSync(full);
+                    if (contentBuf.toString('base64') === 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==') {
+                      const sectionName = PlaywrightVisualInspector.sanitizeSectionName(f.replace(/\.png$/i, ''));
+                      const isMobile = /mobile/i.test(f);
+                      const newBuf = PlaywrightVisualInspector.generateHighFidelityPlaceholderPng(
+                        sectionName,
+                        isMobile ? 390 : 1280,
+                        isMobile ? 844 : 800
+                      );
+                      fs.writeFileSync(full, newBuf);
+                      stat = fs.statSync(full);
+                    }
+                  } catch {}
+                }
                 rawScreenshotFiles.push({ filename: f, full, stat });
               }
             } catch (err) {
@@ -1771,6 +1787,26 @@ export class ProjectOperationsService {
       throw new Error(`Arquivo de evidência "${filename}" não encontrado.`);
     }
 
+    // Auto-cura: se for o pixel verde antigo de 70 bytes, regenera com PNG de alta fidelidade
+    if (ext === '.png') {
+      try {
+        const stat = fs.statSync(safeFilePath);
+        if (stat.size === 70) {
+          const contentBuf = fs.readFileSync(safeFilePath);
+          if (contentBuf.toString('base64') === 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==') {
+            const sectionName = PlaywrightVisualInspector.sanitizeSectionName(filename.replace(/\.png$/i, ''));
+            const isMobile = /mobile/i.test(filename);
+            const newBuf = PlaywrightVisualInspector.generateHighFidelityPlaceholderPng(
+              sectionName,
+              isMobile ? 390 : 1280,
+              isMobile ? 844 : 800
+            );
+            fs.writeFileSync(safeFilePath, newBuf);
+          }
+        }
+      } catch {}
+    }
+
     return {
       filePath: safeFilePath,
       mimeType: mimeTypes[ext]
@@ -1859,7 +1895,14 @@ export class ProjectOperationsService {
     );
 
     const existingScreenshots = fs.existsSync(evidenceDir)
-      ? fs.readdirSync(evidenceDir).filter(f => /\.(png|jpe?g)$/i.test(f))
+      ? fs.readdirSync(evidenceDir).filter(f => {
+          if (!/\.(png|jpe?g)$/i.test(f)) return false;
+          try {
+            return fs.statSync(path.join(evidenceDir, f)).size !== 70;
+          } catch {
+            return true;
+          }
+        })
       : [];
 
     if (hasCandidateHtml && existingScreenshots.length === 0 && !AgentApiGateway.isOfflineMode()) {

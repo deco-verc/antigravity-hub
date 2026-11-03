@@ -175,19 +175,40 @@ export class AgentApiGateway {
   }
 
   /**
-   * Normalizes any Antigravity 2.0 model slug ('gemini-3.8-flash', 'gemini-3.1-pro', etc.)
-   * into the physical tier flag accepted by language_server.exe ('flash' | 'pro' | 'flash_lite').
+   * Normalizes any Antigravity 2.0 model slug ('gemini-3.8-flash', 'claude-sonnet-4.6', 'gpt-oss-120b', etc.)
+   * preserving full slugs for multi-family models (Claude, GPT/OSS) and mapping native tiers safely.
    */
-  static normalizeCliModelFlag(rawModel: string | undefined | null): 'flash' | 'pro' | 'flash_lite' {
+  static normalizeCliModelFlag(rawModel: string | undefined | null): string {
     if (!rawModel || typeof rawModel !== 'string') return 'flash';
     const cleaned = rawModel.trim().toLowerCase();
-    if (cleaned === 'pro' || cleaned.includes('pro') || cleaned.includes('claude') || cleaned.includes('opus') || cleaned.includes('sonnet')) {
+
+    // 1. Preservar modelos Claude reais (ex: claude-sonnet-4.6, claude-opus-4.6, claude-sonnet-5.5)
+    if (cleaned.includes('claude') || cleaned.includes('sonnet') || cleaned.includes('opus')) {
+      return cleaned;
+    }
+
+    // 2. Preservar modelos GPT e Open Weights (ex: gpt-oss-120b, gpt-4o, o1, o3)
+    if (cleaned.includes('gpt') || cleaned.includes('oss') || cleaned.includes('openai') || cleaned.startsWith('o1') || cleaned.startsWith('o3')) {
+      return cleaned;
+    }
+
+    // 3. Tiers clássicos e versões Gemini
+    if (cleaned === 'pro' || cleaned === 'gemini-3.1-pro' || cleaned === 'gemini-2.5-pro') {
       return 'pro';
     }
-    if (cleaned === 'flash_lite' || cleaned === 'flash-lite' || cleaned.includes('lite')) {
+    if (cleaned === 'flash_lite' || cleaned === 'flash-lite' || cleaned === 'gemini-2.5-flash-lite') {
       return 'flash_lite';
     }
-    return 'flash';
+    if (cleaned === 'flash' || cleaned === 'gemini-3.8-flash' || cleaned === 'gemini-2.5-flash') {
+      return 'flash';
+    }
+
+    // 4. Se for slug com hífen, preserva diretamente
+    if (cleaned.includes('-')) {
+      return cleaned;
+    }
+
+    return cleaned || 'flash';
   }
 
   /**
@@ -649,11 +670,16 @@ export class AgentApiGateway {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         const safePrompt = this.clampPromptForCli(options.prompt);
-        // Sintaxe oficial do Antigravity 2.0: agentapi new-conversation <prompt>
+        // Sintaxe oficial do Antigravity 2.0: agentapi new-conversation [--model=<slug>] <prompt>
+        const cliArgs = ['agentapi', 'new-conversation'];
+        if (cliModelFlag) {
+          cliArgs.push(`--model=${cliModelFlag}`);
+        }
+        cliArgs.push(safePrompt);
         const out = await new Promise<string>((resolve, reject) => {
           execFile(
             currentExe,
-            ['agentapi', 'new-conversation', safePrompt],
+            cliArgs,
             {
               env: cleanEnv,
               encoding: 'utf-8',

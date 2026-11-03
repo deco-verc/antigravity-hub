@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { QuotaManager, CliUsageJsonPayload } from '../src/quotaManager.js';
 import { db } from '../src/db.js';
 import { ConversationManager } from '../src/conversationManager.js';
+import { isFatalQuotaOrAuthError } from '../src/agentTurnState.js';
 
 describe('QuotaManager Offline Suite', () => {
   const testProfileId = 'test-quota-prof-01';
@@ -182,5 +183,28 @@ describe('QuotaManager Offline Suite', () => {
 
     const authErrorFlash = QuotaManager.isBlockedByQuota(testProfileId, 'flash');
     assert.strictEqual(authErrorFlash.blocked, true, 'AUTH_ERROR deve bloquear mesmo o Flash');
+  });
+
+  test('8. isFatalQuotaOrAuthError: False positive shielding against tool/terminal outputs and positive quota left', () => {
+    // 1. Saída de comando/ferramenta com Service.broadcast e Created At NÃO deve ser falso positivo
+    const toolDump1 = `Created At: 2026-11-01T19:43:12-03:00\nSseStreamService.broadcast('metachat', 'activity', { message: 'rate limit test' });\nCommand exited with code 0.`;
+    assert.strictEqual(isFatalQuotaOrAuthError(toolDump1), false, 'Saída de terminal com Created At e Service.broadcast deve ser ignorada');
+
+    const toolDump2 = `Command output:\nserver/src/limiter.ts:25: // rate limit exceeded handler with code 429\nCommand exited with code 0.`;
+    assert.strictEqual(isFatalQuotaOrAuthError(toolDump2), false, 'Saída de grep com 429 e rate limit deve ser ignorada');
+
+    // 2. Telemetria com porcentagem positiva restante (% left / % remaining > 0) NÃO deve ser erro
+    const telemetryMsg1 = 'Gemini Pro: 27% left weekly, 32% remaining in 5h window';
+    assert.strictEqual(isFatalQuotaOrAuthError(telemetryMsg1), false, '27% left deve ser ignorado como falso positivo');
+
+    const telemetryMsg2 = 'Usage status: 100% remaining for claude-3-7-sonnet';
+    assert.strictEqual(isFatalQuotaOrAuthError(telemetryMsg2), false, '100% remaining deve ser ignorado');
+
+    // 3. Erro fatal real DEVE ser detectado
+    const realError1 = 'RESOURCE_EXHAUSTED: Individual quota reached. Resets in 2h';
+    assert.strictEqual(isFatalQuotaOrAuthError(realError1), true, 'RESOURCE_EXHAUSTED com Resets in deve ser detectado');
+
+    const realError2 = '429 rate limit exceeded';
+    assert.strictEqual(isFatalQuotaOrAuthError(realError2), true, '429 rate limit puro deve ser detectado');
   });
 });

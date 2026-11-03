@@ -23,6 +23,7 @@ import {
   Loader2,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   FileCode,
   ArrowLeft,
   Terminal,
@@ -55,6 +56,12 @@ import {
   RotateCcw,
   Rocket
 } from 'lucide-react';
+
+const GithubIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+    <path d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.009-.868-.013-1.703-2.782.604-3.369-1.34-3.369-1.34-.454-1.154-1.11-1.462-1.11-1.462-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.091-.646.35-1.087.636-1.337-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0 1 12 6.836c.85.004 1.705.115 2.504.337 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.163 22 16.418 22 12c0-5.523-4.477-10-10-10z"/>
+  </svg>
+);
 import { SlashCommandMenu } from './SlashCommandMenu';
 import { SlashCommandItem } from '../types';
 
@@ -205,13 +212,14 @@ export function parse4RoleTrace(rawContent: string): Parsed4RoleTurn {
     return { hasRoles: false, chatFacadeContent: '' };
   }
 
-  const roleRegex = /\[(CHAT FACADE|SUPERVISOR|WORKER|REVIEWER)\]/i;
+  // Suporta tanto tags com colchetes [ROLE] quanto títulos markdown ### 1. Chat Facade / Supervisor / Worker / Reviewer
+  const roleRegex = /(?:\[(CHAT FACADE|SUPERVISOR|WORKER|REVIEWER)\]|###\s*[1-4]\.\s*(Chat Facade|Supervisor|Worker|Reviewer))/i;
   const firstMatch = roleRegex.exec(rawContent);
   if (!firstMatch) {
     return { hasRoles: false, chatFacadeContent: rawContent };
   }
 
-  const roleBlockRegex = /\[(CHAT FACADE|SUPERVISOR|WORKER|REVIEWER)\]([\s\S]*?)(?=\[(?:CHAT FACADE|SUPERVISOR|WORKER|REVIEWER)\]|$)/gi;
+  const roleBlockRegex = /(?:\[(CHAT FACADE|SUPERVISOR|WORKER|REVIEWER)\]|###\s*[1-4]\.\s*(Chat Facade|Supervisor|Worker|Reviewer))([\s\S]*?)(?=(?:\[(?:CHAT FACADE|SUPERVISOR|WORKER|REVIEWER)\]|###\s*[1-4]\.\s*(?:Chat Facade|Supervisor|Worker|Reviewer))|$)/gi;
 
   const chatFacadeParts: string[] = [];
   let supervisorContent = '';
@@ -225,15 +233,15 @@ export function parse4RoleTrace(rawContent: string): Parsed4RoleTurn {
 
   let match: RegExpExecArray | null;
   while ((match = roleBlockRegex.exec(rawContent)) !== null) {
-    const roleTag = match[1].toUpperCase();
-    const roleBody = match[2].trim();
-    if (roleTag === 'CHAT FACADE') {
+    const rawTag = (match[1] || match[2] || '').toUpperCase().replace(/\s+/g, ' ');
+    const roleBody = match[3].trim();
+    if (rawTag === 'CHAT FACADE') {
       if (roleBody) chatFacadeParts.push(roleBody);
-    } else if (roleTag === 'SUPERVISOR') {
+    } else if (rawTag === 'SUPERVISOR') {
       supervisorContent = (supervisorContent ? supervisorContent + '\n\n' : '') + roleBody;
-    } else if (roleTag === 'WORKER') {
+    } else if (rawTag === 'WORKER') {
       workerContent = (workerContent ? workerContent + '\n\n' : '') + roleBody;
-    } else if (roleTag === 'REVIEWER') {
+    } else if (rawTag === 'REVIEWER') {
       reviewerContent = (reviewerContent ? reviewerContent + '\n\n' : '') + roleBody;
     }
   }
@@ -253,6 +261,12 @@ export function cleanMetaChatMessage(content: string, isUser: boolean): string {
   const textToClean = parsed.hasRoles && parsed.chatFacadeContent ? parsed.chatFacadeContent : content;
   return textToClean
     .replace(/\[(?:CHAT FACADE|SUPERVISOR|WORKER|REVIEWER)\]/gi, '')
+    // Sanitização rigorosa de lixo binário, logs de descompressão e buffers
+    .replace(/Decompressed:\s*<Buffer[^>]*>/gi, '')
+    .replace(/<Buffer\s+[0-9a-f\s]+>/gi, '')
+    .replace(/<Buffer[^>]*>/gi, '')
+    .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+    .replace(/\u001b\[[0-9;]*[a-zA-Z]/g, '')
     .replace(/<thought[\s\S]*?<\/thought>/gi, '')
     .replace(/<thinking[\s\S]*?<\/thinking>/gi, '')
     .replace(/<system_invariants[\s\S]*?<\/system_invariants>/gi, '')
@@ -584,7 +598,7 @@ const MetaChatRoleCard: React.FC<{
   content: string;
   badge?: {
     text: string;
-    variant: 'approved' | 'rejected' | 'info';
+    variant: 'approved' | 'rejected' | 'info' | 'warning';
   };
   defaultOpen?: boolean;
 }> = ({ role, title, subtitle, content, badge, defaultOpen = false }) => {
@@ -608,15 +622,35 @@ const MetaChatRoleCard: React.FC<{
       icon: <Terminal className="w-3.5 h-3.5 text-cyan-400" />
     },
     reviewer: {
-      border: badge?.variant === 'rejected' ? 'border-rose-500/30' : 'border-emerald-500/30',
-      bg: badge?.variant === 'rejected' ? 'bg-rose-950/15' : 'bg-emerald-950/15',
-      headerBg: badge?.variant === 'rejected' ? 'bg-rose-950/25 hover:bg-rose-950/40' : 'bg-emerald-950/25 hover:bg-emerald-950/40',
-      text: badge?.variant === 'rejected' ? 'text-rose-300' : 'text-emerald-300',
+      border: badge?.variant === 'rejected'
+        ? 'border-rose-500/30'
+        : badge?.variant === 'warning'
+        ? 'border-amber-500/30'
+        : 'border-emerald-500/30',
+      bg: badge?.variant === 'rejected'
+        ? 'bg-rose-950/15'
+        : badge?.variant === 'warning'
+        ? 'bg-amber-950/15'
+        : 'bg-emerald-950/15',
+      headerBg: badge?.variant === 'rejected'
+        ? 'bg-rose-950/25 hover:bg-rose-950/40'
+        : badge?.variant === 'warning'
+        ? 'bg-amber-950/25 hover:bg-amber-950/40'
+        : 'bg-emerald-950/25 hover:bg-emerald-950/40',
+      text: badge?.variant === 'rejected'
+        ? 'text-rose-300'
+        : badge?.variant === 'warning'
+        ? 'text-amber-300'
+        : 'text-emerald-300',
       badgeBg: badge?.variant === 'rejected'
         ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+        : badge?.variant === 'warning'
+        ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
         : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
       icon: badge?.variant === 'rejected'
         ? <AlertCircle className="w-3.5 h-3.5 text-rose-400" />
+        : badge?.variant === 'warning'
+        ? <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
         : <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
     }
   }[role];
@@ -704,10 +738,21 @@ function renderFormattedMetaChatContent(rawContent: string, isUser: boolean): Re
   const parsedRoles = parse4RoleTrace(rawContent);
 
   if (parsedRoles.hasRoles) {
-    const isApproved = parsedRoles.reviewerContent?.includes('APROVADO') || false;
-    const isRejected = parsedRoles.reviewerContent?.includes('REJEITADO') || false;
-    const reviewerBadgeVariant = isRejected ? ('rejected' as const) : ('approved' as const);
-    const reviewerBadgeText = isRejected ? 'REJEITADO' : isApproved ? 'APROVADO' : 'AUDITADO';
+    const hasReservations = parsedRoles.reviewerContent?.includes('RESSALVAS') || false;
+    const isApproved = (parsedRoles.reviewerContent?.includes('APROVADO') || false) && !hasReservations;
+    const isRejected = parsedRoles.reviewerContent?.includes('REJEITADO') || parsedRoles.reviewerContent?.includes('REPROVADO') || false;
+    const reviewerBadgeVariant = isRejected
+      ? ('rejected' as const)
+      : hasReservations
+      ? ('warning' as const)
+      : ('approved' as const);
+    const reviewerBadgeText = isRejected
+      ? 'REJEITADO'
+      : hasReservations
+      ? 'COM RESSALVAS'
+      : isApproved
+      ? 'APROVADO'
+      : 'AUDITADO';
 
     const displayChatContent = parsedRoles.chatFacadeContent || '';
 
@@ -901,6 +946,7 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
   const [showDetailedCockpit, setShowDetailedCockpit] = useState<boolean>(false);
   const [isRecompiling, setIsRecompiling] = useState(false);
   const [recompileResult, setRecompileResult] = useState<MetaChatRecompileResult | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // Autopilot State (Zero-Prompt Auto-Evolução)
   const [autopilotStatus, setAutopilotStatus] = useState<MetaChatAutopilotStatus | null>(null);
@@ -1882,6 +1928,26 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
     }
   };
 
+  const handleGithubSync = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const res = await api.githubSync();
+      if (res.committed) {
+        onShowToast?.(
+          'success',
+          `Git push concluído! Commit ${res.commitHash} · ${res.filesCommitted?.length ?? 0} arquivo(s)`
+        );
+      } else {
+        onShowToast?.('info', 'Repositório já estava sincronizado — git push executado sem novo commit.');
+      }
+    } catch (err: any) {
+      onShowToast?.('error', `Falha no GitHub Sync: ${err.message}`);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const handleOpenMetaTerminal = async () => {
     try {
       const res = await api.openMetaTerminal();
@@ -2251,6 +2317,27 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
               <span className="text-indigo-300">{mlStatus.episodicMemoriesCount} Q-Mem</span>
             </div>
           )}
+
+          {/* Botão GitHub One-Click Sync */}
+          <button
+            type="button"
+            onClick={handleGithubSync}
+            disabled={isSyncing}
+            title="Executa: git add . → git commit → git push na raiz do repositório"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 hover:text-white text-xs font-semibold transition-all shadow-sm disabled:opacity-50"
+          >
+            {isSyncing ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Enviando...</span>
+              </>
+            ) : (
+              <>
+                <GithubIcon className="w-3.5 h-3.5" />
+                <span>Github</span>
+              </>
+            )}
+          </button>
 
           {/* Terminal Engine */}
           <button

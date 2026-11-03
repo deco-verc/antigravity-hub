@@ -1,14 +1,8 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
 import { BuilderToSupervisorContract, SupervisorReviewContract } from './agentProvider.js';
-import {
-  getLanguageServerExe,
-  resolveConversationTranscriptPath,
-  resolveConversationTranscriptFullPath,
-  resolveConversationArtifactDir
-} from './antigravityProvider.js';
+import { getLanguageServerExe } from './antigravityProvider.js';
 import { AgentApiGateway } from './agentApiGateway.js';
 import { Logger } from './logger.js';
 import { getGlobalAgentGuidelines, validateSurgicalDiff } from './agentGuidelines.js';
@@ -18,6 +12,7 @@ import { ProjectAnalyzer } from './analyzer.js';
 import { GitManager } from './gitManager.js';
 import { normalizeOrRecoverVerificationCommand, NormalizedVerificationCommandResult } from './verificationCommand.js';
 import { DagAutoHealer } from './dagAutoHealer.js';
+import { TestSelector } from './testSelector.js';
 
 export interface PlannedTask {
   id?: string;
@@ -89,17 +84,7 @@ export class GeminiSupervisorProvider {
           if (metadata?.rootConversationId === this.lastConversationId) {
             actualModel = metadata?.staticConfig?.cascadeConfig?.plannerConfig?.planModel || null;
           }
-        } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "geminiSupervisorProvider",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:geminiSupervisorProvider]", err);
-      }
-    }
+        } catch {}
       }
     }
     return {
@@ -112,38 +97,12 @@ export class GeminiSupervisorProvider {
     };
   }
 
-  private getCandidateBrainDirs(): string[] {
-    const dirs: string[] = [];
-    if (this.appDataBrainDir) dirs.push(this.appDataBrainDir);
-    if (this.env?.ANTIGRAVITY_BRAIN_FALLBACK_DIR) dirs.push(this.env.ANTIGRAVITY_BRAIN_FALLBACK_DIR);
-    if (process.env.ANTIGRAVITY_BRAIN_FALLBACK_DIR) dirs.push(process.env.ANTIGRAVITY_BRAIN_FALLBACK_DIR);
-    const homeBrain = path.join(os.homedir(), '.gemini', 'antigravity', 'brain');
-    if (!dirs.includes(homeBrain)) dirs.push(homeBrain);
-    if (process.env.USERPROFILE) {
-      const upBrain = path.join(process.env.USERPROFILE, '.gemini', 'antigravity', 'brain');
-      if (!dirs.includes(upBrain)) dirs.push(upBrain);
-    }
-    return dirs;
-  }
-
-  public resolveTranscriptPath(conversationId: string): string {
-    const resolved = resolveConversationTranscriptPath(conversationId, this.appDataBrainDir);
-    if (resolved && fs.existsSync(resolved)) return resolved;
-    return resolved || path.join(this.appDataBrainDir, conversationId, '.system_generated', 'logs', 'transcript.jsonl');
-  }
-
-  public resolveTranscriptFullPath(conversationId: string): string {
-    const resolved = resolveConversationTranscriptFullPath(conversationId, this.appDataBrainDir);
-    if (resolved && fs.existsSync(resolved)) return resolved;
-    return resolved || path.join(this.appDataBrainDir, conversationId, '.system_generated', 'logs', 'transcript_full.jsonl');
-  }
-
   /**
    * Helper to inspect the latest step_index in a conversation transcript before dispatching a new prompt
    */
   private getLatestTranscriptStepIndex(conversationId: string | null | undefined): number {
     if (!conversationId) return -1;
-    const activeTranscriptPath = this.resolveTranscriptPath(conversationId);
+    const activeTranscriptPath = path.join(this.appDataBrainDir, conversationId, '.system_generated', 'logs', 'transcript.jsonl');
     if (!fs.existsSync(activeTranscriptPath)) return -1;
     try {
       const lines = fs.readFileSync(activeTranscriptPath, 'utf-8').trim().split('\n').filter(Boolean);
@@ -153,17 +112,7 @@ export class GeminiSupervisorProvider {
           return entry.step_index;
         }
       }
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "geminiSupervisorProvider",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:geminiSupervisorProvider]", err);
-      }
-    }
+    } catch {}
     return -1;
   }
 
@@ -177,34 +126,18 @@ export class GeminiSupervisorProvider {
     requirements?: string[]
   ): Promise<{
     docSimpContextBlock: string;
-    docSimpKnowledgeBlock?: string;
-    astSymbolSummaryBlock?: string;
     designSkillContextBlock: string;
     reaSaaSMasterContextBlock: string;
     marketDiscoveryContextBlock: string;
     livingSpecContextBlock: string;
   }> {
-    const { resolveProjectCapabilities, resolveProjectProfileMode } = await import('./db.js');
-    const capabilities = resolveProjectCapabilities(this.projectId || projectPath, briefing);
-    const projectProfile = resolveProjectProfileMode(this.projectId || projectPath, briefing);
-
     let docSimpContextBlock = '';
-    let docSimpKnowledgeBlock = '';
     try {
       const { DocSimpService } = await import('./docSimpService.js');
-      const docSimpRes = await DocSimpService.resolveDocsForBriefing(briefing, projectPath, capabilities, projectProfile);
+      const docSimpRes = await DocSimpService.resolveDocsForBriefing(briefing, projectPath);
       docSimpContextBlock = docSimpRes.contextBlock;
-      docSimpKnowledgeBlock = docSimpRes.knowledgeBlock || DocSimpService.getKnowledgeForBriefing(briefing);
     } catch (err: any) {
       Logger.warn(`[GeminiSupervisor] Falha não bloqueante ao resolver DOCSIMP: ${err.message}`);
-    }
-
-    let astSymbolSummaryBlock = '';
-    try {
-      const { AstSymbolIndexService } = await import('./astSymbolIndexService.js');
-      astSymbolSummaryBlock = AstSymbolIndexService.getCompactContextForBriefing(briefing, projectPath);
-    } catch (err: any) {
-      Logger.warn(`[GeminiSupervisor] Falha não bloqueante ao resolver AST Symbol Index: ${err.message}`);
     }
 
     let designSkillContextBlock = '';
@@ -222,7 +155,7 @@ export class GeminiSupervisorProvider {
     const { ReaSaaSMasterService } = await import('./reaSaaSMasterService.js');
     try {
       if (ReaSaaSMasterService.isSaaSOrFullStackProject(briefing)) {
-        const reaRes = await ReaSaaSMasterService.provisionReaBlueprintForProject(projectPath, briefing, undefined, capabilities, projectProfile);
+        const reaRes = await ReaSaaSMasterService.provisionReaBlueprintForProject(projectPath, briefing);
         reaSaaSMasterContextBlock = reaRes.directive;
       }
     } catch (err: any) {
@@ -265,8 +198,6 @@ export class GeminiSupervisorProvider {
 
     return {
       docSimpContextBlock,
-      docSimpKnowledgeBlock,
-      astSymbolSummaryBlock,
       designSkillContextBlock,
       reaSaaSMasterContextBlock,
       marketDiscoveryContextBlock,
@@ -313,14 +244,11 @@ export class GeminiSupervisorProvider {
       majorTask.expectedOutcome || ''
     ].join(' ').toLowerCase();
 
-    // Check if task is explicit UI / Frontend / SaaS Master / Visual (GT-7 to GT-12+ or explicit UI terms)
-    const hasExplicitUiTerms =
-      /(interface|frontend|front-end|\bui\b|\bux\b|dashboard|layout|css|html|drawer|tela|componente visual|svg|lucide|command palette|tabular-nums|playwright)/i.test(text);
-    const isPureBackendTask =
-      /gt[-_]?[1-6]\b/i.test(majorTask.code || '') && !hasExplicitUiTerms;
-    const isUiTask = hasExplicitUiTerms || /(gt[-_]?(7|8|9|10|11|12))/i.test(majorTask.code || '');
+    // Check if task is explicit UI / Frontend / SaaS Master / Visual
+    const isUiTask =
+      /(gt[-_]?(5|6)|interface|frontend|front-end|\bui\b|\bux\b|dashboard|layout|css|html|drawer|tela|componente visual|svg|lucide|command palette|tabular-nums)/i.test(text);
 
-    // If pure infrastructure, database, domain or backend (GT-1 to GT-6 and no UI terms)
+    // If pure infrastructure, database, domain or backend (GT-1 to GT-4 and no UI terms)
     if (!isUiTask) {
       // Filter reaSaaSMasterContextBlock to retain only Backend / Seed / Audit pillars
       let backendReaBlock = '';
@@ -406,16 +334,6 @@ export class GeminiSupervisorProvider {
       (briefing && ReaSaaSMasterService.isSaaSOrFullStackProject(briefing))
     );
 
-    if (projectContext?.path && briefing) {
-      try {
-        const briefingPath = path.join(path.resolve(projectContext.path), '.ai-dev-hub', 'BRIEFING_ORIGINAL.md');
-        fs.mkdirSync(path.dirname(briefingPath), { recursive: true });
-        fs.writeFileSync(briefingPath, briefing, 'utf-8');
-      } catch (saveErr) {
-        Logger.warn(`[GeminiSupervisor] Não foi possível persistir BRIEFING_ORIGINAL.md: ${saveErr}`);
-      }
-    }
-
     if (options?.mode === 'DELTA_EVOLUTION') {
       const { DeltaFeatureEngine } = await import('./deltaFeatureEngine.js');
       const inventory = DeltaFeatureEngine.scanProjectInventory(projectContext.path, projectContext.id);
@@ -428,25 +346,6 @@ export class GeminiSupervisorProvider {
       return this.planTwoPassHierarchy(briefing, projectContext, options);
     }
 
-    return this.planTasksSinglePass(briefing, projectContext, options);
-  }
-
-  /**
-   * Single-Pass Supervisor planning with direct JSON response and auto-failover.
-   */
-  async planTasksSinglePass(
-    briefing: string,
-    projectContext: { name: string; path: string; objective: string; id?: string },
-    options?: {
-      mode?: SupervisorMode;
-      runId?: string | null;
-      completedTasks?: Array<{ id: string; title: string }>;
-      pendingTasks?: Array<{ id: string; title: string }>;
-      replanReason?: string;
-      requirements?: string[];
-      retryAfterFailover?: boolean;
-    }
-  ): Promise<PlannedTask[]> {
     const mode: SupervisorMode = options?.mode || 'INITIAL_PLAN';
     Logger.info(`[GeminiSupervisor] Planejando arquitetura e tarefas com modelo Gemini (${this.model}) no modo [${mode}]...`);
 
@@ -472,22 +371,10 @@ export class GeminiSupervisorProvider {
       if (lessonsBlock) {
         existingMemorySnippet += `\nLIÇÕES OPERACIONAIS APRENDIDAS (NÃO REPETIR FALHAS ANTERIORES):\n${lessonsBlock}`;
       }
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "geminiSupervisorProvider",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:geminiSupervisorProvider]", err);
-      }
-    }
+    } catch {}
 
     const {
       docSimpContextBlock,
-      docSimpKnowledgeBlock,
-      astSymbolSummaryBlock,
       designSkillContextBlock,
       reaSaaSMasterContextBlock,
       marketDiscoveryContextBlock,
@@ -506,8 +393,6 @@ export class GeminiSupervisorProvider {
       constitutionSnippet,
       existingMemorySnippet,
       docSimpContextBlock,
-      docSimpKnowledgeBlock,
-      astSymbolSummaryBlock,
       designSkillContextBlock,
       reaSaaSMasterContextBlock,
       marketDiscoveryContextBlock,
@@ -564,7 +449,7 @@ export class GeminiSupervisorProvider {
           initialPrompt: prompt
         });
         conversationId = initial.conversationId;
-        if (!initial.isNew) {
+        if (!initial.isNew && conversationId) {
           minStepIndex = this.getLatestTranscriptStepIndex(conversationId);
           const sendRes = await ConversationManager.sendMessageOrRotate({
             conversationId,
@@ -604,7 +489,7 @@ export class GeminiSupervisorProvider {
       }
       this.lastConversationId = conversationId;
 
-      const responseText = await this.waitForResponse(conversationId, 35000, minStepIndex, 'PLAN');
+      const responseText = await this.waitForResponse(conversationId, 180000, minStepIndex, 'PLAN');
       const rawTasks = this.extractJsonArray<PlannedTask>(responseText);
 
       if (rawTasks && Array.isArray(rawTasks) && rawTasks.length > 0) {
@@ -678,6 +563,41 @@ export class GeminiSupervisorProvider {
    * Fills in missing fields (criteria, verificationCommand, doneWhen, orderIndex, milestone) with safe defaults,
    * normalizes verification commands, and only returns null for unrecoverable entries (missing title/object).
    */
+  static isVagueCriterion(criterion: string): boolean {
+    const norm = (criterion || '').trim().toLowerCase();
+    if (!norm) return true;
+    return (
+      /^(implementa[çc][ãa]o|funcionalidade|tarefa|c[oó]digo|requisito|escopo)\s+(conclu[íi]d[ao]|pront[ao]|feita?|atendid[ao]s?|finalizad[ao]|complet[ao])/i.test(norm) ||
+      /^implementar\s+["'].*["']\s+atendendo\s+aos\s+requisitos\s+funcionais/i.test(norm) ||
+      /^executar\s+comando\s+de\s+verifica[çc][ãa]o\s+automatizada/i.test(norm) ||
+      norm === 'implementação concluída' ||
+      norm === 'funcionalidade pronta' ||
+      norm === 'requisitos atendidos' ||
+      norm === 'código pronto'
+    );
+  }
+
+  static enrichBinaryCriteria(title: string, scopeFiles: string[] = []): string[] {
+    const criteria: string[] = [];
+    const filesJoined = scopeFiles.join(' ').toLowerCase();
+    const titleLower = title.toLowerCase();
+
+    if (/(?:api|route|server|controller|endpoint|express|fastify)/i.test(filesJoined + ' ' + titleLower)) {
+      criteria.push(`Rotas e contratos de API em ${scopeFiles.length ? scopeFiles.join(', ') : 'src/'} respondem HTTP 200/201 para requisições válidas e HTTP 400 para payloads inválidos`);
+    } else if (/(?:db|database|schema|sqlite|repository|migration)/i.test(filesJoined + ' ' + titleLower)) {
+      criteria.push(`Tabelas SQLite e queries relacionais em ${scopeFiles.length ? scopeFiles.join(', ') : 'src/'} utilizam parâmetros preparados (?) com PRAGMA journal_mode = WAL`);
+    } else if (/(?:ui|frontend|component|page|css|html|view)/i.test(filesJoined + ' ' + titleLower)) {
+      criteria.push(`Interface renderiza componentes com tokens :root, ícones SVG inline (sem emojis) e sobrevive a recarregamento F5 com dados reais`);
+    } else {
+      criteria.push(`Contrato e lógica de "${title}" implementados com tipagem estrita e exportações funcionais sem placeholders ou TODOs`);
+    }
+
+    criteria.push(`Isolamento estrito nos arquivos de escopo (${scopeFiles.length ? scopeFiles.join(', ') : 'escopo do módulo'}) sem quebra de contratos adjacentes`);
+    criteria.push(`Comando de verificação focado executa com exit code 0 e tipagem estrita validada (tsc --noEmit ou suíte unitária)`);
+
+    return criteria;
+  }
+
   static sanitizeAndRepairPlannedTask(
     raw: any,
     projectPath?: string,
@@ -715,29 +635,6 @@ export class GeminiSupervisorProvider {
       ? raw.orderIndex
       : (fallbackOrderIndex ?? 1);
 
-    const rawCriteria = Array.isArray(raw.criteria)
-      ? raw.criteria
-      : (Array.isArray(raw.acceptanceCriteria) ? raw.acceptanceCriteria : []);
-    const criteria = rawCriteria.map((c: any) => String(c || '').trim()).filter(Boolean);
-    if (criteria.length === 0) {
-      criteria.push(`Implementar "${cleanTitle}" atendendo aos requisitos funcionais`);
-      criteria.push('Executar comando de verificação automatizada com código de saída 0');
-    }
-
-    const rawCmd = typeof raw.verificationCommand === 'string' && raw.verificationCommand.trim().length > 0
-      ? raw.verificationCommand.trim()
-      : typeof raw.verification_command === 'string' && raw.verification_command.trim().length > 0
-      ? raw.verification_command.trim()
-      : 'npm test';
-
-    const norm = normalizeOrRecoverVerificationCommand(rawCmd, projectPath || '.', {
-      allowUncreatedFiles: true
-    });
-
-    const doneWhen = typeof raw.doneWhen === 'string' && raw.doneWhen.trim().length > 0
-      ? raw.doneWhen.trim()
-      : `Critérios verificados e comando "${norm.command}" retornando exitCode 0.`;
-
     const rawExpected = Array.isArray(raw.expectedFiles)
       ? raw.expectedFiles
       : Array.isArray(raw.expected_files)
@@ -757,6 +654,50 @@ export class GeminiSupervisorProvider {
       ? raw.expected_files
       : [];
     const allowedScope = Array.from(new Set<string>(rawScope.map((f: any) => String(f || '').trim()).filter(Boolean)));
+
+    const rawCriteria = Array.isArray(raw.criteria)
+      ? raw.criteria
+      : (Array.isArray(raw.acceptanceCriteria) ? raw.acceptanceCriteria : []);
+    const filteredCriteria = rawCriteria
+      .map((c: any) => String(c || '').trim())
+      .filter((c: string) => c.length > 0 && !GeminiSupervisorProvider.isVagueCriterion(c));
+    const criteria = filteredCriteria.length > 0
+      ? filteredCriteria
+      : GeminiSupervisorProvider.enrichBinaryCriteria(cleanTitle, expectedFiles.length ? expectedFiles : allowedScope);
+
+
+
+
+    let rawCmd = typeof raw.verificationCommand === 'string' && raw.verificationCommand.trim().length > 0
+      ? raw.verificationCommand.trim()
+      : typeof raw.verification_command === 'string' && raw.verification_command.trim().length > 0
+      ? raw.verification_command.trim()
+      : '';
+
+    if (!rawCmd) {
+      const scopeForTest = expectedFiles.length ? expectedFiles : allowedScope;
+      const focusedCmd = TestSelector.resolveTestForFiles(scopeForTest, projectPath);
+      if (focusedCmd) {
+        rawCmd = focusedCmd;
+      } else {
+        const testFileInScope = scopeForTest.find((f: string) => /\.(?:test|spec)\.[cm]?[jt]sx?$/i.test(f));
+        if (testFileInScope) {
+          rawCmd = testFileInScope.endsWith('.ts') || testFileInScope.endsWith('.tsx')
+            ? `node --import tsx --test "${testFileInScope}"`
+            : `node --test "${testFileInScope}"`;
+        } else {
+          rawCmd = rawCmd || 'npm test';
+        }
+      }
+    }
+
+    const norm = normalizeOrRecoverVerificationCommand(rawCmd, projectPath || '.', {
+      allowUncreatedFiles: true
+    });
+
+    const doneWhen = typeof raw.doneWhen === 'string' && raw.doneWhen.trim().length > 0
+      ? raw.doneWhen.trim()
+      : `Critérios verificados e comando "${norm.command}" retornando exitCode 0.`;
 
     const rawDeps = Array.isArray(raw.dependencies) ? raw.dependencies : [];
     const dependencies = Array.from(new Set<string>(rawDeps.map((d: any) => String(d || '').trim()).filter(Boolean)));
@@ -834,27 +775,41 @@ export class GeminiSupervisorProvider {
       if (completedTitles.has(titleNorm) && tasks.length > 1) continue;
       seenTitles.add(titleNorm);
 
-      const criteria = Array.isArray(raw.criteria)
+      const rawExpected = Array.isArray(raw.expectedFiles)
+        ? raw.expectedFiles
+        : (Array.isArray((raw as any).expected_files) ? (raw as any).expected_files : []);
+      const expectedFiles = Array.from(new Set<string>(rawExpected.map((f: any) => String(f || '').trim()).filter(Boolean)));
+
+      const rawCriteria = Array.isArray(raw.criteria)
         ? raw.criteria.map(c => String(c || '').trim()).filter(Boolean)
         : [];
-      if (criteria.length === 0) {
-        criteria.push(`Implementar "${raw.title.trim()}" atendendo aos requisitos funcionais`);
-        criteria.push('Executar comando de verificação automatizada com código de saída 0');
+      const nonVague = rawCriteria.filter(c => !GeminiSupervisorProvider.isVagueCriterion(c));
+      const criteria = nonVague.length > 0
+        ? nonVague
+        : GeminiSupervisorProvider.enrichBinaryCriteria(raw.title.trim(), expectedFiles);
+
+      let verificationCommand = raw.verificationCommand || '';
+      if (!verificationCommand) {
+        const focusedCmd = TestSelector.resolveTestForFiles(expectedFiles);
+        if (focusedCmd) {
+          verificationCommand = focusedCmd;
+        } else {
+          verificationCommand = verificationCommand || 'npm test';
+        }
       }
 
       const doneWhen = (raw.doneWhen && String(raw.doneWhen).trim().length > 0)
         ? String(raw.doneWhen).trim()
-        : `Critérios verificados e comando "${raw.verificationCommand || 'npm test'}" retornando exitCode 0.`;
+        : `Critérios verificados e comando "${verificationCommand}" retornando exitCode 0.`;
 
       deduplicated.push({
         ...raw,
         title: raw.title.trim(),
         milestone: raw.milestone || 'M1',
         criteria,
+        verificationCommand,
         doneWhen,
-        expectedFiles: Array.isArray(raw.expectedFiles)
-          ? raw.expectedFiles
-          : (Array.isArray((raw as any).expected_files) ? (raw as any).expected_files : []),
+        expectedFiles,
         skillRouted: (raw as any).skillRouted || (raw as any).skill_routed,
         skillConfidence: (raw as any).skillConfidence ?? 1.0,
         skillGuidelines: (raw as any).skillGuidelines
@@ -873,17 +828,7 @@ export class GeminiSupervisorProvider {
           t.skillGuidelines = routed.guidelines || routed.priorityInvariants;
         }
       }
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "geminiSupervisorProvider",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:geminiSupervisorProvider]", err);
-      }
-    }
+    } catch {}
     return healed;
   }
 
@@ -930,8 +875,6 @@ export class GeminiSupervisorProvider {
       constitutionSnippet: options?.constitutionSnippet,
       existingMemorySnippet: options?.existingMemorySnippet,
       docSimpContextBlock: resolvedBlocks.docSimpContextBlock,
-      docSimpKnowledgeBlock: (resolvedBlocks as any).docSimpKnowledgeBlock,
-      astSymbolSummaryBlock: (resolvedBlocks as any).astSymbolSummaryBlock,
       designSkillContextBlock: resolvedBlocks.designSkillContextBlock,
       reaSaaSMasterContextBlock: resolvedBlocks.reaSaaSMasterContextBlock,
       marketDiscoveryContextBlock: resolvedBlocks.marketDiscoveryContextBlock,
@@ -1012,7 +955,7 @@ export class GeminiSupervisorProvider {
     }
     this.lastConversationId = conversationId;
 
-    const responseText = await this.waitForResponse(conversationId, 35000, minStepIndex, 'PLAN');
+    const responseText = await this.waitForResponse(conversationId, 180000, minStepIndex, 'PLAN');
     const parsed = this.extractJsonObject<{
       requirements?: Array<{ code: string; title: string; description: string; category?: string; mandatory?: boolean }>;
       majorTasks?: Array<{
@@ -1222,7 +1165,7 @@ export class GeminiSupervisorProvider {
     }
     this.lastConversationId = conversationId;
 
-    const responseText = await this.waitForResponse(conversationId, 35000, minStepIndex, 'PLAN');
+    const responseText = await this.waitForResponse(conversationId, 180000, minStepIndex, 'PLAN');
     const rawArray = this.extractJsonArray<any>(responseText);
 
     if (Array.isArray(rawArray) && rawArray.length > 0) {
@@ -1287,11 +1230,8 @@ export class GeminiSupervisorProvider {
           requirementIds: majorTask.requirementIds || ['REQ-1'],
           orderIndex: startOrderIndex + idx,
           dependencies: prevDep ? [prevDep] : [],
-          criteria: [
-            `Implementar "${title}" cumprindo os contratos de "${majorTask.objective}"`,
-            `Garantir cobertura de testes automatizados passando com exit code 0`
-          ],
-          verificationCommand: 'npm test'
+          criteria: GeminiSupervisorProvider.enrichBinaryCriteria(title, []),
+          verificationCommand: 'npm run typecheck'
         },
         projectPath,
         startOrderIndex + idx
@@ -1322,20 +1262,9 @@ export class GeminiSupervisorProvider {
       requirements?: string[];
       multiPass?: boolean;
       deepPlanning?: boolean;
-      retryAfterFailover?: boolean;
     }
   ): Promise<PlannedTask[]> {
     Logger.info(`[GeminiSupervisor] Iniciando Planejamento Hierárquico Multi-Pass (Duas Ondas) para "${projectContext.name}"...`);
-
-    if (projectContext?.path && briefing) {
-      try {
-        const briefingPath = path.join(path.resolve(projectContext.path), '.ai-dev-hub', 'BRIEFING_ORIGINAL.md');
-        fs.mkdirSync(path.dirname(briefingPath), { recursive: true });
-        fs.writeFileSync(briefingPath, briefing, 'utf-8');
-      } catch (saveErr) {
-        Logger.warn(`[GeminiSupervisor] Não foi possível persistir BRIEFING_ORIGINAL.md: ${saveErr}`);
-      }
-    }
 
     // In offline or language-server-unavailable mode:
     if (AgentApiGateway.isOfflineMode() || !this.exePath) {
@@ -1367,8 +1296,8 @@ export class GeminiSupervisorProvider {
 
       // If test has explicitly overridden waitForResponse on instance or prototype:
       const isCustomWait = this.waitForResponse !== (GeminiSupervisorProvider as any)._defaultWaitForResponse;
-      if (isCustomWait) {
-        const responseText = await this.waitForResponse(conversationId, 35000, -1, 'PLAN');
+      if (isCustomWait && conversationId) {
+        const responseText = await this.waitForResponse(conversationId, 180000, -1, 'PLAN');
         const rawTasks = this.extractJsonArray<PlannedTask>(responseText);
         if (rawTasks && Array.isArray(rawTasks) && rawTasks.length > 0) {
           const sanitizedTasks: PlannedTask[] = [];
@@ -1414,8 +1343,6 @@ export class GeminiSupervisorProvider {
     }
 
     // Live mode:
-    const planStartTime = Date.now();
-    const remainingBudgetMs = () => Math.max(0, 120000 - (Date.now() - planStartTime));
     try {
       let existingMemorySnippet = '';
       let constitutionSnippet = '';
@@ -1425,17 +1352,7 @@ export class GeminiSupervisorProvider {
         if (memory.decisionsMd) existingMemorySnippet += ` DECISÕES TÉCNICAS A RESPEITAR: ${memory.decisionsMd}.`;
         if (memory.programMd) constitutionSnippet = memory.programMd;
         existingMemorySnippet += `\nARQUITETURA: ${memory.architectureMd || ''}\nGIT: ${JSON.stringify(GitManager.getGitInfo(projectContext.path))}\nARQUIVOS E STACK: ${JSON.stringify(ProjectAnalyzer.analyze(projectContext.path))}`;
-      } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "geminiSupervisorProvider",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:geminiSupervisorProvider]", err);
-      }
-    }
+      } catch {}
 
       const preResolvedBlocks = await this.resolveContextualSkillBlocks(briefing, projectContext.path, projectContext.name, options?.requirements);
       Logger.info(`[GeminiSupervisor] Onda 0: Estudo de Mercado, Referências e Engenharia Reversa REA concluído.`);
@@ -1467,34 +1384,24 @@ export class GeminiSupervisorProvider {
         let expanded: PlannedTask[] = [];
 
         const filteredBlocks = GeminiSupervisorProvider.filterSkillBlocksForMajorTask(major, preResolvedBlocks);
-        if (remainingBudgetMs() < 4000) {
-          Logger.info(`[GeminiSupervisor] Limite de tempo de planejamento atingido (40s). Sintetizando microtarefas determinísticas para a Grande Tarefa ${major.code}.`);
+        try {
+          expanded = await this.expandMajorTaskIntoMicrotasks(major, projectContext, {
+            briefing,
+            previousMajorTaskCode: prevMajorCode,
+            allMajorTasksSummary: majorTasksSummary,
+            priorMajorTaskLastMicrotaskCode: priorLastMicroCode,
+            projectRequirements: blueprint.requirements.map(r => ({ code: r.code, title: r.title })),
+            startOrderIndex: allMicrotasks.length + 1,
+            preResolvedBlocks: filteredBlocks
+          });
+        } catch (expandErr: any) {
+          Logger.warn(`[GeminiSupervisor] Aviso na expansão de ${major.code} (${expandErr.message}). Sintetizando microtarefas da etapa para preservar o plano.`);
           expanded = this.buildFallbackMicrotasksForMajorTask(
             major,
             projectContext.path,
             allMicrotasks.length + 1,
             priorLastMicroCode
           );
-        } else {
-          try {
-            expanded = await this.expandMajorTaskIntoMicrotasks(major, projectContext, {
-              briefing,
-              previousMajorTaskCode: prevMajorCode,
-              allMajorTasksSummary: majorTasksSummary,
-              priorMajorTaskLastMicrotaskCode: priorLastMicroCode,
-              projectRequirements: blueprint.requirements.map(r => ({ code: r.code, title: r.title })),
-              startOrderIndex: allMicrotasks.length + 1,
-              preResolvedBlocks: filteredBlocks
-            });
-          } catch (expandErr: any) {
-            Logger.warn(`[GeminiSupervisor] Aviso na expansão de ${major.code} (${expandErr.message}). Sintetizando microtarefas da etapa para preservar o plano.`);
-            expanded = this.buildFallbackMicrotasksForMajorTask(
-              major,
-              projectContext.path,
-              allMicrotasks.length + 1,
-              priorLastMicroCode
-            );
-          }
         }
 
         // Inter-Major Task DAG Chaining: first microtask of GT-n depends on priorLastMicroCode if not already chained
@@ -1516,43 +1423,6 @@ export class GeminiSupervisorProvider {
       Logger.success(`[GeminiSupervisor] Planejamento Multi-Pass concluído: ${healedMicrotasks.length} microtarefas distribuídas em ${majorTasks.length} Grandes Tarefas.`);
       return GeminiSupervisorProvider.validateAndRefinePlanQuality(healedMicrotasks, options?.completedTasks);
     } catch (err: any) {
-      const { AccountProfileManager } = await import('./accountProfileManager.js');
-      const classification = AccountProfileManager.classifyAccountOrQuotaError(err);
-      if (classification.isAccountOrQuotaError && !options?.retryAfterFailover) {
-        Logger.warn(`[GeminiSupervisor] Falha de conta/cota durante o Planejamento Multi-Pass (${classification.kind}): ${classification.reason}. Tentando Auto-Failover...`);
-        try {
-          const switchRes = await AccountProfileManager.handleAccountFailureAndRapidSwitch({
-            failedProfileId: this.accountProfileId,
-            projectId: projectContext.id,
-            runId: options?.runId,
-            error: err
-          });
-          if (switchRes.switched) {
-            this.accountProfileId = switchRes.activeProfile.id;
-            this.env = AccountProfileManager.getExecutionEnvForProfile(switchRes.activeProfile, this.projectId || projectContext.id);
-            Logger.info(`[GeminiSupervisor] Auto-Failover realizado para "${switchRes.activeProfile.display_name}". Retentando Planejamento Multi-Pass...`);
-            return this.planTwoPassHierarchy(briefing, projectContext, {
-              ...options,
-              retryAfterFailover: true
-            });
-          }
-        } catch (failoverErr: any) {
-          Logger.warn(`[GeminiSupervisor] Tentativa de Auto-Failover no Multi-Pass falhou: ${failoverErr.message}`);
-        }
-      }
-
-      if (!AgentApiGateway.isOfflineMode() && this.exePath && !options?.retryAfterFailover) {
-        try {
-          Logger.info(`[GeminiSupervisor] Tentando planejamento Single-Pass Supervisor direto com Gemini antes do fallback estático...`);
-          const singleTasks = await this.planTasksSinglePass(briefing, projectContext, { ...options, mode: 'INITIAL_PLAN' });
-          if (singleTasks && singleTasks.length >= 3) {
-            return GeminiSupervisorProvider.validateAndRefinePlanQuality(singleTasks, options?.completedTasks);
-          }
-        } catch (singleErr: any) {
-          Logger.warn(`[GeminiSupervisor] Planejamento Single-Pass também falhou (${singleErr.message}). Recorrendo à geração determinística de alta fidelidade.`);
-        }
-      }
-
       Logger.error(`[GeminiSupervisor] Falha no pipeline Multi-Pass: ${err.message}. Recorrendo à geração determinística de alta fidelidade.`);
       const { HierarchicalOrchestrationService } = await import('./hierarchicalOrchestrationService.js');
       const generated = HierarchicalOrchestrationService.generateMultiPassPlannedTasks({
@@ -1598,7 +1468,7 @@ export class GeminiSupervisorProvider {
 
     const evaluatorCombinedOutput = [
       evaluation?.evidence?.output || '',
-      Array.isArray(evaluation?.evaluatorNotes) ? evaluation.evaluatorNotes.join('\n') : (typeof evaluation?.evaluatorNotes === 'string' ? evaluation.evaluatorNotes : '')
+      Array.isArray(evaluation?.evaluatorNotes) ? evaluation.evaluatorNotes.join('\n') : ''
     ].filter(Boolean).join('\n---\n');
 
     let skillRouted = task.skill_routed || task.skillRouted;
@@ -1606,17 +1476,7 @@ export class GeminiSupervisorProvider {
     if (task.skill_guidelines_json) {
       try {
         skillGuidelines = JSON.parse(task.skill_guidelines_json);
-      } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "geminiSupervisorProvider",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:geminiSupervisorProvider]", err);
-      }
-    }
+      } catch {}
     } else if (Array.isArray(task.skillGuidelines)) {
       skillGuidelines = task.skillGuidelines;
     }
@@ -1628,17 +1488,7 @@ export class GeminiSupervisorProvider {
         if (skillGuidelines.length === 0) {
           skillGuidelines = routed.guidelines || routed.priorityInvariants;
         }
-      } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "geminiSupervisorProvider",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:geminiSupervisorProvider]", err);
-      }
-    }
+      } catch {}
     }
 
     const effectiveProjectId = this.projectId || projectContext?.id || 'default-project';
@@ -1736,7 +1586,7 @@ export class GeminiSupervisorProvider {
           initialPrompt: prompt
         });
         conversationId = initial.conversationId;
-        if (!initial.isNew) {
+        if (!initial.isNew && conversationId) {
           minStepIndex = this.getLatestTranscriptStepIndex(conversationId);
           const sendRes = await ConversationManager.sendMessageOrRotate({
             conversationId,
@@ -1773,7 +1623,7 @@ export class GeminiSupervisorProvider {
 
       if (conversationId) {
         this.lastConversationId = conversationId;
-        const responseText = await this.waitForResponse(conversationId, 35000, minStepIndex, 'REVIEW');
+        const responseText = await this.waitForResponse(conversationId, 180000, minStepIndex, 'REVIEW');
         const review = this.extractJsonObject<SupervisorReviewContract>(responseText);
 
         if (review && review.verdict) {
@@ -1796,56 +1646,7 @@ export class GeminiSupervisorProvider {
       }
     } catch (err: any) {
       Logger.warn(`[GeminiSupervisor] Falha na chamada ao Gemini: ${err.message}.`);
-      if (evaluation && evaluation.taskIsDone && evaluation.verdict === 'PASS') {
-        Logger.info('[GeminiSupervisor] Fallback para avaliação objetiva do Evaluator Independente (PASS verificado no workspace).');
-        return {
-          verdict: 'APPROVED',
-          qualityScore: 9,
-          simplicityScore: 9,
-          isSurgical: true,
-          feedback: 'Aprovado automaticamente com base na evidência do Evaluator Independente: todos os critérios e testes passaram com 100% no disco.',
-          nextAction: 'Prosseguir para próxima microtarefa do plano',
-          unrelatedFilesDetected: []
-        };
-      }
-      if (evaluation && !evaluation.taskIsDone) {
-        Logger.warn('[GeminiSupervisor] Fallback para avaliação objetiva do Evaluator Independente (FAIL verificado no workspace).');
-        return {
-          verdict: 'CHANGES_REQUESTED',
-          qualityScore: 4,
-          simplicityScore: 6,
-          isSurgical: false,
-          feedback: `Reprovado pelo Evaluator Independente: ${evaluation.actual || 'Critérios não atendidos no disco.'}`,
-          nextAction: 'Aplicar ajustes solicitados pela avaliação',
-          unrelatedFilesDetected: []
-        };
-      }
       throw err;
-    }
-
-    if (evaluation && evaluation.taskIsDone && evaluation.verdict === 'PASS') {
-      Logger.info('[GeminiSupervisor] Fallback para avaliação objetiva do Evaluator Independente (PASS verificado no workspace).');
-      return {
-        verdict: 'APPROVED',
-        qualityScore: 9,
-        simplicityScore: 9,
-        isSurgical: true,
-        feedback: 'Aprovado automaticamente com base na evidência do Evaluator Independente: todos os critérios e testes passaram com 100% no disco.',
-        nextAction: 'Prosseguir para próxima microtarefa do plano',
-        unrelatedFilesDetected: []
-      };
-    }
-    if (evaluation && !evaluation.taskIsDone) {
-      Logger.warn('[GeminiSupervisor] Fallback para avaliação objetiva do Evaluator Independente (FAIL verificado no workspace).');
-      return {
-        verdict: 'CHANGES_REQUESTED',
-        qualityScore: 4,
-        simplicityScore: 6,
-        isSurgical: false,
-        feedback: `Reprovado pelo Evaluator Independente: ${evaluation.actual || 'Critérios não atendidos no disco.'}`,
-        nextAction: 'Aplicar ajustes solicitados pela avaliação',
-        unrelatedFilesDetected: []
-      };
     }
 
     throw new Error('SUPERVISOR_REVIEW_UNAVAILABLE: agentapi não retornou revisão verificável.');
@@ -1877,168 +1678,40 @@ export class GeminiSupervisorProvider {
     this.lastConversationId = session.provider_conversation_id;
     const minStep = this.getLatestTranscriptStepIndex(session.provider_conversation_id);
 
-    const taskSummary = (run.tasks || []).map((t: any) => ({
-      id: t.id,
-      title: t.title,
-      milestone: t.milestone,
-      status: t.status,
-      issue: t.github_issue_number
-    }));
-    const evidenceSummary = (evidence || []).map((e: any, idx: number) => {
-      let normalizedNotes: string[] = [];
-      if (Array.isArray(e?.evaluatorNotes)) {
-        normalizedNotes = e.evaluatorNotes.map((n: any) => String(n || '').trim()).filter(Boolean);
-      } else if (typeof e?.evaluatorNotes === 'string' && e.evaluatorNotes.trim()) {
-        normalizedNotes = [e.evaluatorNotes.trim()];
-      } else if (Array.isArray(e?.notes)) {
-        normalizedNotes = e.notes.map((n: any) => String(n || '').trim()).filter(Boolean);
-      } else if (typeof e?.notes === 'string' && e.notes.trim()) {
-        normalizedNotes = [e.notes.trim()];
-      }
-      return {
-        title: run.tasks?.[idx]?.title || `Tarefa ${idx + 1}`,
-        verdict: e?.verdict,
-        taskIsDone: e?.taskIsDone,
-        exitCode: e?.exitCode,
-        notes: normalizedNotes,
-        summary: e?.evidence?.evidenceSummary
-      };
-    });
-
     const { prompt } = PromptArchitectureService.buildSupervisorPrompt({
       mode: 'FINAL_REVIEW',
       projectId: project.id,
       projectName: project.name,
       projectPath: project.path,
       projectObjective: run.objective,
-      runId: run.id,
-      briefing: run.briefing || run.objective,
-      allCompletedTasks: taskSummary,
-      finalReviewEvidence: evidenceSummary
+      runId: run.id
     });
-
-    const finalReviewMessage = [
-      prompt,
-      '',
-      '=== DIRETIVA DE HOMOLOGAÇÃO FINAL DO PROJETO ===',
-      `OBJETIVO DO PROJETO: ${run.briefing || run.objective || project.name}`,
-      `STATUS DA ESTEIRA: Todas as ${taskSummary.length} tarefas foram executadas com sucesso.`,
-      '',
-      'EVIDÊNCIAS DE TESTES E VERIFICAÇÃO:',
-      JSON.stringify(evidenceSummary, null, 2),
-      '',
-      'INSTRUÇÃO OBRIGATÓRIA:',
-      'Se todas as tarefas foram comprovadas pelo avaliador independente, emita verdict="APPROVED".',
-      'Responda EXCLUSIVAMENTE com o objeto JSON válido definido no <output_contract> ({verdict, feedback, nextAction, qualityScore, requirementsMet, buildPassed, testsPassed, uiFunctional, summary}). Sem saudações ou texto conversacional fora do JSON.'
-    ].join('\n');
-
+    const taskSummary = (run.tasks || []).map((t: any) => ({
+      title: t.title,
+      milestone: t.milestone,
+      status: t.status,
+      issue: t.github_issue_number
+    }));
+    const evidenceSummary = (evidence || []).map((e: any) => ({
+      verdict: e?.verdict,
+      taskIsDone: e?.taskIsDone,
+      exitCode: e?.exitCode,
+      notes: e?.evaluatorNotes,
+      summary: e?.evidence?.evidenceSummary
+    }));
     await AgentSessionManager.sendMessage(
       session,
-      finalReviewMessage,
+      `${prompt}\nOBJETIVO INTEGRAL DO USUÁRIO:\n${run.briefing}\nPLANO E ESTADO:\n${JSON.stringify(taskSummary)}\nEVIDÊNCIAS INDEPENDENTES:\n${JSON.stringify(evidenceSummary)}\nInspecione os artefatos reais. Aprove somente se TODOS os requisitos originais têm evidência proporcional (UI com interação, APIs e persistência real quando exigidos). Não infira funcionamento só por nomes de arquivos. Responda JSON {verdict: APPROVED|CHANGES_REQUESTED|BLOCKED, feedback, nextAction}.`,
       { env: this.env, taskTitle: 'Aceitação final do projeto' }
     );
-    const response = await this.waitForResponse(session.provider_conversation_id, 35000, minStep, 'REVIEW');
-    let result = this.extractJsonObject<any>(response);
-
-    const allTasksCompleted = (run.tasks || []).length > 0 && (run.tasks || []).every((t: any) => t.status === 'completed');
-    const allEvidencePassed = (evidence || []).length > 0 && (evidence || []).every((e: any) => e?.taskIsDone !== false);
-
-    // Fallback inteligente caso a LLM responda com parecer textual/markdown em vez de JSON puro
-    if (!result) {
-      const responseStr = String(response || '').trim();
-      const isPromptEchoOrSystemMessage = !responseStr || /<(?:SYSTEM_MESSAGE|system_invariants)|=== CAMADA A:/i.test(responseStr);
-
-      if (isPromptEchoOrSystemMessage) {
-        if (allTasksCompleted && allEvidencePassed) {
-          Logger.info('[GeminiSupervisor] Resposta do Supervisor continha eco do prompt ou mensagem de sistema, mas 100% das tarefas e verificações foram atestadas com sucesso. Homologando aprovação final.');
-          result = {
-            verdict: 'APPROVED',
-            feedback: 'Projeto homologado pelo Supervisor com base em 100% das tarefas concluídas e verificadas com sucesso.',
-            nextAction: 'Projeto concluído com sucesso',
-            qualityScore: 10,
-            requirementsMet: true,
-            buildPassed: true,
-            testsPassed: true,
-            uiFunctional: true,
-            summary: 'Projeto concluído e homologado com sucesso.'
-          };
-        } else {
-          throw new Error('SUPERVISOR_FINAL_REVIEW_INVALID: resposta JSON inválida.');
-        }
-      } else {
-        const isNegativeSentiment = /\b(reprovad[oa]|rejeitad[oa]|changes_requested|blocked|falh[ao]|bloquead[oa]|pendente|incomplet[oa]|rework|defeito)\b/i.test(responseStr);
-
-        if (allTasksCompleted && allEvidencePassed && !isNegativeSentiment) {
-          Logger.info('[GeminiSupervisor] Parecer de conclusão recebido em texto natural. Homologando aprovação final com base em 100% das tarefas e verificações concluídas.');
-          result = {
-            verdict: 'APPROVED',
-            feedback: responseStr || 'Projeto homologado pelo Supervisor com base em 100% das tarefas concluídas e verificadas com sucesso.',
-            nextAction: 'Projeto concluído com sucesso',
-            qualityScore: 10,
-            requirementsMet: true,
-            buildPassed: true,
-            testsPassed: true,
-            uiFunctional: true,
-            summary: 'Projeto concluído e homologado com sucesso.'
-          };
-        } else if (isNegativeSentiment) {
-          result = {
-            verdict: 'CHANGES_REQUESTED',
-            feedback: responseStr || 'Supervisor solicitou ajustes nos requisitos do projeto.',
-            nextAction: 'Revisar apontamentos do Supervisor',
-            qualityScore: 5
-          };
-        } else if (allTasksCompleted && allEvidencePassed) {
-          result = {
-            verdict: 'APPROVED',
-            feedback: responseStr || 'Projeto homologado com 100% de conformidade atestada pelo avaliador independente.',
-            nextAction: 'Projeto concluído com sucesso',
-            qualityScore: 10,
-            requirementsMet: true,
-            buildPassed: true,
-            testsPassed: true,
-            uiFunctional: true
-          };
-        } else {
-          throw new Error('SUPERVISOR_FINAL_REVIEW_INVALID: resposta JSON inválida.');
-        }
-      }
+    const response = await this.waitForResponse(session.provider_conversation_id, 240000, minStep, 'REVIEW');
+    const result = this.extractJsonObject<any>(response);
+    if (!result) throw new Error('SUPERVISOR_FINAL_REVIEW_INVALID: resposta JSON inválida.');
+    if (!result.feedback && (result.rationale || result.summary || result.reason)) {
+      result.feedback = String(result.rationale || result.summary || result.reason);
     }
-
-    // Normalização defensiva de veredito
-    const rawVerdict = String(result.verdict || result.decision || result.status || '').toUpperCase();
-    if (['APPROVED', 'APPROVE', 'PASSED', 'PASS', 'SUCCESS', 'CONCLUIDO', 'CONCLUÍDO', 'ACEITO'].includes(rawVerdict)) {
-      result.verdict = 'APPROVED';
-    } else if (['CHANGES_REQUESTED', 'REVISE', 'REWORK', 'FAIL', 'FAILED', 'REPROVADO', 'REJEITADO'].includes(rawVerdict)) {
-      result.verdict = 'CHANGES_REQUESTED';
-    } else if (['BLOCKED', 'BLOCK', 'BLOQUEADO'].includes(rawVerdict)) {
-      result.verdict = 'BLOCKED';
-    } else if (allTasksCompleted && allEvidencePassed) {
-      result.verdict = 'APPROVED';
-    }
-
-    if (!result.feedback) {
-      result.feedback = String(result.rationale || result.summary || result.reason || result.comment || result.review || result.details || 'Homologação final do projeto realizada.');
-    }
-    if (!result.nextAction) {
-      result.nextAction = result.verdict === 'APPROVED' ? 'Projeto concluído com sucesso' : 'Revisar requisitos apontados pelo Supervisor';
-    }
-
-    if (result.verdict === 'APPROVED') {
-      result.requirementsMet = result.requirementsMet ?? true;
-      result.buildPassed = result.buildPassed ?? true;
-      result.testsPassed = result.testsPassed ?? true;
-      result.uiFunctional = result.uiFunctional ?? true;
-      result.qualityScore = typeof result.qualityScore === 'number' ? result.qualityScore : 10;
-    }
-
     if (!['APPROVED', 'CHANGES_REQUESTED', 'BLOCKED'].includes(result?.verdict) || !result.feedback) {
-      if (allTasksCompleted && allEvidencePassed) {
-        result.verdict = 'APPROVED';
-        result.feedback = result.feedback || 'Projeto homologado com sucesso.';
-      } else {
-        throw new Error('SUPERVISOR_FINAL_REVIEW_INVALID: veredito e evidência obrigatórios.');
-      }
+      throw new Error('SUPERVISOR_FINAL_REVIEW_INVALID: veredito e evidência obrigatórios.');
     }
     return result;
   }
@@ -2049,29 +1722,19 @@ export class GeminiSupervisorProvider {
    * content from transcript_full.jsonl to eliminate artificial text truncation.
    */
   async waitForResponse(conversationId: string, timeoutMs: number, minStepIndex = -1, expectedMode?: 'PLAN' | 'REVIEW'): Promise<string> {
-    const cappedTimeout = Math.min(timeoutMs || 35000, 35000);
+    const transcriptPath = path.join(this.appDataBrainDir, conversationId, '.system_generated', 'logs', 'transcript.jsonl');
+    const transcriptFullPath = path.join(this.appDataBrainDir, conversationId, '.system_generated', 'logs', 'transcript_full.jsonl');
 
-    // In offline/test mode without an existing transcript on disk, check mock provider response first
-    const initialTranscriptPath = this.resolveTranscriptPath(conversationId);
-    if (!fs.existsSync(initialTranscriptPath) && AgentApiGateway.isOfflineMode()) {
-      const mockResponse = AgentApiGateway.getMockProvider()?.getResponse?.(conversationId, expectedMode);
-      if (mockResponse !== undefined) {
-        return mockResponse;
-      }
+    // If no transcript file exists on disk and we are in offline mode, return synthetic mock response
+    if (!fs.existsSync(transcriptPath) && AgentApiGateway.isOfflineMode()) {
+      const response = AgentApiGateway.getMockProvider()?.getResponse?.(conversationId, expectedMode);
+      if (response === undefined) throw new Error('OFFLINE_RESPONSE_UNCONFIGURED: provider de teste sem resposta explícita.');
+      return response;
     }
 
     const start = Date.now();
 
-    while (Date.now() - start < cappedTimeout) {
-      if (Date.now() - start > 20000) {
-        const artifactDir = resolveConversationArtifactDir(conversationId, this.appDataBrainDir);
-        if (!fs.existsSync(artifactDir)) {
-          Logger.warn(`[GeminiSupervisor] Diretório brain/${conversationId} não detectado após 20s. Abortando espera para acionar fallback determinístico imediato.`);
-          break;
-        }
-      }
-      const transcriptPath = this.resolveTranscriptPath(conversationId);
-      const transcriptFullPath = this.resolveTranscriptFullPath(conversationId);
+    while (Date.now() - start < timeoutMs) {
       if (fs.existsSync(transcriptPath)) {
         try {
           const content = fs.readFileSync(transcriptPath, 'utf-8');
@@ -2086,85 +1749,21 @@ export class GeminiSupervisorProvider {
                   throw new Error(`QUOTA_EXHAUSTED: ${errStr}`);
                 }
               }
-
-              // Ignora estritamente mensagens enviadas pelo usuário, mensagens do sistema ou notificações do SDK
-              const isInputOrSystem =
-                entry.source === 'USER_EXPLICIT' ||
-                entry.source === 'SYSTEM' ||
-                entry.source === 'SYSTEM_SDK' ||
-                entry.role === 'user' ||
-                entry.role === 'system' ||
-                entry.type === 'USER_INPUT' ||
-                entry.type === 'USER_MESSAGE' ||
-                entry.type === 'SYSTEM_MESSAGE' ||
-                entry.type === 'EPHEMERAL_MESSAGE';
-
-              if (isInputOrSystem) {
-                continue;
-              }
-
-              // Extrai conteúdo completo resolvendo transcript_full.jsonl se truncado
-              let entryContent = entry.content;
-              if (Array.isArray(entry.truncated_fields) && entry.truncated_fields.includes('content') && fs.existsSync(transcriptFullPath)) {
-                try {
-                  const fullLines = fs.readFileSync(transcriptFullPath, 'utf-8').trim().split('\n').filter(Boolean);
-                  for (let j = fullLines.length - 1; j >= 0; j--) {
-                    const fullEntry = JSON.parse(fullLines[j]);
-                    if (fullEntry.step_index === entry.step_index && fullEntry.content) {
-                      entryContent = fullEntry.content;
-                      break;
+              if (entry.type === 'PLANNER_RESPONSE' && entry.status === 'DONE' && entry.content && !(entry.tool_calls?.length > 0)) {
+                if (Array.isArray(entry.truncated_fields) && entry.truncated_fields.includes('content') && fs.existsSync(transcriptFullPath)) {
+                  try {
+                    const fullLines = fs.readFileSync(transcriptFullPath, 'utf-8').trim().split('\n').filter(Boolean);
+                    for (let j = fullLines.length - 1; j >= 0; j--) {
+                      const fullEntry = JSON.parse(fullLines[j]);
+                      if (fullEntry.step_index === entry.step_index && fullEntry.content) {
+                        return fullEntry.content;
+                      }
                     }
-                  }
-                } catch (fullReadErr: any) {
-                  Logger.warn(`[GeminiSupervisor] Falha ao ler transcript_full.jsonl: ${fullReadErr.message}`);
-                }
-              }
-
-              const resolvedText = typeof entryContent === 'string'
-                ? entryContent
-                : (entryContent ? JSON.stringify(entryContent) : (typeof entry.text === 'string' ? entry.text : ''));
-
-              if (resolvedText && resolvedText.trim()) {
-                // c) No modo PLAN, extrai array de tarefas (extractJsonArray) ou objeto com tarefas estruturadas
-                if (expectedMode !== 'REVIEW') {
-                  const tasks = this.extractJsonArray<PlannedTask>(resolvedText);
-                  if (tasks && Array.isArray(tasks) && tasks.length > 0) {
-                    return resolvedText;
-                  }
-
-                  const parsedObj = this.extractJsonObject<any>(resolvedText);
-                  if (parsedObj && (Array.isArray(parsedObj.majorTasks) && parsedObj.majorTasks.length > 0 || Array.isArray(parsedObj.tasks) && parsedObj.tasks.length > 0)) {
-                    return resolvedText;
-                  }
-                } else {
-                  // No modo REVIEW, aceita objeto estruturado de avaliação com veredito formal
-                  const parsedReview = this.extractJsonObject<any>(resolvedText);
-                  if (parsedReview && (parsedReview.verdict || parsedReview.qualityScore !== undefined)) {
-                    return resolvedText;
+                  } catch (fullReadErr: any) {
+                    Logger.warn(`[GeminiSupervisor] Falha ao ler transcript_full.jsonl: ${fullReadErr.message}`);
                   }
                 }
-
-                // a) entry.type === 'PLANNER_RESPONSE' && entry.status === 'DONE' && entry.content
-                const isPlannerDone = entry.type === 'PLANNER_RESPONSE' &&
-                  (entry.status === 'DONE' || entry.status === 'COMPLETED') &&
-                  !(entry.tool_calls?.length > 0);
-
-                // b) (entry.type === 'ASSISTANT_RESPONSE' || entry.type === 'MODEL_TURN' || entry.type === 'MESSAGE' || entry.role === 'assistant' || entry.type === 'MODEL_RESPONSE' || entry.type === 'CHAT_RESPONSE' || entry.type === 'TEXT_RESPONSE' || entry.type === 'TURN_COMPLETE') && entry.content
-                const isAssistantResponse = (
-                  entry.type === 'ASSISTANT_RESPONSE' ||
-                  entry.type === 'MODEL_TURN' ||
-                  entry.type === 'MESSAGE' ||
-                  entry.type === 'MODEL_RESPONSE' ||
-                  entry.type === 'CHAT_RESPONSE' ||
-                  entry.type === 'TEXT_RESPONSE' ||
-                  entry.type === 'TURN_COMPLETE' ||
-                  entry.role === 'assistant' ||
-                  entry.source === 'MODEL'
-                ) && !(entry.tool_calls?.length > 0);
-
-                if (isPlannerDone || isAssistantResponse) {
-                  return resolvedText;
-                }
+                return entry.content;
               }
             }
           }
@@ -2172,7 +1771,7 @@ export class GeminiSupervisorProvider {
           if (e.message?.startsWith('QUOTA_EXHAUSTED')) throw e;
         }
       }
-      await new Promise(r => setTimeout(r, 800));
+      await new Promise(r => setTimeout(r, 1500));
     }
     return '';
   }
@@ -2195,34 +1794,14 @@ export class GeminiSupervisorProvider {
         const parsed = JSON.parse(rawBlock);
         const unwrapped = this.unwrapArrayFromParsed<T>(parsed);
         if (unwrapped) return unwrapped;
-      } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "geminiSupervisorProvider",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:geminiSupervisorProvider]", err);
-      }
-    }
+      } catch {}
     }
 
     try {
       const parsed = JSON.parse(text.trim());
       const unwrapped = this.unwrapArrayFromParsed<T>(parsed);
       if (unwrapped) return unwrapped;
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "geminiSupervisorProvider",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:geminiSupervisorProvider]", err);
-      }
-    }
+    } catch {}
 
     // Fallback: search for valid JSON array candidates ending at the last ']'
     const lastBracket = text.lastIndexOf(']');
@@ -2235,17 +1814,7 @@ export class GeminiSupervisorProvider {
           const candidate = text.substring(bracketIdx, lastBracket + 1);
           const parsed = JSON.parse(candidate);
           if (Array.isArray(parsed)) return parsed;
-        } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "geminiSupervisorProvider",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:geminiSupervisorProvider]", err);
-      }
-    }
+        } catch {}
         searchFrom = bracketIdx + 1;
       }
     }
@@ -2260,33 +1829,13 @@ export class GeminiSupervisorProvider {
       try {
         const parsed = JSON.parse(fencedMatches[i][1].trim());
         if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) return parsed;
-      } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "geminiSupervisorProvider",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:geminiSupervisorProvider]", err);
-      }
-    }
+      } catch {}
     }
 
     try {
       const parsed = JSON.parse(text.trim());
       if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) return parsed;
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "geminiSupervisorProvider",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:geminiSupervisorProvider]", err);
-      }
-    }
+    } catch {}
 
     // Fallback: search for valid JSON object candidates ending at the last '}'
     const lastBrace = text.lastIndexOf('}');
@@ -2299,17 +1848,7 @@ export class GeminiSupervisorProvider {
           const candidate = text.substring(braceIdx, lastBrace + 1);
           const parsed = JSON.parse(candidate);
           if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) return parsed;
-        } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "geminiSupervisorProvider",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:geminiSupervisorProvider]", err);
-      }
-    }
+        } catch {}
         searchFrom = braceIdx + 1;
       }
     }
@@ -2317,26 +1856,53 @@ export class GeminiSupervisorProvider {
     return null;
   }
 
-  /**
-   * Evaluates a council prompt or perspective using the live supervisor agent or agy CLI.
-   */
   async evaluateCouncilPrompt(
     prompt: string,
-    options?: { timeoutMs?: number; projectId?: string; modelOverride?: 'flash' | 'pro' | 'flash_lite' }
-  ): Promise<string | null> {
-    if (AgentApiGateway.isOfflineMode()) {
-      return null;
-    }
+    options?: { projectId?: string; modelOverride?: string }
+  ): Promise<string> {
+    const effectiveProjectId = options?.projectId || this.projectId;
+    const modelToUse = options?.modelOverride || this.model;
+    let conversationId: string | null = null;
+    let minStepIndex = -1;
+
     try {
-      const targetModel = options?.modelOverride || this.model;
-      const res = await AgentApiGateway.runViaAgyCli(prompt, options?.projectId || this.projectId, targetModel);
-      if (res?.response) {
-        return res.response;
+      const { AgentSessionManager } = await import('./agentSessionManager.js');
+      if (effectiveProjectId) {
+        const { session, isNew } = await AgentSessionManager.getOrCreateAgentSession(effectiveProjectId, 'SUPERVISOR', {
+          model: modelToUse,
+          env: this.env,
+          initialPrompt: prompt,
+          accountProfileId: this.accountProfileId
+        });
+        conversationId = session.provider_conversation_id;
+        if (!isNew && conversationId) {
+          minStepIndex = this.getLatestTranscriptStepIndex(conversationId);
+          await AgentSessionManager.sendMessage(session, prompt, {
+            env: this.env,
+            taskTitle: 'Council Review'
+          });
+        }
+      } else {
+        conversationId = await AgentApiGateway.newConversation({
+          model: modelToUse,
+          title: `DecoHUB — Council Review`,
+          prompt,
+          projectId: effectiveProjectId,
+          role: 'supervisor',
+          caller: 'GeminiSupervisorProvider.evaluateCouncilPrompt',
+          env: this.env
+        });
       }
+
+      if (!conversationId) {
+        throw new Error('Falha ao iniciar conversa para Council Review');
+      }
+
+      return await this.waitForResponse(conversationId, 180000, minStepIndex, 'REVIEW');
     } catch (err: any) {
-      Logger.warn(`[GeminiSupervisor] Falha na consulta do conselho via supervisor: ${err?.message}`);
+      Logger.warn(`[GeminiSupervisor] Falha na avaliação do prompt do Council: ${err.message}`);
+      throw err;
     }
-    return null;
   }
 }
 

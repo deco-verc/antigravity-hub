@@ -54,61 +54,57 @@ Rastreabilidade total: Toda e qualquer linha adicionada, editada ou removida no 
 
 Limpeza de órfãos próprios: Se a sua alteração tornou uma importação, variável ou função obsoleta, remova-a. Não apague código ou testes pré-existentes sem instrução explícita.
 
-Princípio 4: GOAL-DRIVEN EXECUTION
+## Princípio 4: GOAL-DRIVEN EXECUTION & PROTOCOLO TDD RED-GREEN OBRIGATÓRIO (VERIFY BEFORE DECLARING SUCCESS)
 Defina critérios de sucesso mensuráveis antes de codificar. Loop até verificar.
 
 Transforme tarefas imperativas em contratos de sucesso declarativos:
 
 Toda tarefa deve estruturar-se em quatro pilares:
 
-OBJECTIVE: O que deve ser alcançado em uma frase objetiva.
+- **OBJECTIVE:** O que deve ser alcançado em uma frase objetiva.
+- **ACCEPTANCE CRITERIA:** Lista binária e verificável de 2 a 4 critérios factuais (PASS/FAIL). É estritamente proibido emitir critérios vagos como "Implementação concluída" ou "Funcionalidade pronta".
+- **VERIFICATION:** Um único comando simples e focado no teste do módulo compatível com `controlledVerification.ts` (`node --test <arquivo-relativo>`, `node <arquivo.js>`, `npm run typecheck` ou `tsc --noEmit`). É estritamente proibido encadear comandos com `;`, `&&`, `||`, `|`, `node -e` ou `node --check`.
+- **DONE WHEN:** Condição mandatória de término (todos os critérios atendidos, exit code 0 no terminal e aprovação nos portões aplicáveis do IndependentEvaluator).
 
-ACCEPTANCE CRITERIA: Lista binária e verificável de requisitos funcionais, visuais e de segurança.
+### Prova Binária de Execução (Verify Before Declaring Success):
+O Worker **NUNCA** pode declarar uma tarefa como concluída baseando-se apenas em texto, código escrito ou suposição. Ele **DEVE obrigatoriamente** executar o `verificationCommand` da tarefa no terminal e incluir a saída real (código de saída 0) no seu relatório final. Sem prova empírica de execução no terminal, a tarefa é considerada não concluída.
 
-VERIFICATION: Um único comando simples e determinístico compatível com controlledVerification.ts (npm test, npm run test, npm run typecheck, npm run build, npm run lint, node --test, node --test <arquivo-relativo>, node <arquivo.js> ou tsc --noEmit). É estritamente proibido encadear comandos com ;, &&, ||, |, node -e ou node --check.
-
-DONE WHEN: Condição mandatória de término (todos os critérios atendidos, exit code 0 no terminal e aprovação nos portões aplicáveis do IndependentEvaluator).
+### Protocolo TDD Red-Green Obrigatório:
+1. **RED:** Antes de implementar o código de produção, crie ou verifique o teste unitário focado correspondente em `test/` e execute no terminal para confirmar a falha inicial ou baseline esperado.
+2. **GREEN:** Implemente o código mínimo estritamente necessário no arquivo de produção até que o teste unitário passe com exit code 0 e tipagem estrita sem erros (`tsc --noEmit` / `lsp_diagnostics`).
+3. **PROVA FACTUAL:** Execute o `verificationCommand` da tarefa e anexe a saída real com código de saída 0 no relatório para o Reviewer.
 
 Para tarefas em múltiplos passos, declare o plano passo a passo:
-
 1. [Passo] -> verificar: [comando/teste]
 2. [Passo] -> verificar: [comando/teste]
 O agente deve iterar autonomamente contra o comando de verificação até que o resultado comprove conformidade real em disco.
 
-Princípio 5: OPERATIONAL AUTONOMY & INTELLIGENT EXECUTION
+---
+
+## Princípio 5: OPERATIONAL AUTONOMY, SYSTEMATIC DEBUGGING & PROTOCOLO ANTI-RETRABALHO
 Autorização expressa para desenvolvimento autônomo, instalação inteligente e autocorreção ativa.
 
 Em projetos confiáveis gerenciados pelo DecoHUB:
 
-Execução Automática de Rotina: O agente tem permissão expressa para executar comandos de terminal, rodar builds, testes e iniciar servidores locais efêmeros (encerrando-os obrigatoriamente em blocos try / finally) sem solicitar aprovação manual.
+- **Execução Automática de Rotina:** O agente tem permissão expressa para executar comandos de terminal, rodar builds, testes e iniciar servidores locais efêmeros (encerrando-os obrigatoriamente em blocos `try / finally`) sem solicitar aprovação manual.
+- **Instalação Inteligente de Dependências:**
+  - Detecte se a dependência já existe ou se utilitários nativos resolvem com simplicidade.
+  - Use o gerenciador de pacotes do projeto (`npm`, `pnpm`, `yarn`, `bun`, `pip`).
+  - Instale versões estáveis no escopo local do projeto, respeitando lockfiles.
+  - Proibido instalar pacotes globais (`-g`), ferramentas com privilégios elevados (`sudo`) ou serviços pagos sem aprovação.
+  - Registre adições no histórico de decisões do projeto e valide imediatamente com testes.
+- **Testes Totalmente Automáticos e Intocáveis:**
+  - Detecte a stack e utilize a suíte automatizada (`node --test`, `npm test`, etc.).
+  - Se o projeto não possuir testes para a funcionalidade criada, implemente testes reais cobrindo caminho feliz, validações de erro e persistência.
+- **Proibição de Adulteração (TAMPERING_DETECTED):** Nunca modifique, comente, enfraqueça ou adicione `.skip` em arquivos de avaliação protegidos (`protectedEvaluationFiles`).
 
-Instalação Inteligente de Dependências:
+### Proibição de Palpites no Retrabalho (Systematic Debugging):
+Quando uma tarefa estiver em estado de retrabalho (`CHANGES_REQUESTED` ou retentativa), o Worker é **TERMINANTEMENTE PROIBIDO** de reescrever arquivos aleatórios ou aplicar refatorações cosméticas por tentativa e erro.
 
-Detecte se a dependência já existe ou se utilitários nativos resolvem com simplicidade.
-
-Use o gerenciador de pacotes do projeto (npm, pnpm, yarn, bun, pip).
-
-Instale versões estáveis no escopo local do projeto, respeitando lockfiles.
-
-Proibido instalar pacotes globais (-g), ferramentas com privilégios elevados (sudo) ou serviços pagos sem aprovação.
-
-Registre adições no histórico de decisões do projeto e valide imediatamente com testes.
-
-Testes Totalmente Automáticos e Intocáveis:
-
-Detecte a stack e utilize a suíte automatizada (node --test, npm test, etc.).
-
-Se o projeto não possuir testes para a funcionalidade criada, implemente testes reais cobrindo caminho feliz, validações de erro e persistência.
-
-Proibição de Adulteração (TAMPERING_DETECTED): Nunca modifique, comente, enfraqueça ou adicione .skip em arquivos de avaliação protegidos (protectedEvaluationFiles).
-
-Ciclo Ativo de Autocorreção (Self-Healing Loop):
-
-Diante de falhas em testes unitários, PlaywrightVisualInspector, UserExperienceSimulator ou SecurityPentestSimulator, leia o diagnóstico exato e a stacktrace.
-
-Diagnostique a causa raiz no código de produção (ex: contrato JSON divergente, rota retornando 404/500, perda de estado no F5, falta de escapeHtml ou elemento truncado).
-
-Aplique a correção cirúrgica no código de implementação e reexecute a verificação até obter exit code 0.
+O Worker deve obrigatoriamente seguir o protocolo em 3 etapas:
+1. **Isolar a Linha ou Asserção que Falhou:** Ler atentamente os blocos `[FALHA]` e `[CAUSA RAIZ]` da avaliação anterior, inspecionando o arquivo e a linha exata da quebra;
+2. **Menor Intervenção Possível:** Fazer a menor intervenção de código possível para corrigir o ponto exato da falha, preservando todo o restante intacto;
+3. **Reexecução Empírica do Teste:** Reexecutar o comando de teste específico da tarefa no terminal e comprovar código de saída 0 antes de devolver para o Reviewer.
 
 Princípio 6: FULL-STACK, APPSEC & ANTI-SLOP INVARIANTS
 Padrões inegociáveis de arquitetura, segurança, design e comunicação em todos os projetos do DecoHUB.

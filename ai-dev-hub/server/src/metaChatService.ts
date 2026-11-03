@@ -18,7 +18,7 @@ import { AntigravityProvider, isToolDump, stripRawLineNumberDumps, stripViewedCo
 import { DevAutonomyService } from './devAutonomyService.js';
 import { TurnCancellationManager } from './turnCancellationManager.js';
 import { ExecutionCoordinator } from './executionCoordinator.js';
-import { FATAL_QUOTA_OR_AUTH_REGEX, captureFileInventory, changedFiles, FileInventory, isRawToolOrCommandOutput } from './agentTurnState.js';
+import { AgentTurnState, FATAL_QUOTA_OR_AUTH_REGEX, captureFileInventory, changedFiles, FileInventory, isRawToolOrCommandOutput, isFatalQuotaOrAuthError } from './agentTurnState.js';
 import { SkillRouter } from './skillRouter.js';
 import { SseStreamService } from './sseStreamService.js';
 import { AstSymbolIndexService } from './astSymbolIndexService.js';
@@ -592,6 +592,10 @@ ${params.userContent}
       'server/src/metaChatService.ts',
       'client/src/components/FourRoleTimeline.tsx',
       'server/src/projectChatService.ts',
+      'server/src/playwrightVisualInspector.ts',
+      'server/src/skillSlashCommandService.ts',
+      'server/src/projectOperationsService.ts',
+      'client/src/components/ImageCarouselLightbox.tsx',
       'server/src/astSymbolIndexService.ts',
       'server/src/docSimpService.ts',
       'server/src/promptArchitectureService.ts',
@@ -634,6 +638,11 @@ ${params.userContent}
       }
       if (/project\s*chat|projectchatservice/i.test(lower)) {
         ['server/src/projectChatService.ts'].forEach(f => {
+          if (!candidateFiles.includes(f) && fs.existsSync(path.join(root, f))) candidateFiles.push(f);
+        });
+      }
+      if (/playwright|screenshot|foto|fotos|imagem|image|verde|verdes|crawler|lightbox|visual\s*gate/i.test(lower)) {
+        ['server/src/playwrightVisualInspector.ts', 'server/src/skillSlashCommandService.ts', 'server/src/projectOperationsService.ts'].forEach(f => {
           if (!candidateFiles.includes(f) && fs.existsSync(path.join(root, f))) candidateFiles.push(f);
         });
       }
@@ -839,21 +848,68 @@ ${dagFormatted}
     filesChanged: string[],
     typecheckResult: { passed: boolean; output?: string },
     diffStat: string = '',
-    reviewerReport?: string
+    reviewerReport?: string,
+    liveSteps?: MetaChatLiveStep[],
+    clientBuildPassed?: boolean
   ): string {
-    const cleanedReport = this.sanitizeMetaChatReply(agentReport, filesChanged).trim();
+    const cleanedReport = this.sanitizeAgentOutput(this.sanitizeMetaChatReply(agentReport, filesChanged)).trim();
 
     // Se o agente já gerou estrutura trace completa dos 4 papéis, preserva
     if (/\[CHAT FACADE\]/i.test(cleanedReport) && /\[WORKER\]/i.test(cleanedReport)) {
       return cleanedReport;
     }
 
-    const filesList = filesChanged.length > 0
-      ? filesChanged.map(f => `  - \`${f}\``).join('\n')
-      : supervisorPlan.scopeFiles.map(f => `  - \`${f}\` *(inspecionado)*`).join('\n');
+    // 1. Chat Facade com resumo real e direto do que foi feito e dos portões de integridade
+    let facadeSummary = '';
+    if (filesChanged.length > 0) {
+      facadeSummary = `Solicitação processada com sucesso no DecoHUB. Alterações cirúrgicas implementadas em ${filesChanged.map(f => '`' + f + '`').join(', ')}.`;
+    } else {
+      facadeSummary = 'Solicitação analisada e concluída com sucesso no DecoHUB sem necessidade de novas alterações em disco.';
+    }
 
+    let facadeGateStatus = '';
+    if (typecheckResult.passed && clientBuildPassed !== false) {
+      facadeGateStatus = 'Validada com sucesso nos 4 portões de integridade (TypeScript 0 erros, Build de Produção OK).';
+    } else if (typecheckResult.passed && clientBuildPassed === false) {
+      facadeGateStatus = 'TypeScript validado com 0 erros. Atenção: Build de frontend com pendências.';
+    } else {
+      facadeGateStatus = 'Atenção: Validação de integridade detectou pendências de tipagem.';
+    }
+
+    // 2. Supervisor com arquivos em escopo reais do turno
+    const scopeFiles = filesChanged.length > 0
+      ? filesChanged
+      : (supervisorPlan?.scopeFiles && supervisorPlan.scopeFiles.length > 0 ? supervisorPlan.scopeFiles.slice(0, 5) : ['server/src/metaChatService.ts']);
+
+    const filesList = scopeFiles.map(f => `  - \`${f}\`${filesChanged.includes(f) ? '' : ' *(inspecionado)*'}`).join('\n');
     const dagList = supervisorPlan.dagSteps.map((s, i) => `  ${i + 1}. ${s}`).join('\n');
-    const verdict = typecheckResult.passed ? '`[VEREDICTO: APROVADO]`' : '`[VEREDICTO: REJEITADO]`';
+
+    // 3. Worker com relatório limpo sem lixo binário/descompressão + resumo de liveSteps
+    let workerActionsSummary = '';
+    if (liveSteps && liveSteps.length > 0) {
+      const operationalSteps = liveSteps.filter(s => s.type === 'READ' || s.type === 'EDIT' || s.type === 'COMMAND');
+      if (operationalSteps.length > 0) {
+        const stepsText = operationalSteps.map(s => {
+          const actionIcon = s.type === 'EDIT' ? '✏️ Editou' : s.type === 'READ' ? '🔍 Analisou' : '⚡ Executou';
+          return `> - ${actionIcon}: \`${s.target}\`${s.details && s.details !== s.target ? ` (${s.details})` : ''}`;
+        }).join('\n');
+        workerActionsSummary = `\n> **Ações Executadas no Turno:**\n${stepsText}`;
+      }
+    }
+
+    const workerSection = cleanedReport
+      ? `> **Execução:**\n${cleanedReport.split('\n').map(l => `> ${l}`).join('\n')}${workerActionsSummary}\n`
+      : `> **Execução:** Alterações cirúrgicas concluídas conforme a Ordem de Serviço.${workerActionsSummary}\n`;
+
+    // 4. Reviewer com veredito condizente
+    const isApproved = typecheckResult.passed && clientBuildPassed !== false;
+    const isApprovedWithReservations = typecheckResult.passed && clientBuildPassed === false;
+    const verdict = isApproved
+      ? '`[VEREDICTO: APROVADO]`'
+      : isApprovedWithReservations
+        ? '`[VEREDICTO: APROVADO COM RESSALVAS (BUILD PENDENTE)]`'
+        : '`[VEREDICTO: REJEITADO]`';
+
     const diffBlock = diffStat ? `\n\n\`\`\`diff\n${diffStat.slice(0, 800)}\n\`\`\`` : '';
 
     const auditedFilesList = filesChanged.length > 0
@@ -868,15 +924,16 @@ ${dagFormatted}
     const defaultReviewerBlock = [
       '### 🛡️ PARECER DO REVIEWER',
       `- **Integridade TypeScript:** 0 erros (Server e Client OK)`,
-      `- **Build de Produção:** Aprovado (Vite bundle gerado)`,
+      `- **Build de Produção:** ${clientBuildPassed === false ? 'Falhou com ressalvas' : 'Aprovado (Vite bundle gerado)'}`,
       `- **Arquivos Auditados:** ${auditedFilesList} (+${linesAdded} / -${linesRemoved})`,
-      `- **Veredicto:** [APROVADO PARA PRODUÇÃO]`
+      `- **Veredicto:** ${clientBuildPassed === false ? '[VEREDICTO: APROVADO COM RESSALVAS (BUILD PENDENTE)]' : '[APROVADO PARA PRODUÇÃO]'}`
     ].join('\n');
 
     const reviewerBlock = reviewerReport || defaultReviewerBlock;
 
     return `### 1. Chat Facade
-> Solicitação processada com sucesso no DecoHUB e validada nos 4 portões de integridade.
+> ${facadeSummary}
+> ${facadeGateStatus}
 > Use o botão **Recompilar Produção** para consolidar a distribuição em produção.
 
 ### 2. Supervisor
@@ -886,8 +943,7 @@ ${filesList}
 ${dagList}
 
 ### 3. Worker
-${cleanedReport ? `> **Execução:**\n${cleanedReport.split('\n').map(l => `> ${l}`).join('\n')}\n` : '> **Execução:** Alterações cirúrgicas concluídas conforme a Ordem de Serviço.\n'}
-
+${workerSection}
 ### 4. Reviewer
 > **Veredito:** ${verdict}
 
@@ -948,7 +1004,7 @@ ${reviewerBlock}${diffBlock}`;
           options.root,
           () => Boolean(
             this.getExecution(options.currentThreadId)?.cancelRequested ||
-            TurnCancellationManager.isCancelled(options.currentThreadId, supervisorConvId)
+            TurnCancellationManager.isCancelled('metachat', options.currentThreadId, supervisorConvId)
           )
         );
 
@@ -2488,7 +2544,8 @@ ${errorLines}
           encoding: 'utf-8',
           timeout: 60000,
           windowsHide: true,
-          env: { ...process.env, CI: 'true' }
+          env: { ...process.env, CI: 'true' },
+          shell: isWin
         });
       } else {
         buildPassed = true;
@@ -2959,14 +3016,24 @@ ${errorLines}
             } catch {
               continue;
             }
-            if (entry.status === 'ERROR' || entry.type === 'ERROR_MESSAGE') {
+            const entryText = String(entry.content || entry.message || entry.error || '');
+            const isErrorEntry = entry.status === 'ERROR' || entry.type === 'ERROR_MESSAGE' || Boolean(entry.error);
+            if (isErrorEntry) {
+              const errorText = String(entry.error || entry.message || entry.content || '');
+              if (isFatalQuotaOrAuthError(errorText, entry)) {
+                throw new Error(`QUOTA_EXHAUSTED: ${errorText}`);
+              }
+            }
+            const isToolOutput =
+              isRawToolOrCommandOutput(entryText) ||
+              entryText.startsWith('Created At:') ||
+              entryText.includes('Service.broadcast') ||
+              entry.type === 'GENERIC' ||
+              entry.type === 'GENERIC_TOOL_CALL_RESULT';
+            if ((entry.status === 'ERROR' || entry.type === 'ERROR_MESSAGE') && !isToolOutput) {
               throw new Error(
                 `Antigravity conversation reported error: ${entry.error || entry.content || 'Status ERROR'}`
               );
-            }
-            const entryText = String(entry.error || entry.content || entry.message || '');
-            if (FATAL_QUOTA_OR_AUTH_REGEX.test(entryText)) {
-              throw new Error(`QUOTA_EXHAUSTED: ${entryText}`);
             }
           }
 
@@ -3249,64 +3316,13 @@ ${errorLines}
   static captureFileBaseline(root: string): Map<string, { size: number; mtime: number; hash?: string; content?: string | null; diskHash?: string }> {
     const map = new Map<string, { size: number; mtime: number; hash?: string; content?: string | null; diskHash?: string }>();
     try {
-      const statusLines = this.getGitStatusPorcelain(root);
-      for (const line of statusLines) {
-        let file = line.slice(3).trim().replace(/^"|"$/g, '').replace(/\\/g, '/');
-        file = file.replace(/^ai-dev-hub[\\/]/, '');
-        const full = path.join(root, file);
-        try {
-          if (fs.existsSync(full)) {
-            const stat = fs.statSync(full);
-            if (stat.isDirectory()) continue;
-            let hash: string | undefined;
-            let content: string | null = null;
-            if (stat.size < 2000000) {
-              const buf = fs.readFileSync(full);
-              hash = crypto.createHash('sha1').update(buf).digest('hex');
-              content = buf.toString('utf-8');
-            }
-            map.set(file, { size: stat.size, mtime: stat.mtimeMs, hash, content });
-          } else {
-            map.set(file, { size: -1, mtime: 0, content: null });
-          }
-        } catch (err) {
-          if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-            (globalThis as any).logger.warn({
-              event: "server.handled_exception",
-              file: "metaChatService",
-              error: (err as any)?.message || String(err)
-            });
-          } else {
-            console.warn("[WARN][server:metaChatService]", err);
-          }
-        }
+      const inventory = captureFileInventory(root);
+      for (const [invFile, sha] of Object.entries(inventory)) {
+        const normalizedFile = invFile.replace(/^ai-dev-hub[\\/]/, '').replace(/\\/g, '/');
+        map.set(normalizedFile, { size: 0, mtime: 0, diskHash: sha, hash: sha });
       }
-
-      // Hybrid Check: Full disk SHA-256 inventory via captureFileInventory for total byte-level certainty
-      try {
-        const inventory = captureFileInventory(root);
-        for (const [invFile, sha] of Object.entries(inventory)) {
-          const normalizedFile = invFile.replace(/^ai-dev-hub[\\/]/, '');
-          const existing = map.get(normalizedFile);
-          if (existing) {
-            existing.diskHash = sha;
-          } else {
-            map.set(normalizedFile, { size: 0, mtime: 0, diskHash: sha });
-          }
-        }
-      } catch (invErr: any) {
-        Logger.warn(`[MetaChatService] Aviso ao capturar inventário de arquivos em disco: ${invErr.message}`);
-      }
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "metaChatService",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:metaChatService]", err);
-      }
+    } catch (invErr: any) {
+      Logger.warn(`[MetaChatService] Aviso ao capturar inventário de arquivos em disco: ${invErr.message}`);
     }
     return map;
   }
@@ -3316,61 +3332,38 @@ ${errorLines}
     beforeBaseline: Map<string, { size: number; mtime: number; hash?: string; diskHash?: string }>,
     turnChangedFiles?: string[]
   ): string[] {
-    const afterPorcelain = this.getGitStatusPorcelain(root);
     const changedInTurn = new Set<string>();
 
-    for (const line of afterPorcelain) {
-      let file = line.slice(3).trim().replace(/^"|"$/g, '').replace(/\\/g, '/');
-      file = file.replace(/^ai-dev-hub[\\/]/, '');
-      // IGNORE_DIRS_AND_INTERNAL_ARTIFACTS_IN_DIFF
-      if (!file || file.endsWith('/') || file.includes('.ai-dev-hub')) continue;
-      const full = path.join(root, file);
-      try { if (fs.existsSync(full) && fs.statSync(full).isDirectory()) continue; } catch {}
+    const isIgnored = (file: string) => {
+      if (!file || file.endsWith('/')) return true;
+      const norm = file.replace(/\\/g, '/');
+      return (
+        norm.includes('.ai-dev-hub') ||
+        norm.startsWith('.git') ||
+        norm.includes('/.git/') ||
+        norm.startsWith('node_modules') ||
+        norm.includes('/node_modules/') ||
+        norm.startsWith('dist') ||
+        norm.includes('/dist/') ||
+        norm.endsWith('session-summary.md') ||
+        norm.endsWith('.log')
+      );
+    };
 
-      if (!beforeBaseline.has(file)) {
-        // File was NOT in git status before the turn -> Newly modified or created in this turn
-        changedInTurn.add(file);
-      } else {
-        // File was already in git status before the turn. Check if changed during this turn.
-        const before = beforeBaseline.get(file)!;
-        try {
-          if (!fs.existsSync(full)) {
-            if (before.size !== -1) {
-              changedInTurn.add(file);
-            }
-          } else {
-            const stat = fs.statSync(full);
-            if (before.size > 0 && stat.size !== before.size) {
-              changedInTurn.add(file);
-            } else if (before.hash && stat.size < 2000000) {
-              const content = fs.readFileSync(full);
-              const hash = crypto.createHash('sha1').update(content).digest('hex');
-              if (hash !== before.hash) {
-                changedInTurn.add(file);
-              }
-            } else if (before.mtime > 0 && stat.mtimeMs !== before.mtime) {
-              changedInTurn.add(file);
-            }
-          }
-        } catch {
-          changedInTurn.add(file);
-        }
-      }
-    }
-
-    // Hybrid Check: Compare real SHA-256 disk inventory with baseline
+    // 1. Comparação exata de inventário de disco via SHA-256
     try {
       const currentInventory = captureFileInventory(root);
       const beforeInventory: FileInventory = {};
       for (const [file, val] of beforeBaseline.entries()) {
-        if (val.diskHash) {
-          beforeInventory[file] = val.diskHash;
+        const sha = val.diskHash || val.hash;
+        if (sha) {
+          beforeInventory[file] = sha;
         }
       }
       const diskChanged = changedFiles(beforeInventory, currentInventory);
       for (const f of diskChanged) {
-        const normF = f.replace(/^ai-dev-hub[\\/]/, '');
-        if (!normF.includes('.ai-dev-hub')) {
+        const normF = f.replace(/^ai-dev-hub[\\/]/, '').replace(/\\/g, '/');
+        if (!isIgnored(normF)) {
           changedInTurn.add(normF);
         }
       }
@@ -3378,48 +3371,23 @@ ${errorLines}
       Logger.warn(`[MetaChatService] Aviso na checagem de inventário em diffFileBaseline: ${invErr.message}`);
     }
 
+    // 2. Alvos explícitos de ferramentas de escrita (EDIT, write_to_file, etc.)
     if (turnChangedFiles && Array.isArray(turnChangedFiles)) {
       for (const f of turnChangedFiles) {
         let rel = path.isAbsolute(f)
           ? path.relative(root, f).replace(/\\/g, '/')
           : f.replace(/\\/g, '/');
         rel = rel.replace(/^ai-dev-hub[\\/]/, '');
-        if (rel.startsWith('..')) continue;
+        if (rel.startsWith('..') || isIgnored(rel)) continue;
 
         const full = path.join(root, rel);
         if (fs.existsSync(full)) {
-          const before = beforeBaseline.get(rel);
-          if (!before) {
-            changedInTurn.add(rel);
-          } else {
-            try {
-              const stat = fs.statSync(full);
-              if (before.size > 0 && stat.size !== before.size) {
-                changedInTurn.add(rel);
-              } else if (before.hash) {
-                const content = fs.readFileSync(full);
-                const hash = crypto.createHash('sha1').update(content).digest('hex');
-                if (hash !== before.hash) {
-                  changedInTurn.add(rel);
-                }
-              }
-            } catch (err) {
-              if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-                (globalThis as any).logger.warn({
-                  event: "server.handled_exception",
-                  file: "metaChatService",
-                  error: (err as any)?.message || String(err)
-                });
-              } else {
-                console.warn("[WARN][server:metaChatService]", err);
-              }
-            }
-          }
+          changedInTurn.add(rel);
         }
       }
     }
 
-    return Array.from(changedInTurn);
+    return Array.from(changedInTurn).sort();
   }
 
   static diffGitStatus(before: string[], after: string[]): string[] {
@@ -4433,6 +4401,7 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
       let testResult: { ran: boolean; passed: boolean; output?: string } = { ran: false, passed: false };
       let clientGateResult: { passed: boolean; buildPassed: boolean; visualPassed: boolean; output: string; details: string } | null = null;
       let simplicityResult: { passed: boolean; linesAdded: number; linesRemoved: number; delta: number; reason?: string } | null = null;
+      let clientBuildPassed = true;
       const executionStartTime = Date.now();
       const executionTimeline: MetaChatTimelineStep[] = [];
       let stepStartTime = Date.now();
@@ -5221,6 +5190,8 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
               }
               (antigravityProvider as any).turnStarts?.set(activeConvId, 0);
               antigravityProvider.captureTurnStart(activeConvId, root, 'metachat-' + currentThread.id);
+              AgentTurnState.setBaselineLines(activeConvId, 0);
+              (antigravityProvider as any).turnStarts?.set(activeConvId, 0);
             } catch (createErr: any) {
               const errMsg = createErr?.message || String(createErr);
               const isRuntimeUnavailable =
@@ -5287,7 +5258,7 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
             root,
             () => Boolean(
               this.getExecution(currentThread.id)?.cancelRequested ||
-              TurnCancellationManager.isCancelled(currentThread.id, activeConvId)
+              TurnCancellationManager.isCancelled('metachat', currentThread.id, activeConvId)
             )
           );
           let agentReport = (turnResult.rawResponse || (turnResult as any).finalResponse || '').trim();
@@ -5332,29 +5303,27 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
           this.updatePipelineTask('task-implement', 'completed', undefined, currentThread.id);
 
           const changedInTurn = this.diffFileBaseline(root, baselineBefore, turnResult.filesChanged);
-          filesChanged.push(...changedInTurn);
-
-          if (Array.isArray(turnResult.filesChanged)) {
-            for (const fc of turnResult.filesChanged) {
-              if (!filesChanged.includes(fc)) {
-                filesChanged.push(fc);
-              }
+          for (const cit of changedInTurn) {
+            if (!filesChanged.includes(cit)) {
+              filesChanged.push(cit);
             }
           }
 
-          try {
-            const gitStatus = execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf-8', timeout: 5000 }).trim();
-            if (gitStatus) {
-              const gitLines = gitStatus.split(/\r?\n/);
-              for (const gl of gitLines) {
-                const parts = gl.trim().split(/\s+/);
-                const filePath = parts[1] || parts[parts.length - 1];
-                if (filePath && !filesChanged.includes(filePath)) {
-                  filesChanged.push(filePath);
+          // Adiciona arquivos que foram alvo explícito de ferramentas de escrita (EDIT) no turno
+          const currentLiveSteps = this.getExecution(currentThread.id)?.liveSteps || this._currentExecution?.liveSteps || [];
+          for (const step of currentLiveSteps) {
+            if (step.type === 'EDIT' && step.target) {
+              let targetRel = path.isAbsolute(step.target)
+                ? path.relative(root, step.target).replace(/\\/g, '/')
+                : step.target.replace(/\\/g, '/');
+              targetRel = targetRel.replace(/^ai-dev-hub[\\/]/, '');
+              if (!targetRel.startsWith('..') && !targetRel.includes('.ai-dev-hub') && !targetRel.startsWith('dist')) {
+                if (fs.existsSync(path.join(root, targetRel)) && !filesChanged.includes(targetRel)) {
+                  filesChanged.push(targetRel);
                 }
               }
             }
-          } catch {}
+          }
 
           // Fallback parser: Check if textual response or thought blocks contain [FILE: ...] blocks not yet applied to disk
           const codeCandidateSource = agentReport || turnResult.agentThoughts || '';
@@ -5541,7 +5510,7 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
                     root,
                     () => Boolean(
                       this.getExecution(currentThread.id)?.cancelRequested ||
-                      TurnCancellationManager.isCancelled(currentThread.id, activeConvId)
+                      TurnCancellationManager.isCancelled('metachat', currentThread.id, activeConvId)
                     )
                   );
 
@@ -5644,7 +5613,8 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
               }
             } else {
               // ── Reviewer: Auditoria Completa de 4 Portões ──
-              let clientBuildPassed = true;
+              clientBuildPassed = true;
+              let clientBuildError = '';
               const isOfflineOrTest = process.env.NODE_ENV === 'test' || Boolean(process.env.NODE_TEST_CONTEXT) || AgentApiGateway.isOfflineMode();
               if (!isOfflineOrTest && filesChanged.some(f => f.startsWith('client/'))) {
                 try {
@@ -5656,11 +5626,13 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
                     encoding: 'utf-8',
                     timeout: 60000,
                     windowsHide: true,
+                    shell: isWin,
                     env: { ...process.env, CI: 'true' }
                   });
                   clientBuildPassed = true;
                 } catch (err: any) {
                   clientBuildPassed = false;
+                  clientBuildError = err?.message || String(err);
                   Logger.warn(`[MetaChatService] Client build falhou no Reviewer: ${err.message}`);
                 }
               }
@@ -5668,51 +5640,68 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
               let diffStat = '';
               let linesAdded = 0;
               let linesRemoved = 0;
-              try {
-                const { execFileSync: runExec } = await import('node:child_process');
-                diffStat = runExec('git', ['diff', '--stat', 'HEAD'], { cwd: root, encoding: 'utf-8', timeout: 5000 }).trim();
-                const numstat = runExec('git', ['diff', '--numstat', 'HEAD'], { cwd: root, encoding: 'utf-8', timeout: 5000 }).trim();
-                if (numstat) {
-                  for (const line of numstat.split('\n')) {
-                    const parts = line.trim().split(/\s+/);
-                    if (parts.length >= 2) {
-                      const a = parseInt(parts[0], 10);
-                      const r = parseInt(parts[1], 10);
-                      if (!isNaN(a)) linesAdded += a;
-                      if (!isNaN(r)) linesRemoved += r;
+              if (filesChanged.length > 0) {
+                try {
+                  const { execFileSync: runExec } = await import('node:child_process');
+                  diffStat = runExec('git', ['diff', '--stat', 'HEAD', '--', ...filesChanged], { cwd: root, encoding: 'utf-8', timeout: 5000 }).trim();
+                  const numstat = runExec('git', ['diff', '--numstat', 'HEAD', '--', ...filesChanged], { cwd: root, encoding: 'utf-8', timeout: 5000 }).trim();
+                  if (numstat) {
+                    for (const line of numstat.split('\n')) {
+                      const parts = line.trim().split(/\s+/);
+                      if (parts.length >= 2) {
+                        const a = parseInt(parts[0], 10);
+                        const r = parseInt(parts[1], 10);
+                        if (!isNaN(a)) linesAdded += a;
+                        if (!isNaN(r)) linesRemoved += r;
+                      }
                     }
                   }
-                }
-              } catch {}
+                } catch {}
 
-              if (linesAdded === 0 && linesRemoved === 0 && filesChanged.length > 0) {
-                const lineStats = this.calculateDiffLineStats(root, filesChanged);
-                linesAdded = lineStats.added;
-                linesRemoved = lineStats.removed;
+                if (linesAdded === 0 && linesRemoved === 0) {
+                  const lineStats = this.calculateDiffLineStats(root, filesChanged);
+                  linesAdded = lineStats.added;
+                  linesRemoved = lineStats.removed;
+                }
               }
 
               const auditedFilesList = filesChanged.length > 0
                 ? filesChanged.map(f => `\`${f}\``).join(', ')
                 : 'Nenhum arquivo alterado';
 
+              const verdict = !typecheckResult.passed
+                ? '[VEREDICTO: REPROVADO]'
+                : !clientBuildPassed
+                  ? '[VEREDICTO: APROVADO COM RESSALVAS (BUILD PENDENTE)]'
+                  : '[APROVADO PARA PRODUÇÃO]';
+
               reviewerVerdictReport = [
                 '### 🛡️ PARECER DO REVIEWER',
-                `- **Integridade TypeScript:** 0 erros (Server e Client OK)`,
-                `- **Build de Produção:** ${clientBuildPassed ? 'Aprovado (Vite bundle gerado)' : 'Falhou'}`,
+                `- **Integridade TypeScript:** ${typecheckResult.passed ? '0 erros (Server e Client OK)' : 'Erros de tipagem detectados'}`,
+                `- **Build de Produção:** ${clientBuildPassed ? 'Aprovado (Vite bundle gerado)' : 'Falhou com ressalvas (Build pendente)'}`,
+                ...(clientBuildError ? [`  > **Erro:** ${clientBuildError.split('\n')[0].slice(0, 200)}`] : []),
                 `- **Arquivos Auditados:** ${auditedFilesList} (+${linesAdded} / -${linesRemoved})`,
-                `- **Veredicto:** [APROVADO PARA PRODUÇÃO]`
+                `- **Veredicto:** ${verdict}`
               ].join('\n');
 
-              this.updatePipelineTask('task-reviewer', 'completed', `[APROVADO] 4 Portões (+${linesAdded}/-${linesRemoved})`, currentThread.id);
+              const taskLabel = clientBuildPassed
+                ? `[APROVADO] 4 Portões (+${linesAdded}/-${linesRemoved})`
+                : `[COM RESSALVAS] Build Frontend Pendente (+${linesAdded}/-${linesRemoved})`;
+
+              this.updatePipelineTask('task-reviewer', 'completed', taskLabel, currentThread.id);
               recordTimelineStep('Reviewer (Auditoria dos 4 Portões)', 'done');
+
+              const telemetryMsg = clientBuildPassed
+                ? `[VEREDICTO: APROVADO] Reviewer validou integridade em 4 portões (+${linesAdded} / -${linesRemoved})`
+                : `[VEREDICTO: APROVADO COM RESSALVAS] Reviewer validou tipagem (+${linesAdded} / -${linesRemoved}), mas build frontend pendente`;
 
               this.broadcastTelemetry(META_CHAT_STATUS.STATUS_REVIEWER_VERIFYING, {
                 threadId: currentThread.id,
-                message: `[VEREDICTO: APROVADO] Reviewer validou integridade em 4 portões (+${linesAdded} / -${linesRemoved})`,
+                message: telemetryMsg,
                 active_stage_code: META_CHAT_STATUS.STATUS_REVIEWER_VERIFYING,
                 active_stage_title: 'Reviewer (Auditoria dos 4 Portões)',
-                verdict: 'APROVADO PARA PRODUÇÃO',
-                typecheckPassed: true,
+                verdict,
+                typecheckPassed: typecheckResult.passed,
                 clientBuildPassed,
                 durationMs: typecheckResult.durationMs,
                 affectedFiles: filesChanged,
@@ -5725,8 +5714,8 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
                 type: 'reviewer_validated',
                 role: 'reviewer',
                 phase: 'FOUR_GATES_VALIDATED',
-                verdict: 'APROVADO PARA PRODUÇÃO',
-                typecheckPassed: true,
+                verdict,
+                typecheckPassed: typecheckResult.passed,
                 clientBuildPassed,
                 output: reviewerVerdictReport,
                 timestamp: new Date().toISOString()
@@ -5885,15 +5874,18 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
               (agentReport ? `**Relatório do Agente Antigravity:**\n${agentReport}` : '');
           } else {
             let diffStat = '';
-            try {
-              const { execFileSync } = await import('node:child_process');
-              diffStat = execFileSync('git', ['diff', '--stat', 'HEAD'], {
-                cwd: root,
-                encoding: 'utf-8',
-                timeout: 5000
-              }).trim();
-            } catch {}
+            if (filesChanged.length > 0) {
+              try {
+                const { execFileSync } = await import('node:child_process');
+                diffStat = execFileSync('git', ['diff', '--stat', 'HEAD', '--', ...filesChanged], {
+                  cwd: root,
+                  encoding: 'utf-8',
+                  timeout: 5000
+                }).trim();
+              } catch {}
+            }
 
+            const currentTurnLiveSteps = this.getExecution(currentThread.id)?.liveSteps || this._currentExecution?.liveSteps || [];
             reply = MetaChatService.formatFourRoleDeliveryReport(
               agentReport,
               supervisorPlan || {
@@ -5906,7 +5898,9 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
               filesChanged,
               typecheckResult,
               diffStat,
-              reviewerVerdictReport
+              reviewerVerdictReport,
+              currentTurnLiveSteps,
+              clientBuildPassed
             );
           }
         }
@@ -6078,7 +6072,7 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
       const wasCancelRequested = Boolean(
         this.getExecution(currentThread.id)?.cancelRequested ||
         this._currentExecution?.cancelRequested ||
-        TurnCancellationManager.isCancelled(currentThread.id, activeConvId)
+        TurnCancellationManager.isCancelled('metachat', currentThread.id, activeConvId)
       );
       this._currentExecutions.delete(currentThread.id);
       if (wasCancelRequested || err.message?.includes('RUN_CANCELLED')) {
@@ -6410,8 +6404,25 @@ ${autoresearchHistory || 'Nenhum experimento registrado em results.tsv ainda (es
     return directives;
   }
 
+  /**
+   * Remove lixo binário, dumps de protocolo e logs de descompressão (<Buffer ...>) da saída do agente.
+   */
+  public static sanitizeAgentOutput(text: string): string {
+    if (!text || typeof text !== 'string') return '';
+    return text
+      .replace(/Decompressed:\s*<Buffer[^>]*>/gi, '')
+      .replace(/<Buffer\s+[0-9a-f\s]+>/gi, '')
+      .replace(/<Buffer[^>]*>/gi, '')
+      .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+      .replace(/\u001b\[[0-9;]*[a-zA-Z]/g, '')
+      .replace(/\[(?:DEBUG|TRACE|IPC|PROTOCOL)\]:[^\r\n]*/gi, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
   public static sanitizeMetaChatReply(rawText: string, filesChanged: string[] = []): string {
     if (!rawText || typeof rawText !== 'string') return '';
+    rawText = this.sanitizeAgentOutput(rawText);
     let cleaned = stripRawLineNumberDumps(rawText)
       // Strip internal reasoning and thinking tags
       .replace(/<thought[\s\S]*?<\/thought>/gi, '')

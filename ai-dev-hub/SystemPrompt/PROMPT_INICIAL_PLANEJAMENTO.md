@@ -58,6 +58,10 @@ Qualquer planejamento que omita o Disparador Manual, o Editor de Templates ou o 
        - `ROOT_ROUTE_INTEGRITY`: Em aplicações Full-Stack/Web, `GET /` serve exclusivamente o Frontend (`public/index.html` com `Content-Type: text/html; charset=utf-8`). O healthcheck JSON reside estritamente em `GET /api/health`.
        - `PORT_GUARD`: Jamais utilizar portas `3000`, `3001` ou `5173` (reservadas ao DecoHUB). Utilizar sempre a faixa `4000-4999` (`Number(process.env.PORT) || 4000`).
        - `SIX_APPSEC_INVARIANTS`: Queries SQLite 100% parametrizadas (`?`), sanitização XSS (`escapeHtml`/`textContent`), validação de entrada HTTP 400 contra negativos/`NaN`, proteção contra Path Traversal (`path.resolve`), headers seguros (`X-Content-Type-Options: nosniff`) e evolução aditiva de schema (`CREATE TABLE IF NOT EXISTS`).
+    8. REGRA INVIOLÁVEL DE COALESCÊNCIA DE TAREFAS E ANTI-FRAGMENTAÇÃO (TASK COALESCING):
+       - É estritamente proibido transformar cabeçalhos estruturais (ex: `**No Backend (/api/mine):**` ou `### 1. Frontend:`) em Grandes Tarefas ou Microtarefas isoladas.
+       - É estritamente proibido fatiar sub-passos de uma mesma função ou endpoint (ex: 1. receber parâmetros, 2. executar loop while, 3. retornar JSON) em tarefas separadas. Esses passos devem ser consolidados em UMA ÚNICA Tarefa Coesa por arquivo/módulo.
+       - Snippets de código, sub-tópicos com marcadores numéricos ou sub-bullets pertencem EXCLUSIVAMENTE ao corpo de `description` e aos `criteria` da tarefa principal, JAMAIS como títulos de tarefas.
   </karpathy_and_antigravity_mandates>
 </system_invariants>
 

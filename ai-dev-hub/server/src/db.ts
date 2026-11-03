@@ -318,6 +318,22 @@ try {
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec('PRAGMA busy_timeout = 10000;');
   db.exec('PRAGMA synchronous = NORMAL;');
+  // Polyfill de json_valid caso o SQLite do ambiente não possua a extensão JSON nativa compilada
+  if (typeof (db as any).function === 'function') {
+    try {
+      db.prepare("SELECT json_valid('{}')").get();
+    } catch {
+      (db as any).function('json_valid', (val: any) => {
+        if (typeof val !== 'string') return 0;
+        try {
+          JSON.parse(val);
+          return 1;
+        } catch {
+          return 0;
+        }
+      });
+    }
+  }
 } catch (err) {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({

@@ -119,7 +119,24 @@ export class SseStreamService {
 
     for (const res of clients) {
       try {
-        res.write(payload);
+        if (res.writableEnded || res.destroyed || (res.socket && (res.socket.destroyed || !res.socket.writable))) {
+          deadClients.push(res);
+          continue;
+        }
+
+        // Controle de Backpressure: se o buffer do socket ultrapassar 512KB, o cliente está suspenso/lento
+        const bufferSize = (res.socket as any)?.bufferSize || 0;
+        if (bufferSize > 512 * 1024) {
+          try { res.end(); } catch {}
+          deadClients.push(res);
+          continue;
+        }
+
+        const canContinue = res.write(payload);
+        if (!canContinue && res.socket) {
+          // Socket buffer temporariamente cheio: monitorar evento drain para esvaziamento
+          res.socket.once('drain', () => {});
+        }
       } catch (err) {
         deadClients.push(res);
       }

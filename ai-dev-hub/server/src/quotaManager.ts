@@ -1,6 +1,6 @@
 import { db } from './db.js';
 import { Logger } from './logger.js';
-import type { AccountProfile, AuthStatus } from './accountProfileManager.js';
+import { AccountProfileManager, type AccountProfile, type AuthStatus } from './accountProfileManager.js';
 import { AntigravityDiscovery } from './antigravityDiscovery.js';
 
 export type QuotaSource = 'CLI' | 'AGENTAPI' | 'ESTIMATED';
@@ -229,22 +229,27 @@ export class QuotaManager {
       ) {
         const nowIso = new Date().toISOString();
         try {
+          const evidence = row.environment_path
+            ? AccountProfileManager.inspectLocalAuthEvidence(row.environment_path)
+            : { hasAuthEvidence: true };
+          const targetStatus: AuthStatus = evidence.hasAuthEvidence ? 'READY' : 'NEEDS_LOGIN';
+
           db.prepare(`
             UPDATE account_profiles
-            SET auth_status = 'AUTH_UNKNOWN',
+            SET auth_status = ?,
                 quota_resets_at = NULL,
-                quota_message = 'Cooldown expirou. Elegível para tentativa; quota e OAuth ainda não confirmados.',
+                quota_message = NULL,
                 updated_at = ?
             WHERE id = ?
-          `).run(nowIso, row.id);
+          `).run(targetStatus, nowIso, row.id);
           db.prepare(`
             UPDATE workers
-            SET status = 'WAITING', updated_at = ?
+            SET status = 'READY', current_task_id = NULL, updated_at = ?
             WHERE account_profile_id = ? AND status = 'COOLDOWN'
           `).run(nowIso, row.id);
-          row.auth_status = 'AUTH_UNKNOWN';
+          row.auth_status = targetStatus;
           row.quota_resets_at = null;
-          row.quota_message = 'Cooldown expirou. Elegível para tentativa; quota e OAuth ainda não confirmados.';
+          row.quota_message = null;
           this.cache.delete(profileId);
         } catch (err) {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {

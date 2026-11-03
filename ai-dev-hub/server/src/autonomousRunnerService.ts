@@ -23,7 +23,7 @@ import { AgentSessionManager } from './agentSessionManager.js';
 import { PromptArchitectureService } from './promptArchitectureService.js';
 import { ExecutionCoordinator } from './executionCoordinator.js';
 import { DevAutonomyService } from './devAutonomyService.js';
-import { AgentTurnState, observeTranscript, FATAL_QUOTA_OR_AUTH_REGEX } from './agentTurnState.js';
+import { AgentTurnState, observeTranscript, FATAL_QUOTA_OR_AUTH_REGEX, isFatalQuotaOrAuthError } from './agentTurnState.js';
 import { RunControl } from './runControl.js';
 import { ObservabilityService } from './observability/observabilityService.js';
 import { TraceContextManager } from './observability/context.js';
@@ -3610,20 +3610,66 @@ export class AutonomousRunnerService {
       }
     }
 
-      const structuredReworkPrompt = workerExecutionContract?.reworkContext
-        ? [
-            `[CONTRATO DE RETRABALHO ESTRUTURADO — TENTATIVA ${workerExecutionContract.attempt}/${workerExecutionContract.maxRetries}]`,
-            `Decisão anterior do Review: ${workerExecutionContract.reworkContext.previousReviewDecision}`,
-            `Feedback do Supervisor/Review: ${workerExecutionContract.reworkContext.previousFeedback}`,
-            workerExecutionContract.reworkContext.failedCriteria?.length
-              ? `Critérios Reprovados:\n${workerExecutionContract.reworkContext.failedCriteria.map((c: string) => `- ${c}`).join('\n')}`
-              : '',
-            workerExecutionContract.reworkContext.problemsFound?.length
-              ? `Problemas Encontrados:\n${workerExecutionContract.reworkContext.problemsFound.map((p: string) => `- ${p}`).join('\n')}`
-              : '',
-            `Instruções de Correção:\n${(workerExecutionContract.reworkContext.reworkInstructions || []).map((i: string) => `- ${i}`).join('\n')}`
-          ].filter(Boolean).join('\n')
-        : '';
+      let selfHealingReworkDirective = '';
+      if (task.retry_count > 0 || task.status === 'needs_changes' || task.lifecycle_state === 'REWORK_REQUIRED' || workerExecutionContract?.reworkContext) {
+        const rootCauseCandidates = [
+          workerExecutionContract?.reworkContext?.previousFeedback,
+          priorEvaluation?.evaluatorNotes,
+          priorEvaluation?.actual,
+          run.last_error,
+          'Falha na validação independente dos critérios de aceitação.'
+        ].filter(Boolean);
+        let exactRootCause = rootCauseCandidates[0] || 'Falha na validação de testes ou critérios de aceitação.';
+
+        if (!exactRootCause.includes('[ARQUIVO E LINHA]')) {
+          const formattedDiagnosis = IndependentEvaluator.extractSurgicalRootCauseDiagnosis({
+            output: priorEvaluation?.evidence?.output || (priorEvaluation?.evidence as any)?.terminalOutput || priorEvaluation?.actual || exactRootCause,
+            failureDiagnosis: priorEvaluation?.evidence?.ciDoctorDiagnosis,
+            projectPath: project.path,
+            fallbackFile: (task.expected_files || [])[0] || 'src/',
+            fallbackError: exactRootCause,
+            fallbackDirective: `Isolar a quebra em "${task.verification_command || 'npm test'}" e corrigir pontualmente sem alterar testes.`
+          });
+          exactRootCause = formattedDiagnosis.formatted;
+        }
+
+        const lastExecutionHistory = [
+          priorEvaluation?.executedCommands?.length ? `Comandos executados anteriormente: ${priorEvaluation.executedCommands.join(', ')} (Código de saída: ${priorEvaluation.exitCode ?? 'desconhecido'})` : '',
+          priorEvaluation?.evidence?.output ? `Saída do teste anterior:\n${String(priorEvaluation.evidence.output).slice(-3000)}` : '',
+          workerExecutionContract?.reworkContext?.failedCriteria?.length ? `Critérios que falharam:\n${workerExecutionContract.reworkContext.failedCriteria.map((c: string) => `- ${c}`).join('\n')}` : '',
+          workerExecutionContract?.reworkContext?.problemsFound?.length ? `Problemas identificados pelo Reviewer:\n${workerExecutionContract.reworkContext.problemsFound.map((p: string) => `- ${p}`).join('\n')}` : ''
+        ].filter(Boolean).join('\n\n');
+
+        selfHealingReworkDirective = [
+          `=== [DIRETRIZ DE AUTOCORREÇÃO — PROTOCOLO ANTI-RETRABALHO] ===`,
+          `[ESTADO]: Tarefa em Retrabalho (Tentativa ${task.retry_count || 1}). O Review anterior reprovou esta entrega.`,
+          `[CAUSA RAIZ EXATA]:\n${exactRootCause}`,
+          lastExecutionHistory ? `[HISTÓRICO DA ÚLTIMA EXECUÇÃO]:\n${lastExecutionHistory}` : '',
+          `[PROTOCOLO DE REPARO CIRÚRGICO]:`,
+          `1. PROIBIÇÃO DE PALPITES: É TERMINANTEMENTE PROIBIDO reescrever arquivos aleatórios, aplicar refatorações cosméticas ou chutar soluções por tentativa e erro.`,
+          `2. ISOLAMENTO DA FALHA: Isole a linha de código ou asserção exata apontada em [CAUSA RAIZ EXATA].`,
+          `3. MENOR INTERVENÇÃO POSSÍVEL: Aplique a menor alteração cirúrgica estritamente necessária no ponto exato da falha.`,
+          `4. PROVA BINÁRIA: Reexecute o comando de verificação da tarefa ("${task.verification_command || engineeringPackage.taskContract.verificationCommand || 'npm test'}") no terminal e comprove código de saída 0 antes de declarar conclusão.`
+        ].filter(Boolean).join('\n\n');
+      }
+
+      const structuredReworkPrompt = [
+        selfHealingReworkDirective,
+        workerExecutionContract?.reworkContext
+          ? [
+              `[CONTRATO DE RETRABALHO ESTRUTURADO — TENTATIVA ${workerExecutionContract.attempt}/${workerExecutionContract.maxRetries}]`,
+              `Decisão anterior do Review: ${workerExecutionContract.reworkContext.previousReviewDecision}`,
+              `Feedback do Supervisor/Review: ${workerExecutionContract.reworkContext.previousFeedback}`,
+              workerExecutionContract.reworkContext.failedCriteria?.length
+                ? `Critérios Reprovados:\n${workerExecutionContract.reworkContext.failedCriteria.map((c: string) => `- ${c}`).join('\n')}`
+                : '',
+              workerExecutionContract.reworkContext.problemsFound?.length
+                ? `Problemas Encontrados:\n${workerExecutionContract.reworkContext.problemsFound.map((p: string) => `- ${p}`).join('\n')}`
+                : '',
+              `Instruções de Correção:\n${(workerExecutionContract.reworkContext.reworkInstructions || []).map((i: string) => `- ${i}`).join('\n')}`
+            ].filter(Boolean).join('\n')
+          : ''
+      ].filter(Boolean).join('\n\n');
 
       const parentMajorTask = (run.majorTasks || []).find((m: any) => m.id === task.major_task_id);
       let taskRequirementIds: string[] = [];
@@ -3774,7 +3820,9 @@ export class AutonomousRunnerService {
           contextHash: engineeringPackage.contextHash,
           formattedPromptBlock: engineeringPackage.formattedPromptBlock
         },
-        previousError: task.retry_count > 0 ? ([run.last_error, repairEvidence, structuredReworkPrompt].filter(Boolean).join('\n\n') || undefined) : undefined,
+        previousError: (task.retry_count > 0 || selfHealingReworkDirective)
+          ? ([selfHealingReworkDirective, run.last_error, repairEvidence, structuredReworkPrompt].filter(Boolean).join('\n\n') || undefined)
+          : undefined,
         protectedEvaluationWarning: protectedWarning || undefined,
         docSimpContextBlock: docSimpBlock || undefined,
         designSkillContextBlock: designSkillBlock || undefined,
@@ -3785,6 +3833,7 @@ export class AutonomousRunnerService {
         supervisorInstructions: [
           resumeContext,
           protectedWarning,
+          selfHealingReworkDirective,
           structuredReworkPrompt,
           task.retry_count > 0 && run.last_error
             ? `CORREÇÕES SOLICITADAS PELO SUPERVISOR: ${run.last_error}. Implemente as melhorias solicitadas no mesmo branch.`
@@ -4011,7 +4060,7 @@ export class AutonomousRunnerService {
 
       if (agentResult.problems.some(problem => problem.includes('AGENT_EXECUTION_TIMEOUT'))) {
         // Se houver indício de erro de cota nos problems ou no transcript, não faz handoff na mesma conta: falha imediatamente para auto-failover
-        const quotaProblem = agentResult.problems.find(p => FATAL_QUOTA_OR_AUTH_REGEX.test(p));
+        const quotaProblem = agentResult.problems.find(p => isFatalQuotaOrAuthError(p));
         if (quotaProblem) {
           AgentTurnState.setPhase(effectiveSessionId, 'CONSUMED');
           throw new Error(`QUOTA_EXHAUSTED: ${quotaProblem}`);
@@ -4021,10 +4070,12 @@ export class AutonomousRunnerService {
           const transcriptPath = path.join(brainDir, effectiveSessionId, '.system_generated', 'logs', 'transcript.jsonl');
           const checkProg = observeTranscript(transcriptPath, 0);
           if (checkProg.state === 'ERROR') {
-            const errEntry = checkProg.entries.find(e => FATAL_QUOTA_OR_AUTH_REGEX.test(String(e.error || e.content || e.message || '')));
-            const errTxt = String(errEntry?.error || errEntry?.content || errEntry?.message || 'Quota or authentication failure detected');
-            AgentTurnState.setPhase(effectiveSessionId, 'CONSUMED');
-            throw new Error(`QUOTA_EXHAUSTED: ${errTxt}`);
+            const errEntry = checkProg.entries.find(e => isFatalQuotaOrAuthError(String(e.error || e.content || e.message || ''), e));
+            if (errEntry) {
+              const errTxt = String(errEntry.error || errEntry.content || errEntry.message || 'Quota or authentication failure detected');
+              AgentTurnState.setPhase(effectiveSessionId, 'CONSUMED');
+              throw new Error(`QUOTA_EXHAUSTED: ${errTxt}`);
+            }
           }
         } catch (tpErr: any) {
           if (String(tpErr?.message).startsWith('QUOTA_EXHAUSTED')) {
@@ -4654,15 +4705,30 @@ export class AutonomousRunnerService {
       if (!autoProbedPass) {
         verdict = 'CHANGES_REQUESTED';
         const evalNotes = Array.isArray(report.evaluation?.evaluatorNotes) && report.evaluation.evaluatorNotes.length > 0
-          ? ` | Notas: ${report.evaluation.evaluatorNotes.join('; ')}`
+          ? report.evaluation.evaluatorNotes.join('\n')
           : (typeof report.evaluation?.evaluatorNotes === 'string' && report.evaluation.evaluatorNotes.trim()
-            ? ` | Notas: ${report.evaluation.evaluatorNotes.trim()}`
+            ? report.evaluation.evaluatorNotes.trim()
             : '');
-        const actualError = report.evaluation?.actual || 'Falha na validação objetiva dos critérios de aceitação e integridade';
+
+        let rootCauseBlock = '';
+        if (evalNotes && evalNotes.includes('[ARQUIVO E LINHA]')) {
+          rootCauseBlock = evalNotes;
+        } else {
+          const rootCause = IndependentEvaluator.extractSurgicalRootCauseDiagnosis({
+            output: report.evaluation?.actual || report.evaluation?.evidence?.terminalOutput || '',
+            failureDiagnosis: report.evaluation?.evidence?.ciDoctorDiagnosis,
+            projectPath: project.path,
+            fallbackFile: (task as any).expected_files?.[0] || (report.filesChanged || [])[0] || 'src/',
+            fallbackError: report.evaluation?.actual || 'Falha na validação objetiva dos critérios de aceitação',
+            fallbackDirective: `Isolar a quebra em "${task.verification_command || 'npm test'}" e aplicar o reparo cirúrgico no código de produção.`
+          });
+          rootCauseBlock = rootCause.formatted;
+        }
+
         const failedCriteria = Array.isArray(report.evaluation?.failedCriteria) && report.evaluation.failedCriteria.length > 0
           ? `\nCritérios Reprovados:\n${report.evaluation.failedCriteria.map((c: string) => `- ${c}`).join('\n')}`
           : '';
-        feedback = `Correções solicitadas após verificação objetiva: ${actualError}${evalNotes}${failedCriteria}`;
+        feedback = `${rootCauseBlock}${failedCriteria ? `\n${failedCriteria}` : ''}`;
 
         AutonomousManager.logEvent(
           run.id,
@@ -4717,7 +4783,14 @@ export class AutonomousRunnerService {
         if (/NEEDS_EVIDENCE/i.test(reviewErr?.message)) {
           Logger.warn(`[Supervisor Review] Aprovação rejeitada pelo Review independente: ${reviewErr.message}. Convertendo para CHANGES_REQUESTED.`);
           verdict = 'CHANGES_REQUESTED';
-          feedback = `Revisão reprovada por evidência insuficiente: ${reviewErr.message}`;
+          const rootCause = IndependentEvaluator.extractSurgicalRootCauseDiagnosis({
+            output: reviewErr.message,
+            projectPath: project.path,
+            fallbackFile: (task as any).expected_files?.[0] || (report.filesChanged || [])[0] || 'src/',
+            fallbackError: reviewErr.message,
+            fallbackDirective: `Executar o comando de verificação da tarefa comprovando código de saída 0 no terminal com evidência factual.`
+          });
+          feedback = rootCause.formatted;
           updatedRun = AutonomousManager.submitSupervisorReview({
             runId: run.id,
             taskId: task.id,

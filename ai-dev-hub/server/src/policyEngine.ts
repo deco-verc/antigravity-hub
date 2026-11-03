@@ -28,8 +28,8 @@ export class PolicyEngine {
     { pattern: /(?:drop\s+database|rmdir\s+\/s|rm\s+-rf\s+[\/\*]|del\s+\/s\s+\/q)/i, rule: 'Destruição de banco ou remoção em massa de arquivos' },
     { pattern: /(?:git\s+push\s+(?:origin\s+)?(?:main|master|prod|production)|git\s+push\s+--force)/i, rule: 'Push direto para branch de produção ou força bruta' },
     { pattern: /(?:vercel\s+--prod|netlify\s+deploy\s+--prod|aws\s+s3\s+sync.*prod|terraform\s+apply)/i, rule: 'Deploy direto para produção' },
-    { pattern: /(?:stripe|payment|credit_card|buy|purchase|checkout|billing)/i, rule: 'Operação financeira, compra ou pagamento' },
-    { pattern: /(?:api_key|secret_key|private_key|token|password|credentials\.json|\.env\.production)/i, rule: 'Acesso ou modificação de credenciais sensíveis de produção' },
+    { pattern: /(?:stripe|payment|credit_card|buy|purchase|(?<!git\s+)checkout|billing)/i, rule: 'Operação financeira, compra ou pagamento' },
+    { pattern: /(?:api_key|secret_key|private_key|\b(?:auth|access|secret|bearer|refresh|admin|session|oauth|personal)[_-]?token\b|password|credentials\.json|\.env\.production)/i, rule: 'Acesso ou modificação de credenciais sensíveis de produção' },
     { pattern: /(?:route53|cloudflare\s+dns|dns\s+record|nameserver)/i, rule: 'Alteração de DNS ou domínio' }
   ];
 

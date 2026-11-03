@@ -6,6 +6,10 @@ describe('PolicyEngine Security Matrix Suite', () => {
   test('should classify read-only or standard developer commands as GREEN', () => {
     const greenCommands = [
       'git status',
+      'git checkout main',
+      'git checkout -b feature/auth-flow',
+      'npm test test/token.test.ts',
+      'node src/astSymbolIndexService.ts',
       'npm run build',
       'npm test',
       'node index.js',

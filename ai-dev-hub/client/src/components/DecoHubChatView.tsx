@@ -463,7 +463,7 @@ export const DecoHubChatView: React.FC<DecoHubChatViewProps> = ({
     try {
       await onSendMessage(content, request.id, {
         signal: controller.signal,
-        planFirst: planningMode === 'interactive' && !isRunActive,
+        planFirst: planningMode === 'interactive',
         agent: selectedAgent
       });
       try {

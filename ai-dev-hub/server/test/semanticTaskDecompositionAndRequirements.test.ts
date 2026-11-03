@@ -242,4 +242,141 @@ test('Reengenharia Semântica de Tarefas e Extração Fiel de Requisitos', async
       supervisor.planTwoPassHierarchy = origTwoPass;
     }
   });
+
+  await t.test('7. Detecção de cabeçalhos estruturais órfãos (isOrphanStructuralHeader)', () => {
+    assert.equal(HierarchicalOrchestrationService.isOrphanStructuralHeader('**No Backend (/api/mine):**'), true);
+    assert.equal(HierarchicalOrchestrationService.isOrphanStructuralHeader('### 1. Frontend:'), true);
+    assert.equal(HierarchicalOrchestrationService.isOrphanStructuralHeader('Endpoints de API:'), true);
+    assert.equal(HierarchicalOrchestrationService.isOrphanStructuralHeader('### Player de Vídeo'), true);
+    assert.equal(HierarchicalOrchestrationService.isOrphanStructuralHeader('Implementar endpoint POST /api/mine com paginação cursor-based'), false);
+    assert.equal(HierarchicalOrchestrationService.isOrphanStructuralHeader('Criar schema SQLite e repositórios transacionais'), false);
+    assert.equal(HierarchicalOrchestrationService.isOrphanStructuralHeader('[No Backend /api/mine] Implementar paginação cursor-based'), false);
+  });
+
+  await t.test('8. Coalescência de tarefas fragmentadas e sub-passos numéricos (coalesceFragmentedTasks)', () => {
+    const rawFragmentedTasks = [
+      {
+        title: '**No Backend (/api/mine):**',
+        description: 'Definições do backend de mineração'
+      },
+      {
+        title: '1. Receber parâmetros de paginação cursor e limit',
+        description: 'Validar cursor base64 e limit numérico na query string',
+        expectedFiles: ['src/routes/mine.ts']
+      },
+      {
+        title: '2. Executar query SQL com filtro de status e data',
+        description: 'Montar cláusula WHERE parametrizada no SQLite WAL',
+        expectedFiles: ['src/routes/mine.ts']
+      },
+      {
+        title: '3. Retornar resposta JSON estruturada com next_cursor',
+        description: 'Enviar status 200 com array de itens e metadados',
+        expectedFiles: ['src/routes/mine.ts']
+      },
+      {
+        title: '### 2. Player de Vídeo:',
+        description: 'Componente visual de reprodução'
+      },
+      {
+        title: '1. Inicializar player HLS com controles nativos',
+        description: 'Montar wrapper de vídeo com suporte a streaming HLS',
+        expectedFiles: ['public/player.html']
+      },
+      {
+        title: '2. Adicionar ajuste de velocidade e tela cheia',
+        description: 'Controles customizados de playbackRate e requestFullscreen',
+        expectedFiles: ['public/player.html']
+      }
+    ];
+
+    const coalesced = HierarchicalOrchestrationService.coalesceFragmentedTasks(rawFragmentedTasks as any);
+
+    // Deve resultar em exatamente 2 tarefas coesas (uma por módulo/seção), sem tarefas de cabeçalho
+    assert.equal(coalesced.length, 2, `Deve coalescer em 2 tarefas coesas (obteve: ${coalesced.length})`);
+
+    // Validação da Tarefa 1 (Backend)
+    assert.ok(coalesced[0].title.includes('No Backend (/api/mine)'), 'Tarefa 1 deve carregar o prefixo de escopo');
+    assert.ok(!coalesced[0].title.endsWith(':'), 'Título não deve terminar com dois pontos');
+    assert.ok(coalesced[0].criteria.some(c => c.includes('Receber parâmetros')), 'Critérios devem conter passo 1');
+    assert.ok(coalesced[0].criteria.some(c => c.includes('Executar query SQL')), 'Critérios devem conter passo 2');
+    assert.ok(coalesced[0].criteria.some(c => c.includes('Retornar resposta JSON')), 'Critérios devem conter passo 3');
+
+    // Validação da Tarefa 2 (Player)
+    assert.ok(coalesced[1].title.includes('Player de Vídeo'), 'Tarefa 2 deve carregar o prefixo do player');
+    assert.ok(coalesced[1].criteria.some(c => c.includes('Inicializar player HLS')), 'Critérios devem conter passo 1');
+    assert.ok(coalesced[1].criteria.some(c => c.includes('Adicionar ajuste de velocidade')), 'Critérios devem conter passo 2');
+
+    // Zero tarefas órfãs
+    assert.ok(!coalesced.some(t => t.title.trim() === '**No Backend (/api/mine):**'));
+    assert.ok(!coalesced.some(t => t.title.trim() === '### 2. Player de Vídeo:'));
+  });
+
+  await t.test('9. Cobertura total de requisitos com 4 seções em briefing estruturado (Fim do slice(0, 5) e Next.js hardcoded)', () => {
+    const multiSectionBriefing = `### 1. No Backend (/api/mine):
+1. Endpoint GET /api/mine para listagem de itens
+2. Paginação cursor-based com limit e cursor
+3. Filtro por status e data
+
+### 2. Mídia e Download:
+1. Endpoint POST /api/download para disparar download em fila
+2. Worker com ffmpeg e sanitização de nome de arquivo
+3. Armazenamento local em ./data/media
+
+### 3. Player de Vídeo:
+1. Suporte a streaming HLS e MP4
+2. Controles de velocidade, volume e tela cheia
+
+### 4. Toolbar de Filtros:
+1. Campo de busca textual com debounce
+2. Seleção múltipla de status e tags`;
+
+    const phases = HierarchicalOrchestrationService.extractPhasesFromBriefing(multiSectionBriefing);
+    assert.equal(phases.length, 4, `Deve extrair todas as 4 seções principais (obteve: ${phases.length})`);
+
+    const plannedTasks = HierarchicalOrchestrationService.decomposeArchitecturalBriefing({
+      briefing: multiSectionBriefing,
+      projectName: 'VideoMediaHub'
+    });
+
+    assert.ok(plannedTasks, 'Deve retornar plano decomposto');
+    assert.equal(plannedTasks!.length, 4, `Deve cobrir 100% das 4 seções (obteve: ${plannedTasks!.length})`);
+
+    assert.ok(plannedTasks![0].title.includes('No Backend (/api/mine)'), 'Tarefa 1 deve cobrir Backend');
+    assert.ok(plannedTasks![1].title.includes('Mídia e Download'), 'Tarefa 2 deve cobrir Mídia e Download');
+    assert.ok(plannedTasks![2].title.includes('Player de Vídeo'), 'Tarefa 3 deve cobrir Player de Vídeo');
+    assert.ok(plannedTasks![3].title.includes('Toolbar de Filtros'), 'Tarefa 4 deve cobrir Toolbar de Filtros');
+
+    // Nenhuma seção foi truncada ou descartada
+    for (let i = 0; i < plannedTasks!.length; i++) {
+      assert.equal(plannedTasks![i].orderIndex, i + 1, `Ordem da tarefa ${i + 1} deve ser sequencial`);
+      assert.ok(plannedTasks![i].criteria.length >= 2, `Tarefa ${i + 1} deve manter seus critérios subordinados`);
+    }
+  });
+
+  await t.test('10. Extração de requisitos com preservação de escopo de seção sem truncamento artificial', () => {
+    const sectionedBulletBriefing = `### 1. No Backend (/api/mine):
+- Paginação cursor-based para listagem rápida
+- Filtro por status e intervalo de datas
+### 2. Player de Vídeo:
+- Suporte a reprodução HLS com controles nativos
+- Ajuste de velocidade e qualidade de vídeo
+### 3. Mídia / Download:
+- Download assíncrono em lote com fila
+### 4. Toolbar de Filtros:
+- Barra de busca textual e seleção de categorias`;
+
+    const reqs = HierarchicalOrchestrationService.extractRequirementsFromDescription(sectionedBulletBriefing);
+    assert.equal(reqs.length, 6, `Deve extrair todos os 6 requisitos preservando contexto (obteve: ${reqs.length})`);
+
+    assert.ok(reqs[0].includes('[No Backend (/api/mine)] Paginação cursor-based'));
+    assert.ok(reqs[1].includes('[No Backend (/api/mine)] Filtro por status'));
+    assert.ok(reqs[2].includes('[Player de Vídeo] Suporte a reprodução HLS'));
+    assert.ok(reqs[3].includes('[Player de Vídeo] Ajuste de velocidade'));
+    assert.ok(reqs[4].includes('[Mídia / Download] Download assíncrono'));
+    assert.ok(reqs[5].includes('[Toolbar de Filtros] Barra de busca'));
+
+    // Zero requisitos com títulos de cabeçalhos órfãos
+    assert.ok(!reqs.some(r => r.includes('REQ-') && r.endsWith(':')));
+  });
 });

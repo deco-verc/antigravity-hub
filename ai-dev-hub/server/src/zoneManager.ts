@@ -30,7 +30,7 @@ export class ZoneManager {
     /\.env/i,
     /credential/i,
     /auth/i,
-    /token/i,
+    /(?:auth|access|secret|bearer|refresh|admin|session|oauth)[_-]?token/i,
     /secrets?/i
   ];
 

@@ -574,7 +574,7 @@ export class EngineeringContextService {
     const normVerif = normalizeOrRecoverVerificationCommand(task.verificationCommand, projectPath, {
       allowUncreatedFiles: true
     });
-    const verificationCommand = normVerif.command;
+    const verificationCommand = task.verificationCommand?.trim() || normVerif.command || 'npm test';
     const doneWhen = task.doneWhen?.trim() || 'Todos os critérios atendidos e verificação retornando código de saída 0.';
     const expectedScopeFiles = task.expectedScopeFiles || [];
 
@@ -655,13 +655,13 @@ export class EngineeringContextService {
     const promptParts = [
       `[CONSTITUIÇÃO DO PROJETO & DIRETRIZES DE ENGENHARIA — KARPATHY LAYER (Hash: ${contextHash})]`,
       `PRINCÍPIOS INVIOLÁVEIS:`,
-      `1. THINK BEFORE CODING: Identifique premissas; em runs autônomos, NUNCA invoque ask_question nem bloqueie o fluxo.`,
-      `2. SIMPLICITY FIRST: Menor código que resolve o problema, com os 7 Pilares SaaS Master e povoamento via seedIfEmpty(). Proibido uso de dependências externas não auditadas.`,
-      `3. SURGICAL CHANGES: Modifique apenas os arquivos necessários da tarefa. Preserve código, tabelas e testes existentes.`,
-      `4. GOAL-DRIVEN: Toda tarefa tem objetivo declarado, critérios binários e comando de verificação único simples (${verificationCommand}).`,
-      `5. OPERATIONAL AUTONOMY: Permissão expressa para executar comandos no workspace, encerrar processos efêmeros e testar sem travas.`,
-      `6. FULL-STACK, APPSEC & ANTI-SLOP: Portas 4000-4999 (proibido 3001/3000/5173), SPA em GET /, JSON em /api/health, tokens :root, SVGs e blindagem SQLi (?) e XSS.`,
-      `7. NODE/TYPESCRIPT & ESM INTEROP: Em projetos Node.js/TS, use imports ESM canônicos: 'import * as fs from "node:fs"', 'import * as path from "node:path"', 'import * as http from "node:http"', 'import assert from "node:assert/strict"' (ou 'import { strict as assert } from "node:assert"'). NUNCA use default import de módulos CJS da biblioteca padrão sem export default. Em projetos TypeScript com 'outDir: ./dist', compile ('npm run build') antes de rodar testes que importam de dist.`,
+      `1. THINK BEFORE CODING: Identifique premissas; em runs autônomos, nunca bloqueie o fluxo.`,
+      `2. SIMPLICITY FIRST: Menor código que resolve o problema. Proibido dependências externas não auditadas.`,
+      `3. SURGICAL CHANGES: Modifique apenas os arquivos necessários da tarefa. Preserve código e testes existentes.`,
+      `4. GOAL-DRIVEN: Toda tarefa tem objetivo declarado, critérios binários e comando de verificação único (${verificationCommand}).`,
+      `5. OPERATIONAL AUTONOMY: Permissão expressa para executar comandos e testar sem travas.`,
+      `6. FULL-STACK & ANTI-SLOP: Portas 4000-4999, SPA em GET /, JSON em /api/health, tokens :root e SVGs.`,
+      `7. ESM INTEROP: Em Node.js/TS, use imports ESM canônicos ('node:fs', 'node:path', 'node:assert'). Compile ('npm run build') antes de testar dist.`,
       ``,
       autonomyBlock,
       ``,

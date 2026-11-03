@@ -15,12 +15,25 @@ export class NativeExecutionPolicy {
   }
   static releaseStaleAmbiguousLocks(projectId?: string, projectPath?: string): void {
     try {
-      // Clear execution reservations older than 5 minutes or malformed
+      // Clear execution reservations older than 5 minutes or malformed (blindado sem json_valid)
       db.prepare(`
         DELETE FROM execution_reservations
         WHERE datetime(COALESCE(updated_at, created_at), '+5 minutes') < datetime('now')
-           OR NOT json_valid(context_json)
+           OR context_json IS NULL
+           OR TRIM(context_json) NOT LIKE '{%'
       `).run();
+
+      // Limpeza de segurança em JS para validar JSON sem depender de extensão C SQLite
+      try {
+        const rows = db.prepare('SELECT scope, context_json FROM execution_reservations').all() as any[];
+        for (const row of rows) {
+          try {
+            JSON.parse(row.context_json);
+          } catch {
+            db.prepare('DELETE FROM execution_reservations WHERE scope = ?').run(row.scope);
+          }
+        }
+      } catch {}
 
       // Clear dead agent creation reservations older than 2 minutes
       if (projectId) {
@@ -45,7 +58,7 @@ export class NativeExecutionPolicy {
       this.releaseStaleAmbiguousLocks(projectId, project.path);
       if (db.prepare("SELECT 1 FROM autonomous_runs WHERE project_id=? AND status NOT IN ('completed','failed') LIMIT 1").get(projectId) ||
           db.prepare("SELECT 1 FROM agent_turn_observations WHERE project_path=? AND phase IN ('IN_FLIGHT','UNCERTAIN') LIMIT 1").get(project.path) ||
-          db.prepare('SELECT 1 FROM execution_reservations LIMIT 1').get() ||
+          db.prepare("SELECT 1 FROM execution_reservations WHERE scope = ? OR json_extract(context_json, '$.projectId') = ? LIMIT 1").get(projectId, projectId) ||
           db.prepare("SELECT 1 FROM agent_creation_reservations WHERE project_id=? AND status<>'CONFIRMED' LIMIT 1").get(projectId)) {
         throw new Error('NATIVE_EXECUTION_POLICY_ACTIVE_OR_AMBIGUOUS');
       }

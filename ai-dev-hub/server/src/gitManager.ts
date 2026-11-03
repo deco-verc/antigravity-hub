@@ -35,6 +35,107 @@ export class GitManager {
     data: { configured: boolean; authenticated: boolean; source: string; username: string | null; scopes: string[] };
     expiresAt: number;
   } | null = null;
+
+  public static getSafeGitEnv(extraEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+    return {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_PAGER: 'cat',
+      GCM_INTERACTIVE: 'never',
+      ...(extraEnv || {})
+    };
+  }
+
+  public static cleanupOrphanIndexLock(repoPath: string, maxAgeMs = 1500): boolean {
+    try {
+      if (!repoPath || !fs.existsSync(repoPath)) return false;
+
+      const directGitDir = path.join(repoPath, '.git');
+      const lockFiles: string[] = [];
+
+      // Checa se o repoPath já é o próprio .git
+      if (fs.existsSync(path.join(repoPath, 'index.lock'))) {
+        lockFiles.push(path.join(repoPath, 'index.lock'));
+      }
+      if (fs.existsSync(path.join(repoPath, 'HEAD.lock'))) {
+        lockFiles.push(path.join(repoPath, 'HEAD.lock'));
+      }
+
+      if (fs.existsSync(directGitDir)) {
+        const stat = fs.statSync(directGitDir);
+        if (stat.isDirectory()) {
+          lockFiles.push(path.join(directGitDir, 'index.lock'));
+          lockFiles.push(path.join(directGitDir, 'HEAD.lock'));
+          const worktreesDir = path.join(directGitDir, 'worktrees');
+          if (fs.existsSync(worktreesDir) && fs.statSync(worktreesDir).isDirectory()) {
+            for (const sub of fs.readdirSync(worktreesDir)) {
+              lockFiles.push(path.join(worktreesDir, sub, 'index.lock'));
+              lockFiles.push(path.join(worktreesDir, sub, 'HEAD.lock'));
+            }
+          }
+        } else if (stat.isFile()) {
+          const content = fs.readFileSync(directGitDir, 'utf-8').trim();
+          const match = content.match(/^gitdir:\s*(.+)$/i);
+          if (match && match[1]) {
+            const resolvedGitDir = path.isAbsolute(match[1]) ? match[1] : path.resolve(repoPath, match[1]);
+            lockFiles.push(path.join(resolvedGitDir, 'index.lock'));
+            lockFiles.push(path.join(resolvedGitDir, 'HEAD.lock'));
+          }
+        }
+      }
+
+      let removedAny = false;
+      const now = Date.now();
+      for (const lockPath of lockFiles) {
+        if (fs.existsSync(lockPath)) {
+          try {
+            const lockStat = fs.statSync(lockPath);
+            const ageMs = now - lockStat.mtimeMs;
+            if (ageMs > maxAgeMs) {
+              fs.unlinkSync(lockPath);
+              Logger.warn(`[GitManager] Trava órfã de Git removida: ${lockPath} (idade: ${Math.round(ageMs / 1000)}s)`);
+              removedAny = true;
+            }
+          } catch (e: any) {
+            Logger.warn(`[GitManager] Falha ao tentar remover trava órfã ${lockPath}: ${e.message}`);
+          }
+        }
+      }
+      return removedAny;
+    } catch {
+      return false;
+    }
+  }
+
+  public static safeExecSync(cmd: string, options: { cwd?: string; timeout?: number; env?: NodeJS.ProcessEnv; stdio?: any; encoding?: BufferEncoding } = {}): string {
+    const cwd = options.cwd || process.cwd();
+    this.cleanupOrphanIndexLock(cwd);
+    const env = this.getSafeGitEnv(options.env);
+    const timeout = options.timeout ?? 8000;
+    return execSync(cmd, {
+      cwd,
+      timeout,
+      env,
+      stdio: options.stdio ?? ['pipe', 'pipe', 'ignore'],
+      encoding: options.encoding ?? 'utf-8'
+    }).toString().trim();
+  }
+
+  public static safeExecFileSync(file: string, args: string[], options: { cwd?: string; timeout?: number; env?: NodeJS.ProcessEnv; stdio?: any; encoding?: BufferEncoding } = {}): string {
+    const cwd = options.cwd || process.cwd();
+    if (file === 'git' || file.endsWith('git') || file.endsWith('git.exe')) {
+      this.cleanupOrphanIndexLock(cwd);
+    }
+    const env = this.getSafeGitEnv(options.env);
+    const timeout = options.timeout ?? 10000;
+    return execFileSync(file, args, {
+      cwd,
+      timeout,
+      env,
+      stdio: options.stdio ?? 'pipe',
+      encoding: options.encoding ?? 'utf-8'
+    }).toString().trim();
+  }
   static getGitInfo(projectPath: string): GitInfo {
     const gitDir = path.join(projectPath, '.git');
     if (!fs.existsSync(gitDir)) {
@@ -51,19 +152,15 @@ export class GitManager {
       // 1. Branch
       let branch = 'unknown';
       try {
-        branch = execSync('git branch --show-current', {
+        branch = this.safeExecSync('git branch --show-current', {
           cwd: projectPath,
-          encoding: 'utf-8',
-          stdio: ['pipe', 'pipe', 'ignore'],
           timeout: 4000
-        }).trim();
+        });
         if (!branch) {
-          branch = execSync('git rev-parse --abbrev-ref HEAD', {
+          branch = this.safeExecSync('git rev-parse --abbrev-ref HEAD', {
             cwd: projectPath,
-            encoding: 'utf-8',
-            stdio: ['pipe', 'pipe', 'ignore'],
             timeout: 4000
-          }).trim();
+          });
         }
       } catch {
         branch = 'HEAD (detached or initial)';
@@ -72,12 +169,10 @@ export class GitManager {
       // 2. Last commit
       let lastCommit = null;
       try {
-        const logOutput = execSync('git log -1 --pretty=format:"%h|%s|%an|%ad" --date=short', {
+        const logOutput = this.safeExecSync('git log -1 --pretty=format:"%h|%s|%an|%ad" --date=short', {
           cwd: projectPath,
-          encoding: 'utf-8',
-          stdio: ['pipe', 'pipe', 'ignore'],
           timeout: 4000
-        }).trim();
+        });
 
         if (logOutput) {
           const [hash, message, author, date] = logOutput.split('|');
@@ -96,12 +191,10 @@ export class GitManager {
       // 3. Status porcelain
       let porcelain = '';
       try {
-        porcelain = execSync('git status --porcelain', {
+        porcelain = this.safeExecSync('git status --porcelain', {
           cwd: projectPath,
-          encoding: 'utf-8',
-          stdio: ['pipe', 'pipe', 'ignore'],
           timeout: 5000
-        }).trim();
+        });
       } catch {
         porcelain = '';
       }
@@ -174,7 +267,7 @@ export class GitManager {
 
   static checkoutOrCreateBranch(projectPath: string, branchName: string): boolean {
     try {
-      execSync(`git checkout -B "${branchName}"`, { cwd: projectPath, stdio: 'pipe', timeout: 8000 });
+      this.safeExecSync(`git checkout -B "${branchName}"`, { cwd: projectPath, timeout: 8000 });
       return true;
     } catch {
       return false;
@@ -184,10 +277,10 @@ export class GitManager {
   static commitAll(projectPath: string, message: string): boolean {
     try {
       const root = path.resolve(projectPath);
-      execFileSync('git', ['add', '-A'], { cwd: root, stdio: 'pipe', timeout: 10000 });
+      this.safeExecFileSync('git', ['add', '-A'], { cwd: root, timeout: 10000 });
       if (fs.existsSync(path.join(root, '.decohub-data'))) {
         try {
-          execFileSync('git', ['reset', 'HEAD', '--', '.decohub-data'], { cwd: root, stdio: 'pipe', timeout: 5000 });
+          this.safeExecFileSync('git', ['reset', 'HEAD', '--', '.decohub-data'], { cwd: root, timeout: 5000 });
         } catch (err) {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({
@@ -200,9 +293,9 @@ export class GitManager {
       }
     }
       }
-      const diff = execFileSync('git', ['diff', '--cached', '--name-only'], { cwd: root, encoding: 'utf-8', timeout: 5000 }).trim();
+      const diff = this.safeExecFileSync('git', ['diff', '--cached', '--name-only'], { cwd: root, timeout: 5000 });
       if (!diff) return true;
-      execFileSync('git', ['commit', '-m', message], { cwd: root, stdio: 'pipe', timeout: 10000 });
+      this.safeExecFileSync('git', ['commit', '-m', message], { cwd: root, timeout: 10000 });
       return true;
     } catch {
       return false;
@@ -251,12 +344,11 @@ export class GitManager {
 
     let gitRoot: string;
     try {
-      gitRoot = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+      gitRoot = this.safeExecFileSync('git', ['rev-parse', '--show-toplevel'], {
         cwd: resolvedPath,
-        encoding: 'utf-8',
         stdio: ['ignore', 'pipe', 'ignore'],
         timeout: 5000
-      }).trim();
+      });
     } catch {
       throw new Error(`WORKSPACE_MISMATCH: projeto não possui raiz git válida: "${projectPath}"`);
     }
@@ -300,14 +392,14 @@ export class GitManager {
         if (fs.existsSync(fullPath)) {
           // Check if file is ignored by git (.gitignore)
           try {
-            execFileSync('git', ['check-ignore', '-q', '--', file], { cwd: root, stdio: 'ignore' });
+            this.safeExecFileSync('git', ['check-ignore', '-q', '--', file], { cwd: root, stdio: 'ignore' });
             return false; // Exit code 0 means file IS ignored
           } catch {
             return true; // Exit code 1 means NOT ignored
           }
         }
         try {
-          execFileSync('git', ['ls-files', '--error-unmatch', '--', file], { cwd: root, stdio: 'ignore' });
+          this.safeExecFileSync('git', ['ls-files', '--error-unmatch', '--', file], { cwd: root, stdio: 'ignore' });
           return true;
         } catch { return false; }
       });
@@ -316,12 +408,12 @@ export class GitManager {
 
       // Add files with --ignore-errors
       try {
-        execFileSync('git', ['add', '--ignore-errors', '--', ...selected], { cwd: root, timeout: 15000 });
+        this.safeExecFileSync('git', ['add', '--ignore-errors', '--', ...selected], { cwd: root, timeout: 15000 });
       } catch (addErr: any) {
         Logger.warn(`[GitManager] Adição em lote falhou (${addErr.message}), tentando individualmente...`);
         for (const file of selected) {
           try {
-            execFileSync('git', ['add', '--ignore-errors', '--', file], { cwd: root, timeout: 5000, stdio: 'ignore' });
+            this.safeExecFileSync('git', ['add', '--ignore-errors', '--', file], { cwd: root, timeout: 5000, stdio: 'ignore' });
           } catch (err) {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({
@@ -337,7 +429,7 @@ export class GitManager {
       }
 
       try {
-        execFileSync('git', ['diff', '--cached', '--check'], { cwd: root, timeout: 10000 });
+        this.safeExecFileSync('git', ['diff', '--cached', '--check'], { cwd: root, timeout: 10000 });
       } catch (err) {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({
@@ -350,10 +442,10 @@ export class GitManager {
       }
     }
 
-      const staged = execFileSync('git', ['diff', '--cached', '--name-only'], { cwd: root, encoding: 'utf-8', timeout: 10000 }).trim();
+      const staged = this.safeExecFileSync('git', ['diff', '--cached', '--name-only'], { cwd: root, timeout: 10000 });
       if (!staged) return false;
 
-      execFileSync('git', ['commit', '-m', message], { cwd: root, timeout: 20000 });
+      this.safeExecFileSync('git', ['commit', '-m', message], { cwd: root, timeout: 20000 });
       return true;
     } catch (err: any) {
       Logger.warn(`[GitManager] Commit seletivo falhou: ${err.message}`);
@@ -368,16 +460,15 @@ export class GitManager {
         ? { ...process.env, GITHUB_TOKEN: token, GH_TOKEN: token, GITHUB_PERSONAL_ACCESS_TOKEN: token }
         : process.env;
 
-      execFileSync('git', ['push', '-u', 'origin', branchName], {
+      this.safeExecFileSync('git', ['push', '-u', 'origin', branchName], {
         cwd: projectPath,
-        encoding: 'utf-8',
         timeout: 30000,
         env: envWithToken,
         stdio: ['ignore', 'pipe', 'pipe']
       });
       return true;
     } catch (err: any) {
-      Logger.warn(`[GitManager] pushBranch falhou para "${branchName}": ${err.message}`);
+      Logger.warn(`[GitManager] Push branch ${branchName} falhou: ${err.message}`);
       return false;
     }
   }
@@ -409,30 +500,26 @@ export class GitManager {
 
   static getCommitDetails(projectPath: string, commitSha = 'HEAD'): { sha: string; message: string; author: string; date: string } | null {
     try {
-      const sha = execFileSync('git', ['rev-parse', '--verify', commitSha], {
+      const sha = this.safeExecFileSync('git', ['rev-parse', '--verify', commitSha], {
         cwd: projectPath,
-        encoding: 'utf-8',
         stdio: ['ignore', 'pipe', 'ignore'],
         timeout: 5000
-      }).trim();
-      const message = execFileSync('git', ['log', '-1', '--pretty=format:%B', sha], {
+      });
+      const message = this.safeExecFileSync('git', ['log', '-1', '--pretty=format:%B', sha], {
         cwd: projectPath,
-        encoding: 'utf-8',
         stdio: ['ignore', 'pipe', 'ignore'],
         timeout: 5000
-      }).trim();
-      const author = execFileSync('git', ['log', '-1', '--pretty=format:%an', sha], {
+      });
+      const author = this.safeExecFileSync('git', ['log', '-1', '--pretty=format:%an', sha], {
         cwd: projectPath,
-        encoding: 'utf-8',
         stdio: ['ignore', 'pipe', 'ignore'],
         timeout: 5000
-      }).trim();
-      const date = execFileSync('git', ['log', '-1', '--pretty=format:%cI', sha], {
+      });
+      const date = this.safeExecFileSync('git', ['log', '-1', '--pretty=format:%cI', sha], {
         cwd: projectPath,
-        encoding: 'utf-8',
         stdio: ['ignore', 'pipe', 'ignore'],
         timeout: 5000
-      }).trim();
+      });
       return { sha, message, author, date };
     } catch {
       return null;
@@ -441,7 +528,7 @@ export class GitManager {
 
   static checkout(projectPath: string, branchName: string): boolean {
     try {
-      execSync(`git checkout "${branchName}"`, { cwd: projectPath, stdio: 'pipe', timeout: 8000 });
+      this.safeExecSync(`git checkout "${branchName}"`, { cwd: projectPath, timeout: 8000 });
       return true;
     } catch {
       return false;
@@ -450,7 +537,7 @@ export class GitManager {
 
   static pull(projectPath: string, branchName: string = 'main'): boolean {
     try {
-      execSync(`git pull origin "${branchName}"`, { cwd: projectPath, stdio: 'pipe', timeout: 15000 });
+      this.safeExecSync(`git pull origin "${branchName}"`, { cwd: projectPath, timeout: 15000 });
       return true;
     } catch {
       return false;
@@ -470,7 +557,7 @@ export class GitManager {
     try {
       let hasHead = false;
       try {
-        execSync('git rev-parse --verify HEAD', { cwd: projectPath, stdio: 'pipe', timeout: 3000 });
+        this.safeExecSync('git rev-parse --verify HEAD', { cwd: projectPath, timeout: 3000 });
         hasHead = true;
       } catch {
         hasHead = false;
@@ -482,7 +569,7 @@ export class GitManager {
 
       let diff = '';
       try {
-        diff = execSync(diffCmd, { cwd: projectPath, encoding: 'utf-8', timeout: 5000 });
+        diff = this.safeExecSync(diffCmd, { cwd: projectPath, timeout: 5000 });
       } catch {
         diff = '';
       }
@@ -490,7 +577,7 @@ export class GitManager {
       let numstatOutput = '';
       try {
         const numstatCmd = hasHead ? 'git diff HEAD --numstat' : 'git diff --numstat';
-        numstatOutput = execSync(numstatCmd, { cwd: projectPath, encoding: 'utf-8', timeout: 5000 });
+        numstatOutput = this.safeExecSync(numstatCmd, { cwd: projectPath, timeout: 5000 });
       } catch {
         numstatOutput = '';
       }
@@ -511,7 +598,7 @@ export class GitManager {
 
       // Include untracked files
       try {
-        const untracked = execSync('git ls-files --others --exclude-standard', { cwd: projectPath, encoding: 'utf-8', timeout: 5000 });
+        const untracked = this.safeExecSync('git ls-files --others --exclude-standard', { cwd: projectPath, timeout: 5000 });
         if (untracked) {
           const uLines = untracked.split(/\r?\n/).filter(Boolean);
           for (const u of uLines) {
@@ -572,7 +659,7 @@ export class GitManager {
 
       let rawSummary = '';
       try {
-        rawSummary = execSync(hasHead ? 'git diff HEAD --stat' : 'git status -s', { cwd: projectPath, encoding: 'utf-8', timeout: 5000 });
+        rawSummary = this.safeExecSync(hasHead ? 'git diff HEAD --stat' : 'git status -s', { cwd: projectPath, timeout: 5000 });
       } catch {
         rawSummary = `${files.length} arquivo(s) modificado(s)`;
       }
@@ -822,11 +909,11 @@ export class GitManager {
     if (!fs.existsSync(gitDir)) {
       try {
         try {
-          execSync('git init -b main', { cwd: projectPath, stdio: 'pipe', timeout: 5000 });
+          this.safeExecSync('git init -b main', { cwd: projectPath, timeout: 5000 });
         } catch {
-          execSync('git init', { cwd: projectPath, stdio: 'pipe', timeout: 5000 });
+          this.safeExecSync('git init', { cwd: projectPath, timeout: 5000 });
           try {
-            execSync('git branch -M main', { cwd: projectPath, stdio: 'pipe', timeout: 5000 });
+            this.safeExecSync('git branch -M main', { cwd: projectPath, timeout: 5000 });
           } catch {}
         }
         Logger.info(`[GitManager] Repositório Git inicializado em ${projectPath}`);
@@ -839,7 +926,7 @@ export class GitManager {
     // Ensure initial HEAD commit exists
     let hasHead = false;
     try {
-      execSync('git rev-parse --verify HEAD', { cwd: projectPath, stdio: 'pipe', timeout: 3000 });
+      this.safeExecSync('git rev-parse --verify HEAD', { cwd: projectPath, timeout: 3000 });
       hasHead = true;
     } catch {
       hasHead = false;
@@ -847,12 +934,12 @@ export class GitManager {
 
     if (!hasHead) {
       try {
-        execSync('git add -A', { cwd: projectPath, stdio: 'pipe', timeout: 4000 });
-        execSync('git commit -m "chore: initial project structure with DecoHUB memory"', { cwd: projectPath, stdio: 'pipe', timeout: 5000 });
+        this.safeExecSync('git add -A', { cwd: projectPath, timeout: 4000 });
+        this.safeExecSync('git commit -m "chore: initial project structure with DecoHUB memory"', { cwd: projectPath, timeout: 5000 });
       } catch {
         try {
-          execSync('git config user.email "agent@decohub.local" && git config user.name "DecoHUB Agent"', { cwd: projectPath, stdio: 'pipe', timeout: 3000 });
-          execSync('git commit -m "chore: initial project structure with DecoHUB memory"', { cwd: projectPath, stdio: 'pipe', timeout: 5000 });
+          this.safeExecSync('git config user.email "agent@decohub.local" && git config user.name "DecoHUB Agent"', { cwd: projectPath, timeout: 3000 });
+          this.safeExecSync('git commit -m "chore: initial project structure with DecoHUB memory"', { cwd: projectPath, timeout: 5000 });
         } catch (err: any) {
           Logger.warn(`[GitManager] Aviso ao criar commit inicial em ${projectPath}: ${err.message}`);
         }
@@ -879,7 +966,7 @@ export class GitManager {
 
     const gitDir = path.join(projectPath, '.git');
     if (!fs.existsSync(gitDir)) {
-      execSync('git init -b main', { cwd: projectPath, stdio: 'pipe' });
+      this.safeExecSync('git init -b main', { cwd: projectPath, timeout: 5000 });
     }
 
     // Always protect secrets BEFORE staging or pushing
@@ -891,7 +978,7 @@ export class GitManager {
       try {
         let ghUser = 'deco-verc';
         try {
-          const userOut = execSync('gh api user --jq .login', { encoding: 'utf-8', timeout: 6000, env: envWithToken, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+          const userOut = this.safeExecSync('gh api user --jq .login', { timeout: 6000, env: envWithToken });
           if (userOut) ghUser = userOut;
         } catch (err) {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
@@ -910,7 +997,7 @@ export class GitManager {
 
         Logger.info(`[GitManager] Criando repositório privado no GitHub: ${repoFullName}...`);
         try {
-          execSync(`gh repo create "${repoFullName}" --private`, { cwd: projectPath, encoding: 'utf-8', timeout: 20000, env: envWithToken, stdio: 'pipe' });
+          this.safeExecSync(`gh repo create "${repoFullName}" --private`, { cwd: projectPath, timeout: 20000, env: envWithToken });
         } catch (createErr: any) {
           if (!createErr.message?.includes('already exists')) {
             Logger.warn(`[GitManager] Aviso ao criar repo via gh: ${createErr.message}`);
@@ -919,15 +1006,15 @@ export class GitManager {
 
         const remoteUrl = `https://github.com/${repoFullName}.git`;
         try {
-          execSync(`git remote add origin "${remoteUrl}"`, { cwd: projectPath, stdio: 'pipe' });
+          this.safeExecSync(`git remote add origin "${remoteUrl}"`, { cwd: projectPath, timeout: 5000 });
         } catch {
-          execSync(`git remote set-url origin "${remoteUrl}"`, { cwd: projectPath, stdio: 'pipe' });
+          this.safeExecSync(`git remote set-url origin "${remoteUrl}"`, { cwd: projectPath, timeout: 5000 });
         }
 
         // Commit initial state safely
-        execSync('git add .', { cwd: projectPath, stdio: 'pipe' });
+        this.safeExecSync('git add .', { cwd: projectPath, timeout: 5000 });
         try {
-          execSync('git commit -m "chore: initial project structure with DecoHUB memory"', { cwd: projectPath, stdio: 'pipe' });
+          this.safeExecSync('git commit -m "chore: initial project structure with DecoHUB memory"', { cwd: projectPath, timeout: 5000 });
         } catch (err) {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({
@@ -942,7 +1029,7 @@ export class GitManager {
 
         // Push to main WITHOUT --force
         try {
-          execSync('git push -u origin main', { cwd: projectPath, encoding: 'utf-8', timeout: 20000, env: envWithToken, stdio: 'pipe' });
+          this.safeExecSync('git push -u origin main', { cwd: projectPath, timeout: 20000, env: envWithToken });
           Logger.success(`[GitManager] Push inicial concluído para https://github.com/${repoFullName}`);
         } catch (pushErr: any) {
           Logger.warn(`[GitManager] Aviso ao realizar push inicial: ${pushErr.message}`);
@@ -969,15 +1056,15 @@ export class GitManager {
           : `https://github.com/${repoFullName}.git`;
 
         try {
-          execSync(`git remote add origin "${remoteUrl}"`, { cwd: projectPath, stdio: 'pipe' });
+          this.safeExecSync(`git remote add origin "${remoteUrl}"`, { cwd: projectPath, timeout: 5000 });
         } catch {
-          execSync(`git remote set-url origin "${remoteUrl}"`, { cwd: projectPath, stdio: 'pipe' });
+          this.safeExecSync(`git remote set-url origin "${remoteUrl}"`, { cwd: projectPath, timeout: 5000 });
         }
 
         // Commit and push check
-        execSync('git add .', { cwd: projectPath, stdio: 'pipe' });
+        this.safeExecSync('git add .', { cwd: projectPath, timeout: 5000 });
         try {
-          execSync('git commit -m "chore: link project with DecoHUB"', { cwd: projectPath, stdio: 'pipe' });
+          this.safeExecSync('git commit -m "chore: link project with DecoHUB"', { cwd: projectPath, timeout: 5000 });
         } catch (err) {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({
@@ -1021,13 +1108,12 @@ export class GitManager {
 
       // 1. Check if PR already exists for headBranch
       try {
-        const listOut = execFileSync('gh', ['pr', 'list', '--repo', repoFullName, '--head', headBranch, '--state', 'open', '--json', 'number,url'], {
+        const listOut = this.safeExecFileSync('gh', ['pr', 'list', '--repo', repoFullName, '--head', headBranch, '--state', 'open', '--json', 'number,url'], {
           cwd: projectPath,
-          encoding: 'utf-8',
           timeout: 15000,
           env: envWithToken,
           stdio: ['ignore', 'pipe', 'ignore']
-        }).trim();
+        });
 
         if (listOut) {
           const parsed = JSON.parse(listOut);
@@ -1048,7 +1134,7 @@ export class GitManager {
     }
 
       // 2. Create PR
-      const createOut = execFileSync('gh', [
+      const createOut = this.safeExecFileSync('gh', [
         'pr', 'create',
         '--repo', repoFullName,
         '--head', headBranch,
@@ -1057,11 +1143,10 @@ export class GitManager {
         '--body', body
       ], {
         cwd: projectPath,
-        encoding: 'utf-8',
         timeout: 25000,
         env: envWithToken,
         stdio: ['ignore', 'pipe', 'pipe']
-      }).trim();
+      });
 
       const match = createOut.match(/\/pull\/(\d+)/);
       if (match) {

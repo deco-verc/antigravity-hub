@@ -1817,6 +1817,28 @@ export const api = {
     const res = await fetch(`${API_BASE}/skills/slash-commands`);
     if (!res.ok) throw new Error('Falha ao carregar catálogo de slash commands');
     return res.json();
+  },
+
+  async githubSync(message?: string): Promise<{
+    success: boolean;
+    committed: boolean;
+    commitHash: string | null;
+    filesCommitted: string[];
+    pushOutput: string;
+    repoRoot: string;
+    timestamp: string;
+    error?: string;
+  }> {
+    const res = await fetch(`${API_BASE}/system/github-sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(message ? { message } : {})
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Falha no GitHub Sync' }));
+      throw new Error(err.error || 'Falha no GitHub Sync');
+    }
+    return res.json();
   }
 };
 

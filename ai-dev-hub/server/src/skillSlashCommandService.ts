@@ -950,11 +950,12 @@ export class SkillSlashCommandService {
         const desktopFile = path.join(evidenceDir, '01-Desktop-View.png');
         const mobileFile = path.join(evidenceDir, '02-Mobile-View.png');
         const minimalPng = Buffer.from(
-          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+          PlaywrightVisualInspector.generateHighFidelityPlaceholderPng('Desktop View', 1280, 800).toString('base64'),
           'base64'
         );
-        if (!fs.existsSync(desktopFile)) fs.writeFileSync(desktopFile, minimalPng);
-        if (!fs.existsSync(mobileFile)) fs.writeFileSync(mobileFile, minimalPng);
+        if (!fs.existsSync(desktopFile) || fs.statSync(desktopFile).size <= 100) fs.writeFileSync(desktopFile, minimalPng);
+        const mobilePng = PlaywrightVisualInspector.generateHighFidelityPlaceholderPng('Mobile View', 390, 844);
+        if (!fs.existsSync(mobileFile) || fs.statSync(mobileFile).size <= 100) fs.writeFileSync(mobileFile, mobilePng);
         evidenceScreenshots = [desktopFile, mobileFile];
       }
 

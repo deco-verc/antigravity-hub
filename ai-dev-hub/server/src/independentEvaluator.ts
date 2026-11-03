@@ -43,6 +43,7 @@ export interface SuccessContract {
   objective: string;
   acceptanceCriteria: string[];
   verificationSteps: VerificationStep[];
+  verificationCommand?: string;
   protectedEvaluationFiles: string[];
   protectedFileHashes: Record<string, string>;
   baseline: BaselineResult;
@@ -265,6 +266,118 @@ export class IndependentEvaluator {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Extrai e formata o diagnóstico cirúrgico da causa-raiz contendo:
+   * [ARQUIVO E LINHA]
+   * [ERRO REAL]
+   * [DIRETRIZ CIRÚRGICA]
+   */
+  public static extractSurgicalRootCauseDiagnosis(params: {
+    output?: string;
+    failureDiagnosis?: any;
+    projectPath?: string;
+    fallbackFile?: string;
+    fallbackError?: string;
+    fallbackDirective?: string;
+  }): {
+    fileAndLine: string;
+    realError: string;
+    surgicalDirective: string;
+    formatted: string;
+  } {
+    let fileAndLine = '';
+    let realError = '';
+    let surgicalDirective = '';
+
+    const diag = params.failureDiagnosis;
+    if (diag && (diag.relativeFilePath || diag.failedFile)) {
+      const f = diag.relativeFilePath || diag.failedFile || '';
+      fileAndLine = diag.line ? `${f}:${diag.line}` : f;
+      realError = diag.assertionMessage || (diag.expected && diag.received ? `Expected: ${diag.expected}, Received: ${diag.received}` : '');
+      if (diag.targetImplementationFile) {
+        surgicalDirective = `Corrigir a implementação em ${diag.targetImplementationFile} para satisfazer a asserção sem modificar ou enfraquecer o teste em ${f}.`;
+      }
+    }
+
+    const raw = params.output || '';
+    if (!fileAndLine && raw) {
+      // TypeScript compiler output: "src/foo.ts:12:3 - error TS..."
+      const tsMatch = raw.match(/([a-zA-Z0-9_\-./\\]+\.[cm]?[jt]sx?):(\d+)(?::(\d+))?\s*-\s*error\s*(?:TS\d+:)?\s*([^\r\n]+)/i);
+      if (tsMatch) {
+        fileAndLine = `${tsMatch[1]}:${tsMatch[2]}`;
+        realError = tsMatch[4]?.trim() || 'Erro de compilação TypeScript';
+        surgicalDirective = `Ajustar tipagem e sintaxe em ${tsMatch[1]} na linha ${tsMatch[2]} para compilar sem erros via tsc --noEmit.`;
+      }
+
+      // Node.js test runner / AssertionError: at ... (test/...:12:34)
+      if (!fileAndLine) {
+        const assertMatch = raw.match(/(?:AssertionError|Error)[\s\S]*?(?:at\s+(?:.*?\s+)?\(?([a-zA-Z0-9_\-./\\]+\.[cm]?[jt]sx?):(\d+):(\d+)\)?)/i);
+        if (assertMatch) {
+          fileAndLine = `${assertMatch[1]}:${assertMatch[2]}`;
+          const errLine = raw.match(/(?:AssertionError|Error)[^\r\n]*/i);
+          realError = errLine ? errLine[0].trim() : 'Falha em asserção de teste';
+          surgicalDirective = `Isolar a asserção que falhou em ${assertMatch[1]} e corrigir o código de produção correspondente.`;
+        }
+      }
+
+      // Generic file:line
+      if (!fileAndLine) {
+        const lineMatch = raw.match(/([a-zA-Z0-9_\-./\\]+\.[cm]?[jt]sx?):(\d+)/i);
+        if (lineMatch) {
+          fileAndLine = `${lineMatch[1]}:${lineMatch[2]}`;
+        }
+      }
+    }
+
+    if (!fileAndLine) {
+      fileAndLine = params.fallbackFile || 'arquivos de escopo da tarefa';
+    }
+    if (!realError) {
+      realError = params.fallbackError || (raw ? raw.trim().slice(-300) : 'Comando de teste falhou com código diferente de 0');
+    }
+    if (!surgicalDirective) {
+      surgicalDirective = params.fallbackDirective || `Corrigir pontualmente o código em ${fileAndLine} até que o comando de verificação execute com código de saída 0.`;
+    }
+
+    const formatted = [
+      `[ARQUIVO E LINHA]: ${fileAndLine}`,
+      `[ERRO REAL]: ${realError}`,
+      `[DIRETRIZ CIRÚRGICA]: ${surgicalDirective}`
+    ].join('\n');
+
+    return {
+      fileAndLine,
+      realError,
+      surgicalDirective,
+      formatted
+    };
+  }
+
+  /**
+   * Formata o feedback cirúrgico de reprovação no padrão acionável do DecoHUB
+   */
+  public static formatStructuredFeedback(params: {
+    falha: string;
+    causaRaiz: string;
+    acaoRequerida: string;
+    fileAndLine?: string;
+    realError?: string;
+    surgicalDirective?: string;
+  }): string {
+    const lines = [
+      `[FALHA]: ${params.falha}`,
+      `[CAUSA RAIZ]: ${params.causaRaiz}`,
+      `[AÇÃO REQUERIDA]: ${params.acaoRequerida}`
+    ];
+    if (params.fileAndLine || params.realError || params.surgicalDirective) {
+      lines.push('');
+      lines.push(`[ARQUIVO E LINHA]: ${params.fileAndLine || 'arquivos do escopo da tarefa'}`);
+      lines.push(`[ERRO REAL]: ${params.realError || params.causaRaiz}`);
+      lines.push(`[DIRETRIZ CIRÚRGICA]: ${params.surgicalDirective || params.acaoRequerida}`);
+    }
+    return lines.join('\n');
   }
 
   /**
@@ -2140,17 +2253,17 @@ export class IndependentEvaluator {
         }
       }
 
-      // Se ainda vazio, preenche automaticamente com os arquivos existentes de código no projeto (src/, public/, app/, test/)
-      if (!hasFilesChanged) {
+      // Se ainda vazio e o relatório não declarou explicitamente 0 arquivos, preenche automaticamente com os arquivos existentes de código no projeto (src/, public/, app/, test/)
+      if (!hasFilesChanged && !Array.isArray(builderReport.filesChanged)) {
         try {
           const scannedFiles: string[] = [];
-          // 1. Escaneia arquivos de configuração e código na raiz do projeto (package.json, tsconfig.json, .gitignore, etc.)
+          // 1. Escaneia arquivos de configuração e código na raiz do projeto (package.json, tsconfig.json, etc.)
           try {
             const rootEntries = fs.readdirSync(projectPath, { withFileTypes: true });
             for (const entry of rootEntries) {
               if (entry.isFile() && !entry.name.startsWith('.git') && entry.name !== 'hub.db') {
                 const full = path.join(projectPath, entry.name);
-                if (fs.statSync(full).size > 0 && (/\.(json|js|ts|mjs|cjs|md|env|example|ya?ml)$/i.test(entry.name) || entry.name === '.gitignore')) {
+                if (fs.statSync(full).size > 0 && /\.(json|js|ts|mjs|cjs)$/i.test(entry.name)) {
                   scannedFiles.push(entry.name);
                 }
               }
@@ -2248,8 +2361,7 @@ export class IndependentEvaluator {
       hasAnyTestFilesOnDisk(projectPath)
     );
 
-    // NUNCA reprova uma tarefa com UNVERIFIED_CLAIM antes de rodar o comando de verificação real no terminal se houver comando executável!
-    if (builderReport.status === 'success' && !hasFilesChanged && !agentTestsPassed && !hasSubstantiveAuditFindings && !hasExecutableVerification) {
+    if (builderReport.status === 'success' && !hasFilesChanged && !agentTestsPassed && !hasSubstantiveAuditFindings) {
       Logger.warn(
         `[IndependentEvaluator] UNVERIFIED_CLAIM: O agente declarou sucesso sem apresentar evidências factuais (0 arquivos, sem testes e sem relatório substantivo de auditoria).`
       );
@@ -2284,8 +2396,11 @@ export class IndependentEvaluator {
         },
         expected: 'Código real alterado ou comandos executados com sucesso',
         actual: 'Afirmação sem evidências comprobatórias (Unverified Claim)',
-        evaluatorNotes:
-          'REJEITADO (Evidence-First): Nenhuma afirmação do Worker é prova suficiente de conclusão sem evidências factuais.',
+        evaluatorNotes: IndependentEvaluator.formatStructuredFeedback({
+          falha: 'Conclusão declarada sem evidências comprobatórias (Unverified Claim).',
+          causaRaiz: 'O Worker afirmou conclusão sem alterar arquivos reais e sem fornecer prova de execução do comando de teste.',
+          acaoRequerida: `Executar o comando "${(contract as any).verificationCommand || contract.verificationSteps?.[0]?.command || 'npm test'}" no terminal e incluir a saída real com código de saída 0.`
+        }),
         evaluatorName: this.evaluatorName,
         executedCommands: [],
         exitCode: 422,
@@ -2326,8 +2441,11 @@ export class IndependentEvaluator {
         },
         expected: 'Arquivos de teste protegidos inalterados',
         actual: `Adulteração detectada nos arquivos: ${tamperingCheck.tamperedFiles.join(', ')}`,
-        evaluatorNotes:
-          'REJEITADO: O agente tentou resolver o problema adulterando ou enfraquecendo o harness de avaliação.',
+        evaluatorNotes: IndependentEvaluator.formatStructuredFeedback({
+          falha: 'Tentativa de adulteração de testes protegidos (TAMPERING_DETECTED).',
+          causaRaiz: `Modificação não autorizada detectada nos arquivos protegidos: ${tamperingCheck.tamperedFiles.join(', ')}.`,
+          acaoRequerida: 'Reverter imediatamente as alterações nos testes protegidos e corrigir a implementação no código de produção.'
+        }),
         evaluatorName: this.evaluatorName,
         executedCommands: [],
         exitCode: 403,
@@ -2363,7 +2481,11 @@ export class IndependentEvaluator {
         },
         expected: 'Testes mantidos íntegros com todas as asserções originais',
         actual: weakeningCheck.reason || 'Enfraquecimento de testes detectado',
-        evaluatorNotes: `REJEITADO: ${weakeningCheck.reason}`,
+        evaluatorNotes: IndependentEvaluator.formatStructuredFeedback({
+          falha: 'Enfraquecimento ou remoção de asserções de teste detectado.',
+          causaRaiz: weakeningCheck.reason || 'Asserções originais foram enfraquecidas ou ignoradas.',
+          acaoRequerida: 'Restaurar todas as asserções de teste originais e corrigir o código de produção para passar nos testes.'
+        }),
         evaluatorName: this.evaluatorName,
         executedCommands: [],
         exitCode: 403,
@@ -2401,7 +2523,11 @@ export class IndependentEvaluator {
           },
           expected: 'Implementação real sem mocks simulados em produção ou placeholders vazios',
           actual: antiSlopCheck.reason || 'Código superficial detectado',
-          evaluatorNotes: `REJEITADO (Anti-Slop): ${antiSlopCheck.reason}`,
+          evaluatorNotes: IndependentEvaluator.formatStructuredFeedback({
+            falha: 'Violação das diretrizes Anti-Slop de alta fidelidade funcional.',
+            causaRaiz: antiSlopCheck.reason || 'Presença de placeholders vazios ou mocks simulados em produção.',
+            acaoRequerida: 'Substituir mocks e placeholders por lógica de produção real e persistência funcional.'
+          }),
           evaluatorName: this.evaluatorName,
           executedCommands: [],
           exitCode: 422,
@@ -2454,7 +2580,15 @@ export class IndependentEvaluator {
             ? 'Rota raiz GET / servindo public/index.html e endpoints de status em /api/health'
             : 'Interface profissional padrão Linear/Raycast com ícones SVG e tokens semânticos',
           actual: designQualityCheck.details || 'Slop visual de interface detectado',
-          evaluatorNotes: `REJEITADO: ${designQualityCheck.details || 'Falha de qualidade de interface'}`,
+          evaluatorNotes: IndependentEvaluator.formatStructuredFeedback({
+            falha: rootHijacked
+              ? 'Rota raiz GET / violada por retorno JSON de API (ROOT_ROUTE_HIJACKED_BY_JSON).'
+              : 'Violação do portão de design visual e anti-slop de interface.',
+            causaRaiz: designQualityCheck.details || 'Falha de qualidade de interface (emojis nativos como ícones ou tokens ausentes).',
+            acaoRequerida: rootHijacked
+              ? 'Servir public/index.html na rota GET / e mover o status JSON para GET /api/health.'
+              : 'Substituir emojis por SVGs Lucide inline, declarar tokens em :root e servir a SPA na rota GET /.'
+          }),
           evaluatorName: this.evaluatorName,
           executedCommands: [],
           exitCode: 422,
@@ -2926,7 +3060,7 @@ export class IndependentEvaluator {
             } catch (cvErr: any) {
               const isReviewRequired = cvErr?.code === 'COMMAND_REVIEW_REQUIRED';
               const isTestOrCheckCommand =
-                /^(?:npm\s+(?:test|run\s+(?:test|typecheck|build|lint)(?::[a-zA-Z0-9_-]+)?)|(?:npx\s+)?tsx\s+--test|(?:node|npx)\s+(?:--import\s+[^\s]+\s+)?--test|(?:node|npx)\s+(?:--check|-c)|(?:npx\s+)?tsc\b)/i.test(
+                /^(?:npm\s+(?:test|run\s+(?:test|typecheck|build|lint)(?::[a-zA-Z0-9_-]+)?)|(?:npx\s+)?tsx\s+--test|(?:node|npx)\s+(?:--import\s+[^\s]+\s+)?--test|(?:node|npx)\s+(?:--check|-c)|(?:node|npx)\s+(?:--eval|-e)\b|(?:npx\s+)?tsc\b)/i.test(
                   command.trim()
                 );
               const { DevAutonomyService } = await import('./devAutonomyService.js');
@@ -3453,6 +3587,9 @@ export class IndependentEvaluator {
       if (missingEvidenceCriteria.length > 0) {
         failedCriteria.push(...missingEvidenceCriteria);
       }
+      if (builderReport.status === 'success' && !hasFilesChanged && !hasSubstantiveAuditFindings) {
+        failedCriteria.push('UNVERIFIED_CLAIM: O agente declarou sucesso sem evidências factuais (0 arquivos modificados e testes não passaram)');
+      }
       if (!visualCheckPassed) {
         failedCriteria.push('Interface visual e dashboard web devem possuir artefatos HTML/UI funcionais no projeto');
       }
@@ -3481,12 +3618,24 @@ export class IndependentEvaluator {
       .join(' | ');
 
     if (!visualCheckPassed) {
-      notes =
-        'Reprovado pelo Evaluator: Critério de interface visual/dashboard não atendido (nenhum artefato HTML ou UI web encontrado no projeto).';
-      actual = 'Artefato visual HTML/UI ausente no projeto';
+      notes = IndependentEvaluator.formatStructuredFeedback({
+        falha: 'Critério de interface visual / dashboard web não atendido.',
+        causaRaiz: 'Nenhum artefato HTML ou componente web funcional foi encontrado no projeto.',
+        acaoRequerida: 'Implementar a interface em public/index.html e garantir que ela seja servida na rota GET /.',
+        fileAndLine: 'public/index.html',
+        realError: 'Artefato visual HTML/UI ausente no projeto ou não servido na raiz GET /',
+        surgicalDirective: 'Implementar a interface em public/index.html com tokens semânticos :root e garantir fallback SPA na raiz GET /.'
+      });
+      actual = '[public/index.html] Artefato visual HTML/UI ausente no projeto';
     } else if (!persistenceCheckPassed) {
-      notes =
-        'Reprovado pelo Evaluator: Critério de persistência não atendido (nenhum mecanismo de escrita em disco ou banco encontrado).';
+      notes = IndependentEvaluator.formatStructuredFeedback({
+        falha: 'Critério de persistência de dados não atendido.',
+        causaRaiz: 'Nenhum mecanismo de escrita em disco ou banco SQLite funcional foi encontrado.',
+        acaoRequerida: 'Implementar persistência real com SQLite ou armazenamento local com dados sobrevivendo a reinicialização/F5.',
+        fileAndLine: (options?.expectedScopeFiles || []).find(f => /db|schema|sql/i.test(f)) || 'src/db.ts',
+        realError: 'Persistência em disco/banco ausente no projeto',
+        surgicalDirective: 'Configurar banco SQLite com PRAGMA journal_mode = WAL e implementar escrita/leitura real com sobrevivência ao F5.'
+      });
       actual = 'Persistência em disco/banco ausente no projeto';
     } else {
       switch (verdict) {
@@ -3499,25 +3648,59 @@ export class IndependentEvaluator {
             : 'Todos os comandos executados com código 0 e critérios factuais atendidos';
           break;
         case 'TIMEOUT':
-          notes = `Reprovado pelo Evaluator (TIMEOUT): Comando de verificação excedeu o tempo limite no ambiente de teste.${failedStepsSummary ? ` Detalhes: ${failedStepsSummary}` : ''}`;
+          notes = IndependentEvaluator.formatStructuredFeedback({
+            falha: 'Execução do comando de verificação excedeu o tempo limite (TIMEOUT).',
+            causaRaiz: failedStepsSummary || 'Comando de teste travou aguardando entrada interativa ou entrou em loop infinito.',
+            acaoRequerida: `Otimizar os testes de "${contract.verificationCommand || 'npm test'}", remover timeouts longos e encerrar servidores em try/finally.`,
+            fileAndLine: (contract.protectedEvaluationFiles || [])[0] || 'test/',
+            realError: 'Execução do comando de teste ultrapassou o teto de timeout',
+            surgicalDirective: `Otimizar execução de "${contract.verificationCommand || 'npm test'}" e garantir encerramento determinístico de conexões e timers.`
+          });
           actual = 'Timeout durante execução dos testes de verificação';
           break;
         case 'BLOCKED':
-          notes = `Reprovado pelo Evaluator (BLOCKED): Ambiente, diretório ou comandos pré-requisito inacessíveis.${failedStepsSummary ? ` Detalhes: ${failedStepsSummary}` : ''}`;
+          notes = IndependentEvaluator.formatStructuredFeedback({
+            falha: 'Ambiente ou comandos de verificação inacessíveis (BLOCKED).',
+            causaRaiz: `Código de saída ${lastExitCode}.${failedStepsSummary ? ` Detalhes: ${failedStepsSummary}` : ''}`,
+            acaoRequerida: 'Verificar instalação de dependências e caminhos de arquivo no package.json antes da execução dos testes.',
+            fileAndLine: 'package.json',
+            realError: `Execução bloqueada pelo ambiente: código de saída ${lastExitCode}`,
+            surgicalDirective: 'Corrigir scripts e dependências no package.json e validar caminhos dos arquivos alvo.'
+          });
           actual = `Execução bloqueada por ambiente/pré-requisitos: código de saída ${lastExitCode}`;
           break;
         case 'INCONCLUSIVE':
-          notes =
-            'Reprovado pelo Evaluator (INCONCLUSIVE): Sem evidências objetivas ou arquivos modificados para comprovar a entrega. Ação requerida: Implementar alterações em código fonte no escopo ou fornecer testes com evidência de execução.';
+          notes = IndependentEvaluator.formatStructuredFeedback({
+            falha: 'Ausência de evidências factuais ou arquivos modificados no escopo (INCONCLUSIVE).',
+            causaRaiz: 'Nenhum arquivo de código foi alterado e nenhum comando de verificação foi executado para comprovar a conclusão.',
+            acaoRequerida: `Implementar a solução nos arquivos esperados (${(options?.expectedScopeFiles || []).join(', ') || 'do projeto'}) e executar "${contract.verificationCommand || 'npm test'}" comprovando código de saída 0 no terminal.`,
+            fileAndLine: (options?.expectedScopeFiles || [])[0] || 'src/',
+            realError: 'Nenhum arquivo alterado no escopo da microtarefa',
+            surgicalDirective: `Implementar a solução diretamente nos arquivos esperados (${(options?.expectedScopeFiles || []).join(', ') || 'do projeto'}) e comprovar execução com código 0.`
+          });
           actual = 'Nenhum comando de teste configurado e nenhum arquivo alterado no escopo';
           break;
         case 'FAIL':
         default: {
-          const diagDetail = ciDoctorDiagnosis?.assertionMessage
-            ? ` Falha diagnosticada: ${ciDoctorDiagnosis.relativeFilePath ? `${ciDoctorDiagnosis.relativeFilePath}:${ciDoctorDiagnosis.line || '?'}: ` : ''}${ciDoctorDiagnosis.assertionMessage}`
-            : '';
-          notes = `Reprovado pelo Evaluator (FAIL): Testes ou comandos de validação falharam no ambiente real.${diagDetail || (failedStepsSummary ? ` Etapas reprovadas: ${failedStepsSummary}` : '')}`;
-          actual = `Comando de verificação falhou com código ${lastExitCode}`;
+          const diag = ciDoctorDiagnosis || CiDoctorService.diagnoseFailure(combinedOutput, projectPath);
+          const rootCause = IndependentEvaluator.extractSurgicalRootCauseDiagnosis({
+            output: combinedOutput,
+            failureDiagnosis: diag,
+            projectPath,
+            fallbackFile: (contract as any).expectedScopeFiles?.[0] || builderReport.filesChanged?.[0] || 'src/',
+            fallbackError: `Comando de verificação falhou com código ${lastExitCode}`,
+            fallbackDirective: `Isolar a quebra em "${contract.verificationCommand || 'npm test'}" e aplicar o reparo cirúrgico no código de produção.`
+          });
+
+          notes = IndependentEvaluator.formatStructuredFeedback({
+            falha: 'Testes ou comandos de validação falharam no ambiente real.',
+            causaRaiz: rootCause.realError,
+            acaoRequerida: rootCause.surgicalDirective,
+            fileAndLine: rootCause.fileAndLine,
+            realError: rootCause.realError,
+            surgicalDirective: rootCause.surgicalDirective
+          });
+          actual = `[${rootCause.fileAndLine}] ${rootCause.realError}`;
           break;
         }
       }

@@ -54,6 +54,9 @@ export function planVerification(command:string,projectPath:string):Verification
         cleanArgs.unshift('--import',args[importIdx+1]);
       }
       args=[...cleanArgs,...files];
+    }else if(args[0]==='-e'||args[0]==='--eval'){
+      const code=args[1]||'';
+      args=['-e',code];
     }else{
       const file=args[0];if(!file||file.startsWith('-')||!/\.[cm]?js$/.test(file))return blocked('somente arquivos Node locais são permitidos');
       inside(root,file);

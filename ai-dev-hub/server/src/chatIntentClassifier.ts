@@ -291,10 +291,30 @@ export class ChatIntentClassifier {
 
     // 11. Execution Instructions: Explicit commands to fix, continue, implement, build
     // E.g.: "Corrija a causa do erro identificado.", "Corrija o erro e continue", "Implemente o filtro por categoria."
+    if (/^(corrija|arrume|conserte|resolva)\s+(o\s+)?(erro|problema|falha)\s+(e\s+)?(continue|retome|prossiga)/i.test(cleanLower)) {
+      return {
+        intent: 'EXECUTION_INSTRUCTION',
+        subType: 'FIX_AND_CONTINUE',
+        confidence: 0.98,
+        explanation: 'Comando imperativo para corrigir o erro e prosseguir com a execução.'
+      };
+    }
+
+    if (
+      /^(implemente|desenvolva|crie|construa|adicione|monte|escreva)\s+.*(e\s+teste|e\s+valide)/i.test(cleanLower) &&
+      !hasQuestionMark
+    ) {
+      return {
+        intent: 'EXECUTION_INSTRUCTION',
+        subType: 'BUILD_TASK',
+        confidence: 0.98,
+        explanation: 'Comando imperativo de desenvolvimento com validação e teste.'
+      };
+    }
+
     if (
       (/^(corrija|arrume|conserte|resolva|modifique|altere|refatore|ajuste)\s+/i.test(cleanLower) && !hasQuestionMark) ||
-      /^(corrija|arrume|conserte|resolva)\s+(a\s+causa\s+do|o)\s+(erro|problema|falha)/i.test(cleanLower) ||
-      /^(corrija|arrume|conserte|resolva)\s+(o\s+)?(erro|problema|falha)\s+(e\s+)?(continue|retome|prossiga)/i.test(cleanLower)
+      /^(corrija|arrume|conserte|resolva)\s+(a\s+causa\s+do|o)\s+(erro|problema|falha)/i.test(cleanLower)
     ) {
       return {
         intent: 'CODE_MODIFICATION',
