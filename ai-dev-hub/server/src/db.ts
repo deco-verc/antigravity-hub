@@ -160,36 +160,44 @@ export const DEFAULT_CAPABILITIES_COMMERCIAL_SAAS: ProjectCapabilities = {
 
 export function resolveProjectCapabilities(projectOrId?: any, briefing?: string): ProjectCapabilities {
   if (projectOrId && typeof projectOrId === 'object') {
+    const prof = projectOrId.project_profile || projectOrId.projectProfile;
+    if (prof === 'commercial_saas') {
+      return { ...DEFAULT_CAPABILITIES_COMMERCIAL_SAAS };
+    }
+    if (prof === 'local_personal') {
+      return { ...DEFAULT_CAPABILITIES_LOCAL_PERSONAL };
+    }
+
     if (projectOrId.capabilities && typeof projectOrId.capabilities === 'object') {
       const adv = Boolean(projectOrId.capabilities.advancedSaas ?? projectOrId.capabilities.multiTenant);
-      return {
+      const res: ProjectCapabilities = {
         database: projectOrId.capabilities.database ?? true,
         auth: Boolean(projectOrId.capabilities.auth),
         payments: Boolean(projectOrId.capabilities.payments),
         advancedSaas: adv,
-        multiTenant: adv,
         demoSeed: Boolean(projectOrId.capabilities.demoSeed)
       };
+      if (projectOrId.capabilities.multiTenant !== undefined) {
+        res.multiTenant = Boolean(projectOrId.capabilities.multiTenant);
+      }
+      return res;
     }
     if (typeof projectOrId.capabilities_json === 'string' && projectOrId.capabilities_json.trim()) {
       try {
         const parsed = JSON.parse(projectOrId.capabilities_json);
         const adv = Boolean(parsed.advancedSaas ?? parsed.multiTenant);
-        return {
+        const res: ProjectCapabilities = {
           database: parsed.database ?? true,
           auth: Boolean(parsed.auth),
           payments: Boolean(parsed.payments),
           advancedSaas: adv,
-          multiTenant: adv,
           demoSeed: Boolean(parsed.demoSeed)
         };
+        if (parsed.multiTenant !== undefined) {
+          res.multiTenant = Boolean(parsed.multiTenant);
+        }
+        return res;
       } catch {}
-    }
-    if (projectOrId.project_profile === 'commercial_saas' || projectOrId.projectProfile === 'commercial_saas') {
-      return { ...DEFAULT_CAPABILITIES_COMMERCIAL_SAAS };
-    }
-    if (projectOrId.project_profile === 'local_personal' || projectOrId.projectProfile === 'local_personal') {
-      return { ...DEFAULT_CAPABILITIES_LOCAL_PERSONAL };
     }
     if (projectOrId.id || projectOrId.path) {
       return resolveProjectCapabilities(projectOrId.id || projectOrId.path, briefing);
@@ -200,25 +208,28 @@ export function resolveProjectCapabilities(projectOrId?: any, briefing?: string)
     try {
       const row: any = db.prepare('SELECT project_profile, capabilities_json FROM projects WHERE id = ? OR path = ?').get(projectOrId.trim(), projectOrId.trim());
       if (row) {
-        if (row.capabilities_json) {
-          try {
-            const parsed = JSON.parse(row.capabilities_json);
-            const adv = Boolean(parsed.advancedSaas ?? parsed.multiTenant);
-            return {
-              database: parsed.database ?? true,
-              auth: Boolean(parsed.auth),
-              payments: Boolean(parsed.payments),
-              advancedSaas: adv,
-              multiTenant: adv,
-              demoSeed: Boolean(parsed.demoSeed)
-            };
-          } catch {}
-        }
         if (row.project_profile === 'commercial_saas') {
           return { ...DEFAULT_CAPABILITIES_COMMERCIAL_SAAS };
         }
         if (row.project_profile === 'local_personal') {
           return { ...DEFAULT_CAPABILITIES_LOCAL_PERSONAL };
+        }
+        if (row.capabilities_json) {
+          try {
+            const parsed = JSON.parse(row.capabilities_json);
+            const adv = Boolean(parsed.advancedSaas ?? parsed.multiTenant);
+            const res: ProjectCapabilities = {
+              database: parsed.database ?? true,
+              auth: Boolean(parsed.auth),
+              payments: Boolean(parsed.payments),
+              advancedSaas: adv,
+              demoSeed: Boolean(parsed.demoSeed)
+            };
+            if (parsed.multiTenant !== undefined) {
+              res.multiTenant = Boolean(parsed.multiTenant);
+            }
+            return res;
+          } catch {}
         }
       }
     } catch {}
@@ -241,6 +252,9 @@ export function resolveProjectProfileMode(projectOrId?: any, briefing?: string):
     if (projectOrId.project_profile === 'commercial_saas' || projectOrId.projectProfile === 'commercial_saas') return 'commercial_saas';
     if (projectOrId.project_profile === 'custom' || projectOrId.projectProfile === 'custom') return 'custom';
     if (projectOrId.project_profile === 'local_personal' || projectOrId.projectProfile === 'local_personal') return 'local_personal';
+    if (projectOrId.name && (/\b(?:local|uso[-_]pr[oó]prio|meu[-_]trabalho)\b/i.test(projectOrId.name) || /[-_]local\b/i.test(projectOrId.name))) {
+      return 'local_personal';
+    }
     if (projectOrId.id || projectOrId.path) {
       return resolveProjectProfileMode(projectOrId.id || projectOrId.path, briefing);
     }
@@ -563,6 +577,7 @@ export function initDatabase() {
       retry_count INTEGER DEFAULT 0,
       criteria_json TEXT, -- array of acceptance criteria
       notes TEXT,
+      exports_json TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY(run_id) REFERENCES autonomous_runs(id) ON DELETE CASCADE
@@ -2073,6 +2088,7 @@ export function ensureDefensiveMigrations(targetDb: any = db): void {
     ['autonomous_tasks', 'review_result_json', 'TEXT'],
     ['autonomous_tasks', 'protected_evaluation_files_json', 'TEXT'],
     ['autonomous_tasks', 'lifecycle_state', "TEXT DEFAULT 'PLANNED'"],
+    ['autonomous_tasks', 'exports_json', 'TEXT'],
     ['projects', 'project_profile', "TEXT DEFAULT 'local_personal'"],
     ['projects', 'capabilities_json', "TEXT DEFAULT '{\"database\":true,\"auth\":false,\"payments\":false,\"advancedSaas\":false,\"demoSeed\":false}'"],
     ['account_profiles', 'quota_resets_at', 'TEXT'],

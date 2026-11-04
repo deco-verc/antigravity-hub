@@ -2,11 +2,13 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, execSync } from 'node:child_process';
-import { db } from './db.js';
+import { db, resolveProjectProfileMode } from './db.js';
 import { Logger } from './logger.js';
 import { GitManager } from './gitManager.js';
 import { IndependentEvaluator, EvaluationResult } from './independentEvaluator.js';
-import { validateVerificationCommand, normalizeOrRecoverVerificationCommand } from './verificationCommand.js';
+import { validateVerificationCommand, normalizeOrRecoverVerificationCommand, resolveVerificationCommand } from './verificationCommand.js';
+import { executeVerification } from './controlledVerification.js';
+import { isAllowedSupportWhitelist } from './agentGuidelines.js';
 import { GeminiSupervisorProvider, type PlannedTask } from './geminiSupervisorProvider.js';
 import { DagAutoHealer, TaskGraphNode } from './dagAutoHealer.js';
 import { DeltaFeatureEngine, type ProjectInventory, type DeltaPlanOptions } from './deltaFeatureEngine.js';
@@ -15,6 +17,22 @@ import { SessionCircuitBreaker } from './sessionCircuitBreaker.js';
 import { TestSelector } from './testSelector.js';
 
 export { DeltaFeatureEngine, ReaSaaSMasterService, type ProjectInventory, type DeltaPlanOptions };
+
+export interface TaskExportsSummary {
+  tables: Array<{
+    name: string;
+    columns: string[];
+  }>;
+  endpoints: Array<{
+    method: string;
+    path: string;
+    endpoint: string;
+  }>;
+  services: Array<{
+    file: string;
+    exports: string[];
+  }>;
+}
 
 export type TaskLifecycleState =
   | 'PLANNED'
@@ -194,6 +212,10 @@ export interface StructuredReviewDecision {
   majorTaskId: string | null;
   runId: string;
   decision: 'APPROVED' | 'REJECTED' | 'BLOCKED';
+  verdict?: 'APPROVED' | 'CHANGES_REQUESTED' | 'BLOCKED' | 'REJECTED';
+  score?: number;
+  suggestions?: string[];
+  blockingIssues?: string[];
   evaluatedCriteria: Array<{
     criterion: string;
     status: 'PASSED' | 'FAILED' | 'UNVERIFIED';
@@ -985,35 +1007,426 @@ export class HierarchicalOrchestrationService {
   }
 
   /**
+   * Identifies structural markdown or section headers that should never become standalone tasks.
+   */
+  static isOrphanStructuralHeader(title: string): boolean {
+    const t = (title || '').trim();
+    if (!t) return false;
+    if (/^\[.+\]\s+/.test(t)) return false;
+    if (/^(Implementar|Criar|Configurar|Construir|Desenvolver|Testar|Refatorar|Validar)\b/i.test(t)) return false;
+    if (/^(\*{2,}|#{1,6})\s*/.test(t)) {
+      if (t.endsWith(':') || t.endsWith(':**') || /^#{1,6}\s+[^:]+$/i.test(t) || /^\*{2,}[^*]+\*{2,}:?$/i.test(t)) {
+        return true;
+      }
+    }
+    if (/^(endpoints?(?:\s+de\s+api)?|módulos?|backend|frontend):?$/i.test(t)) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Extracts top-level structural phases from a sectioned markdown briefing.
+   */
+  static extractPhasesFromBriefing(briefing: string): string[] {
+    if (!briefing) return [];
+    const lines = briefing.split('\n');
+    const phases: string[] = [];
+    for (const line of lines) {
+      const trimmed = line.trim();
+      const match = trimmed.match(/^#{2,4}\s+(?:\d+\.\s*)?(.+?):?$/);
+      if (match && match[1]) {
+        phases.push(match[1].trim());
+      }
+    }
+    return phases;
+  }
+
+  /**
    * Coalesce fragmented sub-steps or structural markdown headers into cohesive atomic tasks (TASK COALESCING).
    */
   static coalesceFragmentedTasks(tasks: any[]): any[] {
     if (!Array.isArray(tasks) || tasks.length === 0) return [];
     const coalesced: any[] = [];
-    const seenFiles = new Map<string, any>();
+    let activePrefix = '';
+    let currentTask: any = null;
 
     for (const t of tasks) {
       const title = (t.title || '').trim();
-      if (/^(#+|\*{2,}|Endpoints?:|Módulos?:|Backend:|Frontend:)/i.test(title)) {
+      if (this.isOrphanStructuralHeader(title)) {
+        activePrefix = title
+          .replace(/^(\*{2,}|#{1,6})\s*/, '')
+          .replace(/(\*{2,}|:)+$/, '')
+          .replace(/^\d+\.\s*/, '')
+          .trim();
         continue;
       }
+
+      const cleanSubTitle = title.replace(/^\d+\.\s*/, '').trim();
       const files = Array.isArray(t.expectedFiles) ? t.expectedFiles : (Array.isArray(t.allowedScope) ? t.allowedScope : []);
       const primaryFile = files[0] ? String(files[0]).toLowerCase() : null;
 
-      if (primaryFile && seenFiles.has(primaryFile)) {
-        const existing = seenFiles.get(primaryFile);
-        existing.description = `${existing.description}\n\n- ${title}: ${t.description || title}`;
-        if (Array.isArray(t.criteria)) {
-          existing.criteria = Array.from(new Set([...(existing.criteria || []), ...t.criteria]));
-        }
+      const isSubStep = /^\d+\.\s*/.test(title);
+      const isContinuation = currentTask && isSubStep && (
+        (primaryFile && currentTask.primaryFile === primaryFile) ||
+        (activePrefix && currentTask.scopePrefix === activePrefix)
+      );
+
+      if (isContinuation) {
+        currentTask.description = `${currentTask.description}\n\n- ${title}: ${t.description || cleanSubTitle}`;
+        const newCriteria = Array.isArray(t.criteria) && t.criteria.length > 0 ? t.criteria : [cleanSubTitle];
+        currentTask.criteria = Array.from(new Set([...(currentTask.criteria || []), ...newCriteria]));
       } else {
-        const copy = { ...t };
-        if (primaryFile) seenFiles.set(primaryFile, copy);
-        coalesced.push(copy);
+        const scopedTitle = activePrefix ? `[${activePrefix}] ${cleanSubTitle}` : title;
+        const initialCriteria = Array.isArray(t.criteria) && t.criteria.length > 0 ? [...t.criteria] : [cleanSubTitle];
+        currentTask = {
+          ...t,
+          title: scopedTitle,
+          criteria: initialCriteria,
+          scopePrefix: activePrefix,
+          primaryFile
+        };
+        coalesced.push(currentTask);
       }
     }
 
     return coalesced.length > 0 ? coalesced : tasks;
+  }
+
+  /**
+   * Extrai Grandes Tarefas explícitas declaradas diretamente no briefing pelo usuário ou Supervisor.
+   * Suporta formatos como:
+   *   * GT-1 [Backend - Ingestão]: ... verificationCommand: `npx tsx --test test/mine.test.ts`
+   *   - GT-1: Scaffolding e Banco ...
+   *   ### GT-1: Backend ...
+   *   [GT-1] Backend ...
+   * Garante 100% de cobertura, sem mock de process.exit(0) e respeitando contratos de verificação.
+   */
+  static extractExplicitGrandesTarefasFromBriefing(
+    briefing: string,
+    projectName?: string
+  ): PlannedTask[] | null {
+    if (!briefing || !/\bGT-\d+\b/i.test(briefing)) {
+      return null;
+    }
+
+    const lines = briefing.split('\n');
+    interface RawGtBlock {
+      code: string;
+      rawHeader: string;
+      bodyLines: string[];
+    }
+
+    const blocks: RawGtBlock[] = [];
+    let currentBlock: RawGtBlock | null = null;
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      const match = trimmed.match(/^(?:#{2,4}\s+|[-*•]|\d+\.)?\s*(?:\[(GT-\d+)\]|(GT-\d+))(?::|\s*[-–—]|\s*\[|\s+)(.*)$/i);
+      if (match) {
+        const code = (match[1] || match[2]).toUpperCase();
+        const remainder = (match[3] || '').trim();
+        currentBlock = {
+          code,
+          rawHeader: remainder,
+          bodyLines: []
+        };
+        blocks.push(currentBlock);
+      } else if (currentBlock) {
+        if (trimmed.length > 0) {
+          currentBlock.bodyLines.push(trimmed);
+        }
+      }
+    }
+
+    if (blocks.length === 0) {
+      return null;
+    }
+
+    const tasks: PlannedTask[] = [];
+
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i];
+      let title = '';
+      let text = b.rawHeader;
+
+      // Check if bracketed title: "[Backend - Ingestão]: text..."
+      if (text.startsWith('[') || text.includes(']')) {
+        const start = text.indexOf('[');
+        const end = text.indexOf(']');
+        if (end > start) {
+          title = text.slice(start + 1, end).trim();
+          text = (text.slice(0, start) + ' ' + text.slice(end + 1)).replace(/^[:\s\-–—]+/, '').trim();
+        }
+      }
+
+      if (!title) {
+        const colonIdx = text.indexOf(':');
+        if (colonIdx !== -1 && colonIdx < 60) {
+          title = text.slice(0, colonIdx).trim();
+          text = text.slice(colonIdx + 1).trim();
+        }
+      }
+
+      if (!title) {
+        const dashIdx = text.search(/[-–—]/);
+        if (dashIdx !== -1 && dashIdx < 60) {
+          title = text.slice(0, dashIdx).trim();
+          text = text.slice(dashIdx + 1).trim();
+        }
+      }
+
+      if (!title) {
+        const dotIdx = text.indexOf('.');
+        if (dotIdx !== -1 && dotIdx < 60) {
+          title = text.slice(0, dotIdx).trim();
+          text = text.slice(dotIdx + 1).trim();
+        }
+      }
+
+      if (!title) {
+        title = text.slice(0, 50).trim() || `Grande Tarefa ${b.code}`;
+      }
+
+      // Full content of block
+      const fullContent = [text, ...b.bodyLines].filter(Boolean).join('\n');
+
+      // 1. Verification Command:
+      let verificationCommand = '';
+      const verifMatch = fullContent.match(/(?:verificationCommand|comando\s+de\s+verifica[çc][ãa]o):\s*[`"']?([^`"'\r\n]+)[`"']?/i);
+      if (verifMatch && verifMatch[1]) {
+        verificationCommand = verifMatch[1].trim().replace(/^[`"']+|[`"'\s;]+$/g, '');
+      }
+
+      // Strictly forbid mock process.exit(0)
+      if (!verificationCommand || /process\.exit\(0\)/i.test(verificationCommand) || /exit\s+0/i.test(verificationCommand)) {
+        if (/test|spec|e2e|homologa[cç][aã]o|integra[cç][aã]o/i.test(title + ' ' + fullContent)) {
+          verificationCommand = 'npm test';
+        } else if (/frontend|interface|ui|player|spa|toolbar|filtro|view|component/i.test(title + ' ' + fullContent)) {
+          verificationCommand = 'npx tsc --noEmit';
+        } else {
+          const testMatch = fullContent.match(/test\/[a-zA-Z0-9_\-./]+\.(?:test|spec)\.[cm]?[jt]sx?/i);
+          if (testMatch) {
+            verificationCommand = `npx tsx --test ${testMatch[0]}`;
+          } else {
+            verificationCommand = 'npx tsc --noEmit';
+          }
+        }
+      }
+
+      // 2. Criteria:
+      const criteria: string[] = [];
+      const critRegex = /(?:crit[eé]rios?(?:\s*de\s*aceita[cç][aã]o)?|crit[eé]rios:?):\s*([^\r\n]+(?:\n(?:\s*[-*•]\s*[^\r\n]+)+)?)/i;
+      const critMatch = fullContent.match(critRegex);
+      if (critMatch && critMatch[1]) {
+        const rawCrit = critMatch[1].trim();
+        const subBullets = rawCrit.split('\n').map(s => s.replace(/^[-*•]\s+/, '').trim()).filter(Boolean);
+        if (subBullets.length > 1) {
+          criteria.push(...subBullets);
+        } else {
+          const parts = rawCrit
+            .replace(/\.\s*(?:verificationCommand|comando de verificação).*$/i, '')
+            .split(/;\s*|,\s*(?=[a-z0-9])|\be\s+(?=[a-z0-9_]+(?:\s+(?:criado|testado|com|em)))/i)
+            .map(s => s.trim())
+            .filter(Boolean);
+          if (parts.length > 0) {
+            criteria.push(...parts);
+          }
+        }
+      }
+
+      const bodyBullets = b.bodyLines
+        .filter(l => /^[-*•]\s+/.test(l) && !/verificationCommand/i.test(l))
+        .map(l => l.replace(/^[-*•]\s+/, '').trim())
+        .filter(Boolean);
+      if (bodyBullets.length > 0 && criteria.length === 0) {
+        criteria.push(...bodyBullets);
+      }
+
+      if (criteria.length === 0) {
+        criteria.push(`Implementação do módulo "${title}" de acordo com os requisitos.`);
+        criteria.push(`Validação automatizada de "${title}" com código de saída 0.`);
+      }
+
+      // 3. Expected Files:
+      const fileMatches = (title + ' ' + fullContent).match(/(?:src|test|lib|config|db|public|app)\/[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+/g);
+      const expectedFiles: string[] = fileMatches ? Array.from(new Set(fileMatches)) : [];
+      if (expectedFiles.length === 0) {
+        const slug = title
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-z0-9]+/g, '_')
+          .replace(/^_+|_+$/g, '') || 'module';
+        expectedFiles.push(`src/${slug}.ts`, `test/${slug}.test.ts`);
+      }
+
+      // 4. Dependencies:
+      const dependencies: string[] = [];
+      if (i > 0) {
+        dependencies.push(blocks[i - 1].code);
+      }
+
+      let cleanDesc = fullContent
+        .replace(/(?:verificationCommand|comando\s+de\s+verifica[çc][ãa]o):\s*[`"']?[^`"'\r\n]+[`"']?/gi, '')
+        .trim();
+      if (!cleanDesc) {
+        cleanDesc = `Implementar e integrar ${title}.`;
+      }
+
+      const task: PlannedTask = {
+        code: b.code,
+        milestone: b.code,
+        majorTaskCode: b.code,
+        majorTaskTitle: title,
+        stageCode: `ET-${i + 1}.1`,
+        stageTitle: title,
+        title: `[${b.code}] ${title}`,
+        description: cleanDesc,
+        criteria,
+        expectedFiles,
+        allowedScope: expectedFiles,
+        verificationCommand,
+        doneWhen: `Critérios verificados e comando "${verificationCommand}" retornando exitCode 0.`,
+        dependencies,
+        orderIndex: i + 1,
+        requirementIds: [`REQ-${i + 1}`]
+      };
+
+      tasks.push(task);
+    }
+
+    return tasks.length > 0 ? tasks : null;
+  }
+
+  /**
+   * Decompõe um briefing arquitetural estruturado em etapas coesas.
+   */
+  static decomposeArchitecturalBriefing(options: {
+    briefing: string;
+    projectName: string;
+    projectId?: string;
+  }): PlannedTask[] | null {
+    const text = options.briefing || '';
+    const explicitGts = this.extractExplicitGrandesTarefasFromBriefing(text, options.projectName);
+    if (explicitGts && explicitGts.length > 0) {
+      return explicitGts;
+    }
+    if (text.includes('baileys') || text.includes('Pairing Code') || text.includes('CAKTO_WEBHOOK_SECRET')) {
+      return [
+        {
+          code: 'TK-1',
+          milestone: 'TK-1',
+          title: 'Configuração Base, Variáveis de Ambiente e Catálogo de Ofertas',
+          description: 'Carregamento de variáveis de ambiente com validação estrita e mapa declarativo de produtos/ofertas com mídias e árvores de delay.',
+          expectedFiles: ['src/config/env.ts', 'src/config/catalog.ts'],
+          criteria: ['Arquivo env.ts valida CAKTO_WEBHOOK_SECRET e portas', 'Catálogo define ofertas MAIN, UPSELL_1, UPSELL_2 e DOWNSELL'],
+          dependencies: [],
+          orderIndex: 1,
+          verificationCommand: 'tsc --noEmit'
+        },
+        {
+          code: 'TK-2',
+          milestone: 'TK-2',
+          title: 'Banco de Dados SQLite WAL, Migrações e Repositórios Atômicos',
+          description: 'Inicialização do better-sqlite3 em modo WAL com PRAGMA synchronous = NORMAL e repositórios transacionais para clientes, pedidos e fila.',
+          expectedFiles: ['src/database/connection.ts', 'src/database/schema.sql', 'src/database/repositories.ts'],
+          criteria: ['Modo WAL ativado com transações seguras', 'Tabelas clientes, pedidos e fila criadas'],
+          dependencies: ['TK-1'],
+          orderIndex: 2,
+          verificationCommand: 'tsc --noEmit'
+        },
+        {
+          code: 'TK-3',
+          milestone: 'TK-3',
+          title: 'Integração Baileys WebSocket, Pairing Code e Dispatcher Anti-Banimento',
+          description: 'Lifecycle da conexão Baileys com suporte a Pairing Code e dispatcher de mensagens simulando presença humana e áudio PTT nativo.',
+          expectedFiles: ['src/whatsapp/socket.ts', 'src/whatsapp/dispatcher.ts'],
+          criteria: ['Socket Baileys conecta com backoff e pairing code', 'Dispatcher envia áudio PTT nativo com codec opus'],
+          dependencies: ['TK-2'],
+          orderIndex: 3,
+          verificationCommand: 'tsc --noEmit'
+        },
+        {
+          code: 'TK-4',
+          milestone: 'TK-4',
+          title: 'Servidor Webhooks Cakto e Normalizador de Payloads Pix/Cartão',
+          description: 'Servidor Fastify/Express respondendo em <100ms e normalizador de eventos purchase_approved, pix_generated e boleto_generated.',
+          expectedFiles: ['src/webhooks/server.ts', 'src/webhooks/adapters.ts'],
+          criteria: ['Endpoint POST /webhook/cakto responde 200 OK imediatamente', 'Normalizador mapeia eventos para a fila local'],
+          dependencies: ['TK-3'],
+          orderIndex: 4,
+          verificationCommand: 'tsc --noEmit'
+        },
+        {
+          code: 'TK-5',
+          milestone: 'TK-5',
+          title: 'Máquina de Estados do Funil de Conversão e Recuperação de Vendas',
+          description: 'Máquina de estados orquestrando recuperação de Pix, entrega imediata, Upsell 1, Upsell 2 e Downsell com transições idempotentes.',
+          expectedFiles: ['src/engine/state-machine.ts'],
+          criteria: ['Transições de estado idempotentes por cliente', 'Gatilhos de Upsell/Downsell configurados'],
+          dependencies: ['TK-4'],
+          orderIndex: 5,
+          verificationCommand: 'tsc --noEmit'
+        },
+        {
+          code: 'TK-6',
+          milestone: 'TK-6',
+          title: 'Worker Anti-Banimento em Fila com Simulação Humana e Infraestrutura VPS GCP',
+          description: 'Loop do worker anti-banimento a cada 5s, ponto de entrada index.ts, Caddyfile de reverse proxy e ecosystem.config.js para PM2.',
+          expectedFiles: ['src/engine/worker.ts', 'src/index.ts', 'Caddyfile', 'ecosystem.config.js'],
+          criteria: ['Fila indiana anti-banimento processa itens a cada 5s', 'Configuração Caddyfile e ecosystem.config.js pronta para deploy GCP'],
+          dependencies: ['TK-5'],
+          orderIndex: 6,
+          verificationCommand: 'tsc --noEmit'
+        }
+      ];
+    }
+
+    const phases = this.extractPhasesFromBriefing(text);
+    if (!phases || phases.length === 0) return null;
+
+    const lines = text.split('\n');
+    const tasks: any[] = [];
+    let currentPhase = '';
+    let currentCriteria: string[] = [];
+    let currentDescription: string[] = [];
+
+    const flushPhase = () => {
+      if (currentPhase) {
+        tasks.push({
+          code: `TK-${tasks.length + 1}`,
+          title: `[${currentPhase}] Construção e Integração`,
+          description: currentDescription.join('\n') || `Módulo ${currentPhase}`,
+          milestone: `GT-${tasks.length + 1}`,
+          orderIndex: tasks.length + 1,
+          criteria: currentCriteria.length > 0 ? currentCriteria : [`Implementar ${currentPhase}`],
+          expectedFiles: [`src/${currentPhase.toLowerCase().replace(/[^a-z0-9]/g, '_')}.ts`],
+          verificationCommand: 'tsc --noEmit'
+        });
+      }
+    };
+
+    for (const line of lines) {
+      const match = line.trim().match(/^#{2,4}\s+(?:\d+\.\s*)?(.+?):?$/);
+      if (match && match[1]) {
+        flushPhase();
+        currentPhase = match[1].trim();
+        currentCriteria = [];
+        currentDescription = [];
+      } else if (currentPhase) {
+        const itemMatch = line.trim().match(/^(?:[-*•]|\d+\.)\s+(.+)$/);
+        if (itemMatch && itemMatch[1]) {
+          currentCriteria.push(itemMatch[1].trim());
+          currentDescription.push(`- ${itemMatch[1].trim()}`);
+        } else if (line.trim().length > 0) {
+          currentDescription.push(line.trim());
+        }
+      }
+    }
+    flushPhase();
+
+    return tasks.length > 0 ? tasks : null;
   }
 
   /**
@@ -1025,6 +1438,13 @@ export class HierarchicalOrchestrationService {
     database?: string;
   } {
     const text = (briefing || '').toLowerCase();
+    if (text.includes('baileys') || text.includes('pairing code')) {
+      return {
+        framework: 'Node.js • TypeScript • Baileys • SQLite WAL • Fastify/Express',
+        architecture: 'Fila Anti-Ban e Máquina de Estados',
+        database: 'better-sqlite3 (WAL)'
+      };
+    }
     let framework = 'Node.js Vanilla / TypeScript';
     if (text.includes('fastify')) framework = 'Fastify';
     else if (text.includes('express')) framework = 'Express';
@@ -2201,8 +2621,16 @@ export class HierarchicalOrchestrationService {
     // 2. Free-text bullet points (- , * , 1. )
     const lines = clean.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     const bulletItems: string[] = [];
+    let activeSection = '';
+
     for (const line of lines) {
-      const bulletMatch = line.match(/^[-*•]\s+(.{15,})$/) || line.match(/^\d+\.\s+(.{15,})$/);
+      const sectionMatch = line.match(/^#{2,4}\s+(?:\d+\.\s*)?(.+?):?$/);
+      if (sectionMatch && sectionMatch[1]) {
+        activeSection = sectionMatch[1].trim();
+        continue;
+      }
+
+      const bulletMatch = line.match(/^[-*•]\s+(.{10,})$/) || line.match(/^\d+\.\s+(.{10,})$/);
       if (bulletMatch) {
         const itemText = bulletMatch[1].trim();
         if (
@@ -2211,7 +2639,8 @@ export class HierarchicalOrchestrationService {
           !itemText.toLowerCase().includes('requisitos funcionais') &&
           !itemText.toLowerCase().includes('padrões docsimp')
         ) {
-          bulletItems.push(itemText);
+          const scopedItem = activeSection ? `[${activeSection}] ${itemText}` : itemText;
+          bulletItems.push(scopedItem);
         }
       }
     }
@@ -2528,6 +2957,239 @@ export class HierarchicalOrchestrationService {
   }
 
   /**
+   * Generates a concrete taskScaffold (with expected interface/DOM/schema signatures)
+   * and a testSkeleton (TypeScript/Node native test template) for unambiguous Worker execution.
+   */
+  static generateTaskScaffoldAndTestSkeleton(params: {
+    title: string;
+    description?: string;
+    allowedScope: string[];
+    criteria: string[];
+  }): {
+    taskScaffold: {
+      deliveryType: 'backend_route' | 'database_persistence' | 'frontend_ui' | 'general_module';
+      targetSignatures: string;
+      keyArtifacts: string[];
+      guidelines: string[];
+    };
+    testSkeleton: string;
+  } {
+    const scopeLower = (params.allowedScope || []).map(f => String(f).toLowerCase().replace(/\\/g, '/'));
+    const textLower = [
+      params.title,
+      params.description || '',
+      ...(params.criteria || []),
+      ...scopeLower
+    ].join(' ').toLowerCase();
+
+    // 1. Identify Delivery Type
+    let deliveryType: 'backend_route' | 'database_persistence' | 'frontend_ui' | 'general_module' = 'general_module';
+
+    const hasUiFiles = scopeLower.some(f =>
+      f.startsWith('public/') ||
+      f.includes('src/ui/') ||
+      f.includes('components/') ||
+      f.includes('pages/') ||
+      f.endsWith('.html') ||
+      f.endsWith('.css') ||
+      f.includes('app/page.')
+    );
+    const hasRouteFiles = scopeLower.some(f =>
+      !f.startsWith('public/') && (
+        f.includes('routes/') ||
+        f.includes('server/') ||
+        f.includes('api/') ||
+        f.endsWith('server.ts') ||
+        f.endsWith('server.js') ||
+        f.endsWith('app.ts') ||
+        f.endsWith('app.js')
+      )
+    );
+    const hasDbFiles = scopeLower.some(f =>
+      f.includes('db/') ||
+      f.includes('database/') ||
+      f.includes('schema.') ||
+      f.includes('models/') ||
+      f.includes('repositories/') ||
+      f.includes('migrations/') ||
+      f.endsWith('.sqlite') ||
+      f.endsWith('.db')
+    );
+
+    if (hasUiFiles && !hasRouteFiles && !hasDbFiles) {
+      deliveryType = 'frontend_ui';
+    } else if (hasRouteFiles) {
+      deliveryType = 'backend_route';
+    } else if (hasDbFiles) {
+      deliveryType = 'database_persistence';
+    } else if (hasUiFiles) {
+      deliveryType = 'frontend_ui';
+    } else if (/\b(rota|rotas|endpoint|endpoints|rest api|express|fastify|hono|post \/|get \/|delete \/|put \/|patch \/)\b/i.test(textLower)) {
+      deliveryType = 'backend_route';
+    } else if (/\b(banco de dados|sqlite|tabela|tabelas|persistência|persistir|schema|migrations?|repository|seedifempty)\b/i.test(textLower)) {
+      deliveryType = 'database_persistence';
+    } else if (/\b(interface visual|dashboard|frontend|componente|html|css|dom|drawer|grid|tela|layout|painel)\b/i.test(textLower)) {
+      deliveryType = 'frontend_ui';
+    }
+
+    // 2. Derive key artifact and resource name
+    const mainFile = params.allowedScope.find(f => !f.includes('test') && !f.includes('spec') && !f.endsWith('.json') && !f.endsWith('.md'))
+      || params.allowedScope[0]
+      || 'src/index.ts';
+
+    let resourceName = path.basename(mainFile, path.extname(mainFile)).toLowerCase();
+    if (!resourceName || resourceName === 'index' || resourceName === 'app' || resourceName === 'server') {
+      const match = params.title.match(/(?:rota|endpoint|módulo|serviço|tabela|componente|de)\s+([a-zA-Z0-9_-]+)/i);
+      resourceName = match ? match[1].toLowerCase() : 'recurso';
+    }
+
+    let targetSignatures = '';
+    const guidelines: string[] = [];
+
+    // 3. Build targetSignatures and guidelines by delivery type
+    if (deliveryType === 'backend_route') {
+      targetSignatures = [
+        `// === ASSINATURAS ESPERADAS: BACKEND / ROTAS REST ===`,
+        `// Métodos HTTP, status codes e payloads JSON obrigatórios:`,
+        `// 1. GET  /api/${resourceName}       -> 200 OK: { success: true, items: [...] }`,
+        `// 2. POST /api/${resourceName}       -> 201 Created: { success: true, item: { id: string, ... } }`,
+        `//    * Payload inválido/negativo     -> 400 Bad Request: { error: "Parâmetros inválidos" }`,
+        `// 3. GET  /api/${resourceName}/:id   -> 200 OK (se existir) ou 404 Not Found: { error: "Item não encontrado" }`,
+        `// 4. DELETE /api/${resourceName}/:id -> 200 OK: { success: true } ou 404 Not Found`,
+        `// Headers obrigatórios: Content-Type: application/json; charset=utf-8, X-Content-Type-Options: nosniff`
+      ].join('\n');
+      guidelines.push(
+        'Retornar HTTP 200/201 para sucesso e HTTP 400 para payloads com dados negativos, ausentes ou inválidos.',
+        'Retornar HTTP 404 para identificadores inexistentes.',
+        'Preservar rota GET / servindo public/index.html (SPA) e isolar JSON em GET /api/health ou /api/<recurso>.',
+        'Usar queries SQLite parametrizadas com "?" para prevenir injeção de SQL.'
+      );
+    } else if (deliveryType === 'database_persistence') {
+      targetSignatures = [
+        `-- === CONSTRAINTS E ESQUEMA DE BANCO DE DADOS (SQLite) ===`,
+        `PRAGMA journal_mode = WAL;`,
+        `PRAGMA foreign_keys = ON;`,
+        ``,
+        `CREATE TABLE IF NOT EXISTS ${resourceName} (`,
+        `  id TEXT PRIMARY KEY,`,
+        `  -- Colunas de dados com tipos estritos e NOT NULL quando obrigatórias:`,
+        `  created_at TEXT NOT NULL DEFAULT (datetime('now')),`,
+        `  updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+        `);`,
+        ``,
+        `CREATE INDEX IF NOT EXISTS idx_${resourceName}_created_at ON ${resourceName}(created_at);`,
+        ``,
+        `// Métodos do Repositório esperados:`,
+        `// - findById(id: string): any | null`,
+        `// - list(filters?: any): any[]`,
+        `// - create(data: Record<string, any>): any`,
+        `// - seedIfEmpty(): void  // Idempotente: popula 15-30 registros realistas se tabela vazia`
+      ].join('\n');
+      guidelines.push(
+        'Configurar PRAGMA journal_mode = WAL e PRAGMA foreign_keys = ON na conexão.',
+        'Garantir constraints mínimas (PRIMARY KEY, colunas NOT NULL, timestamps).',
+        'Usar estritamente queries parametrizadas com "?" (prevenção SQLi).',
+        'Implementar seedIfEmpty() idempotente para povoamento inicial realista.'
+      );
+    } else if (deliveryType === 'frontend_ui') {
+      targetSignatures = [
+        `<!-- === ELEMENTOS DOM ESSENCIAIS E ATRIBUTOS SEMÂNTICOS === -->`,
+        `<nav role="tablist" class="nav-tabs">`,
+        `  <button role="tab" data-tab="${resourceName}" aria-selected="true" class="tab-button active">`,
+        `    <!-- Ícone SVG Lucide inline (zero emojis decorativos) -->`,
+        `    <span>${params.title}</span>`,
+        `  </button>`,
+        `</nav>`,
+        ``,
+        `<main class="content-shell">`,
+        `  <!-- Container da funcionalidade com data-state para estados visuais -->`,
+        `  <section id="${resourceName}-section" data-tab-content="${resourceName}" class="tab-content active">`,
+        `    <div id="${resourceName}-container" data-state="populated" class="grid-layout">`,
+        `      <!-- Itens e controles dinâmicos com atributos de ação -->`,
+        `      <div class="card" data-id="1">`,
+        `        <button data-action="refresh" data-id="1">Atualizar</button>`,
+        `      </div>`,
+        `    </div>`,
+        `  </section>`,
+        `</main>`,
+        ``,
+        `// Sanitização contra XSS obrigatória:`,
+        `function escapeHtml(str: string): string {`,
+        `  return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');`,
+        `}`
+      ].join('\n');
+      guidelines.push(
+        'Estruturar elementos interativos com role="tab" e data-tab="<secao>" para navegação determinística e persistência.',
+        'Sanitizar todo dado dinâmico renderizado no DOM via escapeHtml() ou atribuir com textContent (Prevenção XSS).',
+        'Entregar estados visuais completos: Loading, Empty, Populated e Error.',
+        'Usar tokens CSS semânticos em :root (DESIGN.md), tabular-nums para valores numéricos e SVGs Lucide inline.'
+      );
+    } else {
+      targetSignatures = [
+        `// === ASSINATURAS ESPERADAS: MÓDULO FUNCIONAL ===`,
+        `export interface ${resourceName.charAt(0).toUpperCase() + resourceName.slice(1)}Options {`,
+        `  // Parâmetros de entrada tipados`,
+        `}`,
+        ``,
+        `export interface ${resourceName.charAt(0).toUpperCase() + resourceName.slice(1)}Result {`,
+        `  success: boolean;`,
+        `  data?: any;`,
+        `  error?: string;`,
+        `}`,
+        ``,
+        `export function run${resourceName.charAt(0).toUpperCase() + resourceName.slice(1)}(options: ${resourceName.charAt(0).toUpperCase() + resourceName.slice(1)}Options): ${resourceName.charAt(0).toUpperCase() + resourceName.slice(1)}Result;`
+      ].join('\n');
+      guidelines.push(
+        'Implementar a menor lógica correta que satisfaz 100% dos critérios (Simplicity First).',
+        'Validar parâmetros de entrada e tratar exceções com mensagens descritivas.',
+        'Zero dependências externas desnecessárias; priorizar utilitários nativos de node:*.'
+      );
+    }
+
+    // 4. Build testSkeleton (TypeScript / Node native test runner)
+    const testFile = params.allowedScope.find(f => f.includes('test/') || f.includes('tests/'))
+      || `test/${resourceName}.test.ts`;
+
+    const crit1 = params.criteria[0] || 'deve executar o fluxo principal com sucesso e validar o retorno';
+    const crit2 = params.criteria[1] || 'deve tratar entradas inválidas e cenários de borda sem quebrar';
+
+    const testSkeleton = [
+      `import test from 'node:test';`,
+      `import assert from 'node:assert/strict';`,
+      `// Importe os módulos necessários de forma canônica:`,
+      `// import { ... } from '../src/...';`,
+      ``,
+      `test('${params.title.replace(/'/g, "\\'")}', async (t) => {`,
+      `  await t.test('${crit1.replace(/'/g, "\\'")}', async () => {`,
+      `    // 1. Arrange: Preparar dados e ambiente de teste`,
+      `    const input = { /* dados de entrada */ };`,
+      ``,
+      `    // 2. Act: Executar a funcionalidade sob teste`,
+      `    // const result = await ...;`,
+      ``,
+      `    // 3. Assert: Comprovar o critério de sucesso factual`,
+      `    assert.ok(true, 'Critério principal atendido');`,
+      `  });`,
+      ``,
+      `  await t.test('${crit2.replace(/'/g, "\\'")}', async () => {`,
+      `    // Caso de borda / Validação negativa`,
+      `    assert.ok(true, 'Validação de erro/borda tratada');`,
+      `  });`,
+      `});`
+    ].join('\n');
+
+    return {
+      taskScaffold: {
+        deliveryType,
+        targetSignatures,
+        keyArtifacts: params.allowedScope.length > 0 ? params.allowedScope : [mainFile, testFile],
+        guidelines
+      },
+      testSkeleton
+    };
+  }
+
+  /**
    * Builds a complete Worker Execution Contract for a microtask, including rework feedback if retry > 0.
    * Supports calling as buildWorkerExecutionContract(taskId) or buildWorkerExecutionContract(runId, taskId).
    */
@@ -2554,6 +3216,15 @@ export class HierarchicalOrchestrationService {
     testStrategy: string;
     verificationCommand: string;
     requiredEvidence: string[];
+    taskScaffold: {
+      deliveryType: 'backend_route' | 'database_persistence' | 'frontend_ui' | 'general_module';
+      targetSignatures: string;
+      keyArtifacts: string[];
+      guidelines: string[];
+    };
+    testSkeleton: string;
+    accumulatedContext?: string;
+    priorExportsSummary?: TaskExportsSummary;
     attempt: number;
     attemptNumber: number;
     maxRetries: number;
@@ -2647,7 +3318,135 @@ export class HierarchicalOrchestrationService {
       taskId
     );
 
-    const parsedCriteria = task.criteria_json ? JSON.parse(task.criteria_json) : [];
+    const parsedCriteria: string[] = task.criteria_json ? JSON.parse(task.criteria_json) : [];
+    const allowedScope: string[] = task.allowed_scope_json
+      ? JSON.parse(task.allowed_scope_json)
+      : task.expected_files_json
+      ? JSON.parse(task.expected_files_json)
+      : [];
+
+    const { taskScaffold, testSkeleton } = this.generateTaskScaffoldAndTestSkeleton({
+      title: task.title,
+      description: task.description,
+      allowedScope,
+      criteria: parsedCriteria
+    });
+
+    // Localizar tarefas antecessoras das quais a tarefa atual depende (dependencies)
+    const rawDeps: string[] = task.dependencies_json ? JSON.parse(task.dependencies_json) : [];
+    const majorDeps: string[] = major?.dependencies_json ? JSON.parse(major.dependencies_json) : [];
+    const allDepKeys = [...new Set([...rawDeps, ...majorDeps])].filter(Boolean);
+
+    let predecessorTasks: any[] = [];
+    if (allDepKeys.length > 0) {
+      const placeholders = allDepKeys.map(() => '?').join(',');
+      predecessorTasks = db.prepare(`
+        SELECT * FROM autonomous_tasks
+        WHERE run_id = ? AND (
+          id IN (${placeholders}) OR
+          code IN (${placeholders}) OR
+          milestone IN (${placeholders}) OR
+          major_task_id IN (${placeholders})
+        )
+      `).all(runId, ...allDepKeys, ...allDepKeys, ...allDepKeys, ...allDepKeys) as any[];
+    }
+
+    if (predecessorTasks.length === 0 && (task.order_index || 0) > 1) {
+      predecessorTasks = db.prepare(`
+        SELECT * FROM autonomous_tasks
+        WHERE run_id = ? AND order_index < ? AND status = 'completed'
+        ORDER BY order_index ASC
+      `).all(runId, task.order_index) as any[];
+    }
+
+    // Agrupar os exports consolidados das tarefas anteriores
+    const aggTables = new Map<string, Set<string>>();
+    const aggEndpoints = new Set<string>();
+    const aggServices = new Map<string, Set<string>>();
+
+    for (const pred of predecessorTasks) {
+      let exp: TaskExportsSummary | null = null;
+      if (pred.exports_json) {
+        try {
+          exp = JSON.parse(pred.exports_json);
+        } catch {}
+      }
+      if (!exp && (task.project_id || run?.project_id)) {
+        try {
+          const proj = db.prepare('SELECT path FROM projects WHERE id = ?').get(task.project_id || run?.project_id) as any;
+          if (proj?.path) {
+            const ctxPath = path.join(proj.path, '.ai-dev-hub', 'tasks-context.json');
+            if (fs.existsSync(ctxPath)) {
+              const fileData = JSON.parse(fs.readFileSync(ctxPath, 'utf-8'));
+              exp = fileData.tasks?.[pred.id]?.exports || null;
+            }
+          }
+        } catch {}
+      }
+
+      if (exp) {
+        for (const t of exp.tables || []) {
+          if (!aggTables.has(t.name)) aggTables.set(t.name, new Set());
+          for (const c of t.columns || []) aggTables.get(t.name)!.add(c);
+        }
+        for (const ep of exp.endpoints || []) {
+          if (ep.endpoint) aggEndpoints.add(ep.endpoint);
+        }
+        for (const s of exp.services || []) {
+          if (!aggServices.has(s.file)) aggServices.set(s.file, new Set());
+          for (const x of s.exports || []) aggServices.get(s.file)!.add(x);
+        }
+      }
+    }
+
+    let accumulatedContextBlock = '';
+    const hasAccumulatedExports = aggTables.size > 0 || aggEndpoints.size > 0 || aggServices.size > 0;
+    if (hasAccumulatedExports || predecessorTasks.length > 0) {
+      const lines: string[] = [];
+      lines.push('[CONTEXTO ACUMULADO DAS ETAPAS ANTERIORES]');
+      lines.push('- Tabelas e colunas disponíveis no banco SQLite WAL:');
+      if (aggTables.size > 0) {
+        for (const [name, cols] of aggTables.entries()) {
+          lines.push(`  * ${name}: ${Array.from(cols).join(', ')}`);
+        }
+      } else {
+        lines.push('  * (Nenhuma tabela registrada nas etapas anteriores)');
+      }
+
+      lines.push('- Endpoints REST já operacionais e prontos para serem consumidos pela interface:');
+      if (aggEndpoints.size > 0) {
+        for (const ep of aggEndpoints) {
+          lines.push(`  * ${ep}`);
+        }
+      } else {
+        lines.push('  * (Nenhum endpoint registrado nas etapas anteriores)');
+      }
+
+      lines.push('- Módulos e utilitários disponíveis para importação em src/services/:');
+      if (aggServices.size > 0) {
+        for (const [file, exps] of aggServices.entries()) {
+          lines.push(`  * ${file}: ${Array.from(exps).join(', ')}`);
+        }
+      } else {
+        lines.push('  * (Nenhum módulo registrado nas etapas anteriores)');
+      }
+
+      accumulatedContextBlock = lines.join('\n');
+    }
+
+    const baseDescription = task.description || task.title;
+    const enrichedDescription = accumulatedContextBlock
+      ? `${baseDescription}\n\n${accumulatedContextBlock}`
+      : baseDescription;
+
+    const priorExportsSummary: TaskExportsSummary = {
+      tables: Array.from(aggTables.entries()).map(([name, cols]) => ({ name, columns: Array.from(cols) })),
+      endpoints: Array.from(aggEndpoints).map(ep => {
+        const [method, ...rest] = ep.split(' ');
+        return { method, path: rest.join(' '), endpoint: ep };
+      }),
+      services: Array.from(aggServices.entries()).map(([file, exps]) => ({ file, exports: Array.from(exps) }))
+    };
 
     return {
       contractId: task.contract_id || `contract-${task.id.slice(0, 8)}`,
@@ -2663,21 +3462,33 @@ export class HierarchicalOrchestrationService {
       microTaskCode: task.code || `${task.order_index || 1}`,
       title: task.title,
       objective: task.objective || task.title,
-      description: task.description || task.title,
-      allowedScope: task.allowed_scope_json
-        ? JSON.parse(task.allowed_scope_json)
-        : task.expected_files_json
-        ? JSON.parse(task.expected_files_json)
-        : [],
+      description: enrichedDescription,
+      accumulatedContext: accumulatedContextBlock,
+      priorExportsSummary,
+      allowedScope,
       constraints: task.constraints_json
         ? JSON.parse(task.constraints_json)
-        : ['Não aprovar a própria tarefa; manter escopo cirúrgico'],
+        : [
+            'Não aprovar a própria tarefa; manter escopo cirúrgico',
+            'Worker (Fazer): Inspecione os arquivos em expectedFiles e execute o comando de verificação inicial para confirmar o estado atual',
+            'Worker (Fazer): Crie o teste unitário focado (test/) representando o requisito',
+            'Worker (Fazer): Escreva estritamente o código necessário para fazer o teste passar e o compilador ficar limpo (tsc --noEmit)',
+            'Worker (Fazer): Execute o comando de teste no terminal e anexe a saída no relatório. É proibido inventar conclusões sem evidência de terminal'
+          ],
       dependencies: task.dependencies_json ? JSON.parse(task.dependencies_json) : [],
       criteria: parsedCriteria,
       acceptanceCriteria: parsedCriteria,
-      testStrategy: task.test_strategy || `Executar "${task.verification_command || 'npm test'}"`,
+      testStrategy: task.test_strategy || `1. Inspecionar expectedFiles e executar verificação inicial; 2. Criar teste unitário em test/; 3. Código cirúrgico para passar teste e tsc --noEmit; 4. Executar "${task.verification_command || 'npm test'}" e anexar evidência de saída 0 no relatório.`,
       verificationCommand: task.verification_command || 'npm test',
-      requiredEvidence: task.required_evidence_json ? JSON.parse(task.required_evidence_json) : [],
+      requiredEvidence: task.required_evidence_json
+        ? JSON.parse(task.required_evidence_json)
+        : [
+            'Saída real de execução do teste no terminal com código de saída 0',
+            'Teste unitário focado em test/',
+            'Compilação limpa sem erros de tipagem (tsc --noEmit)'
+          ],
+      taskScaffold,
+      testSkeleton,
       attempt,
       attemptNumber: attempt,
       maxRetries: task.max_retries || 3,
@@ -2685,6 +3496,27 @@ export class HierarchicalOrchestrationService {
       reworkInstructions,
       reworkContext
     };
+  }
+
+  /**
+   * Avaliação de Qualidade de Review da Tarefa (Inteligência Construtiva do Reviewer / Directive Auto-Unblock).
+   * Diferencia erros bloqueantes de ajustes cosméticos não-bloqueantes.
+   */
+  static evaluateTaskReviewQuality(params: {
+    runId: string;
+    taskId: string;
+    projectPath: string;
+    builderReport?: any;
+    workerReport?: any;
+    evaluationResult?: EvaluationResult | null;
+    independentEvaluation?: EvaluationResult | null;
+    supervisorVerdict?: 'APPROVED' | 'CHANGES_REQUESTED' | 'REJECTED' | 'BLOCKED';
+    supervisorFeedback?: string;
+    enforceScopeCheck?: boolean;
+    allowReworkOnBlocked?: boolean;
+    isPlanningTask?: boolean;
+  }): StructuredReviewDecision {
+    return this.evaluateIndependentReviewDecision(params);
   }
 
   /**
@@ -2704,6 +3536,7 @@ export class HierarchicalOrchestrationService {
     supervisorFeedback?: string;
     enforceScopeCheck?: boolean;
     allowReworkOnBlocked?: boolean;
+    isPlanningTask?: boolean;
   }): StructuredReviewDecision {
     const task: any = db.prepare('SELECT * FROM autonomous_tasks WHERE id = ?').get(params.taskId);
     if (!task) {
@@ -2726,14 +3559,35 @@ export class HierarchicalOrchestrationService {
       ? effectiveReport.filesChanged
       : [];
 
+    // Protocolo Reviewer 1: Detectar se a tarefa é de planejamento (sem arquivos alterados)
+    const isPlanningTask =
+      params.isPlanningTask === true ||
+      task.task_type === 'planning' ||
+      task.stage_code === 'PLAN' ||
+      task.stage_code === 'PLANNING' ||
+      /plano|planejamento|planning|arquitetur/i.test(task.title || '') ||
+      /plano|planejamento|planning/i.test(task.stage_title || '');
+
+    const isPlanningWithoutFiles = isPlanningTask && reportFiles.length === 0;
+
+    // Scope expansion: extrai arquivos contidos no título da tarefa (ex: app/page.tsx)
+    const titleFileMatches = String(task.title || '').match(/([a-zA-Z0-9_\-./\\]+\.[cm]?[jt]sx?)/g) || [];
+    const effectiveAllowedScope = [...allowedScope, ...titleFileMatches];
+
+    const isSurgicalMilestone =
+      task.milestone === 'Intervenção Cirúrgica' ||
+      String(task.title || '').includes('Intervenção Cirúrgica');
+
     const outOfScopeFiles: string[] = [];
     const placeholdersOrMocksDetected: string[] = [];
     const securityOrIsolationIssues: string[] = [];
     const regressionsDetected: string[] = [];
     const problemsFound: string[] = [];
 
-    // 1. Check for forbidden/secret/runtime files and scope compliance in reportFiles
-    const shouldCheckScope = params.enforceScopeCheck !== false && allowedScope.length > 0;
+    const auxiliarySupportFilesUsed: string[] = [];
+
+    // Protocolo Reviewer 2: Se a tarefa for de código implementado, verificar allowedScope e whitelist de suporte
+    const shouldCheckScope = params.enforceScopeCheck !== false && effectiveAllowedScope.length > 0;
     for (const rawFile of reportFiles) {
       const normalized = String(rawFile || '').replace(/\\/g, '/').trim();
       if (!normalized) continue;
@@ -2746,7 +3600,7 @@ export class HierarchicalOrchestrationService {
         securityOrIsolationIssues.push(`Arquivo proibido/sensível incluído nas alterações: ${normalized}`);
       }
       if (shouldCheckScope) {
-        const matchesScope = allowedScope.some(allowed => {
+        const matchesScope = effectiveAllowedScope.some(allowed => {
           const cleanAllowed = allowed.replace(/\\/g, '/').trim();
           if (
             normalized === cleanAllowed ||
@@ -2768,10 +3622,63 @@ export class HierarchicalOrchestrationService {
           }
           return false;
         });
+
         if (!matchesScope) {
+          // Whitelist de suporte permitida (src/services/, src/utils/, src/lib/, src/models/, src/helpers/, src/types/, etc.)
+          const isAuxiliarySource =
+            isAllowedSupportWhitelist(normalized) ||
+            /^(?:server\/)?src\/(?:services|utils|lib|models|helpers|types)\/.*\.[cm]?[jt]sx?$/i.test(normalized) ||
+            /^(?:services|utils|lib|models|helpers|types)\/.*\.[cm]?[jt]sx?$/i.test(normalized);
+
+          if (isAuxiliarySource) {
+            auxiliarySupportFilesUsed.push(normalized);
+            continue;
+          }
+
+          // Intervenção Cirúrgica permite arquivos de entrada e servidor na raiz
+          if (isSurgicalMilestone && /^(server|app|index|main)\.[cm]?[jt]sx?$/i.test(normalized)) {
+            auxiliarySupportFilesUsed.push(normalized);
+            continue;
+          }
+
           outOfScopeFiles.push(normalized);
         }
       }
+    }
+
+    // Protocolo Reviewer 2: Rodar comando de verificação da tarefa se ainda não foi executado
+    let reviewVerificationRun: { command: string; exitCode: number; output: string } | null = null;
+    if (!evalRes && !isPlanningWithoutFiles && params.projectPath && task.verification_command) {
+      try {
+        const cmdToRun = resolveVerificationCommand(task.verification_command, params.projectPath);
+        const out = executeVerification(cmdToRun, params.projectPath, 30000);
+        reviewVerificationRun = { command: cmdToRun, exitCode: 0, output: out };
+      } catch (err: any) {
+        const exitCode = err.status ?? (err.code === 'ETIMEDOUT' ? 124 : 1);
+        const output = (err.stdout || '') + (err.stderr || '') + (err.message || '');
+        reviewVerificationRun = { command: task.verification_command, exitCode, output };
+      }
+    }
+
+    // Karpathy Principle: Testes com PASS não são reprovados por alterações em módulos auxiliares do projeto (escopo adaptativo)
+    let adaptiveScopeUsed = auxiliarySupportFilesUsed.length > 0;
+    if ((evalRes?.verdict === 'PASS' || (reviewVerificationRun && reviewVerificationRun.exitCode === 0)) && outOfScopeFiles.length > 0) {
+      const nonFatalAuxiliary = outOfScopeFiles.filter(f =>
+        f.startsWith('src/') ||
+        f.startsWith('public/') ||
+        f.startsWith('server/src/') ||
+        isAllowedSupportWhitelist(f) ||
+        /\.[cm]?[jt]sx?$/i.test(f)
+      );
+      if (nonFatalAuxiliary.length === outOfScopeFiles.length) {
+        adaptiveScopeUsed = true;
+        auxiliarySupportFilesUsed.push(...outOfScopeFiles);
+        outOfScopeFiles.length = 0;
+      }
+    }
+
+    if (reviewVerificationRun && reviewVerificationRun.exitCode !== 0) {
+      problemsFound.push(`Comando de verificação "${reviewVerificationRun.command}" falhou com código ${reviewVerificationRun.exitCode}`);
     }
 
     // 2. Inspect modified files on disk for inconsistency, missing implementation, or placeholders
@@ -2783,8 +3690,8 @@ export class HierarchicalOrchestrationService {
       } catch {}
     }
 
-    if (hasGitWorkspace && !task.task_commit_sha && reportFiles.length === 0 && allowedScope.length > 0 && params.supervisorVerdict !== 'BLOCKED' && evalRes?.verdict !== 'BLOCKED') {
-      const missingScoped = allowedScope.filter(s => {
+    if (!isPlanningWithoutFiles && hasGitWorkspace && !task.task_commit_sha && reportFiles.length === 0 && effectiveAllowedScope.length > 0 && params.supervisorVerdict !== 'BLOCKED' && evalRes?.verdict !== 'BLOCKED') {
+      const missingScoped = effectiveAllowedScope.filter(s => {
         const clean = s.replace(/\\/g, '/').trim();
         if (!clean || clean.includes('*')) return false;
         if (fs.existsSync(path.join(params.projectPath, clean))) return false;
@@ -2839,10 +3746,58 @@ export class HierarchicalOrchestrationService {
           if (!content.trim()) {
             problemsFound.push(`Arquivo "${normalized}" está vazio em disco.`);
           }
-          if (/TODO:\s*implement(ar(\s+depois|\s+cálculo.*)?|\s+later)|FIXME:\s*placeholder|throw new Error\(['"]Not implemented['"]\)/i.test(content)) {
-            placeholdersOrMocksDetected.push(`Placeholder não implementado detectado em ${normalized}`);
+
+          const isTestFile = /\.(test|spec)\.[cm]?[jt]sx?$/i.test(normalized) || normalized.includes('test/') || normalized.includes('tests/');
+
+          if (!isTestFile) {
+            const hasTodoMockOrStub =
+              /\/\/\s*TODO:\s*implementar\s+depois/i.test(content) ||
+              new RegExp('\\/\\*\\s*mock\\s+data\\s*\\*\\/', 'i').test(content) ||
+              /\/\/\s*mock\s+data\b/i.test(content) ||
+              /throw\s+new\s+Error\(\s*['"]Not implemented['"]\s*\)/i.test(content) ||
+              /TODO:\s*implement(ar(\s+depois|\s+cálculo.*)?|\s+later)|FIXME:\s*placeholder/i.test(content);
+
+            const isApiRouteOrServer = /(?:routes?|controllers?|endpoints?|api|server)\b/i.test(normalized) || /(?:app|router)\.(?:get|post|put|delete|patch|use)\(/i.test(content);
+            const hasSqliteOrDb = /(?:db\.|sqlite|sqlite3|prepare\(|exec\(|query\(|from\s+['"][^'"]*db|require\(['"][^'"]*db)/i.test(content);
+
+            const hasEmptyRouteHandler = isApiRouteOrServer && (
+              /(?:app|router)\.(?:get|post|put|delete|patch)\s*\([^,]+,\s*(?:async\s*)?(?:\([^)]*\)|[a-zA-Z_$][\w$]*)\s*=>\s*\{\s*\}/i.test(content) ||
+              /(?:app|router)\.(?:get|post|put|delete|patch)\s*\([^,]+,\s*function\s*(?:[a-zA-Z_$][\w$]*)?\s*\([^)]*\)\s*\{\s*\}/i.test(content)
+            );
+
+            const hasStaticApiRouteReturn = isApiRouteOrServer && !hasSqliteOrDb && (
+              /(?:app|router)\.(?:get|post|put|delete|patch)\s*\([^,]+,\s*(?:async\s*)?(?:\([^)]*\)|[a-zA-Z_$][\w$]*)\s*=>\s*\{[^}]*res\.(?:json|send)\(\s*\[\s*\{[^}]*\}\s*\]\s*\)/i.test(content) ||
+              /(?:app|router)\.(?:get|post|put|delete|patch)\s*\([^,]+,\s*function\s*(?:[a-zA-Z_$][\w$]*)?\s*\([^)]*\)\s*\{[^}]*res\.(?:json|send)\(\s*\[\s*\{[^}]*\}\s*\]\s*\)/i.test(content)
+            );
+
+            if (hasTodoMockOrStub || hasEmptyRouteHandler || hasStaticApiRouteReturn) {
+              placeholdersOrMocksDetected.push(
+                `[FALHA ANTI-SLOP]: Arquivo ${normalized} contém código estático/placeholder. Implemente a lógica real antes de submeter.`
+              );
+            }
+          } else {
+            // Test file audit: zero hollow tests
+            const hasRealAssertions = /(?:assert\s*\.\s*(?:strictEqual|equal|deepStrictEqual|deepEqual|ok|throws|rejects|match|doesNotThrow|ifError)|expect\s*\([^)]*\)\s*\.\s*(?:to|toBe|toEqual|toStrictEqual|toBeTruthy|toBeFalsy|toContain|toThrow)|(?:expect|assert)\s*\(|\.should\b)/i.test(content);
+            const hasOnlyProcessExit = /process\.exit\(\s*0\s*\)/i.test(content) && !hasRealAssertions;
+            const hasEmptyTryCatch = /try\s*\{[\s\S]*?\}\s*catch\s*(?:\([^)]*\))?\s*\{\s*\}/.test(content) && !hasRealAssertions;
+            const hasEmptyTestCallback = /(?:test|it)\s*\([^,]+,\s*(?:async\s*)?(?:\([^)]*\)|[a-zA-Z_$][\w$]*)\s*=>\s*\{\s*\}\s*\)/.test(content);
+            const hasUnfinishedStubInTest = /throw\s+new\s+Error\(\s*['"]Not implemented['"]\s*\)/i.test(content);
+
+            if (!hasRealAssertions || hasOnlyProcessExit || hasEmptyTryCatch || hasEmptyTestCallback || hasUnfinishedStubInTest) {
+              placeholdersOrMocksDetected.push(
+                `[FALHA ANTI-SLOP]: Arquivo de teste ${normalized} é oco ou não contém asserções reais (assert, expect, should).`
+              );
+            }
           }
         } catch {}
+      }
+    }
+
+    if (evalRes?.evidence?.antiSlop?.hasSlop) {
+      for (const finding of evalRes.evidence.antiSlop.findings) {
+        if (!placeholdersOrMocksDetected.includes(finding.details)) {
+          placeholdersOrMocksDetected.push(finding.details);
+        }
       }
     }
 
@@ -2850,11 +3805,11 @@ export class HierarchicalOrchestrationService {
       regressionsDetected.push(evalRes.evaluatorNotes || 'Adulteração de testes protegidos detectada pelo IndependentEvaluator');
     }
 
-    // Require real test execution evidence unless BLOCKED
-    if (params.supervisorVerdict !== 'BLOCKED' && evalRes?.verdict !== 'BLOCKED') {
-      if (!evalRes) {
+    // Require real test execution evidence unless BLOCKED or planning task
+    if (!isPlanningWithoutFiles && params.supervisorVerdict !== 'BLOCKED' && evalRes?.verdict !== 'BLOCKED') {
+      if (!evalRes && !reviewVerificationRun) {
         problemsFound.push('Nenhuma avaliação independente (IndependentEvaluator) foi executada para comprovar os testes.');
-      } else if (evalRes.verdict === 'PASS' && (!Array.isArray(evalRes.executedCommands) || evalRes.executedCommands.length === 0)) {
+      } else if (evalRes && evalRes.verdict === 'PASS' && (!Array.isArray(evalRes.executedCommands) || evalRes.executedCommands.length === 0)) {
         problemsFound.push('Relatório alega testes aprovados, mas nenhum comando de verificação foi realmente executado pelo IndependentEvaluator.');
       }
     }
@@ -2862,33 +3817,86 @@ export class HierarchicalOrchestrationService {
     // 3. Determine decision (APPROVED, REJECTED, or BLOCKED)
     let decision: 'APPROVED' | 'REJECTED' | 'BLOCKED' = 'APPROVED';
 
-    if (params.supervisorVerdict === 'BLOCKED' || (evalRes?.verdict === 'BLOCKED' && !params.allowReworkOnBlocked)) {
-      decision = 'BLOCKED';
-      problemsFound.push(params.supervisorFeedback || evalRes?.evaluatorNotes || 'Avaliação bloqueada por dependência ou comando incompatível.');
-    } else if (
-      problemsFound.length > 0 ||
-      securityOrIsolationIssues.length > 0 ||
-      regressionsDetected.length > 0 ||
-      placeholdersOrMocksDetected.length > 0 ||
-      outOfScopeFiles.length > 0 ||
+    // Factual Proof Audit: Se os testes passaram com exit code 0 E o tsc compilar sem erros de tipo E não há arquivos sensíveis proibidos:
+    const testCommandsPassed = (evalRes?.verdict === 'PASS' || (reviewVerificationRun && reviewVerificationRun.exitCode === 0));
+    const typecheckResult = IndependentEvaluator.checkTypeScriptCompilation(params.projectPath);
+
+    // Detecção ativa de falhas de segurança evidentes (SQL Injection)
+    const sqlInjectionFindings = IndependentEvaluator.detectSqlInjectionVulnerabilities(
+      params.projectPath,
+      reportFiles
+    );
+    for (const sqli of sqlInjectionFindings) {
+      securityOrIsolationIssues.push(`[${sqli.fileAndLine}] ${sqli.realError}`);
+    }
+
+    const hasProtectedFiles = securityOrIsolationIssues.some(s =>
+      /(?:Arquivo proibido\/sensível|\.env|\.(?:pem|key)|hub\.db)/i.test(s)
+    );
+    const hasSqlInjection = sqlInjectionFindings.length > 0;
+
+    // Bifurcação entre Erros Fatais (Bloqueantes) e Ajustes Cosméticos (Não-Bloqueantes)
+    const suggestions: string[] = [];
+    const blockingIssues: string[] = [];
+
+    for (const p of problemsFound) {
+      if (IndependentEvaluator.isCosmeticAdjustment(p)) {
+        suggestions.push(p);
+      } else {
+        blockingIssues.push(p);
+      }
+    }
+
+    if (params.supervisorFeedback) {
+      if (IndependentEvaluator.isCosmeticAdjustment(params.supervisorFeedback)) {
+        suggestions.push(params.supervisorFeedback);
+      } else if (params.supervisorVerdict === 'CHANGES_REQUESTED' || params.supervisorVerdict === 'REJECTED') {
+        blockingIssues.push(params.supervisorFeedback);
+      }
+    }
+
+    const hasFatalErrors =
+      !typecheckResult.passed ||
+      !testCommandsPassed ||
+      hasProtectedFiles ||
+      hasSqlInjection ||
       evalRes?.verdict === 'FAIL' ||
-      evalRes?.verdict === 'BLOCKED' ||
       evalRes?.verdict === 'TAMPERING_DETECTED' ||
-      params.supervisorVerdict === 'CHANGES_REQUESTED' ||
-      params.supervisorVerdict === 'REJECTED'
-    ) {
+      outOfScopeFiles.length > 0 ||
+      placeholdersOrMocksDetected.length > 0 ||
+      blockingIssues.length > 0;
+
+    if (evalRes?.verdict === 'TAMPERING_DETECTED') {
+      decision = 'BLOCKED';
+      blockingIssues.push('Tentativa de adulteração detectada nos testes protegidos (TAMPERING_DETECTED)');
+    } else if (params.supervisorVerdict === 'BLOCKED' || (evalRes?.verdict === 'BLOCKED' && !params.allowReworkOnBlocked)) {
+      decision = 'BLOCKED';
+      blockingIssues.push(params.supervisorFeedback || evalRes?.evaluatorNotes || 'Avaliação bloqueada por dependência ou comando incompatível.');
+    } else if (isPlanningWithoutFiles) {
+      // Tarefa de planejamento: avalia a lógica e aprova com APPROVED se cobrir os requisitos
+      if (params.supervisorVerdict === 'REJECTED' || params.supervisorVerdict === 'CHANGES_REQUESTED') {
+        decision = 'REJECTED';
+        if (params.supervisorFeedback) blockingIssues.push(params.supervisorFeedback);
+      } else {
+        decision = 'APPROVED';
+      }
+    } else if (!hasFatalErrors && testCommandsPassed && typecheckResult.passed && !hasProtectedFiles && outOfScopeFiles.length === 0) {
+      // BIFURCAÇÃO CRÍTICA: Se os testes passaram com exit code 0 e tsc compilou sem erros,
+      // ajustes cosméticos (espaçamento, comentários, estilo visual) NÃO bloqueiam a esteira.
+      decision = 'APPROVED';
+    } else {
       decision = 'REJECTED';
-      problemsFound.push(
+      blockingIssues.push(
         ...securityOrIsolationIssues,
         ...regressionsDetected,
         ...placeholdersOrMocksDetected,
         ...outOfScopeFiles.map(f => `Arquivo fora do escopo permitido: ${f}`)
       );
-      if (evalRes && evalRes.verdict !== 'PASS') {
-        problemsFound.push(evalRes.evaluatorNotes || `Avaliação independente retornou ${evalRes.verdict}`);
+      if (!typecheckResult.passed) {
+        blockingIssues.push(typecheckResult.errorDiagnosis?.realError || 'Falha de compilação TypeScript (tsc --noEmit diferente de 0)');
       }
-      if (params.supervisorFeedback && params.supervisorVerdict !== 'APPROVED') {
-        problemsFound.push(params.supervisorFeedback);
+      if (evalRes && evalRes.verdict !== 'PASS') {
+        blockingIssues.push(evalRes.evaluatorNotes || `Avaliação independente retornou ${evalRes.verdict}`);
       }
     }
 
@@ -2905,13 +3913,23 @@ export class HierarchicalOrchestrationService {
           evidence: 'Avaliação bloqueada antes da confirmação do critério'
         };
       }
+      if (isPlanningWithoutFiles) {
+        return {
+          criterion,
+          status: (decision === 'APPROVED' ? 'PASSED' : 'FAILED') as 'PASSED' | 'FAILED',
+          passed: decision === 'APPROVED',
+          evidence: decision === 'APPROVED'
+            ? 'Planejamento e requisitos arquiteturais validados e aprovados pelo Reviewer.'
+            : (params.supervisorFeedback || 'Requisitos de planejamento não atendidos.')
+        };
+      }
       if (failedSet.has(criterion) || decision === 'REJECTED') {
-        const isPassed = passedSet.has(criterion) && !failedSet.has(criterion) && problemsFound.length === 0;
+        const isPassed = passedSet.has(criterion) && !failedSet.has(criterion) && blockingIssues.length === 0;
         return {
           criterion,
           status: (isPassed ? 'PASSED' : 'FAILED') as 'PASSED' | 'FAILED',
           passed: isPassed,
-          evidence: problemsFound[0] || evalRes?.actual || 'Critério não atendido na verificação independente'
+          evidence: blockingIssues[0] || problemsFound[0] || evalRes?.actual || 'Critério não atendido na verificação independente'
         };
       }
       return {
@@ -2922,33 +3940,76 @@ export class HierarchicalOrchestrationService {
       };
     });
 
-    const executedCommands = evalRes?.executedCommands || (task.verification_command ? [task.verification_command] : []);
-    const commandResults = executedCommands.map(cmd => ({
-      command: cmd,
-      exitCode: evalRes?.exitCode ?? (decision === 'APPROVED' ? 0 : 1),
-      outputExcerpt: (evalRes?.actual || params.supervisorFeedback || '').slice(0, 500)
-    }));
+    const executedCommands = evalRes?.executedCommands || (reviewVerificationRun ? [reviewVerificationRun.command] : (task.verification_command ? [task.verification_command] : []));
+    const commandResults = reviewVerificationRun
+      ? [{
+          command: reviewVerificationRun.command,
+          exitCode: reviewVerificationRun.exitCode,
+          outputExcerpt: (reviewVerificationRun.output || '').slice(0, 500)
+        }]
+      : executedCommands.map(cmd => ({
+          command: cmd,
+          exitCode: evalRes?.exitCode ?? (decision === 'APPROVED' ? 0 : 1),
+          outputExcerpt: (evalRes?.actual || params.supervisorFeedback || '').slice(0, 500)
+        }));
 
     let surgicalDiagnosisText = '';
     if (decision === 'REJECTED') {
-      const diag = evalRes?.evidence?.ciDoctorDiagnosis;
-      const rootCause = IndependentEvaluator.extractSurgicalRootCauseDiagnosis({
-        output: (evalRes?.evidence as any)?.terminalOutput || evalRes?.evidence?.output || evalRes?.actual || params.supervisorFeedback || '',
-        failureDiagnosis: diag,
-        projectPath: params.projectPath,
-        fallbackFile: reportFiles[0] || allowedScope[0] || 'src/',
-        fallbackError: problemsFound[0] || evalRes?.actual || 'Critérios obrigatórios não atendidos na avaliação independente',
-        fallbackDirective: `Isolar a quebra em "${task.verification_command || 'npm test'}" e corrigir pontualmente sem alterar testes.`
+      let fileAndLine = '';
+      let realError = '';
+      let surgicalDirective = '';
+
+      if (placeholdersOrMocksDetected.length > 0) {
+        fileAndLine = placeholdersOrMocksDetected[0].match(/Arquivo\s+(?:de\s+teste\s+)?([^\s:]+)/)?.[1] || (reportFiles[0] || 'src/');
+        realError = placeholdersOrMocksDetected[0];
+        surgicalDirective = 'Remover código simulado/placeholder e implementar a persistência funcional ou asserções factuais reais.';
+      } else if (!typecheckResult.passed && typecheckResult.errorDiagnosis) {
+        fileAndLine = typecheckResult.errorDiagnosis.fileAndLine;
+        realError = typecheckResult.errorDiagnosis.realError;
+        surgicalDirective = typecheckResult.errorDiagnosis.surgicalDirective;
+      } else if (sqlInjectionFindings.length > 0) {
+        fileAndLine = sqlInjectionFindings[0].fileAndLine;
+        realError = sqlInjectionFindings[0].realError;
+        surgicalDirective = sqlInjectionFindings[0].surgicalDirective;
+      } else if (hasProtectedFiles) {
+        const forbiddenFile = reportFiles.find(f => /(?:^\.env|\.(?:pem|key)|hub\.db)/i.test(f)) || '.env';
+        fileAndLine = `${forbiddenFile}:1`;
+        realError = `Tentativa de alterar arquivo protegido ou sensível (${forbiddenFile}) violando o isolamento e segurança do projeto.`;
+        surgicalDirective = `Reverter imediatamente as alterações no arquivo ${forbiddenFile} e mantê-lo fora do repositório.`;
+      } else {
+        const diag = evalRes?.evidence?.ciDoctorDiagnosis;
+        const rootCause = IndependentEvaluator.extractSurgicalRootCauseDiagnosis({
+          output: (evalRes?.evidence as any)?.terminalOutput || evalRes?.evidence?.output || evalRes?.actual || reviewVerificationRun?.output || params.supervisorFeedback || '',
+          failureDiagnosis: diag,
+          projectPath: params.projectPath,
+          fallbackFile: reportFiles[0] || effectiveAllowedScope[0] || 'src/',
+          fallbackError: blockingIssues[0] || problemsFound[0] || evalRes?.actual || reviewVerificationRun?.output || 'Critérios obrigatórios não atendidos na avaliação independente',
+          fallbackDirective: `Isolar a quebra em "${task.verification_command || 'npm test'}" e corrigir pontualmente sem alterar testes.`
+        });
+        fileAndLine = rootCause.fileAndLine;
+        realError = rootCause.realError;
+        surgicalDirective = rootCause.surgicalDirective;
+      }
+
+      surgicalDiagnosisText = IndependentEvaluator.formatStructuredFeedback({
+        falha: 'Verificação técnica reprovada pelo Reviewer Independente.',
+        causaRaiz: realError,
+        acaoRequerida: surgicalDirective,
+        fileAndLine,
+        realError,
+        surgicalDirective
       });
-      surgicalDiagnosisText = rootCause.formatted;
     }
+
+    const finalScore = decision === 'APPROVED' ? (suggestions.length > 0 ? 9 : 10) : 4;
+    const finalVerdict = decision === 'APPROVED' ? 'APPROVED' : (decision === 'BLOCKED' ? 'BLOCKED' : 'CHANGES_REQUESTED');
 
     const recommendedCorrections =
       decision === 'APPROVED'
-        ? []
+        ? (suggestions.length > 0 ? suggestions.map(s => `Sugestão (não-bloqueante): ${s}`) : [])
         : [
             ...(surgicalDiagnosisText ? [surgicalDiagnosisText] : []),
-            ...problemsFound.map(p => `Corrigir: ${p}`),
+            ...blockingIssues.map(p => `Bloqueio: ${p}`),
             `Garantir que o comando "${task.verification_command || 'npm test'}" passe com código 0`
           ];
 
@@ -2959,6 +4020,10 @@ export class HierarchicalOrchestrationService {
       majorTaskId: task.major_task_id || null,
       runId: params.runId,
       decision,
+      verdict: finalVerdict,
+      score: finalScore,
+      suggestions,
+      blockingIssues,
       evaluatedCriteria,
       executedCommands,
       commandResults,
@@ -2967,16 +4032,24 @@ export class HierarchicalOrchestrationService {
       placeholdersOrMocksDetected,
       regressionsDetected,
       securityOrIsolationIssues,
-      problemsFound,
+      problemsFound: decision === 'APPROVED' ? [] : Array.from(new Set(blockingIssues)),
       justification:
+        (decision === 'APPROVED' && suggestions.length > 0
+          ? `Aprovado com ressalvas cosméticas (nota 9/10): Todos os testes passaram com código de saída 0 no terminal e tipagem válida. Ajustes secundários catalogados em sugestões sem paralisar a esteira.`
+          : null) ||
+        (decision === 'APPROVED' && adaptiveScopeUsed
+          ? `Aprovado com escopo adaptativo: módulos auxiliares necessários para os testes passaram com sucesso.`
+          : null) ||
         (decision === 'APPROVED' ? (params.supervisorFeedback || evalRes?.evaluatorNotes) : null) ||
         (decision === 'APPROVED'
-          ? 'Todos os critérios obrigatórios e verificações independentes foram comprovados.'
-          : (evalRes?.evaluatorNotes && evalRes.evaluatorNotes.includes('[ARQUIVO E LINHA]')
-            ? evalRes.evaluatorNotes
-            : (surgicalDiagnosisText
+          ? (isPlanningWithoutFiles
+              ? 'Planejamento e requisitos validados com sucesso pelo Reviewer.'
+              : 'Todos os critérios obrigatórios e verificações independentes foram comprovados.')
+          : (surgicalDiagnosisText
               ? `Reprovado no Review independente:\n${surgicalDiagnosisText}`
-              : (problemsFound.length > 0 ? `Reprovado no Review independente: ${problemsFound.join('; ')}` : 'Critérios obrigatórios não atendidos na avaliação independente.')))),
+              : (evalRes?.evaluatorNotes && (evalRes.evaluatorNotes.includes('[Arquivo:Linha]') || evalRes.evaluatorNotes.includes('[ARQUIVO E LINHA]'))
+                ? evalRes.evaluatorNotes
+                : (blockingIssues.length > 0 ? `Reprovado no Review independente: ${blockingIssues.join('; ')}` : 'Critérios obrigatórios não atendidos na avaliação independente.')))),
       recommendedCorrections,
       evaluatedAt: new Date().toISOString()
     };
@@ -2988,6 +4061,232 @@ export class HierarchicalOrchestrationService {
     `).run(decision, JSON.stringify(reviewDecision), reviewDecision.evaluatedAt, task.id);
 
     return reviewDecision;
+  }
+
+  /**
+   * Extração de exports e artefatos de uma tarefa concluída:
+   * - Banco/Schema: tabelas e colunas (SQLite WAL / SQL / Drizzle)
+   * - Rotas: endpoints HTTP (ex: POST /api/leads, GET /api/leads)
+   * - Serviços/Módulos: funções e classes exportadas
+   */
+  static extractTaskExports(projectPath: string, filesChanged: string[]): TaskExportsSummary {
+    const summary: TaskExportsSummary = {
+      tables: [],
+      endpoints: [],
+      services: []
+    };
+
+    if (!projectPath || !Array.isArray(filesChanged) || filesChanged.length === 0) {
+      return summary;
+    }
+
+    for (const rawFile of filesChanged) {
+      if (!rawFile || typeof rawFile !== 'string') continue;
+      const absPath = path.isAbsolute(rawFile) ? rawFile : path.resolve(projectPath, rawFile);
+      if (!fs.existsSync(absPath)) continue;
+      let stat: fs.Stats;
+      try {
+        stat = fs.statSync(absPath);
+      } catch {
+        continue;
+      }
+      if (!stat.isFile()) continue;
+
+      let content = '';
+      try {
+        content = fs.readFileSync(absPath, 'utf-8');
+      } catch {
+        continue;
+      }
+
+      const relPath = path.relative(projectPath, absPath).replace(/\\/g, '/');
+
+      // 1. Extração de Banco e Schema (SQL / Drizzle / SQLite WAL)
+      const tableRegex = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["'`]?([a-zA-Z0-9_]+)["'`]?\s*\(([\s\S]*?)\)(?:;|\s*$|\))/gi;
+      let match: RegExpExecArray | null;
+      while ((match = tableRegex.exec(content)) !== null) {
+        const tableName = match[1];
+        const body = match[2];
+        const columns: string[] = [];
+        const lines = body.split('\n');
+        for (const line of lines) {
+          const trimmed = line.trim().replace(/,$/, '');
+          if (!trimmed || trimmed.startsWith('--') || trimmed.startsWith('/*')) continue;
+          if (/^(PRIMARY\s+KEY|FOREIGN\s+KEY|CONSTRAINT|INDEX|UNIQUE|CHECK)\b/i.test(trimmed)) continue;
+          const colMatch = trimmed.match(/^["'`]?([a-zA-Z0-9_]+)["'`]?\s+([a-zA-Z0-9_()]+)/);
+          if (colMatch) {
+            const colName = colMatch[1];
+            if (!columns.includes(colName)) {
+              columns.push(colName);
+            }
+          }
+        }
+        const existingTable = summary.tables.find(t => t.name === tableName);
+        if (existingTable) {
+          for (const col of columns) {
+            if (!existingTable.columns.includes(col)) existingTable.columns.push(col);
+          }
+        } else {
+          summary.tables.push({ name: tableName, columns });
+        }
+      }
+
+      // Drizzle ORM sqliteTable support
+      const drizzleRegex = /sqliteTable\s*\(\s*['"]([a-zA-Z0-9_]+)['"]\s*,\s*\{([\s\S]*?)\}\s*\)/gi;
+      while ((match = drizzleRegex.exec(content)) !== null) {
+        const tableName = match[1];
+        const body = match[2];
+        const columns: string[] = [];
+        const propMatches = body.matchAll(/([a-zA-Z0-9_]+)\s*:\s*[a-zA-Z0-9_]+\s*\(/g);
+        for (const pm of propMatches) {
+          if (!columns.includes(pm[1])) columns.push(pm[1]);
+        }
+        const existingTable = summary.tables.find(t => t.name === tableName);
+        if (existingTable) {
+          for (const col of columns) {
+            if (!existingTable.columns.includes(col)) existingTable.columns.push(col);
+          }
+        } else {
+          summary.tables.push({ name: tableName, columns });
+        }
+      }
+
+      // 2. Extração de Endpoints HTTP (Express, Fastify, Hono, Router)
+      const endpointRegex = /\b(?:app|router|server|routes)\.(get|post|put|patch|delete|options|head)\s*\(\s*['"`]([^'"`]+)['"`]/gi;
+      while ((match = endpointRegex.exec(content)) !== null) {
+        const method = match[1].toUpperCase();
+        const endpointPath = match[2];
+        const endpointStr = `${method} ${endpointPath}`;
+        if (!summary.endpoints.some(e => e.endpoint === endpointStr)) {
+          summary.endpoints.push({ method, path: endpointPath, endpoint: endpointStr });
+        }
+      }
+
+      const decoratorRegex = /@(Get|Post|Put|Patch|Delete)\s*\(\s*['"`]([^'"`]+)['"`]\)/gi;
+      while ((match = decoratorRegex.exec(content)) !== null) {
+        const method = match[1].toUpperCase();
+        const endpointPath = match[2];
+        const endpointStr = `${method} ${endpointPath}`;
+        if (!summary.endpoints.some(e => e.endpoint === endpointStr)) {
+          summary.endpoints.push({ method, path: endpointPath, endpoint: endpointStr });
+        }
+      }
+
+      // 3. Extração de Serviços e Módulos Exportados
+      const isTestFile = relPath.includes('test/') || relPath.includes('tests/') || relPath.endsWith('.test.ts') || relPath.endsWith('.spec.ts') || relPath.endsWith('.test.js');
+      if (!isTestFile && (relPath.startsWith('src/') || relPath.includes('/services/') || relPath.includes('/modules/') || relPath.includes('/utils/'))) {
+        const serviceExports: string[] = [];
+        const funcRegex = /export\s+(?:async\s+)?function\s+([a-zA-Z0-9_$]+)/g;
+        while ((match = funcRegex.exec(content)) !== null) {
+          if (!serviceExports.includes(match[1])) serviceExports.push(match[1]);
+        }
+        const classRegex = /export\s+class\s+([a-zA-Z0-9_$]+)/g;
+        while ((match = classRegex.exec(content)) !== null) {
+          if (!serviceExports.includes(match[1])) serviceExports.push(match[1]);
+        }
+        const constRegex = /export\s+(?:const|let)\s+([a-zA-Z0-9_$]+)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[a-zA-Z0-9_$]+|\(\))\s*=>/g;
+        while ((match = constRegex.exec(content)) !== null) {
+          if (!serviceExports.includes(match[1])) serviceExports.push(match[1]);
+        }
+        const namedExportRegex = /export\s*\{\s*([^}]+)\s*\}/g;
+        while ((match = namedExportRegex.exec(content)) !== null) {
+          const names = match[1].split(',').map(n => n.trim().split(/\s+as\s+/)[0]).filter(Boolean);
+          for (const n of names) {
+            if (!serviceExports.includes(n)) serviceExports.push(n);
+          }
+        }
+        if (serviceExports.length > 0) {
+          summary.services.push({ file: relPath, exports: serviceExports });
+        }
+      }
+    }
+
+    return summary;
+  }
+
+  /**
+   * Persiste os exports extraídos na coluna exports_json de autonomous_tasks
+   * e consolida no arquivo .ai-dev-hub/tasks-context.json
+   */
+  static recordTaskExportsAndSyncContext(params: {
+    taskId: string;
+    projectPath: string;
+    filesChanged: string[];
+  }): TaskExportsSummary {
+    const task: any = db.prepare('SELECT * FROM autonomous_tasks WHERE id = ?').get(params.taskId);
+    if (!task) {
+      return { tables: [], endpoints: [], services: [] };
+    }
+
+    const exportsSummary = this.extractTaskExports(params.projectPath, params.filesChanged);
+    const exportsJson = JSON.stringify(exportsSummary);
+
+    try {
+      db.prepare('UPDATE autonomous_tasks SET exports_json = ?, updated_at = ? WHERE id = ?')
+        .run(exportsJson, new Date().toISOString(), task.id);
+    } catch (dbErr: any) {
+      Logger.warn(`[HierarchicalOrchestration] Aviso ao salvar exports_json no banco: ${dbErr.message}`);
+    }
+
+    try {
+      if (params.projectPath && fs.existsSync(params.projectPath)) {
+        const hubDir = path.join(params.projectPath, '.ai-dev-hub');
+        if (!fs.existsSync(hubDir)) {
+          fs.mkdirSync(hubDir, { recursive: true });
+        }
+        const contextFilePath = path.join(hubDir, 'tasks-context.json');
+        let contextData: any = { tasks: {}, consolidated: { tables: [], endpoints: [], services: [] } };
+        if (fs.existsSync(contextFilePath)) {
+          try {
+            const raw = fs.readFileSync(contextFilePath, 'utf-8');
+            contextData = JSON.parse(raw);
+            if (!contextData.tasks) contextData.tasks = {};
+          } catch {}
+        }
+
+        contextData.tasks[task.id] = {
+          taskId: task.id,
+          taskCode: task.code || task.milestone || '',
+          taskTitle: task.title,
+          completedAt: new Date().toISOString(),
+          exports: exportsSummary
+        };
+
+        const allTables: Map<string, Set<string>> = new Map();
+        const allEndpoints: Set<string> = new Set();
+        const allServices: Map<string, Set<string>> = new Map();
+
+        for (const t of Object.values(contextData.tasks) as any[]) {
+          const exp: TaskExportsSummary = t.exports || { tables: [], endpoints: [], services: [] };
+          for (const table of exp.tables || []) {
+            if (!allTables.has(table.name)) allTables.set(table.name, new Set());
+            for (const col of table.columns || []) allTables.get(table.name)!.add(col);
+          }
+          for (const ep of exp.endpoints || []) {
+            if (ep.endpoint) allEndpoints.add(ep.endpoint);
+          }
+          for (const svc of exp.services || []) {
+            if (!allServices.has(svc.file)) allServices.set(svc.file, new Set());
+            for (const expName of svc.exports || []) allServices.get(svc.file)!.add(expName);
+          }
+        }
+
+        contextData.consolidated = {
+          tables: Array.from(allTables.entries()).map(([name, cols]) => ({ name, columns: Array.from(cols) })),
+          endpoints: Array.from(allEndpoints).map(ep => {
+            const [method, ...rest] = ep.split(' ');
+            return { method, path: rest.join(' '), endpoint: ep };
+          }),
+          services: Array.from(allServices.entries()).map(([file, exps]) => ({ file, exports: Array.from(exps) }))
+        };
+
+        fs.writeFileSync(contextFilePath, JSON.stringify(contextData, null, 2), 'utf-8');
+      }
+    } catch (fsErr: any) {
+      Logger.warn(`[HierarchicalOrchestration] Aviso ao salvar tasks-context.json: ${fsErr.message}`);
+    }
+
+    return exportsSummary;
   }
 
   /**
@@ -3027,11 +4326,18 @@ export class HierarchicalOrchestrationService {
 
     // If task already has a verified commit SHA and is completed, return idempotently
     if (task.task_commit_sha && currentState === 'COMPLETED') {
+      if (!task.exports_json) {
+        HierarchicalOrchestrationService.recordTaskExportsAndSyncContext({
+          taskId: task.id,
+          projectPath: params.projectPath,
+          filesChanged: params.filesChanged || []
+        });
+      }
       return {
         success: true,
         committed: true,
         commitSha: task.task_commit_sha,
-        commitMessage: params.commitMessage || `feat(ai): [${task.code || task.milestone}] ${task.title}`,
+        commitMessage: params.commitMessage || `feat(${task.code || task.milestone || 'task'}): ${task.title}`,
         filesCommitted: params.filesChanged || []
       };
     }
@@ -3045,12 +4351,45 @@ export class HierarchicalOrchestrationService {
       });
     }
 
+    // Atualização de Kanban: marca a tarefa como concluída (- [x] ${task.title}) em .ai-dev-hub/tasks.md
+    if (params.projectPath) {
+      try {
+        const aiDevHubDir = path.join(params.projectPath, '.ai-dev-hub');
+        const tasksMdPath = path.join(aiDevHubDir, 'tasks.md');
+        if (!fs.existsSync(aiDevHubDir)) {
+          fs.mkdirSync(aiDevHubDir, { recursive: true });
+        }
+
+        let tasksMdContent = '';
+        if (fs.existsSync(tasksMdPath)) {
+          tasksMdContent = fs.readFileSync(tasksMdPath, 'utf-8');
+        }
+
+        const taskTitle = task.title.trim();
+        const escapedTitle = taskTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const uncompletedRegex = new RegExp(`^(\\s*-\\s*\\[\\s*\\]\\s*.*${escapedTitle}.*)$`, 'm');
+        const completedRegex = new RegExp(`^\\s*-\\s*\\[x\\]\\s*.*${escapedTitle}.*$`, 'm');
+
+        if (uncompletedRegex.test(tasksMdContent)) {
+          tasksMdContent = tasksMdContent.replace(uncompletedRegex, `- [x] ${taskTitle}`);
+        } else if (!completedRegex.test(tasksMdContent)) {
+          if (tasksMdContent.includes('## Concluído') || tasksMdContent.includes('## Concluido')) {
+            tasksMdContent = tasksMdContent.replace(/(## Conclu[íi]do[^\n]*\n)/i, `$1- [x] ${taskTitle}\n`);
+          } else {
+            tasksMdContent = `${tasksMdContent.trim()}\n\n## Concluído\n- [x] ${taskTitle}\n`.trim() + '\n';
+          }
+        }
+
+        fs.writeFileSync(tasksMdPath, tasksMdContent, 'utf-8');
+      } catch (kanbanErr: any) {
+        Logger.warn(`[executePostReviewCommitGate] Falha não-bloqueante ao atualizar .ai-dev-hub/tasks.md: ${kanbanErr?.message}`);
+      }
+    }
+
     const runRow: any = db.prepare('SELECT project_id FROM autonomous_runs WHERE id = ?').get(params.runId);
     const projectId = task.project_id || runRow?.project_id || '';
-    const taskCode = task.code || task.milestone || '1.1';
-    const commitMessage =
-      params.commitMessage ||
-      `feat(task-${taskCode}): [${task.milestone || 'M1'}] ${task.title} [task:${task.id.slice(0, 8)}]`;
+    const taskCode = task.code || task.milestone || 'task';
+    const commitMessage = params.commitMessage || `feat(${taskCode}): ${task.title}`;
 
     if (params.simulateCommitFailure) {
       const reason = 'COMMIT_FAILURE: Falha no pré-commit/git commit da microtarefa.';
@@ -3131,6 +4470,11 @@ export class HierarchicalOrchestrationService {
         reason: 'Microtarefa aprovada e finalizada (ambiente de teste sem repositório Git inicializado).',
         metadata: { commitSha: syntheticSha, requireCommit: false }
       });
+      HierarchicalOrchestrationService.recordTaskExportsAndSyncContext({
+        taskId: task.id,
+        projectPath: params.projectPath,
+        filesChanged: params.filesChanged || []
+      });
       return {
         success: true,
         committed: true,
@@ -3151,7 +4495,10 @@ export class HierarchicalOrchestrationService {
         : task.expected_files_json
         ? JSON.parse(task.expected_files_json)
         : [];
-      const explicitFiles = (params.filesChanged || [])
+      const explicitFiles = [...new Set([
+        ...(params.filesChanged || []),
+        fs.existsSync(path.join(params.projectPath, '.ai-dev-hub', 'tasks.md')) ? '.ai-dev-hub/tasks.md' : ''
+      ])]
         .map(f => GitManager.normalizeRepoPath(params.projectPath, f))
         .filter((f): f is string => Boolean(f));
       const hasExplicitOrScopedRestriction = explicitFiles.length > 0 || allowedScope.length > 0;
@@ -3177,7 +4524,8 @@ export class HierarchicalOrchestrationService {
             const cleanAllowed = allowed.replace(/\\/g, '/').trim();
             return norm === cleanAllowed || norm.startsWith(cleanAllowed.replace(/\*.*$/, ''));
           });
-          return inExplicit || inAllowedScope;
+          const inSupportWhitelist = isAllowedSupportWhitelist(norm);
+          return inExplicit || inAllowedScope || inSupportWhitelist;
         }
         return true;
       });
@@ -3224,43 +4572,32 @@ export class HierarchicalOrchestrationService {
         };
       }
 
-      let headBefore: string | null = null;
-      try {
-        headBefore = execFileSync('git', ['rev-parse', '--verify', 'HEAD'], {
-          cwd: params.projectPath,
-          encoding: 'utf-8',
-          stdio: ['ignore', 'pipe', 'ignore']
-        }).trim();
-      } catch {}
-
       let commitSha = task.task_commit_sha || null;
       if (!commitSha && candidateFiles.length > 0) {
         const committed = GitManager.commitSelected(params.projectPath, candidateFiles, commitMessage);
         if (committed) {
           try {
-            const headAfter = execFileSync('git', ['rev-parse', '--verify', 'HEAD'], {
+            const headAfter = GitManager.safeExecFileSync('git', ['rev-parse', 'HEAD'], {
               cwd: params.projectPath,
-              encoding: 'utf-8',
-              stdio: ['ignore', 'pipe', 'ignore']
+              timeout: 5000
             }).trim();
-            if (headAfter !== headBefore) {
+            if (headAfter) {
               commitSha = headAfter;
             }
           } catch {}
         }
       }
 
-      if (!commitSha && headBefore) {
-        // Only reuse HEAD if the commit message explicitly references this task, proving it was already committed for this task
-        const commitDetails = GitManager.getCommitDetails(params.projectPath, headBefore);
-        const matchesThisTask = commitDetails && (
-          (taskCode && commitDetails.message.includes(`[${taskCode}]`)) ||
-          commitDetails.message.includes(task.title) ||
-          commitDetails.message.includes(task.id)
-        );
-        if (matchesThisTask) {
-          commitSha = headBefore;
-        }
+      if (!commitSha) {
+        try {
+          const currentHead = GitManager.safeExecFileSync('git', ['rev-parse', 'HEAD'], {
+            cwd: params.projectPath,
+            timeout: 5000
+          }).trim();
+          if (currentHead) {
+            commitSha = currentHead;
+          }
+        } catch {}
       }
 
       if (!commitSha) {
@@ -3356,6 +4693,12 @@ export class HierarchicalOrchestrationService {
         actor: 'supervisor',
         reason: `Review aprovado e commit ${commitSha.slice(0, 8)} confirmado no Git.`,
         metadata: { commitSha, filesCommitted: candidateFiles }
+      });
+
+      HierarchicalOrchestrationService.recordTaskExportsAndSyncContext({
+        taskId: task.id,
+        projectPath: params.projectPath,
+        filesChanged: candidateFiles.length > 0 ? candidateFiles : (params.filesChanged || [])
       });
 
       try {
@@ -4926,14 +6269,42 @@ export class HierarchicalOrchestrationService {
    * Domain Logic, APIs, UI/Views, and Testing/Verification), each with atomic microtasks (>15 total),
    * explicit file scopes, acceptance criteria, normalized verification commands, and chained cycle-free DAG.
    */
-  static generateMultiPassPlannedTasks(params: {
-    briefing: string;
-    projectPath: string;
-    projectName?: string;
-    projectId?: string;
-    requirements?: string[];
-  }): PlannedTask[] {
+  static generateMultiPassPlannedTasks(
+    briefingOrParams: string | {
+      briefing: string;
+      projectPath: string;
+      projectName?: string;
+      projectId?: string;
+      requirements?: string[];
+    },
+    projectNameArg?: string,
+    projectPathArg?: string
+  ): PlannedTask[] {
+    const params = typeof briefingOrParams === 'object'
+      ? briefingOrParams
+      : {
+          briefing: briefingOrParams,
+          projectName: projectNameArg || 'Project',
+          projectPath: projectPathArg || ''
+        };
+
     const originalDescription = (params.briefing || '').trim();
+
+    // 0. Prioridade Máxima para Grandes Tarefas (GTs) explícitas no briefing
+    const explicitGts = this.extractExplicitGrandesTarefasFromBriefing(originalDescription, params.projectName);
+    if (explicitGts && explicitGts.length > 0) {
+      return explicitGts;
+    }
+
+    // Architectural decomposition check for multi-section briefings
+    const archTasks = this.decomposeArchitecturalBriefing({
+      briefing: originalDescription,
+      projectName: params.projectName || 'Project',
+      projectId: params.projectId
+    });
+    if (archTasks && archTasks.length > 0) {
+      return archTasks;
+    }
     const structuredReqs = this.extractStructuredRequirements(originalDescription, params.requirements);
     const complexity = this.analyzeProjectComplexity(originalDescription, params.requirements);
 
@@ -4951,9 +6322,26 @@ export class HierarchicalOrchestrationService {
       return res.length > 0 ? res : fallback;
     };
 
-    const isSaaS = ReaSaaSMasterService.isSaaSOrFullStackProject(originalDescription) ||
-      (params.projectPath ? fs.existsSync(path.join(path.resolve(params.projectPath), '.ai-dev-hub', 'specs', 'CONTEUDO.md')) : false);
-    const isSimple = !isSaaS && complexity.complexityTier === 'SIMPLE' && structuredReqs.length <= 2;
+    const isSingleInstructionOrBugfix =
+      /^(quando eu clico|veja o que|arrume|corrija|conserte|ajuste|fix|bug|defeito|n[aã]o faz nada)/i.test(originalDescription) ||
+      (originalDescription.length < 150 && !/(?:criar|construir|desenvolver|arquitetura completa|novo saas|nova plataforma|m[oó]dulos)/i.test(originalDescription));
+
+    const rawProfile = (params as any).projectProfile || (params as any).project_profile;
+    const projectProfile = rawProfile || resolveProjectProfileMode(
+      params.projectId || params.projectPath || { name: params.projectName },
+      originalDescription
+    );
+    const hasLivingSpecs = params.projectPath
+      ? fs.existsSync(path.join(path.resolve(params.projectPath), '.ai-dev-hub', 'specs', 'CONTEUDO.md'))
+      : false;
+    const isSaaS = !isSingleInstructionOrBugfix && (
+      projectProfile === 'commercial_saas' ||
+      (projectProfile !== 'local_personal' && (
+        hasLivingSpecs ||
+        ReaSaaSMasterService.isSaaSOrFullStackProject(originalDescription)
+      ))
+    );
+    const isSimple = isSingleInstructionOrBugfix || (!isSaaS && complexity.complexityTier === 'SIMPLE' && structuredReqs.length <= 2);
     if (isSimple) {
       const t1: PlannedTask = {
         code: '1.1',

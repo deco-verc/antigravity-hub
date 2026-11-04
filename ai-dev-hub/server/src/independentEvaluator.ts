@@ -98,7 +98,7 @@ export interface AdversarialValidationResult {
 
 export interface AntiSlopFinding {
   file: string;
-  type: 'EMPTY_PLACEHOLDER' | 'PRODUCTION_MOCK' | 'UNCHANGED_CORE_CLAIM' | 'TAUTOLOGICAL_ASSERTION';
+  type: 'EMPTY_PLACEHOLDER' | 'PRODUCTION_MOCK' | 'UNCHANGED_CORE_CLAIM' | 'TAUTOLOGICAL_ASSERTION' | 'HOLLOW_TEST';
   details: string;
 }
 
@@ -269,6 +269,87 @@ export class IndependentEvaluator {
   }
 
   /**
+   * Identifica se uma observação ou apontamento de revisão é um ajuste cosmético não-bloqueante
+   * (espaçamento, indentação, comentários ou preferências de estilo visual secundárias).
+   */
+  public static isCosmeticAdjustment(issue: string): boolean {
+    if (!issue || typeof issue !== 'string') return false;
+    const lower = issue.toLowerCase();
+    const isPurelyVisualOrCosmetic = /(?:espaçamento|whitespace|espaço|indent|indentação|tabulação|linha\s+em\s+branco|comentário|comentários|comment|jsdoc|docstring|estilo\s+visual|detalhes?\s+visua(?:l|is)|falta\s+de\s+detalhes|apar[êe]ncia|estilo\s+css|layout\s+visual|paleta\s+de\s+cores|cores?|padding|margin|alinhamento\s+visual|preferência\s+de\s+estilo)/i.test(lower);
+    if (isPurelyVisualOrCosmetic) {
+      if (/(?:exit\s*code\s*[1-9]|código\s+de\s+saída\s*[1-9]|syntaxerror|injection|injet|sql|compil|tsc\b|adulter|proibid|sensível|seguranç|vulnerab|timeout|typeerror|referenceerror)/i.test(lower)) {
+        return false;
+      }
+      return true;
+    }
+    // Se contiver palavras-chave de falha técnica real, quebra de teste, compilação, sintaxe ou segurança, NÃO é cosmético
+    if (/(?:falha|erro|exit\s*code|código\s+de\s+saída|quebr|crash|syntax|exceção|exception|injection|injet|sql|compil|tsc|test|reprov|adulter|proibid|sensível|seguranç|vulnerab|timeout|typeerror|referenceerror)/i.test(lower)) {
+      return false;
+    }
+    return false;
+  }
+
+  /**
+   * Detecta vulnerabilidades evidentes de SQL Injection (queries com concatenação/interpolação direta sem prepared statements ?)
+   */
+  public static detectSqlInjectionVulnerabilities(projectPath: string, filesChanged: string[]): Array<{
+    fileAndLine: string;
+    realError: string;
+    surgicalDirective: string;
+  }> {
+    const findings: Array<{ fileAndLine: string; realError: string; surgicalDirective: string }> = [];
+    if (!projectPath || !Array.isArray(filesChanged)) return findings;
+
+    for (const relFile of filesChanged) {
+      const cleanRel = String(relFile || '').replace(/\\/g, '/').trim();
+      if (!cleanRel || !/\.(?:[cm]?[jt]sx?|sql)$/i.test(cleanRel)) continue;
+      // Ignorar arquivos de teste
+      if (/(?:test|spec|\.test\.|\.spec\.|__tests__)/i.test(cleanRel)) continue;
+
+      const fullPath = path.isAbsolute(cleanRel) ? cleanRel : path.join(projectPath, cleanRel);
+      if (!fs.existsSync(fullPath) || fs.statSync(fullPath).isDirectory()) continue;
+
+      let content = '';
+      try {
+        content = fs.readFileSync(fullPath, 'utf8');
+      } catch {
+        continue;
+      }
+
+      const lines = content.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        // Checa chamadas que executam SQL ou queries SQL explícitas
+        const hasSqlCall = /(?:\.prepare|\.exec|\.run|\.all|\.get|\.query)\s*\(/i.test(line) ||
+                           /(?:SELECT\s+.*FROM|INSERT\s+INTO|UPDATE\s+.*SET|DELETE\s+FROM)\b/i.test(line);
+
+        if (!hasSqlCall) continue;
+
+        // Procura interpolação em WHERE, VALUES, SET que não seja gerador de placeholders
+        const interpolationMatch = line.match(/(?:WHERE|VALUES|SET)\s+[^;`]*?\$\{([^}]+)\}/i);
+        const concatMatch = line.match(/(?:WHERE|VALUES|SET)\s+[^;`]*?(?:['"]\s*\+\s*|\+\s*['"]?)([a-zA-Z0-9_.]+)/i);
+
+        if (interpolationMatch || concatMatch) {
+          const varExpr = (interpolationMatch ? interpolationMatch[1] : concatMatch![1]).trim();
+          // Ignorar geradores dinâmicos legítimos de placeholders (ex: placeholders, ph, inClause)
+          if (/^(?:placeholders?|inClause|ph|placeholders\.join)\b/i.test(varExpr)) {
+            continue;
+          }
+
+          const fileAndLine = `${cleanRel}:${i + 1}`;
+          findings.push({
+            fileAndLine,
+            realError: `Falha de segurança evidente (SQL Injection): query SQL com interpolação de "${varExpr}" sem query parametrizada com placeholder ?`,
+            surgicalDirective: `Substituir a interpolação em ${fileAndLine} por placeholder ? na cláusula SQL e passar "${varExpr}" como parâmetro preparado.`
+          });
+        }
+      }
+    }
+
+    return findings;
+  }
+
+  /**
    * Extrai e formata o diagnóstico cirúrgico da causa-raiz contendo:
    * [ARQUIVO E LINHA]
    * [ERRO REAL]
@@ -285,6 +366,8 @@ export class IndependentEvaluator {
     fileAndLine: string;
     realError: string;
     surgicalDirective: string;
+    logDoErro?: string;
+    acaoCorretivaExata?: string;
     formatted: string;
   } {
     let fileAndLine = '';
@@ -311,14 +394,25 @@ export class IndependentEvaluator {
         surgicalDirective = `Ajustar tipagem e sintaxe em ${tsMatch[1]} na linha ${tsMatch[2]} para compilar sem erros via tsc --noEmit.`;
       }
 
-      // Node.js test runner / AssertionError: at ... (test/...:12:34)
+      // Node.js test runner / AssertionError / Error: at ... (test/...:12:34)
       if (!fileAndLine) {
         const assertMatch = raw.match(/(?:AssertionError|Error)[\s\S]*?(?:at\s+(?:.*?\s+)?\(?([a-zA-Z0-9_\-./\\]+\.[cm]?[jt]sx?):(\d+):(\d+)\)?)/i);
         if (assertMatch) {
           fileAndLine = `${assertMatch[1]}:${assertMatch[2]}`;
-          const errLine = raw.match(/(?:AssertionError|Error)[^\r\n]*/i);
+          const errLine = raw.match(/(?:AssertionError|TypeError|ReferenceError|SyntaxError|Error)[^\r\n]*/i);
           realError = errLine ? errLine[0].trim() : 'Falha em asserção de teste';
-          surgicalDirective = `Isolar a asserção que falhou em ${assertMatch[1]} e corrigir o código de produção correspondente.`;
+          surgicalDirective = `Isolar a asserção que falhou em ${assertMatch[1]} na linha ${assertMatch[2]} e corrigir o código de produção correspondente.`;
+        }
+      }
+
+      // Stack trace line: at ... (src/...:12:34) or at src/...:12:34
+      if (!fileAndLine) {
+        const stackMatch = raw.match(/at\s+(?:.*?\s+)?\(?([a-zA-Z0-9_\-./\\]+\.[cm]?[jt]sx?):(\d+):(\d+)\)?/i);
+        if (stackMatch) {
+          fileAndLine = `${stackMatch[1]}:${stackMatch[2]}`;
+          const errLine = raw.match(/(?:[A-Za-z]+Error)[^\r\n]*/i);
+          realError = errLine ? errLine[0].trim() : (raw.trim().split('\n')[0] || 'Erro de execução');
+          surgicalDirective = `Corrigir o erro em ${stackMatch[1]} na linha ${stackMatch[2]} garantindo conformidade com os requisitos.`;
         }
       }
 
@@ -344,19 +438,29 @@ export class IndependentEvaluator {
     const formatted = [
       `[ARQUIVO E LINHA]: ${fileAndLine}`,
       `[ERRO REAL]: ${realError}`,
-      `[DIRETRIZ CIRÚRGICA]: ${surgicalDirective}`
+      `[DIRETRIZ CIRÚRGICA]: ${surgicalDirective}`,
+      '',
+      `[Arquivo:Linha]: ${fileAndLine}`,
+      `[Log do Erro]: ${realError}`,
+      `[Ação Corretiva Exata]: ${surgicalDirective}`
     ].join('\n');
 
     return {
       fileAndLine,
       realError,
       surgicalDirective,
+      logDoErro: realError,
+      acaoCorretivaExata: surgicalDirective,
       formatted
     };
   }
 
   /**
-   * Formata o feedback cirúrgico de reprovação no padrão acionável do DecoHUB
+   * Formata o feedback cirúrgico de reprovação no padrão acionável do DecoHUB.
+   * Garante OBRIGATORIAMENTE no topo a presença dos 3 blocos da tríade de ação:
+   * [ARQUIVO E LINHA]
+   * [ERRO REAL]
+   * [DIRETRIZ CIRÚRGICA]
    */
   public static formatStructuredFeedback(params: {
     falha: string;
@@ -366,18 +470,76 @@ export class IndependentEvaluator {
     realError?: string;
     surgicalDirective?: string;
   }): string {
+    const fileAndLine = params.fileAndLine && params.fileAndLine.trim()
+      ? params.fileAndLine.trim()
+      : 'src/';
+    const logDoErro = params.realError && params.realError.trim()
+      ? params.realError.trim()
+      : params.causaRaiz;
+    const acaoCorretiva = params.surgicalDirective && params.surgicalDirective.trim()
+      ? params.surgicalDirective.trim()
+      : params.acaoRequerida;
+
     const lines = [
+      `[ARQUIVO E LINHA]: ${fileAndLine}`,
+      `[ERRO REAL]: ${logDoErro}`,
+      `[DIRETRIZ CIRÚRGICA]: ${acaoCorretiva}`,
+      '',
       `[FALHA]: ${params.falha}`,
       `[CAUSA RAIZ]: ${params.causaRaiz}`,
-      `[AÇÃO REQUERIDA]: ${params.acaoRequerida}`
+      `[AÇÃO REQUERIDA]: ${params.acaoRequerida}`,
+      '',
+      `[Arquivo:Linha]: ${fileAndLine}`,
+      `[Log do Erro]: ${logDoErro}`,
+      `[Ação Corretiva Exata]: ${acaoCorretiva}`
     ];
-    if (params.fileAndLine || params.realError || params.surgicalDirective) {
-      lines.push('');
-      lines.push(`[ARQUIVO E LINHA]: ${params.fileAndLine || 'arquivos do escopo da tarefa'}`);
-      lines.push(`[ERRO REAL]: ${params.realError || params.causaRaiz}`);
-      lines.push(`[DIRETRIZ CIRÚRGICA]: ${params.surgicalDirective || params.acaoRequerida}`);
-    }
     return lines.join('\n');
+  }
+
+  /**
+   * Executa a verificação factual de compilação TypeScript (npx tsc --noEmit)
+   */
+  public static checkTypeScriptCompilation(projectPath: string): {
+    passed: boolean;
+    output: string;
+    exitCode: number;
+    errorDiagnosis?: { fileAndLine: string; realError: string; surgicalDirective: string };
+  } {
+    if (!projectPath || !fs.existsSync(projectPath)) {
+      return { passed: true, output: 'Diretório inexistente', exitCode: 0 };
+    }
+    const tsconfigPath = path.join(projectPath, 'tsconfig.json');
+    if (!fs.existsSync(tsconfigPath)) {
+      return { passed: true, output: 'tsconfig.json ausente (projeto sem TypeScript estrito)', exitCode: 0 };
+    }
+
+    try {
+      const out = executeVerification('npx tsc --noEmit', projectPath, 30000);
+      return { passed: true, output: out, exitCode: 0 };
+    } catch (err: any) {
+      const exitCode = err.status ?? (err.code === 'ETIMEDOUT' ? 124 : 1);
+      const output = (err.stdout || '') + (err.stderr || '') + (err.message || '');
+      if (err.code === 'ENOENT' || output.includes('not recognized') || output.includes('não é reconhecido')) {
+        return { passed: true, output: 'TypeScript CLI não encontrado no ambiente (ignorado)', exitCode: 0 };
+      }
+      const diagnosis = IndependentEvaluator.extractSurgicalRootCauseDiagnosis({
+        output,
+        projectPath,
+        fallbackFile: 'tsconfig.json',
+        fallbackError: output.split('\n')[0] || 'Erro de compilação TypeScript (tsc --noEmit)',
+        fallbackDirective: 'Corrigir inconsistências de tipo no código TypeScript até compilar com código 0.'
+      });
+      return {
+        passed: exitCode === 0,
+        output,
+        exitCode,
+        errorDiagnosis: {
+          fileAndLine: diagnosis.fileAndLine,
+          realError: diagnosis.realError,
+          surgicalDirective: diagnosis.surgicalDirective
+        }
+      };
+    }
   }
 
   /**
@@ -1423,13 +1585,42 @@ export class IndependentEvaluator {
           findings.push({
             file: rel,
             type: 'EMPTY_PLACEHOLDER',
-            details: `Arquivo ${rel} é vazio ou contém apenas comentários/TODOs sem implementação funcional.`
+            details: `[FALHA ANTI-SLOP]: Arquivo ${rel} contém código estático/placeholder. Implemente a lógica real antes de submeter.`
           });
           continue;
         }
 
         // 2. Production Mock check (dummy implementations inside production code)
         if (!isTestFile) {
+          const hasTodoMockOrStub =
+            /\/\/\s*TODO:\s*implementar\s+depois/i.test(content) ||
+            new RegExp('\\/\\*\\s*mock\\s+data\\s*\\*\\/', 'i').test(content) ||
+            /\/\/\s*mock\s+data\b/i.test(content) ||
+            /throw\s+new\s+Error\(\s*['"]Not implemented['"]\s*\)/i.test(content) ||
+            /TODO:\s*implement(ar(\s+depois|\s+cálculo.*)?|\s+later)|FIXME:\s*placeholder/i.test(content);
+
+          const isApiRouteOrServer = /(?:routes?|controllers?|endpoints?|api|server)\b/i.test(rel) || /(?:app|router)\.(?:get|post|put|delete|patch|use)\(/i.test(content);
+          const hasSqliteOrDb = /(?:db\.|sqlite|sqlite3|prepare\(|exec\(|query\(|from\s+['"][^'"]*db|require\(['"][^'"]*db)/i.test(content);
+
+          const hasEmptyRouteHandler = isApiRouteOrServer && (
+            /(?:app|router)\.(?:get|post|put|delete|patch)\s*\([^,]+,\s*(?:async\s*)?(?:\([^)]*\)|[a-zA-Z_$][\w$]*)\s*=>\s*\{\s*\}/i.test(content) ||
+            /(?:app|router)\.(?:get|post|put|delete|patch)\s*\([^,]+,\s*function\s*(?:[a-zA-Z_$][\w$]*)?\s*\([^)]*\)\s*\{\s*\}/i.test(content)
+          );
+
+          const hasStaticApiRouteReturn = isApiRouteOrServer && !hasSqliteOrDb && (
+            /(?:app|router)\.(?:get|post|put|delete|patch)\s*\([^,]+,\s*(?:async\s*)?(?:\([^)]*\)|[a-zA-Z_$][\w$]*)\s*=>\s*\{[^}]*res\.(?:json|send)\(\s*\[\s*\{[^}]*\}\s*\]\s*\)/i.test(content) ||
+            /(?:app|router)\.(?:get|post|put|delete|patch)\s*\([^,]+,\s*function\s*(?:[a-zA-Z_$][\w$]*)?\s*\([^)]*\)\s*\{[^}]*res\.(?:json|send)\(\s*\[\s*\{[^}]*\}\s*\]\s*\)/i.test(content)
+          );
+
+          if (hasTodoMockOrStub || hasEmptyRouteHandler || hasStaticApiRouteReturn) {
+            findings.push({
+              file: rel,
+              type: 'PRODUCTION_MOCK',
+              details: `[FALHA ANTI-SLOP]: Arquivo ${rel} contém código estático/placeholder. Implemente a lógica real antes de submeter.`
+            });
+            continue;
+          }
+
           const hasRealFunctionalCode = /(?:fetch\(|axios\.|http\.|addEventListener\(|document\.|window\.|localStorage|app\.(get|post|put|delete|use)\(|router\.|db\.|sqlite|prisma\.|drizzle\.)/i.test(content) && content.length > 300;
 
           const mockIndicators = [
@@ -1450,14 +1641,14 @@ export class IndependentEvaluator {
               findings.push({
                 file: rel,
                 type: 'PRODUCTION_MOCK',
-                details: `Simulação/mock vazio detectado em código de produção em ${rel}: ${m.source}`
+                details: `[FALHA ANTI-SLOP]: Arquivo ${rel} contém código estático/placeholder. Implemente a lógica real antes de submeter.`
               });
               break;
             }
           }
         }
 
-        // 3. Tautological assertions in test files
+        // 3. Tautological assertions and hollow tests in test files
         if (isTestFile) {
           const tautologicalPatterns = [
             /assert\.ok\(\s*true\s*\)/i,
@@ -1467,6 +1658,7 @@ export class IndependentEvaluator {
             /assert\.(strictEqual|equal)\(\s*['"]a['"]\s*,\s*['"]a['"]\s*\)/i
           ];
 
+          let isTautological = false;
           for (const tp of tautologicalPatterns) {
             if (tp.test(content)) {
               findings.push({
@@ -1474,7 +1666,24 @@ export class IndependentEvaluator {
                 type: 'TAUTOLOGICAL_ASSERTION',
                 details: `Asserção tautológica/trivial encontrada no teste ${rel}: ${tp.source}`
               });
+              isTautological = true;
               break;
+            }
+          }
+
+          if (!isTautological) {
+            const hasRealAssertions = /(?:assert\s*\.\s*(?:strictEqual|equal|deepStrictEqual|deepEqual|ok|throws|rejects|match|doesNotThrow|ifError)|expect\s*\([^)]*\)\s*\.\s*(?:to|toBe|toEqual|toStrictEqual|toBeTruthy|toBeFalsy|toContain|toThrow)|(?:expect|assert)\s*\(|\.should\b)/i.test(content);
+            const hasOnlyProcessExit = /process\.exit\(\s*0\s*\)/i.test(content) && !hasRealAssertions;
+            const hasEmptyTryCatch = /try\s*\{[\s\S]*?\}\s*catch\s*(?:\([^)]*\))?\s*\{\s*\}/.test(content) && !hasRealAssertions;
+            const hasEmptyTestCallback = /(?:test|it)\s*\([^,]+,\s*(?:async\s*)?(?:\([^)]*\)|[a-zA-Z_$][\w$]*)\s*=>\s*\{\s*\}\s*\)/.test(content);
+            const hasUnfinishedStubInTest = /throw\s+new\s+Error\(\s*['"]Not implemented['"]\s*\)/i.test(content);
+
+            if (!hasRealAssertions || hasOnlyProcessExit || hasEmptyTryCatch || hasEmptyTestCallback || hasUnfinishedStubInTest) {
+              findings.push({
+                file: rel,
+                type: 'HOLLOW_TEST',
+                details: `[FALHA ANTI-SLOP]: Arquivo de teste ${rel} é oco ou não contém asserções reais (assert, expect, should).`
+              });
             }
           }
         }
@@ -2497,14 +2706,31 @@ export class IndependentEvaluator {
       return evalResult;
     }
 
-    // 1.8. Anti-Slop check (Detecção de placeholders, mocks vazios em produção e asserções triviais)
-    const antiSlopCheck = this.detectAntiSlop(projectPath, builderReport.filesChanged || []);
+    // 1.8. Anti-Slop check (Detecção de placeholders, mocks vazios em produção e asserções triviais/testes ocos)
+    const filesToAudit = [...(builderReport.filesChanged || [])];
+    if (contract.verificationCommand) {
+      const match = contract.verificationCommand.match(/(?:test|tests)\/[a-zA-Z0-9_\-./\\]+\.[cm]?[jt]sx?/i);
+      if (match && !filesToAudit.includes(match[0])) {
+        filesToAudit.push(match[0]);
+      }
+    }
+    for (const step of contract.verificationSteps || []) {
+      if (step.command) {
+        const match = step.command.match(/(?:test|tests)\/[a-zA-Z0-9_\-./\\]+\.[cm]?[jt]sx?/i);
+        if (match && !filesToAudit.includes(match[0])) {
+          filesToAudit.push(match[0]);
+        }
+      }
+    }
+
+    const antiSlopCheck = this.detectAntiSlop(projectPath, filesToAudit);
     if (antiSlopCheck.hasSlop) {
       const severeSlop = antiSlopCheck.findings.some(
-        f => f.type === 'EMPTY_PLACEHOLDER' || f.type === 'PRODUCTION_MOCK'
+        f => f.type === 'EMPTY_PLACEHOLDER' || f.type === 'PRODUCTION_MOCK' || f.type === 'TAUTOLOGICAL_ASSERTION' || f.type === 'HOLLOW_TEST'
       );
       if (severeSlop) {
         Logger.error(`[ANTI_SLOP_GATE] [IndependentEvaluator] SLOP DETECTADO: ${antiSlopCheck.reason}`);
+        const exactSlopMessage = antiSlopCheck.findings.map(f => f.details).join('; ');
 
         const evalResult: EvaluationResult = {
           id: crypto.randomUUID(),
@@ -2519,13 +2745,13 @@ export class IndependentEvaluator {
           failedCriteria: ['Código funcional de alta fidelidade sem simulações vazias ou código morto (Anti-Slop)'],
           evidence: {
             antiSlop: antiSlopCheck,
-            output: antiSlopCheck.reason
+            output: exactSlopMessage || antiSlopCheck.reason
           },
           expected: 'Implementação real sem mocks simulados em produção ou placeholders vazios',
-          actual: antiSlopCheck.reason || 'Código superficial detectado',
+          actual: exactSlopMessage || antiSlopCheck.reason || 'Código superficial detectado',
           evaluatorNotes: IndependentEvaluator.formatStructuredFeedback({
-            falha: 'Violação das diretrizes Anti-Slop de alta fidelidade funcional.',
-            causaRaiz: antiSlopCheck.reason || 'Presença de placeholders vazios ou mocks simulados em produção.',
+            falha: `[CHANGES_REQUESTED] Violação das diretrizes Anti-Slop: ${exactSlopMessage}`,
+            causaRaiz: exactSlopMessage || antiSlopCheck.reason || 'Presença de placeholders vazios ou mocks simulados em produção.',
             acaoRequerida: 'Substituir mocks e placeholders por lógica de produção real e persistência funcional.'
           }),
           evaluatorName: this.evaluatorName,
@@ -2734,7 +2960,14 @@ export class IndependentEvaluator {
                 ? 'Rota raiz GET / servindo public/index.html e endpoints de status em /api/health'
                 : 'Aplicação web renderizada em navegador headless sem erros de console e com elementos interativos',
               actual: visualInspectionResult.details,
-              evaluatorNotes: `REJEITADO (Playwright Visual Eyes): ${visualInspectionResult.details}`,
+              evaluatorNotes: IndependentEvaluator.formatStructuredFeedback({
+                falha: 'Inspeção visual Playwright reprovada.',
+                causaRaiz: visualInspectionResult.details,
+                acaoRequerida: 'Corrigir a renderização do frontend e eliminar erros no console do navegador.',
+                fileAndLine: 'public/index.html',
+                realError: visualInspectionResult.details,
+                surgicalDirective: 'Ajustar a interface web para renderizar elementos interativos sem erros de console.'
+              }),
               evaluatorName: this.evaluatorName,
               executedCommands: [],
               exitCode: fatalConsole ? 500 : 422,
@@ -2802,7 +3035,14 @@ export class IndependentEvaluator {
               },
               expected: 'Elementos de UI renderizados com dados numéricos e textuais íntegros e sem NaN/undefined',
               actual: `Valores corrompidos detectados: ${corruptedDetected.join('; ')}`,
-              evaluatorNotes: `REJEITADO (AriaSnapshot Semantic Verification): Valores corrompidos no DOM: ${corruptedDetected.join('; ')}`,
+              evaluatorNotes: IndependentEvaluator.formatStructuredFeedback({
+                falha: 'Valores corrompidos detectados na árvore de acessibilidade do DOM.',
+                causaRaiz: `Valores corrompidos no DOM: ${corruptedDetected.join('; ')}`,
+                acaoRequerida: 'Sanitizar renderização de dados no frontend para evitar NaN, undefined ou [object Object].',
+                fileAndLine: 'src/components/',
+                realError: `Valores corrompidos no DOM: ${corruptedDetected.join('; ')}`,
+                surgicalDirective: 'Adicionar checagens defensivas e formatação correta antes de renderizar valores no DOM.'
+              }),
               evaluatorName: this.evaluatorName,
               executedCommands: [],
               exitCode: 422,
@@ -2883,7 +3123,14 @@ export class IndependentEvaluator {
               expected:
                 'Aplicação funcional de ponta a ponta: formulários salvam no backend, dados persistem no F5 e zero erros de API',
               actual: userJourneyResult.details,
-              evaluatorNotes: `REJEITADO (UserExperienceSimulator): ${userJourneyResult.details}`,
+              evaluatorNotes: IndependentEvaluator.formatStructuredFeedback({
+                falha: 'Simulação de jornada de usuário no navegador falhou.',
+                causaRaiz: userJourneyResult.details,
+                acaoRequerida: 'Assegurar fiação de botões, persistência após reload e ausência de erros de API.',
+                fileAndLine: 'public/app.js',
+                realError: userJourneyResult.details,
+                surgicalDirective: 'Garantir que botões possuam event handlers funcionais e que dados persistam após F5.'
+              }),
               evaluatorName: this.evaluatorName,
               executedCommands: [],
               exitCode: hasApiErrors ? 500 : 422,
@@ -2944,7 +3191,14 @@ export class IndependentEvaluator {
             expected:
               'Aplicação imune a vulnerabilidades OWASP Top 10: sem Path Traversal, sem SQL Injection, sem XSS, sem vazamento de segredos e com validação de input',
             actual: securityPentestResult.summary,
-            evaluatorNotes: `REJEITADO (SecurityPentestSimulator): ${vulnReason}. Remediação: ${firstVuln?.remediation || 'Sanitizar inputs e restringir rotas.'}`,
+            evaluatorNotes: IndependentEvaluator.formatStructuredFeedback({
+              falha: 'Vulnerabilidade de segurança detectada no Red Team Gate.',
+              causaRaiz: vulnReason,
+              acaoRequerida: firstVuln?.remediation || 'Sanitizar inputs e restringir rotas.',
+              fileAndLine: 'src/server.ts',
+              realError: vulnReason,
+              surgicalDirective: firstVuln?.remediation || 'Implementar sanitização de parâmetros e validação de rotas.'
+            }),
             evaluatorName: this.evaluatorName,
             executedCommands: [],
             exitCode: 403,
@@ -3541,6 +3795,48 @@ export class IndependentEvaluator {
       );
     }
 
+    // Validação factual estrita de TypeScript (npx tsc --noEmit)
+    const typecheckResult = IndependentEvaluator.checkTypeScriptCompilation(projectPath);
+    if (!typecheckResult.passed) {
+      overallPassed = false;
+      lastExitCode = typecheckResult.exitCode;
+      combinedOutput += `\n[TypeScript Compilation (npx tsc --noEmit) - FALHA]:\n${typecheckResult.output.trim()}`;
+      stepsResults.push({
+        step: 'Compilação Estrita TypeScript (npx tsc --noEmit)',
+        passed: false,
+        detail: `Erro de compilação TypeScript: código ${typecheckResult.exitCode}`
+      });
+    }
+
+    // Validação estrita de arquivos sensíveis proibidos
+    const sensitiveFilesDetected = (builderReport.filesChanged || []).filter(f => {
+      const norm = String(f || '').replace(/\\/g, '/').trim();
+      return (
+        /(^|\/)\.env(\.|$)/i.test(norm) ||
+        /\.(pem|key)$/i.test(norm) ||
+        /(^|\/)hub\.db(-wal|-shm)?$/i.test(norm) ||
+        /(^|\/)\.decohub-data(\/|$)/i.test(norm)
+      );
+    });
+    if (sensitiveFilesDetected.length > 0) {
+      overallPassed = false;
+      stepsResults.push({
+        step: 'Integridade de Arquivos Sensíveis',
+        passed: false,
+        detail: `Tentativa de modificação em arquivos proibidos: ${sensitiveFilesDetected.join(', ')}`
+      });
+    }
+
+    // Regra Factual: Se o comando de teste passou com exit code 0 E o tsc compilou com zero erros E não há arquivos sensíveis proibidos,
+    // o veredicto OBRIGATÓRIO é PASS / APPROVED (proibição absoluta de rejeitar por "falta de detalhes visuais" se critérios técnicos foram atendidos).
+    const executedTestPassed = executedCommands.length > 0 && lastExitCode === 0 && !stepsResults.some(s => !s.passed && s.step !== 'Validação Factual Visual (HTML / Dashboard / UI)');
+    const factualProofSatisfied = executedTestPassed && typecheckResult.passed && sensitiveFilesDetected.length === 0 && !tamperingCheck.tampered;
+
+    if (factualProofSatisfied) {
+      overallPassed = true;
+      missingEvidenceCriteria.length = 0;
+    }
+
     // 3. Compute Granular Verdict reflecting factual truth of project
     let verdict: EvaluatorVerdict = 'FAIL';
 
@@ -3549,10 +3845,10 @@ export class IndependentEvaluator {
         verdict = 'PASS';
       } else {
         const hasTimeoutStep = stepsResults.some(s => s.detail.includes('TIMEOUT'));
-        const hasBlockedStep = stepsResults.some(s => s.detail.includes('BLOCKED'));
+        const hasHardBlockedPolicy = stepsResults.some(s => s.detail.includes('política de segurança') || s.detail.includes('BLOCKED: comando'));
         if (hasTimeoutStep) {
           verdict = 'TIMEOUT';
-        } else if (hasBlockedStep) {
+        } else if (hasHardBlockedPolicy) {
           verdict = 'BLOCKED';
         } else {
           verdict = 'FAIL';

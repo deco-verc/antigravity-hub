@@ -15,6 +15,9 @@ import crypto from 'node:crypto';
 import { DesignSkillService } from '../src/designSkillService.js';
 import { PlaywrightVisualInspector } from '../src/playwrightVisualInspector.js';
 import { IndependentEvaluator } from '../src/independentEvaluator.js';
+import { ProjectOperationsService } from '../src/projectOperationsService.js';
+import { ProjectLivingSpecService } from '../src/projectLivingSpecService.js';
+import { DecoMindMlService } from '../src/decoMindMlService.js';
 
 describe('FASE 7: Playwright Visual Inspector & Skill Playbooks', () => {
   let tempTestDir: string;
@@ -566,6 +569,115 @@ describe('FASE 7: Playwright Visual Inspector & Skill Playbooks', () => {
       const result = await IndependentEvaluator.evaluate(contract.id, restProjectDir, report);
       assert.strictEqual(result.verdict, 'PASS', 'Tarefa de teste de integração REST sem alteração em arquivos de UI deve passar');
       assert.strictEqual(result.taskIsDone, true);
+    });
+  });
+
+  describe('7. Industrial Visual Homologation, Live Preview & Lessons Curation', () => {
+    it('Pilar 1: should capture structured UI views with graceful fallback and metadata', async () => {
+      const uiProjectDir = path.join(tempTestDir, 'ui-audit-project');
+      const publicDir = path.join(uiProjectDir, 'public');
+      fs.mkdirSync(publicDir, { recursive: true });
+      fs.writeFileSync(path.join(publicDir, 'index.html'), '<!DOCTYPE html><html><body><h1>DecoHUB Audit Dashboard</h1></body></html>', 'utf-8');
+
+      const results = await PlaywrightVisualInspector.captureStructuredUiViews({
+        projectPath: uiProjectDir,
+        projectId: 'proj-ui-audit',
+        taskId: 'GT-3',
+        timeoutMs: 3000
+      });
+
+      assert.strictEqual(results.length, 3, 'Deve retornar 3 visões estruturadas');
+      const filenames = results.map(r => r.filename);
+      assert.ok(filenames.includes('01-Desktop-Dashboard.png'));
+      assert.ok(filenames.includes('02-Componente-Foco.png'));
+      assert.ok(filenames.includes('03-Mobile-Viewport.png'));
+
+      for (const res of results) {
+        assert.ok(res.viewport.width > 0);
+        assert.ok(res.viewport.height > 0);
+        assert.ok(typeof res.latencyMs === 'number');
+        assert.strictEqual(res.route, '/');
+        assert.ok(res.timestamp);
+        assert.ok(fs.existsSync(res.fullPath), `Arquivo deve existir em disco: ${res.fullPath}`);
+        assert.ok(fs.statSync(res.fullPath).size > 0, `Arquivo PNG deve ter tamanho > 0: ${res.fullPath}`);
+      }
+    });
+
+    it('Pilar 2: deterministic process management with PID persistence & clean stop', async () => {
+      const serverProjectDir = path.join(tempTestDir, 'preview-pid-project');
+      fs.mkdirSync(serverProjectDir, { recursive: true });
+      const serverCode = `
+        const http = require('http');
+        const port = process.env.PORT || 4888;
+        const server = http.createServer((req, res) => {
+          if (req.url === '/api/health' || req.url === '/') {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ status: 'ok' }));
+          } else {
+            res.writeHead(404);
+            res.end();
+          }
+        });
+        server.listen(port, '127.0.0.1', () => {
+          console.log('Test server running on port ' + port);
+        });
+      `;
+      fs.writeFileSync(path.join(serverProjectDir, 'server.js'), serverCode, 'utf-8');
+      fs.writeFileSync(path.join(serverProjectDir, 'package.json'), JSON.stringify({
+        name: 'preview-pid-project',
+        scripts: { start: 'node server.js' }
+      }, null, 2), 'utf-8');
+
+      const projectId = 'proj-preview-pid-test';
+      const status = await ProjectOperationsService.startPreview(projectId, serverProjectDir, {
+        port: 4888,
+        timeoutMs: 8000
+      });
+
+      assert.strictEqual(status.running, true, 'O status do preview deve ser running');
+      assert.strictEqual(status.port, 4888);
+      assert.ok(status.pid, 'Deve conter o PID do processo');
+
+      // Verificar que preview.pid foi persistido em disco
+      const pidFile = path.join(process.cwd(), 'projects-operational', projectId, 'preview.pid');
+      assert.ok(fs.existsSync(pidFile), 'Arquivo preview.pid deve existir');
+      const pidRead = parseInt(fs.readFileSync(pidFile, 'utf-8').trim(), 10);
+      assert.strictEqual(pidRead, status.pid);
+
+      // Encerramento determinístico
+      const stopped = await ProjectOperationsService.stopPreview(projectId);
+      assert.strictEqual(stopped, true);
+      assert.ok(!fs.existsSync(pidFile), 'Arquivo preview.pid deve ter sido removido após stop');
+      const postStatus = ProjectOperationsService.getPreviewStatus(projectId);
+      assert.strictEqual(postStatus.running, false);
+    });
+
+    it('Pilar 3: curateLessonsLearned should generate lessons.md with 3 canonical sections and record episodic memory', async () => {
+      const lessonsProjectDir = path.join(tempTestDir, 'lessons-curate-project');
+      fs.mkdirSync(lessonsProjectDir, { recursive: true });
+
+      const result = await ProjectLivingSpecService.curateLessonsLearned({
+        projectPath: lessonsProjectDir,
+        projectName: 'SaaS Viral Lead Finder',
+        projectObjective: 'Captura e enriquecimento automatizado de leads com SQLite WAL',
+        runId: 'run-test-lessons-123'
+      });
+
+      assert.strictEqual(result.success, true);
+      assert.ok(fs.existsSync(result.lessonsPath), 'Arquivo lessons.md deve existir');
+
+      const content = fs.readFileSync(result.lessonsPath, 'utf-8');
+      assert.ok(content.includes('## 🏛️ Padrões Arquiteturais Validados'), 'Deve conter seção de Padrões Arquiteturais');
+      assert.ok(content.includes('## ⚡ Otimizações de Execução'), 'Deve conter seção de Otimizações de Execução');
+      assert.ok(content.includes('## 🛡️ Mitigações de Segurança Aplicadas'), 'Deve conter seção de Mitigações de Segurança');
+      assert.ok(content.includes('SQLite WAL'));
+      assert.ok(content.includes('PORT_GUARD'));
+
+      // Verificar que a memória foi gravada no DecoMindMlService
+      const vaccines = DecoMindMlService.retrieveTopEpisodicVaccines('SaaS Viral Lead Finder', 'ARCHITECTURE', 5);
+      assert.ok(vaccines.length > 0, 'Deve ter gravado vacina no DecoMindMlService');
+      const hasVaccine = vaccines.some(v => v.surgical_vaccine.includes('SQLite WAL') || v.surgical_vaccine.includes('PORT_GUARD'));
+      assert.ok(hasVaccine, 'A vacina gravada deve conter referências aos padrões arquiteturais');
     });
   });
 });

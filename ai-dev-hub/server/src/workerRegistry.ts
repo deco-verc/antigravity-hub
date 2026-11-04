@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import crypto from 'node:crypto';
 import { db } from './db.js';
 import { Logger } from './logger.js';
@@ -597,11 +599,26 @@ export class WorkerRegistry {
 
     const resetTasks: string[] = [];
     for (const lease of stale) {
-      const pending: any = db.prepare("SELECT conversation_id, dispatched_at FROM agent_turn_observations WHERE task_id=? AND phase IN ('IN_FLIGHT','UNCERTAIN')").get(lease.task_id);
+      const pending: any = db.prepare("SELECT conversation_id, dispatched_at, brain_dir FROM agent_turn_observations WHERE task_id=? AND phase IN ('IN_FLIGHT','UNCERTAIN')").get(lease.task_id);
       if (pending && pending.dispatched_at) {
+        let transcriptFresh = false;
+        try {
+          if (pending.conversation_id && pending.brain_dir) {
+            const transcriptPath = (pending.brain_dir.endsWith(pending.conversation_id) || pending.brain_dir.endsWith(pending.conversation_id.replace(/\\/g, '/')))
+              ? path.join(pending.brain_dir, '.system_generated', 'logs', 'transcript.jsonl')
+              : path.join(pending.brain_dir, pending.conversation_id, '.system_generated', 'logs', 'transcript.jsonl');
+            if (fs.existsSync(transcriptPath)) {
+              const mtime = fs.statSync(transcriptPath).mtimeMs;
+              if (Date.now() - mtime < 8 * 60 * 1000) {
+                transcriptFresh = true;
+              }
+            }
+          }
+        } catch {}
+
         const dispatchedTime = new Date(pending.dispatched_at).getTime();
         const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
-        if (dispatchedTime > tenMinutesAgo) {
+        if (transcriptFresh || dispatchedTime > tenMinutesAgo) {
           // Turno recente ainda executando em segundo plano no Antigravity: aguardar sem travar ou pausar
           continue;
         } else {

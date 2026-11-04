@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { db, HUB_DATA_DIR } from './db.js';
 import { ObservabilityService } from './observability/observabilityService.js';
 import { Logger } from './logger.js';
@@ -485,35 +485,18 @@ export class CommandExecutionEngine {
           Logger.warn(`[CommandExecutionEngine] Comando "${id}" excedeu o timeout de ${timeoutMs}ms. Encerrando processo PID ${child.pid}...`);
 
           try {
-            if (process.platform === 'win32' && child.pid) {
-              spawn('taskkill', ['/F', '/PID', String(child.pid), '/T'], { stdio: 'ignore', windowsHide: true });
-            } else {
-              child.kill('SIGTERM');
-              setTimeout(() => {
-                try { child.kill('SIGKILL'); } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "commandExecutionEngine",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:commandExecutionEngine]", err);
-      }
-    }
-              }, 2000).unref();
-            }
+            this.killProcessTree(child.pid);
           } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "commandExecutionEngine",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:commandExecutionEngine]", err);
-      }
-    }
+            if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+              (globalThis as any).logger.warn({
+                event: "server.handled_exception",
+                file: "commandExecutionEngine",
+                error: (err as any)?.message || String(err)
+              });
+            } else {
+              console.warn("[WARN][server:commandExecutionEngine]", err);
+            }
+          }
         }, timeoutMs);
 
         timer.unref();
@@ -554,6 +537,173 @@ export class CommandExecutionEngine {
   }
 
   /**
+   * Encerramento determinístico da árvore completa de processos (Port Leak Guard).
+   * No Windows, executa taskkill /F /PID <pid> /T garantindo que processos filhos
+   * e servidores locais abertos durante checagens sejam eliminados, evitando colisões EADDRINUSE.
+   */
+  static killProcessTree(pid: number | null | undefined): boolean {
+    if (!pid || pid <= 0) return false;
+    try {
+      if (process.platform === 'win32') {
+        const res = spawnSync('taskkill', ['/F', '/PID', String(pid), '/T'], {
+          stdio: 'ignore',
+          windowsHide: true,
+          timeout: 5000
+        });
+        return res.status === 0;
+      } else {
+        try {
+          process.kill(-pid, 'SIGTERM');
+        } catch {
+          process.kill(pid, 'SIGTERM');
+        }
+        setTimeout(() => {
+          try {
+            process.kill(-pid, 'SIGKILL');
+          } catch {
+            try { process.kill(pid, 'SIGKILL'); } catch {}
+          }
+        }, 1500).unref();
+        return true;
+      }
+    } catch (err: any) {
+      Logger.warn(`[CommandExecutionEngine] Falha ao encerrar árvore de processo PID ${pid}: ${err.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Encerra deterministicamente todos os processos filhos ativos registrados (Port Leak Guard),
+   * prevenindo vazamento de processos e portas presas (EADDRINUSE) entre turnos do Worker.
+   */
+  static terminateAllActive(reason = 'Encerramento determinístico de turno (Port Leak Guard)'): number {
+    let terminatedCount = 0;
+    const now = new Date().toISOString();
+
+    for (const [id, active] of this.activeProcesses.entries()) {
+      try {
+        active.cancelled = true;
+        active.cancelReason = reason;
+        if (active.timer) clearTimeout(active.timer);
+
+        if (active.child?.pid) {
+          CommandExecutionEngine.killProcessTree(active.child.pid);
+          terminatedCount++;
+        }
+
+        try {
+          db.prepare(`
+            UPDATE command_executions SET
+              status = 'CANCELLED',
+              error_message = ?,
+              completed_at = ?
+            WHERE id = ? AND status IN ('RUNNING', 'QUEUED')
+          `).run(reason, now, id);
+        } catch {}
+      } catch (err: any) {
+        Logger.warn(`[CommandExecutionEngine] Falha ao encerrar processo ativo ${id}: ${err.message}`);
+      }
+    }
+
+    this.activeProcesses.clear();
+    return terminatedCount;
+  }
+
+  /**
+   * Libera preventivamente uma porta local caso algum processo órfão esteja bloqueando-a (EADDRINUSE).
+   */
+  static releasePortIfBound(port: number): boolean {
+    if (!port || port <= 0) return false;
+    try {
+      if (process.platform === 'win32') {
+        const netstat = spawnSync('netstat', ['-ano', '-p', 'tcp'], {
+          encoding: 'utf-8',
+          windowsHide: true,
+          timeout: 5000
+        });
+        if (netstat.stdout) {
+          const lines = netstat.stdout.split('\n');
+          const portPattern = new RegExp(`:${port}\\s+.*LISTENING\\s+(\\d+)`, 'i');
+          for (const line of lines) {
+            const match = line.match(portPattern);
+            if (match && match[1]) {
+              const pid = Number(match[1]);
+              if (pid > 0 && pid !== process.pid) {
+                Logger.info(`[CommandExecutionEngine] Liberando porta ${port} ocupada pelo PID ${pid}...`);
+                CommandExecutionEngine.killProcessTree(pid);
+              }
+            }
+          }
+        }
+        return true;
+      }
+    } catch (err: any) {
+      Logger.warn(`[CommandExecutionEngine] Falha não bloqueante ao liberar porta ${port}: ${err.message}`);
+    }
+    return false;
+  }
+
+  /**
+   * Libera preventivamente uma faixa de portas locais (ex: 4000 a 4999) caso processos órfãos
+   * (servidores de dev como Vite, Next, Express, etc.) estejam bloqueando-as, prevenindo EADDRINUSE entre tarefas.
+   */
+  static releasePortRangeIfBound(startPort = 4000, endPort = 4999): number {
+    let killedCount = 0;
+    try {
+      if (process.platform === 'win32') {
+        const netstat = spawnSync('netstat', ['-ano', '-p', 'tcp'], {
+          encoding: 'utf-8',
+          windowsHide: true,
+          timeout: 7000
+        });
+        if (netstat.stdout) {
+          const lines = netstat.stdout.split('\n');
+          const killedPids = new Set<number>();
+          for (const line of lines) {
+            const match = line.match(/(?::|\.)(\d+)\s+.*LISTENING\s+(\d+)/i);
+            if (match && match[1] && match[2]) {
+              const port = Number(match[1]);
+              const pid = Number(match[2]);
+              if (port >= startPort && port <= endPort && pid > 0 && pid !== process.pid && !killedPids.has(pid)) {
+                killedPids.add(pid);
+                Logger.info(`[CommandExecutionEngine] Liberando porta ${port} (faixa ${startPort}-${endPort}) ocupada pelo PID órfão ${pid}...`);
+                CommandExecutionEngine.killProcessTree(pid);
+                killedCount++;
+              }
+            }
+          }
+        }
+      } else {
+        try {
+          const lsof = spawnSync('lsof', ['-iTCP', '-sTCP:LISTEN', '-n', '-P'], {
+            encoding: 'utf-8',
+            timeout: 5000
+          });
+          if (lsof.stdout) {
+            const lines = lsof.stdout.split('\n');
+            const killedPids = new Set<number>();
+            for (const line of lines) {
+              const match = line.match(/\S+\s+(\d+)\s+.*:(\d+)\s+\(LISTEN\)/i);
+              if (match && match[1] && match[2]) {
+                const pid = Number(match[1]);
+                const port = Number(match[2]);
+                if (port >= startPort && port <= endPort && pid > 0 && pid !== process.pid && !killedPids.has(pid)) {
+                  killedPids.add(pid);
+                  CommandExecutionEngine.killProcessTree(pid);
+                  killedCount++;
+                }
+              }
+            }
+          }
+        } catch {}
+      }
+    } catch (err: any) {
+      Logger.warn(`[CommandExecutionEngine] Falha não bloqueante ao liberar portas ${startPort}-${endPort}: ${err.message}`);
+    }
+    return killedCount;
+  }
+
+  /**
    * Cancels a running execution by ID.
    */
   static cancelExecution(id: string, reason = 'Cancelado pelo usuário ou supervisor'): boolean {
@@ -565,11 +715,7 @@ export class CommandExecutionEngine {
     if (active.timer) clearTimeout(active.timer);
 
     try {
-      if (process.platform === 'win32' && active.child.pid) {
-        spawn('taskkill', ['/F', '/PID', String(active.child.pid), '/T'], { stdio: 'ignore', windowsHide: true });
-      } else {
-        active.child.kill('SIGTERM');
-      }
+      CommandExecutionEngine.killProcessTree(active.child?.pid);
     } catch (err) {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({

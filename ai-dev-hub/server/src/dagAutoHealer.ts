@@ -118,16 +118,22 @@ export class DagAutoHealer {
       if (t.id) idToIdx.set(String(t.id).trim().toLowerCase(), idx);
       if (t.code) codeToIdx.set(String(t.code).trim().toLowerCase(), idx);
       if ((t as any).taskCode) taskCodeToIdx.set(String((t as any).taskCode).trim().toLowerCase(), idx);
+      if ((t as any).milestone) {
+        const mKey = String((t as any).milestone).trim().toLowerCase();
+        if (!codeToIdx.has(mKey)) codeToIdx.set(mKey, idx);
+        if (!majorCodeToIndices.has(mKey)) majorCodeToIndices.set(mKey, []);
+        if (!majorCodeToIndices.get(mKey)!.includes(idx)) majorCodeToIndices.get(mKey)!.push(idx);
+      }
       titleToIdx.set(t.title.trim().toLowerCase(), idx);
 
       // Major task grouping
-      const majorKey = (t.majorTaskCode || '').trim().toLowerCase();
+      const majorKey = (t.majorTaskCode || (t as any).milestone || '').trim().toLowerCase();
       if (majorKey) {
         if (!majorCodeToIndices.has(majorKey)) majorCodeToIndices.set(majorKey, []);
-        majorCodeToIndices.get(majorKey)!.push(idx);
+        if (!majorCodeToIndices.get(majorKey)!.includes(idx)) majorCodeToIndices.get(majorKey)!.push(idx);
       }
-      // Also extract GT-X from code if present (e.g. "GT-1-ET-1-TK-1" or "GT-2.1")
-      const gtFromCode = String(t.code || '').match(/^(GT-\d+)/i);
+      // Also extract GT-X from code or milestone if present (e.g. "GT-1-ET-1-TK-1" or "GT-2.1")
+      const gtFromCode = String(t.code || (t as any).milestone || '').match(/^(GT-\d+)/i);
       if (gtFromCode) {
         const k = gtFromCode[1].toLowerCase();
         if (!majorCodeToIndices.has(k)) majorCodeToIndices.set(k, []);
@@ -201,8 +207,8 @@ export class DagAutoHealer {
           }
         }
 
-        // 3.3 Numeric Index Match ("1", "0", "#1", "Task 1", "Tarefa 1", "TK-1")
-        const numMatch = depLower.match(/^(?:#|task|tarefa|t|tk|step|passo)?\s*0*(\d+)$/i);
+        // 3.3 Numeric Index Match ("1", "0", "#1", "Task 1", "Tarefa 1", "TK-1", "GT-1")
+        const numMatch = depLower.match(/^(?:#|task|tarefa|t|tk|gt|step|passo)?\s*0*(\d+)$/i);
         if (numMatch) {
           const num = parseInt(numMatch[1], 10);
           // Try 1-based index (num - 1)

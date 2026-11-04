@@ -293,4 +293,37 @@ describe('Command Execution Engine & Test Selector Suite', () => {
     assert.ok(Array.isArray(summary.recent));
     assert.ok(summary.recent.length > 0);
   });
+
+  test('14. Port Leak Guard: killProcessTree e terminateAllActive encerram processos deterministamente', async () => {
+    // 14.1 killProcessTree com PID inválido / nulo retorna falso com segurança
+    assert.equal(CommandExecutionEngine.killProcessTree(null), false);
+    assert.equal(CommandExecutionEngine.killProcessTree(0), false);
+
+    // 14.2 Dispara comando longo e encerra via terminateAllActive
+    const execPromise = CommandExecutionEngine.execute({
+      command: nodeBin,
+      args: ['-e', 'setTimeout(() => {}, 20000)'],
+      cwd: tempDir,
+      kind: 'generic'
+    });
+
+    // Aguarda spawn
+    await new Promise(r => setTimeout(r, 100));
+
+    const terminatedCount = CommandExecutionEngine.terminateAllActive('Teste de encerramento determinístico de turnos');
+    assert.ok(terminatedCount >= 1);
+
+    const result = await execPromise;
+    assert.equal(result.status, 'CANCELLED');
+    assert.ok(result.errorMessage?.includes('Port Leak Guard') || result.errorMessage?.includes('encerramento determinístico'));
+  });
+
+  test('15. Port Leak Guard: releasePortIfBound executa verificação de porta com segurança', () => {
+    // Port 0 ou inválida retorna falso
+    assert.equal(CommandExecutionEngine.releasePortIfBound(0), false);
+
+    // Port válida em range de teste executa sem estourar exceção
+    const res = CommandExecutionEngine.releasePortIfBound(59999);
+    assert.ok(typeof res === 'boolean');
+  });
 });

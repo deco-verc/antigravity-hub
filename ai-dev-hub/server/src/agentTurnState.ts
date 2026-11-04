@@ -143,7 +143,7 @@ export function isFatalQuotaOrAuthError(rawText: string, entry?: any): boolean {
   // 0. Se a entrada for fornecida, a checagem só deve disparar se for explicitamente um erro nativo.
   // NUNCA disparar contra corpo livre de mensagem ou código gerado pelo modelo (entry.content)
   if (entry) {
-    const isErrorEntry = entry.status === 'ERROR' || entry.type === 'ERROR_MESSAGE' || Boolean(entry.error);
+    const isErrorEntry = entry.status === 'ERROR' || entry.type === 'ERROR_MESSAGE' || entry.type === 'SYSTEM_MESSAGE' || Boolean(entry.error);
     if (!isErrorEntry) {
       return false;
     }
@@ -289,7 +289,7 @@ export function observeTranscript(file: string,baselineLines=0) {
     : [];
 
   const fatal = entries.find(entry => {
-    const isErrorEntry = entry.status === 'ERROR' || entry.type === 'ERROR_MESSAGE' || Boolean(entry.error);
+    const isErrorEntry = entry.status === 'ERROR' || entry.type === 'ERROR_MESSAGE' || entry.type === 'SYSTEM_MESSAGE' || Boolean(entry.error);
     if (!isErrorEntry) return false;
     const text = String(entry.error || entry.message || entry.content || '');
     return isFatalQuotaOrAuthError(text, entry);

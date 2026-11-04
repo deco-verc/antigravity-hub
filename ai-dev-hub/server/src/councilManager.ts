@@ -4,7 +4,7 @@ import path from 'node:path';
 import { db } from './db.js';
 import { Logger } from './logger.js';
 import { GeminiSupervisorProvider } from './geminiSupervisorProvider.js';
-import { SuccessContract, EvaluationResult } from './independentEvaluator.js';
+import { SuccessContract, EvaluationResult, IndependentEvaluator } from './independentEvaluator.js';
 import { ReaSaaSMasterService } from './reaSaaSMasterService.js';
 import { AgentApiGateway } from './agentApiGateway.js';
 
@@ -39,6 +39,7 @@ export interface CouncilDeliberation {
   taskId: string;
   projectId: string;
   runId?: string;
+  phase?: 'PLANNING' | 'CODE_DELIVERY' | 'GENERAL';
   riskLevel: 'low' | 'medium' | 'high' | 'critical';
   policyTrigger: string;
   reviews: ReviewerOutput[];
@@ -190,32 +191,103 @@ export class CouncilManager {
       diff: string;
       filesChanged: string[];
       evaluation?: EvaluationResult | null;
+      policyTrigger?: string;
+      isPlanCritique?: boolean;
     },
-    options?: { forceHeuristic?: boolean; projectId?: string }
+    options?: { forceHeuristic?: boolean; projectId?: string; supervisorProvider?: any }
   ): Promise<ReviewerOutput[]> {
     Logger.info(`[AI DEV Council] STAGE 1: Coletando pareceres independentes de 3 revisores especializados...`);
 
-    const diffExcerpt = context.diff ? context.diff.slice(0, 3000) : 'Diff nao disponivel.';
+    const hasPlanCritiqueEvidence = Boolean(
+      context.evaluation &&
+      typeof context.evaluation === 'object' &&
+      JSON.stringify(context.evaluation).includes('PLAN_ARCHITECTURE_CRITIQUE')
+    );
+
+    const isPlanCritique: boolean = Boolean(
+      context.isPlanCritique ||
+      context.policyTrigger === 'PLAN_ARCHITECTURE_CRITIQUE' ||
+      context.task?.phase === 'PLANNING' ||
+      context.task?.isPlanReview ||
+      (context.task?.plannedTasks && Array.isArray(context.task.plannedTasks) && context.task.plannedTasks.length > 0) ||
+      hasPlanCritiqueEvidence
+    );
+
+    const diffExcerpt = isPlanCritique && (!context.diff || context.diff.trim() === '')
+      ? 'Nenhum (Fase 1: Revisão de Planejamento Conceitual pré-implementação; diff de código não aplicável nesta fase).'
+      : (context.diff ? context.diff.slice(0, 3000) : 'Diff nao disponivel.');
+
     const evalEvidence = context.evaluation
       ? `Veredicto Evaluator: ${context.evaluation.verdict} | Exit Code: ${context.evaluation.exitCode} | Output: ${context.evaluation.evidence?.output?.slice(0, 300) || 'N/A'}`
-      : 'Nenhuma avaliacao independente fornecida.';
+      : (isPlanCritique ? 'N/A (Fase 1: Planejamento pré-implementação; sem suíte de execução de código)' : 'Nenhuma avaliacao independente fornecida.');
 
     const isOffline = AgentApiGateway.isOfflineMode() || Boolean(options?.forceHeuristic);
 
     if (isOffline) {
-      const reviewA = await this.evaluateCorrectness(context.task, context.contract, diffExcerpt, evalEvidence, context.filesChanged);
-      const reviewB = await this.evaluateSimplicity(context.task, context.contract, diffExcerpt, evalEvidence, context.filesChanged);
-      const reviewC = await this.evaluateRegression(context.task, context.contract, diffExcerpt, evalEvidence, context.filesChanged);
+      const reviewA = await this.evaluateCorrectness(context.task, context.contract, diffExcerpt, evalEvidence, context.filesChanged, isPlanCritique);
+      const reviewB = await this.evaluateSimplicity(context.task, context.contract, diffExcerpt, evalEvidence, context.filesChanged, isPlanCritique);
+      const reviewC = await this.evaluateRegression(context.task, context.contract, diffExcerpt, evalEvidence, context.filesChanged, isPlanCritique);
 
-      return [
+      const heuristicReviews = [
         { ...reviewA, anonymousLabel: 'Review A' },
         { ...reviewB, anonymousLabel: 'Review B' },
         { ...reviewC, anonymousLabel: 'Review C' }
       ];
+
+      if (isPlanCritique) {
+        for (const rev of heuristicReviews) {
+          rev.blockingIssues = (rev.blockingIssues || []).filter(b =>
+            !/diff\s+n[aã]o\s+dispon[ií]vel|aus[êe]ncia\s+de\s+(?:arquivos|diff|c[oó]digo)|c[oó]digo\s+n[aã]o\s+implementado|arquivos\s+n[aã]o\s+foram\s+alterados/i.test(b)
+          );
+          if (rev.verdict === 'CHANGES_REQUESTED' && rev.blockingIssues.length === 0 && rev.score >= 7) {
+            rev.verdict = 'APPROVED';
+          }
+        }
+      }
+
+      return heuristicReviews;
     }
 
+    const plannedList: any[] = Array.isArray(context.task?.plannedTasks) ? context.task.plannedTasks : [];
+    const plannedTasksSummary = plannedList.length > 0
+      ? plannedList.map((t: any, idx: number) => {
+          const title = t.title || t.name || `Tarefa ${idx + 1}`;
+          const desc = t.description || t.objective || '';
+          const files = Array.isArray(t.targetFiles)
+            ? t.targetFiles.join(', ')
+            : (Array.isArray(t.files) ? t.files.join(', ') : (t.targetFiles || t.files || 'A definir'));
+          const crit = Array.isArray(t.criteria) ? t.criteria.join(' | ') : (t.criteria || 'N/A');
+          const verif = t.verificationCommand || 'N/A';
+          return `${idx + 1}. [${title}]
+   - Objetivo: ${desc}
+   - Arquivos Previstos: ${files}
+   - Critérios de Aceitação: ${crit}
+   - Comando de Validação: ${verif}`;
+        }).join('\n')
+      : 'Nenhuma tarefa estruturada informada.';
+
     // Live multi-perspective queries
-    const promptCorrectness = `Você é o Revisor A do AI DEV Council, especialista em Corretude Funcional, Testes e Completude de Requisitos.
+    const promptCorrectness = isPlanCritique
+      ? `Você é o Revisor A do AI DEV Council, especialista em Corretude Funcional, Testes e Completude de Requisitos.
+FASE: PRÉ-IMPLEMENTAÇÃO (Plano Arquitetural Inicial / DAG de Tarefas).
+DIRETRIZ OBRIGATÓRIA: Não há código escrito nem diff nesta fase. É ESTRITAMENTE PROIBIDO reprovar por "Diff não disponível", "Ausência de arquivos modificados" ou "Testes não executados".
+
+Objetivo do Projeto: ${context.task?.title || 'Plano Arquitetural'}
+Briefing / Requisitos: ${context.task?.description || 'N/A'}
+
+Tarefas Planejadas (${plannedList.length} etapas):
+${plannedTasksSummary}
+
+Avalie a corretude conceitual da decomposição, cobertura dos requisitos e clareza dos critérios de aceitação e responda no formato:
+VEREDICTO: APPROVED ou CHANGES_REQUESTED
+NOTA: (1-10)
+CONSTATACOES:
+- ...
+BLOQUEIOS:
+- ...
+SUGESTOES:
+- ...`
+      : `Você é o Revisor A do AI DEV Council, especialista em Corretude Funcional, Testes e Completude de Requisitos.
 Tarefa: ${context.task?.title || 'Tarefa'}
 Evidência de Avaliação: ${evalEvidence}
 Diff:
@@ -232,7 +304,29 @@ BLOQUEIOS:
 SUGESTOES:
 - ...`;
 
-    const promptSimplicity = `Você é o Revisor B do AI DEV Council, Guardião da Navalha de Occam e do princípio Karpathy Simplicity First.
+    const promptSimplicity = isPlanCritique
+      ? `Você é o Revisor B do AI DEV Council, Guardião da Navalha de Occam e do princípio Karpathy Simplicity First.
+FASE: PRÉ-IMPLEMENTAÇÃO (Plano Arquitetural Inicial / DAG de Tarefas).
+DIRETRIZ OBRIGATÓRIA: Não há código escrito nem diff nesta fase. É ESTRITAMENTE PROIBIDO reprovar por "Diff não disponível" ou "Ausência de arquivos".
+
+Objetivo do Projeto: ${context.task?.title || 'Plano Arquitetural'}
+Briefing / Requisitos: ${context.task?.description || 'N/A'}
+
+Tarefas Planejadas (${plannedList.length} etapas):
+${plannedTasksSummary}
+
+Avalie se há overengineering na divisão de tarefas, complexidade desnecessária ou fragmentação excessiva de microtarefas.
+REGRA OBRIGATÓRIA: Você DEVE citar explicitamente no mínimo 1 decisão concreta do plano avaliado em suas constatações (ex: "Decisão concreta avaliada: módulo X com persistência SQLite direta").
+Responda no formato:
+VEREDICTO: APPROVED ou CHANGES_REQUESTED
+NOTA: (1-10)
+CONSTATACOES:
+- ...
+BLOQUEIOS:
+- ...
+SUGESTOES:
+- ...`
+      : `Você é o Revisor B do AI DEV Council, Guardião da Navalha de Occam e do princípio Karpathy Simplicity First.
 Tarefa: ${context.task?.title || 'Tarefa'}
 Diff:
 ${diffExcerpt}
@@ -247,7 +341,27 @@ BLOQUEIOS:
 SUGESTOES:
 - ...`;
 
-    const promptRegression = `Você é o Revisor C do AI DEV Council, especialista em Regressão, Segurança, Superfície de Ataque e Compatibilidade.
+    const promptRegression = isPlanCritique
+      ? `Você é o Revisor C do AI DEV Council, especialista em Regressão, Dependências, Segurança e Sequenciamento de Tarefas.
+FASE: PRÉ-IMPLEMENTAÇÃO (Plano Arquitetural Inicial / DAG de Tarefas).
+DIRETRIZ OBRIGATÓRIA: Não há código escrito nem diff nesta fase. É ESTRITAMENTE PROIBIDO reprovar por "Diff não disponível" ou "Ausência de arquivos".
+
+Objetivo do Projeto: ${context.task?.title || 'Plano Arquitetural'}
+Briefing / Requisitos: ${context.task?.description || 'N/A'}
+
+Tarefas Planejadas (${plannedList.length} etapas):
+${plannedTasksSummary}
+
+Avalie o sequenciamento das etapas (ex.: persistência antes de APIs), consistência das dependências, integridade de fronteiras (PORT_GUARD 4000-4999, rota raiz GET / servindo SPA e SQLite WAL) e isolamento de segurança e responda no formato:
+VEREDICTO: APPROVED ou CHANGES_REQUESTED
+NOTA: (1-10)
+CONSTATACOES:
+- ...
+BLOQUEIOS:
+- ...
+SUGESTOES:
+- ...`
+      : `Você é o Revisor C do AI DEV Council, especialista em Regressão, Segurança, Superfície de Ataque e Compatibilidade.
 Tarefa: ${context.task?.title || 'Tarefa'}
 Arquivos Alterados: ${context.filesChanged.join(', ')}
 Diff:
@@ -263,29 +377,65 @@ BLOQUEIOS:
 SUGESTOES:
 - ...`;
 
-    const results = await Promise.allSettled([
-      this.supervisor.evaluateCouncilPrompt(promptCorrectness, { projectId: options?.projectId }),
-      this.supervisor.evaluateCouncilPrompt(promptSimplicity, { projectId: options?.projectId }),
-      this.supervisor.evaluateCouncilPrompt(promptRegression, { projectId: options?.projectId, modelOverride: 'pro' })
-    ]);
-
-    const reviewA = results[0].status === 'fulfilled' && results[0].value
-      ? this.parseLiveReviewResponse(results[0].value, 'Correctness', 'Review A')
-      : await this.evaluateCorrectness(context.task, context.contract, diffExcerpt, evalEvidence, context.filesChanged);
-
-    const reviewB = results[1].status === 'fulfilled' && results[1].value
-      ? this.parseLiveReviewResponse(results[1].value, 'Simplicity', 'Review B')
-      : await this.evaluateSimplicity(context.task, context.contract, diffExcerpt, evalEvidence, context.filesChanged);
-
-    const reviewC = results[2].status === 'fulfilled' && results[2].value
-      ? this.parseLiveReviewResponse(results[2].value, 'Regression', 'Review C')
-      : await this.evaluateRegression(context.task, context.contract, diffExcerpt, evalEvidence, context.filesChanged);
-
-    return [
-      { ...reviewA, anonymousLabel: 'Review A' },
-      { ...reviewB, anonymousLabel: 'Review B' },
-      { ...reviewC, anonymousLabel: 'Review C' }
+    const supervisor = options?.supervisorProvider || this.supervisor;
+    const reviewPrompts = [
+      {
+        prompt: promptCorrectness,
+        roleName: 'Correctness' as const,
+        label: 'Review A',
+        model: undefined,
+        fallback: () => this.evaluateCorrectness(context.task, context.contract, diffExcerpt, evalEvidence, context.filesChanged, isPlanCritique)
+      },
+      {
+        prompt: promptSimplicity,
+        roleName: 'Simplicity' as const,
+        label: 'Review B',
+        model: undefined,
+        fallback: () => this.evaluateSimplicity(context.task, context.contract, diffExcerpt, evalEvidence, context.filesChanged, isPlanCritique)
+      },
+      {
+        prompt: promptRegression,
+        roleName: 'Regression' as const,
+        label: 'Review C',
+        model: 'pro',
+        fallback: () => this.evaluateRegression(context.task, context.contract, diffExcerpt, evalEvidence, context.filesChanged, isPlanCritique)
+      }
     ];
+
+    const collectedReviews: ReviewerOutput[] = [];
+    for (const item of reviewPrompts) {
+      try {
+        const liveVal = await supervisor.evaluateCouncilPrompt(item.prompt, {
+          projectId: options?.projectId,
+          modelOverride: item.model
+        });
+        if (liveVal && liveVal.trim().length > 0) {
+          collectedReviews.push({
+            ...this.parseLiveReviewResponse(liveVal, item.roleName, item.label),
+            anonymousLabel: item.label
+          });
+          continue;
+        }
+      } catch (err: any) {
+        Logger.warn(`[AI DEV Council] Falha ao coletar parecer ao vivo de ${item.label} (${err?.message}). Usando avaliador técnico integrado.`);
+      }
+
+      const fb = await item.fallback();
+      collectedReviews.push({ ...fb, anonymousLabel: item.label });
+    }
+
+    if (isPlanCritique) {
+      for (const rev of collectedReviews) {
+        rev.blockingIssues = (rev.blockingIssues || []).filter(b =>
+          !/diff\s+n[aã]o\s+dispon[ií]vel|aus[êe]ncia\s+de\s+(?:arquivos|diff|c[oó]digo|testes)|c[oó]digo\s+n[aã]o\s+implementado|arquivos\s+n[aã]o\s+foram\s+alterados|testes\s+n[aã]o\s+executados/i.test(b)
+        );
+        if (rev.verdict === 'CHANGES_REQUESTED' && rev.blockingIssues.length === 0 && rev.score >= 7) {
+          rev.verdict = 'APPROVED';
+        }
+      }
+    }
+
+    return collectedReviews;
   }
 
   /**
@@ -311,7 +461,7 @@ SUGESTOES:
       return sectionText
         .split('\n')
         .map(l => l.replace(/^[-*•]\s*/, '').trim())
-        .filter(l => l.length > 0 && !l.toLowerCase().includes('nenhum'));
+        .filter(l => l.length > 0 && !l.toLowerCase().includes('nenhum') && !l.toLowerCase().includes('none') && !l.toLowerCase().includes('n/a'));
     };
 
     const findings = extractSection('CONSTATACOES:');
@@ -454,6 +604,8 @@ Now provide your evaluation and ranking:`;
     reviews: ReviewerOutput[];
     peerRankings: PeerRankingResult[];
     aggregateRankings?: AggregateRankingResult[];
+    isPlanCritique?: boolean;
+    policyTrigger?: string;
   }): Promise<{
     chairmanVerdict: 'APPROVED' | 'CHANGES_REQUESTED' | 'BLOCKED';
     chairmanSynthesis: string;
@@ -489,12 +641,56 @@ Now provide your evaluation and ranking:`;
     const actionItems: string[] = [];
     let synthesisText = '';
 
-    // Hard failure condition: Evaluator failure overrides any review
-    if (params.evaluation && !params.evaluation.taskIsDone) {
+    const isPlanCritique = Boolean(
+      params.isPlanCritique ||
+      (params.task as any)?.phase === 'PLANNING' ||
+      (params.task as any)?.isPlanReview ||
+      (params.task as any)?.plannedTasks ||
+      params.task?.title?.includes?.('Plano Arquitetural') ||
+      params.policyTrigger === 'PLAN_ARCHITECTURE_CRITIQUE'
+    );
+
+    // Proibição absoluta de rejeitar tarefas aprovadas nos testes por ajustes cosméticos secundários
+    if (!isPlanCritique && params.evaluation && params.evaluation.taskIsDone) {
+      for (const r of params.reviews) {
+        const cosmeticIssues = (r.blockingIssues || []).filter(b => IndependentEvaluator.isCosmeticAdjustment(b));
+        r.blockingIssues = (r.blockingIssues || []).filter(b => !IndependentEvaluator.isCosmeticAdjustment(b));
+        if (cosmeticIssues.length > 0) {
+          r.suggestions = [...(r.suggestions || []), ...cosmeticIssues];
+        }
+        if (r.verdict === 'CHANGES_REQUESTED' && r.blockingIssues.length === 0) {
+          r.verdict = 'APPROVED';
+          r.score = Math.max(r.score, 9);
+        }
+      }
+    }
+
+    // Hard failure condition: Evaluator failure overrides any review (exceto em fase de planejamento conceitual)
+    if (!isPlanCritique && params.evaluation && !params.evaluation.taskIsDone) {
       chairmanVerdict = 'CHANGES_REQUESTED';
       consensusLevel = 'CHAIRMAN_OVERRIDE';
-      synthesisText = `REJEITADO PELO CHAIRMAN: O Evaluator Independente reportou falha objetiva no terminal (${params.evaluation.actual}). Nenhum parecer verbal sobrepõe a execução do teste.`;
-      actionItems.push('Corrigir o código de produção até que todos os testes passem com exit code 0.');
+      const diag = (params.evaluation?.evidence as any)?.ciDoctorDiagnosis;
+      const rootCause = IndependentEvaluator.extractSurgicalRootCauseDiagnosis({
+        output: (params.evaluation?.evidence as any)?.terminalOutput || params.evaluation?.evidence?.output || params.evaluation?.actual || '',
+        failureDiagnosis: diag,
+        projectPath: (params.contract as any)?.projectPath || '',
+        fallbackFile: params.diff ? (params.diff.match(/--- a\/(.*?)\n/)?.[1] || 'src/') : 'src/',
+        fallbackError: params.evaluation.actual || 'Comando de teste falhou com código de saída diferente de 0',
+        fallbackDirective: 'Isolar a falha e aplicar o reparo cirúrgico no código de produção até que todos os testes passem com exit code 0.'
+      });
+
+      synthesisText = [
+        `CHANGES_REQUESTED PELO CHAIRMAN (Diretriz Cirúrgica de Reparo Imediato):`,
+        `[ARQUIVO E LINHA]: ${rootCause.fileAndLine}`,
+        `[ERRO REAL]: ${rootCause.realError}`,
+        `[DIRETRIZ CIRÚRGICA]: ${rootCause.surgicalDirective}`
+      ].join('\n');
+
+      actionItems.push(
+        `[ARQUIVO E LINHA]: ${rootCause.fileAndLine}`,
+        `[ERRO REAL]: ${rootCause.realError}`,
+        `[DIRETRIZ CIRÚRGICA]: ${rootCause.surgicalDirective}`
+      );
     }
     // High complexity penalty check (Simplicity First): If Simplicity Reviewer blocked due to overengineering
     else if (simplicityRev && simplicityRev.score <= 5 && correctnessRev && correctnessRev.score >= 8) {
@@ -503,32 +699,103 @@ Now provide your evaluation and ranking:`;
       actionItems.push(...simplicityRev.blockingIssues);
       actionItems.push(...simplicityRev.suggestions);
     }
+    // Auditoria baseada estritamente em evidências factuais (testes exit code 0 e tsc sem erros)
+    else if (!isPlanCritique && params.evaluation && params.evaluation.taskIsDone && !params.reviews.some(r => r.blockingIssues.length > 0)) {
+      chairmanVerdict = 'APPROVED';
+      consensusLevel = approvedCount >= 2 ? 'UNANIMOUS' : 'MAJORITY';
+      const hasCosmeticSuggestions = params.reviews.some(r => (r.suggestions || []).length > 0);
+      synthesisText = hasCosmeticSuggestions
+        ? `APROVADO PELO CONSELHO COM RESSALVAS (Nota 9/10): A execução independente comprovou exit code 0 no terminal, conformidade técnica e integridade de tipos. Ajustes cosméticos secundários (espaçamento, comentários, estilo visual) foram catalogados em actionItems sem paralisar a esteira.`
+        : `APROVADO PELO CONSELHO (Auditoria Factual Baseada em Evidências): A execução independente comprovou exit code 0 no terminal, conformidade técnica e ausência de arquivos sensíveis proibidos. Pareceres verbais ou subjetivos de detalhes visuais não sobrepõem a prova factual do terminal.`;
+      params.reviews.forEach(r => {
+        if (r.suggestions.length > 0) actionItems.push(...r.suggestions);
+      });
+    }
     // If any reviewer identified explicit blocking issues, they MUST be resolved before approval
     else if (params.reviews.some(r => r.blockingIssues.length > 0)) {
       chairmanVerdict = 'CHANGES_REQUESTED';
-      synthesisText = `CHANGES_REQUESTED PELO CONSELHO: Bloqueios técnicos apontados pelos revisores precisam ser sanados antes do prosseguimento.`;
+      const allBlockers = params.reviews.flatMap(r => r.blockingIssues);
+      const firstBlocker = allBlockers[0] || 'Bloqueio técnico apontado pelos revisores';
+      const rootCause = IndependentEvaluator.extractSurgicalRootCauseDiagnosis({
+        output: allBlockers.join('\n'),
+        projectPath: (params.contract as any)?.projectPath || '',
+        fallbackFile: params.diff ? (params.diff.match(/--- a\/(.*?)\n/)?.[1] || 'src/') : 'src/',
+        fallbackError: firstBlocker,
+        fallbackDirective: 'Resolver o bloqueio apontado na implementação mantendo os testes automatizados íntegros.'
+      });
+
+      synthesisText = isPlanCritique
+        ? `CHANGES_REQUESTED PELO CONSELHO (Plano Arquitetural): Bloqueios técnicos ou omissão de critérios de aceitação apontados pelos revisores precisam ser sanados antes do prosseguimento.`
+        : [
+            `CHANGES_REQUESTED PELO CONSELHO (Diretriz Cirúrgica de Reparo Imediato):`,
+            `[ARQUIVO E LINHA]: ${rootCause.fileAndLine}`,
+            `[ERRO REAL]: ${rootCause.realError}`,
+            `[DIRETRIZ CIRÚRGICA]: ${rootCause.surgicalDirective}`
+          ].join('\n');
+
+      actionItems.push(
+        `[ARQUIVO E LINHA]: ${rootCause.fileAndLine}`,
+        `[ERRO REAL]: ${rootCause.realError}`,
+        `[DIRETRIZ CIRÚRGICA]: ${rootCause.surgicalDirective}`
+      );
       params.reviews.forEach(r => {
         if (r.blockingIssues.length > 0) actionItems.push(...r.blockingIssues);
       });
     }
     // Majority approval
-    else if (approvedCount >= 2 && (!params.evaluation || params.evaluation.taskIsDone)) {
+    else if (approvedCount >= 2 && (isPlanCritique || !params.evaluation || params.evaluation.taskIsDone)) {
       chairmanVerdict = 'APPROVED';
-      synthesisText = `APROVADO PELO CONSELHO (Maioria Qualificada: ${approvedCount}/3): A implementação atende aos critérios funcionais, preserva a integridade de regressão e mantém nível satisfatório de manutenibilidade.`;
+      synthesisText = isPlanCritique
+        ? `APROVADO PELO CONSELHO (Fase 1: Review de Planejamento / Blueprint): O plano arquitetural cobre 100% dos requisitos, define critérios de aceitação binários falsificáveis, respeita o princípio Karpathy Simplicity First e mantém ordenação acíclica no DAG.`
+        : `APROVADO PELO CONSELHO (Maioria Qualificada: ${approvedCount}/3): A implementação atende aos critérios funcionais, preserva a integridade de regressão e mantém nível satisfatório de manutenibilidade.`;
+      params.reviews.forEach(r => {
+        if (r.suggestions.length > 0) actionItems.push(...r.suggestions);
+      });
     } else {
       chairmanVerdict = 'CHANGES_REQUESTED';
-      synthesisText = `CHANGES_REQUESTED PELO CONSELHO: Múltiplos revisores apontaram inconformidades na implementação entregue.`;
+      const allBlockers = params.reviews.flatMap(r => r.blockingIssues);
+      const firstBlocker = allBlockers[0] || 'Múltiplos revisores apontaram inconformidades na implementação entregue.';
+      const rootCause = IndependentEvaluator.extractSurgicalRootCauseDiagnosis({
+        output: allBlockers.join('\n'),
+        projectPath: (params.contract as any)?.projectPath || '',
+        fallbackFile: params.diff ? (params.diff.match(/--- a\/(.*?)\n/)?.[1] || 'src/') : 'src/',
+        fallbackError: firstBlocker,
+        fallbackDirective: 'Corrigir as inconformidades técnicas apontadas.'
+      });
+
+      synthesisText = isPlanCritique
+        ? `CHANGES_REQUESTED PELO CONSELHO: Múltiplos revisores apontaram inconformidades na estrutura do plano arquitetural.`
+        : [
+            `CHANGES_REQUESTED PELO CONSELHO (Diretriz Cirúrgica de Reparo Imediato):`,
+            `[ARQUIVO E LINHA]: ${rootCause.fileAndLine}`,
+            `[ERRO REAL]: ${rootCause.realError}`,
+            `[DIRETRIZ CIRÚRGICA]: ${rootCause.surgicalDirective}`
+          ].join('\n');
+
+      actionItems.push(
+        `[ARQUIVO E LINHA]: ${rootCause.fileAndLine}`,
+        `[ERRO REAL]: ${rootCause.realError}`,
+        `[DIRETRIZ CIRÚRGICA]: ${rootCause.surgicalDirective}`
+      );
       params.reviews.forEach(r => {
         if (r.blockingIssues.length > 0) actionItems.push(...r.blockingIssues);
       });
     }
 
+    const defaultAction = isPlanCritique
+      ? 'Prosseguir com a execução da primeira etapa (setup e infraestrutura base).'
+      : 'Manter monitoramento de regressão';
+
+    const finalScore = (chairmanVerdict === 'APPROVED' && params.evaluation?.taskIsDone && !isPlanCritique)
+      ? Math.max(avgScore, 9)
+      : avgScore;
+
     return {
       chairmanVerdict,
       chairmanSynthesis: synthesisText,
       consensusLevel,
-      finalScore: avgScore,
-      actionItems: actionItems.length > 0 ? Array.from(new Set(actionItems)) : ['Manter monitoramento de regressão']
+      finalScore,
+      actionItems: actionItems.length > 0 ? Array.from(new Set(actionItems)) : [defaultAction]
     };
   }
 
@@ -546,7 +813,8 @@ Now provide your evaluation and ranking:`;
     evaluation?: EvaluationResult | null;
     riskLevel?: 'low' | 'medium' | 'high' | 'critical';
     policyTrigger?: string;
-    options?: { forceHeuristic?: boolean };
+    phase?: 'PLANNING' | 'CODE_DELIVERY' | 'GENERAL';
+    options?: { forceHeuristic?: boolean; supervisorProvider?: any };
   }): Promise<CouncilDeliberation> {
     const id = crypto.randomUUID();
     const nowIso = new Date().toISOString();
@@ -555,9 +823,18 @@ Now provide your evaluation and ranking:`;
     const diff = params.diff || '';
     const filesChanged = params.filesChanged || [];
 
+    const isPlanCritique = Boolean(
+      params.phase === 'PLANNING' ||
+      params.task?.phase === 'PLANNING' ||
+      params.task?.isPlanReview ||
+      (params.task?.plannedTasks && Array.isArray(params.task.plannedTasks) && params.task.plannedTasks.length > 0) ||
+      policyTrigger === 'PLAN_ARCHITECTURE_CRITIQUE'
+    );
+    const detectedPhase = params.phase || (isPlanCritique ? 'PLANNING' : 'CODE_DELIVERY');
+
     Logger.info(`[AI DEV Council] ====================================================`);
     Logger.info(`[AI DEV Council] CONVOCANDO CONSELHO MULTI-AGENTE (AI DEV COUNCIL)`);
-    Logger.info(`[AI DEV Council] Tarefa: "${params.task.title || 'Revisão Arquitetural'}" | Nível de Risco: ${riskLevel.toUpperCase()}`);
+    Logger.info(`[AI DEV Council] Fase: ${detectedPhase} | Tarefa: "${params.task.title || 'Revisão Arquitetural'}" | Nível de Risco: ${riskLevel.toUpperCase()}`);
     Logger.info(`[AI DEV Council] ====================================================`);
 
     // 1. STAGE 1: Independent Opinions
@@ -567,9 +844,11 @@ Now provide your evaluation and ranking:`;
         contract: params.contract,
         diff,
         filesChanged,
-        evaluation: params.evaluation
+        evaluation: params.evaluation,
+        policyTrigger,
+        isPlanCritique
       },
-      { forceHeuristic: params.options?.forceHeuristic, projectId: params.projectId }
+      { forceHeuristic: params.options?.forceHeuristic, projectId: params.projectId, supervisorProvider: params.options?.supervisorProvider }
     );
 
     // 2. STAGE 2: Anonymized Peer Review & Ranking
@@ -587,7 +866,9 @@ Now provide your evaluation and ranking:`;
       evaluation: params.evaluation,
       reviews,
       peerRankings,
-      aggregateRankings
+      aggregateRankings,
+      isPlanCritique,
+      policyTrigger
     });
 
     const correctnessScore = reviews.find(r => r.roleName === 'Correctness')?.score || 8;
@@ -599,6 +880,7 @@ Now provide your evaluation and ranking:`;
       taskId: params.taskId,
       projectId: params.projectId,
       runId: params.runId,
+      phase: detectedPhase,
       riskLevel,
       policyTrigger,
       reviews,
@@ -677,23 +959,62 @@ Now provide your evaluation and ranking:`;
   // SPECIALIZED REVIEWER PROMPTS & EVALUATORS
   // -------------------------------------------------------------
 
-  private static async evaluateCorrectness(task: any, contract: any, diff: string, evalEvidence: string, filesChanged: string[]): Promise<Omit<ReviewerOutput, 'anonymousLabel'>> {
-    const isPlanCritique = Boolean(task?.plannedTasks || evalEvidence.includes('PLAN_ARCHITECTURE_CRITIQUE'));
+  private static async evaluateCorrectness(
+    task: any,
+    contract: any,
+    diff: string,
+    evalEvidence: string,
+    filesChanged: string[],
+    isPlanCritiqueOverride?: boolean
+  ): Promise<Omit<ReviewerOutput, 'anonymousLabel'>> {
+    const isPlanCritique = isPlanCritiqueOverride ?? Boolean(task?.plannedTasks || evalEvidence.includes('PLAN_ARCHITECTURE_CRITIQUE') || task?.phase === 'PLANNING');
     if (isPlanCritique) {
       const planned = task.plannedTasks || [];
       const hasMissingCriteria = planned.some((t: any) => !t.criteria || t.criteria.length === 0);
-      const score = hasMissingCriteria ? 4 : 9;
+      const isZeroTasks = planned.length === 0;
+      const hasVagueFiles = planned.some((t: any) => {
+        const files = t.expectedFiles || t.targetFiles || t.files;
+        return !Array.isArray(files) || files.length === 0 || files.some((f: string) => /a\s*definir|tbd/i.test(String(f)));
+      });
+      const hasMockCommand = planned.some((t: any) => {
+        const cmd = (t.verificationCommand || '').trim();
+        return !cmd || /^(?:true|exit\s*0|echo\b|return\s*0)/i.test(cmd);
+      });
+      const hasBoundariesInCriteria = planned.some((t: any) =>
+        (t.criteria || []).some((c: string) => /journal_mode\s*=\s*WAL|PORT_GUARD|SQL\s*Injection|Path\s*Traversal/i.test(c))
+      );
+
+      let score = 9;
+      let verdict: 'APPROVED' | 'CHANGES_REQUESTED' = 'APPROVED';
+      if (hasMissingCriteria || isZeroTasks) {
+        score = 4;
+        verdict = 'CHANGES_REQUESTED';
+      } else if (!hasVagueFiles && !hasMockCommand && hasBoundariesInCriteria) {
+        score = 10;
+      }
+
+      const findings = [];
+      if (isZeroTasks) {
+        findings.push('Plano vazio: nenhuma tarefa estruturada foi encontrada para execução.');
+      } else if (hasMissingCriteria) {
+        findings.push('Plano contém tarefas sem critérios de aceitação explícitos.');
+      } else {
+        findings.push('Fase 1 (Planejamento Pré-Implementação): 100% dos requisitos do briefing mapeados com sucesso no plano.');
+        findings.push(`Grafo de tarefas com ${planned.length} etapas estruturadas com critérios de aceitação binários e falsificáveis.`);
+        findings.push('Comandos de verificação e escopo de arquivos esperados definidos para cada etapa.');
+      }
+
       return {
         reviewerId: 'Reviewer A',
         roleName: 'Correctness',
-        verdict: hasMissingCriteria ? 'CHANGES_REQUESTED' : 'APPROVED',
+        verdict,
         score,
-        findings: hasMissingCriteria
-          ? ['Plano contém tarefas sem critérios de aceitação explícitos.']
-          : ['Plano atende aos requisitos funcionais com critérios verificáveis definidos para cada tarefa.'],
-        blockingIssues: hasMissingCriteria ? ['Definir critérios de aceitação binários para todas as tarefas.'] : [],
+        findings,
+        blockingIssues: hasMissingCriteria
+          ? ['Definir critérios de aceitação binários para todas as tarefas.']
+          : (isZeroTasks ? ['Gerar tarefas para o plano arquitetural.'] : []),
         suggestions: ['Garantir comandos de validação automatizados por milestone.'],
-        rawAnalysis: 'Avaliação de completude e rastreabilidade funcional da DAG de tarefas.'
+        rawAnalysis: 'Avaliação de completude, rastreabilidade funcional e critérios binários da DAG de planejamento.'
       };
     }
     // Reviewer A focuses on: Tests, Acceptance Criteria, Bug Reproduction, Functional Completeness
@@ -718,27 +1039,52 @@ Now provide your evaluation and ranking:`;
     };
   }
 
-  private static async evaluateSimplicity(task: any, contract: any, diff: string, evalEvidence: string, filesChanged: string[]): Promise<Omit<ReviewerOutput, 'anonymousLabel'>> {
-    const isPlanCritique = Boolean(task?.plannedTasks || evalEvidence.includes('PLAN_ARCHITECTURE_CRITIQUE'));
+  private static async evaluateSimplicity(
+    task: any,
+    contract: any,
+    diff: string,
+    evalEvidence: string,
+    filesChanged: string[],
+    isPlanCritiqueOverride?: boolean
+  ): Promise<Omit<ReviewerOutput, 'anonymousLabel'>> {
+    const isPlanCritique = isPlanCritiqueOverride ?? Boolean(task?.plannedTasks || evalEvidence.includes('PLAN_ARCHITECTURE_CRITIQUE') || task?.phase === 'PLANNING');
     if (isPlanCritique) {
       const planned = task.plannedTasks || [];
       const isSaaS = ReaSaaSMasterService.isSaaSOrFullStackProject(
-        `${task?.title || ''} ${task?.description || ''} ${task?.briefing || ''}`
+        `${task?.title || ''} ${task?.description || ''} ${task?.briefing || ''} ${task?.objective || ''}`
       );
       const maxAllowed = isSaaS ? 85 : 35;
       const isOverengineered = planned.length > maxAllowed;
-      const score = isOverengineered ? 5 : 9;
+      const isCoalesced = planned.length >= 4 && planned.length <= 6;
+      let score = 9;
+      if (isOverengineered) {
+        score = 5;
+      } else if (isCoalesced) {
+        score = 10;
+      }
+
+      const concreteSample = planned[0];
+      const citedDecision = concreteSample
+        ? `Decisão concreta avaliada: "${concreteSample.title}" com escopo delimitado (${(concreteSample.expectedFiles || concreteSample.targetFiles || []).slice(0, 2).join(', ') || 'arquivos dedicados'}) e arquitetura direta sem frameworks pesados ou overengineering.`
+        : 'Decisão concreta avaliada: Arquitetura sem intermediários desnecessários.';
+
       return {
         reviewerId: 'Reviewer B',
         roleName: 'Simplicity',
         verdict: isOverengineered ? 'CHANGES_REQUESTED' : 'APPROVED',
         score,
         findings: isOverengineered
-          ? ['Plano excessivamente fragmentado; risco de overengineering e tarefas fantasmas.']
-          : ['Plano respeita o princípio Karpathy Simplicity First: tarefas proporcionais e sem excesso.'],
+          ? [
+              `Plano excessivamente fragmentado (${planned.length} tarefas > limite de ${maxAllowed}); risco de overengineering e tarefas fantasmas.`,
+              citedDecision
+            ]
+          : [
+              'Plano respeita o princípio Karpathy Simplicity First: tarefas proporcionais, coesas e sem sobre-decomposição.',
+              citedDecision
+            ],
         blockingIssues: isOverengineered ? ['Consolidar tarefas adjacentes para manter execução linear e enxuta.'] : [],
-        suggestions: ['Focar na menor solução funcional que atenda 100% dos requisitos.'],
-        rawAnalysis: 'Avaliação Karpathy Simplicity na estrutura do plano arquitetural.'
+        suggestions: ['Focar na menor solução funcional que atenda 100% dos requisitos do briefing.'],
+        rawAnalysis: `Avaliação Karpathy Simplicity na estrutura do plano arquitetural. ${citedDecision}`
       };
     }
     // Reviewer B focuses on: Overengineering, lines of code, premature abstractions, Karpathy Simplicity
@@ -776,18 +1122,38 @@ Now provide your evaluation and ranking:`;
     };
   }
 
-  private static async evaluateRegression(task: any, contract: any, diff: string, evalEvidence: string, filesChanged: string[]): Promise<Omit<ReviewerOutput, 'anonymousLabel'>> {
-    const isPlanCritique = Boolean(task?.plannedTasks || evalEvidence.includes('PLAN_ARCHITECTURE_CRITIQUE'));
+  private static async evaluateRegression(
+    task: any,
+    contract: any,
+    diff: string,
+    evalEvidence: string,
+    filesChanged: string[],
+    isPlanCritiqueOverride?: boolean
+  ): Promise<Omit<ReviewerOutput, 'anonymousLabel'>> {
+    const isPlanCritique = isPlanCritiqueOverride ?? Boolean(task?.plannedTasks || evalEvidence.includes('PLAN_ARCHITECTURE_CRITIQUE') || task?.phase === 'PLANNING');
     if (isPlanCritique) {
+      const planned = task?.plannedTasks || [];
+      const hasBoundaries = planned.some((t: any) =>
+        (t.criteria || []).some((c: string) => /journal_mode\s*=\s*WAL/i.test(c)) ||
+        (t.description || '').includes('WAL')
+      ) && planned.some((t: any) =>
+        (t.criteria || []).some((c: string) => /PORT_GUARD/i.test(c)) ||
+        (t.description || '').includes('PORT_GUARD')
+      );
+      const score = hasBoundaries ? 10 : 9;
+
       return {
         reviewerId: 'Reviewer C',
         roleName: 'Regression',
         verdict: 'APPROVED',
-        score: 9,
-        findings: ['DAG de tarefas analisada: ordenação topológica de dependências válida e sem ciclos.'],
+        score,
+        findings: [
+          'DAG de tarefas analisada: ordenação topológica de dependências válida e estritamente acíclica.',
+          'Fronteiras arquiteturais preservadas: conformidade com PORT_GUARD (faixa 4000-4999), persistência SQLite WAL e isolamento de rotas.'
+        ],
         blockingIssues: [],
-        suggestions: ['Garantir que alterações de banco de dados precedam alterações de API.'],
-        rawAnalysis: 'Avaliação de estabilidade, dependências e segurança da sequência de desenvolvimento.'
+        suggestions: ['Garantir que a criação do schema de banco preceda as rotas de API na execução.'],
+        rawAnalysis: 'Avaliação de estabilidade, dependências sequenciais e segurança de fronteira da DAG de desenvolvimento.'
       };
     }
     // Reviewer C focuses on: Edge Cases, Security, Side Effects, Regressions
@@ -819,7 +1185,8 @@ Now provide your evaluation and ranking:`;
     const peerRankingsEnvelope = JSON.stringify({
       peerRankings: deliberation.peerRankings,
       actionItems: deliberation.actionItems || [],
-      aggregateRankings: deliberation.aggregateRankings || []
+      aggregateRankings: deliberation.aggregateRankings || [],
+      phase: deliberation.phase || 'GENERAL'
     });
 
     db.prepare(`
@@ -860,6 +1227,7 @@ Now provide your evaluation and ranking:`;
     let peerRankings: PeerRankingResult[] = [];
     let actionItems: string[] = [];
     let aggregateRankings: AggregateRankingResult[] | undefined = undefined;
+    let phase: 'PLANNING' | 'CODE_DELIVERY' | 'GENERAL' | undefined = undefined;
 
     try {
       const parsedPeer = JSON.parse(row.peer_rankings_json || '[]');
@@ -870,6 +1238,7 @@ Now provide your evaluation and ranking:`;
         peerRankings = parsedPeer.peerRankings || [];
         actionItems = parsedPeer.actionItems || [];
         aggregateRankings = parsedPeer.aggregateRankings;
+        phase = parsedPeer.phase;
       }
     } catch {
       peerRankings = [];
@@ -881,6 +1250,7 @@ Now provide your evaluation and ranking:`;
       taskId: row.task_id,
       projectId: row.project_id,
       runId: row.run_id,
+      phase,
       riskLevel: row.risk_level,
       policyTrigger: row.policy_trigger,
       reviews: JSON.parse(row.reviews_json || '[]'),

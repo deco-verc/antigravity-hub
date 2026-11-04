@@ -12,7 +12,8 @@ export const ALLOWED_VERIFICATION_GRAMMAR_SUMMARY = [
   'node <arquivo.js>',
   'node --check <arquivo.js>',
   'node -c <arquivo.js>',
-  'node -e "process.exit(0)"',
+  'npx tsc --noEmit',
+  'npx tsx --test <arquivo-relativo>',
   'tsc --noEmit'
 ].join(' | ');
 
@@ -156,13 +157,10 @@ export function validateVerificationCommand(
   }
 
   if (/^(?:node\s+-e\b|exit\s+0|true\b|echo\b|powershell\b|pwsh\b|cmd\b|sh\b|bash\b)/i.test(raw)) {
-    if (/^node\s+-e\s+["']process\.exit\(0\);?["']/i.test(raw)) {
-      return { valid: true };
-    }
     return {
       valid: false,
       code: 'COMMAND_REVIEW_REQUIRED',
-      reason: 'COMMAND_REVIEW_REQUIRED: comando inline, trivial ou shell explícito não é permitido no avaliador controlado'
+      reason: 'COMMAND_REVIEW_REQUIRED: comando inline, mock trivial (process.exit) ou shell explícito não é permitido no avaliador controlado'
     };
   }
 
@@ -301,7 +299,7 @@ export function validateVerificationCommand(
       }
       return { valid: true };
     } else if (args[0] === '-e' && args[1] && /^\s*process\.exit\(0\)\s*;?\s*$/.test(args[1])) {
-      return { valid: true };
+      return { valid: false, code: 'COMMAND_REVIEW_REQUIRED', reason: 'COMMAND_REVIEW_REQUIRED: comando mock process.exit(0) não é permitido no avaliador controlado' };
     } else {
       const file = args[0];
       if (!file || file.startsWith('-') || !/\.[cm]?js$/.test(file)) {
@@ -502,10 +500,10 @@ export function normalizeOrRecoverVerificationCommand(
       }
       return {
         validInitially: false,
-        command: 'node -e "process.exit(0)"',
+        command: 'npx tsc --noEmit',
         originalCommand: raw,
         recovered: true,
-        reason: 'package.json ou script test ausente no projeto; recuperado para validação segura de arquivos criados'
+        reason: 'package.json ou script test ausente no projeto; recuperado para validação de tipos com npx tsc --noEmit'
       };
     } else {
       return {
@@ -653,7 +651,7 @@ export function normalizeOrRecoverVerificationCommand(
 
   return {
     validInitially: false,
-    command: 'node -e "process.exit(0)"',
+    command: 'npx tsc --noEmit',
     originalCommand: raw,
     recovered: true,
     reason: initialValidation.reason

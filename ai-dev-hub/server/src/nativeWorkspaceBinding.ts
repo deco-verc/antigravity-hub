@@ -125,7 +125,12 @@ export class NativeWorkspaceBinding {
         normalizeRuntimePath(existing.user_profile_dir) === normalizeRuntimePath(userProfileDir)
       ) {
         try {
-          return this.get(projectId, accountProfileId);
+          const record = this.get(projectId, accountProfileId);
+          const proj = db.prepare('SELECT id, name, path FROM projects WHERE id=?').get(projectId) as any;
+          if (proj) {
+            this.syncNativeProjectManifestAndCache(record.nativeProjectId, proj, userProfileDir);
+          }
+          return record;
         } catch (err: any) {
           if (!autoProvision || err.message !== 'NATIVE_WORKSPACE_PROJECT_NOT_FOUND') {
             throw err;
@@ -154,7 +159,7 @@ export class NativeWorkspaceBinding {
     }
 
     const project = db
-      .prepare('SELECT path, active_account_profile_id FROM projects WHERE id=?')
+      .prepare('SELECT id, name, path, active_account_profile_id FROM projects WHERE id=?')
       .get(projectId) as any;
     if (!project) throw new Error('NATIVE_WORKSPACE_HUB_PROJECT_MISMATCH');
 
@@ -226,13 +231,15 @@ export class NativeWorkspaceBinding {
       }
     }
 
-    return this.bind({
+    const bound = this.bind({
       projectId,
       accountProfileId,
       nativeProjectId: chosenCandidate,
       userProfileDir,
       workspacePath: project.path
     });
+    this.syncNativeProjectManifestAndCache(chosenCandidate, project, userProfileDir);
+    return bound;
   }
 
   static ensureBinding(
@@ -482,61 +489,8 @@ export class NativeWorkspaceBinding {
       fs.writeFileSync(configFile, JSON.stringify(nativeConfig, null, 2), 'utf8');
     }
 
-    // 2. Espelha nativeProjectId.json para o diretório global do usuário e atualize cache do CLI
-    if (!isOffline) {
-      try {
-        const globalProjectsDir = path.join(os.homedir(), '.gemini', 'config', 'projects');
-        fs.mkdirSync(globalProjectsDir, { recursive: true });
-        const sourceConfigFile = path.join(directory, `${nativeProjectId}.json`);
-        const globalConfigFile = path.join(globalProjectsDir, `${nativeProjectId}.json`);
-        if (fs.existsSync(sourceConfigFile) && normalizeRuntimePath(sourceConfigFile) !== normalizeRuntimePath(globalConfigFile)) {
-          fs.copyFileSync(sourceConfigFile, globalConfigFile);
-        }
-
-        // Atualiza também ~/.gemini/antigravity-cli/cache/projects.json
-        const cliCacheDir = path.join(os.homedir(), '.gemini', 'antigravity-cli', 'cache');
-        fs.mkdirSync(cliCacheDir, { recursive: true });
-        const cliProjectsFile = path.join(cliCacheDir, 'projects.json');
-        let cacheData: any = {};
-        if (fs.existsSync(cliProjectsFile)) {
-          try { cacheData = JSON.parse(fs.readFileSync(cliProjectsFile, 'utf8')); } catch { cacheData = {}; }
-        }
-        if (Array.isArray(cacheData)) {
-          const idx = cacheData.findIndex((p: any) => p.id === nativeProjectId || p.path === project.path);
-          const entry = { id: nativeProjectId, name: project.name, path: project.path, folderUri: pathToFileURL(project.path).href };
-          if (idx >= 0) cacheData[idx] = entry;
-          else cacheData.push(entry);
-        } else {
-          cacheData[nativeProjectId] = {
-            id: nativeProjectId,
-            name: project.name,
-            path: project.path,
-            folderUri: pathToFileURL(project.path).href
-          };
-        }
-        fs.writeFileSync(cliProjectsFile, JSON.stringify(cacheData, null, 2), 'utf8');
-      } catch (mirrorErr: any) {
-        Logger.warn(`[NativeWorkspaceBinding] Aviso ao espelhar manifesto no home global: ${mirrorErr.message}`);
-      }
-    } else {
-      // Em modo offline/teste: atualiza cache exclusivamente dentro da sandbox de teste
-      try {
-        const testCacheDir = path.join(effectiveUserProfileDir, '.gemini', 'antigravity-cli', 'cache');
-        fs.mkdirSync(testCacheDir, { recursive: true });
-        const testProjectsFile = path.join(testCacheDir, 'projects.json');
-        let cacheData: any = {};
-        if (fs.existsSync(testProjectsFile)) {
-          try { cacheData = JSON.parse(fs.readFileSync(testProjectsFile, 'utf8')); } catch { cacheData = {}; }
-        }
-        cacheData[nativeProjectId] = {
-          id: nativeProjectId,
-          name: project.name,
-          path: project.path,
-          folderUri: pathToFileURL(project.path).href
-        };
-        fs.writeFileSync(testProjectsFile, JSON.stringify(cacheData, null, 2), 'utf8');
-      } catch {}
-    }
+    // 2. Espelha nativeProjectId.json para o diretório global do usuário e atualiza cache do CLI
+    this.syncNativeProjectManifestAndCache(nativeProjectId, project, effectiveUserProfileDir);
 
     return this.bind({
       projectId,
@@ -545,6 +499,83 @@ export class NativeWorkspaceBinding {
       userProfileDir: effectiveUserProfileDir,
       workspacePath: project.path
     });
+  }
+
+  /**
+   * Sincroniza e espelha o manifesto do projeto nativo e o cache do CLI do Antigravity
+   * Garante que ~/.gemini/config/projects/<nativeProjectId>.json e ~/.gemini/antigravity-cli/cache/projects.json
+   * contenham o nome, caminho canônico absoluto e folderUri do projeto.
+   */
+  static syncNativeProjectManifestAndCache(
+    nativeProjectId: string,
+    project: { name: string; path: string },
+    userProfileDir: string
+  ): void {
+    if (!nativeProjectId || !project?.path) return;
+    const isOffline = isOfflineExecution();
+    const canonicalPath = path.resolve(project.path);
+    const folderUri = pathToFileURL(canonicalPath).href;
+
+    try {
+      if (!isOffline) {
+        // Modo Online: Espelha manifesto para ~/.gemini/config/projects/<nativeProjectId>.json
+        const globalProjectsDir = path.join(os.homedir(), '.gemini', 'config', 'projects');
+        fs.mkdirSync(globalProjectsDir, { recursive: true });
+        const sourceConfigFile = path.join(userProfileDir, '.gemini', 'config', 'projects', `${nativeProjectId}.json`);
+        const globalConfigFile = path.join(globalProjectsDir, `${nativeProjectId}.json`);
+        if (fs.existsSync(sourceConfigFile) && normalizeRuntimePath(sourceConfigFile) !== normalizeRuntimePath(globalConfigFile)) {
+          fs.copyFileSync(sourceConfigFile, globalConfigFile);
+        }
+
+        // Atualiza cache em ~/.gemini/antigravity-cli/cache/projects.json
+        const cliCacheDir = path.join(os.homedir(), '.gemini', 'antigravity-cli', 'cache');
+        fs.mkdirSync(cliCacheDir, { recursive: true });
+        const cliProjectsFile = path.join(cliCacheDir, 'projects.json');
+        let cacheData: any = {};
+        if (fs.existsSync(cliProjectsFile)) {
+          try { cacheData = JSON.parse(fs.readFileSync(cliProjectsFile, 'utf8')); } catch { cacheData = {}; }
+        }
+        const entry = {
+          id: nativeProjectId,
+          name: project.name,
+          path: canonicalPath,
+          folderUri
+        };
+        if (Array.isArray(cacheData)) {
+          const idx = cacheData.findIndex((p: any) => p.id === nativeProjectId || (p.path && normalizeRuntimePath(p.path) === normalizeRuntimePath(canonicalPath)));
+          if (idx >= 0) cacheData[idx] = entry;
+          else cacheData.push(entry);
+        } else {
+          cacheData[nativeProjectId] = entry;
+        }
+        fs.writeFileSync(cliProjectsFile, JSON.stringify(cacheData, null, 2), 'utf8');
+      } else {
+        // Modo offline / teste: atualiza cache exclusivamente dentro da sandbox de teste
+        const testCacheDir = path.join(userProfileDir, '.gemini', 'antigravity-cli', 'cache');
+        fs.mkdirSync(testCacheDir, { recursive: true });
+        const testProjectsFile = path.join(testCacheDir, 'projects.json');
+        let cacheData: any = {};
+        if (fs.existsSync(testProjectsFile)) {
+          try { cacheData = JSON.parse(fs.readFileSync(testProjectsFile, 'utf8')); } catch { cacheData = {}; }
+        }
+        const entry = {
+          id: nativeProjectId,
+          name: project.name,
+          path: canonicalPath,
+          folderUri
+        };
+        if (Array.isArray(cacheData)) {
+          const idx = cacheData.findIndex((p: any) => p.id === nativeProjectId || (p.path && normalizeRuntimePath(p.path) === normalizeRuntimePath(canonicalPath)));
+          if (idx >= 0) cacheData[idx] = entry;
+          else cacheData.push(entry);
+        } else {
+          cacheData[nativeProjectId] = entry;
+        }
+        fs.writeFileSync(testProjectsFile, JSON.stringify(cacheData, null, 2), 'utf8');
+      }
+    } catch (mirrorErr: any) {
+      Logger.warn(`[NativeWorkspaceBinding] Aviso ao espelhar manifesto/cache do Antigravity: ${mirrorErr.message}`);
+    }
   }
 
   static inspectBinding(projectId: string, accountProfileId?: string, _userProfileDir?: string) {

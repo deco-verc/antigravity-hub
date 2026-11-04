@@ -172,18 +172,37 @@ apiRouter.get('/system/vaccines', (req, res) => {
 // GITHUB ONE-CLICK SYNC
 // -------------------------------------------------------------
 
-apiRouter.post('/system/github-sync', (req, res) => {
+const handleSystemGitHubSync = (req: any, res: any) => {
   try {
-    const repoRoot = MetaChatService.getDecoHubRoot();
+    const projectId = req.body?.projectId || req.query?.projectId;
+    const projectPath = req.body?.projectPath || req.query?.projectPath;
+    let repoRoot = MetaChatService.getDecoHubRoot();
+    let project: any = null;
+
+    if (projectId) {
+      project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId);
+      if (project?.path && fs.existsSync(project.path)) {
+        repoRoot = project.path;
+      }
+    } else if (projectPath && fs.existsSync(projectPath)) {
+      repoRoot = projectPath;
+      project = db.prepare('SELECT * FROM projects WHERE path = ?').get(projectPath);
+    }
+
+    if (!fs.existsSync(repoRoot)) {
+      return res.status(404).json({ success: false, error: `Diretório do repositório não encontrado: ${repoRoot}` });
+    }
 
     // 1. git add .
-    execSync('git add .', { cwd: repoRoot, stdio: 'pipe' });
+    execFileSync('git', ['add', '.'], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'] });
 
     // 2. Verifica se há algo para commitar
     let statusOut = '';
     try {
-      statusOut = execSync('git status --porcelain', { cwd: repoRoot, encoding: 'utf8' });
-    } catch { statusOut = ''; }
+      statusOut = execFileSync('git', ['status', '--porcelain'], { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch {
+      statusOut = '';
+    }
 
     let commitHash: string | null = null;
     let filesCommitted: string[] = [];
@@ -191,22 +210,99 @@ apiRouter.post('/system/github-sync', (req, res) => {
 
     if (statusOut.trim().length > 0) {
       // Coleta lista de arquivos staged
-      const stagedOut = execSync('git diff --cached --name-only', { cwd: repoRoot, encoding: 'utf8' });
-      filesCommitted = stagedOut.trim().split('\n').filter(Boolean);
+      const stagedOut = execFileSync('git', ['diff', '--cached', '--name-only'], { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+      filesCommitted = stagedOut.trim().split(/\r?\n/).filter(Boolean);
 
       const commitMsg = req.body?.message || 'chore: auto-sync DecoHUB update';
-      execSync(`git commit -m "${commitMsg.replace(/"/g, '\\"')}"`, { cwd: repoRoot, stdio: 'pipe' });
+      execFileSync('git', ['commit', '-m', commitMsg], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'] });
 
-      commitHash = execSync('git rev-parse --short HEAD', { cwd: repoRoot, encoding: 'utf8' }).trim();
+      commitHash = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
       committed = true;
+    } else {
+      try {
+        commitHash = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+      } catch {}
     }
 
-    // 3. git push
+    // 3. Checagem prévia de remote e perfil do projeto (Ferramenta Local / Meu Trabalho)
+    const isLocalPersonal = Boolean(
+      (project && resolveProjectProfileMode(project) === 'local_personal') ||
+      (req.body?.projectProfile === 'local_personal')
+    );
+
+    let remotes: string[] = [];
+    try {
+      const remoteOut = execFileSync('git', ['remote'], { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+      remotes = remoteOut ? remoteOut.split(/\r?\n/).map(r => r.trim()).filter(Boolean) : [];
+    } catch {
+      remotes = [];
+    }
+
+    // Se a saída for vazia (sem remotes) ou se o projeto for local_personal:
+    if (remotes.length === 0 || isLocalPersonal) {
+      Logger.info(`[github-sync] Push ignorado para "${repoRoot}" (isLocal: ${isLocalPersonal}, remotes: [${remotes.join(', ')}]).`);
+      return res.status(200).json({
+        success: true,
+        message: 'Alterações commitadas localmente com sucesso. Push ignorado (projeto local sem remote configurado).',
+        pushed: false,
+        isLocal: true,
+        committed,
+        commitHash,
+        filesCommitted,
+        repoRoot,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Apenas tente o git push se houver um remote válido ('origin') configurado e autenticado
+    if (!remotes.includes('origin')) {
+      Logger.warn(`[github-sync] Push ignorado para "${repoRoot}": remote "origin" não encontrado (remotes: [${remotes.join(', ')}]).`);
+      return res.status(200).json({
+        success: true,
+        message: 'Alterações commitadas localmente com sucesso. Push ignorado (remote "origin" não configurado).',
+        pushed: false,
+        isLocal: false,
+        committed,
+        commitHash,
+        filesCommitted,
+        repoRoot,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const ghStatus = GitManager.getGitHubStatus();
+    const token = GitManager.getStoredGitHubToken();
+    if (!ghStatus.authenticated && !token) {
+      Logger.warn(`[github-sync] Push cancelado para "${repoRoot}": GitHub não autenticado.`);
+      return res.status(200).json({
+        success: true,
+        message: 'Alterações commitadas localmente com sucesso. Push ignorado (GitHub não autenticado).',
+        pushed: false,
+        isLocal: false,
+        unauthenticated: true,
+        committed,
+        commitHash,
+        filesCommitted,
+        repoRoot,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // 4. git push origin
     let pushOutput = '';
     try {
-      pushOutput = execSync('git push', { cwd: repoRoot, encoding: 'utf8', stdio: 'pipe' }).toString();
+      const envWithToken = token
+        ? { ...process.env, GITHUB_TOKEN: token, GH_TOKEN: token, GITHUB_PERSONAL_ACCESS_TOKEN: token }
+        : process.env;
+
+      pushOutput = execFileSync('git', ['push', 'origin'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        env: envWithToken,
+        stdio: ['ignore', 'pipe', 'pipe']
+      }).toString();
     } catch (pushErr: any) {
-      pushOutput = pushErr.stderr?.toString() || pushErr.message;
+      pushOutput = (pushErr.stderr?.toString() || pushErr.stdout?.toString() || pushErr.message || '').trim();
       // Se nada havia para commitar e push falha por "up-to-date", não é erro
       const upToDate = /Everything up-to-date|up to date/i.test(pushOutput);
       if (!upToDate) {
@@ -222,8 +318,11 @@ apiRouter.post('/system/github-sync', (req, res) => {
 
     Logger.info(`[github-sync] Sincronizado: committed=${committed}, hash=${commitHash}, files=${filesCommitted.length}`);
 
-    res.json({
+    return res.status(200).json({
       success: true,
+      message: 'Sincronização com GitHub concluída com sucesso.',
+      pushed: true,
+      isLocal: false,
       committed,
       commitHash,
       filesCommitted,
@@ -233,8 +332,19 @@ apiRouter.post('/system/github-sync', (req, res) => {
     });
   } catch (err: any) {
     Logger.error(`[github-sync] Erro: ${err.message}`);
-    res.status(500).json({ success: false, error: err.message });
+    return res.status(500).json({ success: false, error: err.message });
   }
+};
+
+apiRouter.post('/system/github-sync', handleSystemGitHubSync);
+apiRouter.post('/system/github/sync', handleSystemGitHubSync);
+apiRouter.post('/projects/:id/github-sync', (req, res) => {
+  req.body = { ...req.body, projectId: req.params.id };
+  return handleSystemGitHubSync(req, res);
+});
+apiRouter.post('/projects/:id/git/sync', (req, res) => {
+  req.body = { ...req.body, projectId: req.params.id };
+  return handleSystemGitHubSync(req, res);
 });
 
 // -------------------------------------------------------------
@@ -1702,10 +1812,14 @@ apiRouter.post('/projects', async (req, res) => {
     }
 
     Logger.success(`Projeto cadastrado no Hub: ${name} (${val.resolvedPath})`);
-    const createdProject = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
+    const createdProject: any = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
+    const enrichedCreated = {
+      ...createdProject,
+      capabilities: resolveProjectCapabilities(createdProject)
+    };
 
     // Send immediate response after synchronous account binding and memory setup
-    res.status(201).json(createdProject);
+    res.status(201).json(enrichedCreated);
 
     // 3. Asynchronous background secondary/heavy operations (Git init, Checkpoint, Git remote)
     // Executado em background via setImmediate para operações pesadas (I/O de Git, Checkpoint e GitHub remoto)
@@ -1859,6 +1973,7 @@ apiRouter.get('/projects/:id', (req, res) => {
 
     res.json({
       ...project,
+      capabilities: resolveProjectCapabilities(project),
       isAvailableOnDisk,
       diskWarning: !isAvailableOnDisk ? `A pasta deste projeto não foi encontrada no disco: "${project.path}"` : null,
       memory,
@@ -2012,11 +2127,13 @@ apiRouter.post('/projects/:id/github/sync', async (req, res) => {
 apiRouter.put('/projects/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, objective, description, stack, status, is_trusted, full_dev_autonomy, active_account_profile_id, selected_model, reasoning_level } = req.body || {};
+    const { name, objective, description, stack, status, is_trusted, full_dev_autonomy, active_account_profile_id, selected_model, reasoning_level, projectProfile, project_profile, capabilities } = req.body || {};
     const nowIso = new Date().toISOString();
 
     const isTrustedVal = is_trusted !== undefined ? (is_trusted ? 1 : 0) : null;
     const fullAutonomyVal = full_dev_autonomy !== undefined ? (full_dev_autonomy ? 1 : 0) : null;
+    const profileVal = projectProfile || project_profile || null;
+    const capsJsonVal = capabilities ? JSON.stringify(capabilities) : null;
 
     db.prepare(`
       UPDATE projects
@@ -2030,9 +2147,11 @@ apiRouter.put('/projects/:id', async (req, res) => {
           active_account_profile_id = COALESCE(?, active_account_profile_id),
           selected_model = COALESCE(?, selected_model),
           reasoning_level = COALESCE(?, reasoning_level),
+          project_profile = COALESCE(?, project_profile),
+          capabilities_json = COALESCE(?, capabilities_json),
           updated_at = ?
       WHERE id = ?
-    `).run(name, objective, description, stack, status, isTrustedVal, fullAutonomyVal, active_account_profile_id || null, selected_model || null, reasoning_level || null, nowIso, id);
+    `).run(name, objective, description, stack, status, isTrustedVal, fullAutonomyVal, active_account_profile_id || null, selected_model || null, reasoning_level || null, profileVal, capsJsonVal, nowIso, id);
 
     if (active_account_profile_id) {
       try {
@@ -2056,8 +2175,11 @@ apiRouter.put('/projects/:id', async (req, res) => {
       }
     }
 
-    const updated = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
-    res.json(updated);
+    const updated: any = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
+    res.json({
+      ...updated,
+      capabilities: resolveProjectCapabilities(updated)
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -3012,6 +3134,21 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
       } else {
         // Connect to Autonomous Development Engine for execution instructions
         try {
+          const buildSmartRunName = (promptText: string, projectName?: string): string => {
+            const clean = (promptText || '').trim().replace(/^[#*`\s]+/, '');
+            const firstLine = clean.split(/\r?\n/).map(l => l.trim().replace(/^[#*`\s-]+/, '')).find(l => l.length > 0) || clean;
+            const pName = (projectName || '').trim();
+
+            if (clean.length <= 60 && !clean.includes('\n')) {
+              return pName ? `${pName}: ${clean}` : `Solicitação: ${clean}`;
+            }
+
+            const shortLine = firstLine.length > 70 ? `${firstLine.slice(0, 67)}...` : firstLine;
+            if (pName) {
+              return `Planejamento: ${pName} - ${shortLine}`;
+            }
+            return `Planejamento: ${shortLine}`;
+          };
           const explicitReplan = !forceNew && (Boolean(req.body?.replan) || /^(replanejar|novo requisito|alterar requisito|defeito):/i.test(content.trim()));
           const isFullProjectPrompt = content.trim().length > 500 || /^(?:#?\s*PROJETO:|OBJETIVO DO PRODUTO:)/i.test(content.trim());
           const taskCounts: any = activeExistingRun
@@ -3056,7 +3193,7 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
 
             autonomousRun = await AutonomousManager.createRun({
               projectId: id,
-              name: `Solicitação: ${content.slice(0, 35)}`,
+              name: buildSmartRunName(content, project?.name),
               objective: content,
               briefing: content,
               autonomyMode: 'autonomous',
@@ -3128,7 +3265,7 @@ apiRouter.post(['/projects/:id/messages', '/projects/:id/chat'], async (req, res
             // Launch real autonomous build
             autonomousRun = await AutonomousManager.createRun({
               projectId: id,
-              name: `Solicitação: ${content.slice(0, 35)}`,
+              name: buildSmartRunName(content, project?.name),
               objective: content,
               briefing: content,
               autonomyMode: 'autonomous'
@@ -4989,9 +5126,35 @@ apiRouter.post('/projects/:id/preview/start', async (req, res) => {
     const project: any = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
     if (!project) return res.status(404).json({ error: 'Projeto não encontrado' });
 
-    const { port, timeoutMs } = req.body || {};
-    const status = await ProjectOperationsService.startPreview(id, project.path, { port, timeoutMs });
-    res.json(status);
+    let { port, timeoutMs } = req.body || {};
+    // Validação na faixa PORT_GUARD 4000-4999
+    if (port !== undefined && port !== null) {
+      port = Number(port);
+      if (isNaN(port) || port < 4000 || port > 4999) {
+        port = undefined;
+      }
+    }
+    // Se a porta já estiver em uso ou processo anterior ativo, encerra antes de subir o novo
+    if (port) {
+      ProjectOperationsService.killProcessOnPort(port);
+    }
+    await ProjectOperationsService.stopPreview(id);
+
+    // Timeout determinístico padrão de 8s para readiness
+    const finalTimeout = typeof timeoutMs === 'number' && timeoutMs > 0 ? timeoutMs : 8000;
+    const status = await ProjectOperationsService.startPreview(id, project.path, { port, timeoutMs: finalTimeout });
+
+    const portResolved = status.port || port;
+    const urlResolved = status.url || (portResolved ? `http://127.0.0.1:${portResolved}` : undefined);
+
+    // Retorno do JSON canônico: { status: 'online', port, url: 'http://127.0.0.1:<port>', pid }
+    res.json({
+      ...status,
+      status: status.running ? 'online' : 'offline',
+      port: portResolved,
+      url: urlResolved,
+      pid: status.pid
+    });
   } catch (err: any) {
     Logger.error(`[Routes] Erro ao iniciar preview do projeto "${req.params.id}": ${err.message}`);
     res.status(500).json({ error: err.message });
@@ -5002,7 +5165,11 @@ apiRouter.post('/projects/:id/preview/stop', async (req, res) => {
   try {
     const { id } = req.params;
     const stopped = await ProjectOperationsService.stopPreview(id);
-    res.json({ success: stopped, message: stopped ? 'Preview encerrado com sucesso' : 'Nenhum preview em execução' });
+    res.json({
+      success: stopped,
+      status: 'offline',
+      message: stopped ? 'Preview encerrado com sucesso' : 'Nenhum preview em execução'
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

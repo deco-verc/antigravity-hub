@@ -174,7 +174,89 @@ export class DecoMindMlService {
     `);
 
     if (!this._isBootstrapping) {
+      if (targetDb === db) {
+        this.seedCoreReinforcementVaccines(targetDb);
+      }
       this.autoBootstrapHistoricalMemories(targetDb);
+    }
+  }
+
+  /**
+   * Registra e sincroniza as 3 Vacinas Canônicas de Aprendizado por Reforço no DecoMind ML Engine
+   * (Planejamento, Revisão de Fases e Execução TDD) com Q-Value máximo (q_value = 1.0).
+   */
+  static seedCoreReinforcementVaccines(targetDb: any = db): EpisodicMemory[] {
+    if (this._isBootstrapping) return [];
+    this._isBootstrapping = true;
+    try {
+      const coreVaccines = [
+      {
+        taskCategory: 'planning',
+        errorPattern: 'OVER_DECOMPOSITION_MARKDOWN_FRAGMENTATION',
+        rootCause: 'Fatiamento sintático de sub-bullets e títulos terminados em dois-pontos em tarefas órfãs isoladas.',
+        surgicalVaccine: 'COALESCÊNCIA POR MÓDULO: Nunca transforme cabeçalhos (ex: No Backend:) ou passos internos de uma mesma rota em tarefas separadas. Consolide todas as regras que alteram o mesmo endpoint ou arquivo em UMA ÚNICA Grande Tarefa (GT), preservando sub-passos na descrição/critérios.',
+        taskText: 'planejamento decomposicao grande tarefa fatiamento markdown bullets modulos coalescencia endpoints rotas backend over decomposition fragmentation',
+        qValue: 1.0
+      },
+      {
+        taskCategory: 'review',
+        errorPattern: 'COUNCIL_REJECTED_MISSING_DIFF_IN_PLANNING_PHASE',
+        rootCause: 'Revisores exigindo diff de código, testes verdes e arquivos alterados durante a fase de planejamento conceitual pré-implementação.',
+        surgicalVaccine: 'DISCERNIMENTO DE FASE: Na fase de planejamento (PLAN_ARCHITECTURE_CRITIQUE), é proibido exigir diff ou testes executados. Avalie apenas cobertura de requisitos (100%), viabilidade técnica e critérios binários. Veredicto obrigatório: APPROVED para planos coerentes.',
+        taskText: 'revisao council planejamento arquitetura diff testes verdes codigo pre-implementacao requisitos viabilidade aprovacao plan architecture critique',
+        qValue: 1.0
+      },
+      {
+        taskCategory: 'execution',
+        errorPattern: 'WORKER_REWORK_GUESSWORK_WITHOUT_TESTS',
+        rootCause: 'Worker aplicando alterações sem testes prévios e declarando conclusão sem comando de teste com exit code 0.',
+        surgicalVaccine: 'TEST-FIRST MANDATE: Escreva ou aponte para um teste unitário em test/ antes do código. Execute a verificação no terminal. Conclusão só é válida mediante prova factual com código de saída 0.',
+        taskText: 'execucao worker codigo tdd test-first teste unitario verificacao terminal exit code 0 factual evidencia conclusao rework guesswork',
+        qValue: 1.0
+      }
+    ];
+
+    const results: EpisodicMemory[] = [];
+    for (const v of coreVaccines) {
+      try {
+        const existing: any = targetDb.prepare(
+          'SELECT id FROM ml_episodic_memories WHERE error_pattern = ?'
+        ).get(v.errorPattern);
+
+        if (existing) {
+          const now = new Date().toISOString();
+          const fullSignature = `${v.taskText} ${v.errorPattern} ${v.rootCause} ${v.surgicalVaccine}`;
+          const tokenMap = this.tokenize(fullSignature);
+          const tokenObj: Record<string, number> = {};
+          for (const [k, val] of tokenMap.entries()) tokenObj[k] = Number(val.toFixed(5));
+
+          targetDb.prepare(`
+            UPDATE ml_episodic_memories
+            SET task_category = ?, signature_tokens_json = ?, root_cause = ?, surgical_vaccine = ?, q_value = ?, updated_at = ?
+            WHERE id = ?
+          `).run(v.taskCategory, JSON.stringify(tokenObj), v.rootCause, v.surgicalVaccine, v.qValue, now, existing.id);
+
+          const updated = targetDb.prepare('SELECT * FROM ml_episodic_memories WHERE id = ?').get(existing.id) as EpisodicMemory;
+          results.push(updated);
+        } else {
+          const memory = this.recordEpisodicLesson({
+            taskCategory: v.taskCategory,
+            taskText: v.taskText,
+            errorPattern: v.errorPattern,
+            rootCause: v.rootCause,
+            surgicalVaccine: v.surgicalVaccine,
+            qValue: v.qValue
+          }, targetDb);
+          results.push(memory);
+        }
+      } catch (err: any) {
+        Logger.warn(`[DecoMindMlService] Falha ao sincronizar vacina de reforço (${v.errorPattern}): ${err.message}`);
+      }
+    }
+
+    return results;
+    } finally {
+      this._isBootstrapping = false;
     }
   }
 
@@ -186,7 +268,7 @@ export class DecoMindMlService {
     if (this._isBootstrapping) return;
     this._isBootstrapping = true;
     try {
-      const hasMemories = targetDb.prepare('SELECT count(*) as c FROM ml_episodic_memories').get() as any;
+      const hasMemories = targetDb.prepare("SELECT count(*) as c FROM ml_episodic_memories WHERE error_pattern NOT IN ('OVER_DECOMPOSITION_MARKDOWN_FRAGMENTATION', 'COUNCIL_REJECTED_MISSING_DIFF_IN_PLANNING_PHASE', 'WORKER_REWORK_GUESSWORK_WITHOUT_TESTS')").get() as any;
       if (hasMemories && Number(hasMemories.c || 0) > 0) return;
 
       const hasTasksTable = targetDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='autonomous_tasks'").get();
@@ -750,7 +832,7 @@ export class DecoMindMlService {
     const vaccine = (params.surgicalVaccine || params.resolutionVaccine || 'Default surgical vaccine').slice(0, 500);
     const initialQ = typeof params.qValue === 'number' ? params.qValue : 0.5;
 
-    const fullSignature = `${taskText} ${errPattern} ${rootCause} ${(params.targetFiles || []).join(' ')}`;
+    const fullSignature = `${taskText} ${errPattern} ${rootCause} ${vaccine} ${(params.targetFiles || []).join(' ')}`;
     const tokenMap = this.tokenize(fullSignature);
     const tokenObj: Record<string, number> = {};
     for (const [k, v] of tokenMap.entries()) tokenObj[k] = Number(v.toFixed(5));
@@ -800,8 +882,23 @@ export class DecoMindMlService {
   static retrieveTopEpisodicVaccines(taskText: string, category = 'GENERAL', topK = 3): EpisodicMemory[] {
     try {
       this.ensureTables();
-      const rows = db.prepare('SELECT * FROM ml_episodic_memories WHERE task_category = ? OR task_category = \'GENERAL\' ORDER BY q_value DESC LIMIT 40')
-        .all(category) as unknown as EpisodicMemory[];
+      let rows = db.prepare(`
+        SELECT * FROM ml_episodic_memories 
+        WHERE task_category = ? 
+           OR LOWER(task_category) = LOWER(?)
+           OR task_category IN ('GENERAL', 'planning', 'review', 'execution')
+           OR ? = 'GENERAL'
+        ORDER BY q_value DESC 
+        LIMIT 40
+      `).all(category, category, category) as unknown as EpisodicMemory[];
+
+      if (!rows || rows.length === 0) {
+        rows = db.prepare(`
+          SELECT * FROM ml_episodic_memories 
+          ORDER BY q_value DESC 
+          LIMIT 40
+        `).all() as unknown as EpisodicMemory[];
+      }
 
       if (!rows || rows.length === 0) return [];
 
@@ -819,7 +916,7 @@ export class DecoMindMlService {
           // Pontuação combinada: Similaridade de Cosseno x Fator Q-Value
           const combinedScore = sim * (0.5 + 0.5 * q);
 
-          if (combinedScore > 0.04 || sim > 0.15) {
+          if (combinedScore > 0.02 || sim > 0.08) {
             scored.push({
               ...row,
               resolution_vaccine: row.surgical_vaccine,
@@ -827,6 +924,18 @@ export class DecoMindMlService {
             });
           }
         } catch {}
+      }
+
+      // Se nenhum passou pelo limiar de similaridade estrito mas temos vacinas de alto Q-Value,
+      // inclui as vacinas universais de reforço como proteção basal
+      if (scored.length === 0 && rows.length > 0) {
+        for (const row of rows.slice(0, topK)) {
+          scored.push({
+            ...row,
+            resolution_vaccine: row.surgical_vaccine,
+            similarityScore: Number(((row.q_value || 0.5) * 0.5).toFixed(4))
+          });
+        }
       }
 
       scored.sort((a, b) => (b.similarityScore || 0) - (a.similarityScore || 0));
@@ -879,6 +988,93 @@ export class DecoMindMlService {
       Logger.warn(`[DecoMindMlService] Erro ao reforçar memórias episódicas: ${err.message}`);
     }
     return updated;
+  }
+
+  /**
+   * Recupera as vacinas cirúrgicas aprendidas com maior Q-Value para uma tarefa específica,
+   * utilizando busca vetorial baseada em BM25/TF-IDF ponderada por Q-Learning.
+   */
+  static retrieveVaccinesForTask(
+    taskTitle: string,
+    taskDescription?: string,
+    options: {
+      category?: string;
+      topK?: number;
+      minQValue?: number;
+    } = {}
+  ): EpisodicMemory[] {
+    const combinedText = `${taskTitle || ''} ${taskDescription || ''}`.trim();
+    const category = options.category && options.category !== 'GENERAL'
+      ? options.category
+      : this.inferTaskCategory(taskTitle, taskDescription);
+    const topK = options.topK || 4;
+
+    const retrieved = this.retrieveTopEpisodicVaccines(combinedText, category, topK);
+
+    let filtered = retrieved;
+    if (typeof options.minQValue === 'number') {
+      filtered = filtered.filter(v => (v.q_value ?? 0) >= options.minQValue!);
+    }
+
+    // Ordena de forma determinística: maior Q-Value no topo, seguido de maior similaridade
+    filtered.sort((a, b) => {
+      const qDiff = (b.q_value || 0) - (a.q_value || 0);
+      if (Math.abs(qDiff) > 0.05) return qDiff;
+      return (b.similarityScore || 0) - (a.similarityScore || 0);
+    });
+
+    return filtered;
+  }
+
+  /**
+   * Formata as vacinas cirúrgicas recuperadas no bloco padronizado:
+   * [VACINAS CIRÚRGICAS DO HISTÓRICO EMPÍRICO]
+   */
+  static formatEmpiricalVaccinesBlock(vaccines: EpisodicMemory[]): string {
+    if (!vaccines || vaccines.length === 0) return '';
+
+    const lines: string[] = [
+      '### [VACINAS CIRÚRGICAS DO HISTÓRICO EMPÍRICO]',
+      'As seguintes lições empíricas com alto Q-Value foram aprendidas em tarefas semelhantes e devem ser incorporadas diretamente nos critérios e na implementação:',
+    ];
+
+    for (const v of vaccines) {
+      const qVal = typeof v.q_value === 'number' ? v.q_value.toFixed(2) : '0.80';
+      lines.push(`- [Q: ${qVal}] Padrão de Falha: ${v.error_pattern} -> Vacina Cirúrgica: ${v.surgical_vaccine}`);
+    }
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Grava ou atualiza uma memória episódica associada a um erro corrigido e solução aplicada,
+   * aplicando recompensa positiva (+1.0 por padrão) para reforço no Q-Learning.
+   */
+  static recordEpisodicMemory(params: {
+    taskTitle?: string;
+    taskDescription?: string;
+    taskText?: string;
+    taskCategory?: string;
+    category?: string;
+    errorPattern: string;
+    rootCause?: string;
+    surgicalVaccine: string;
+    resolutionVaccine?: string;
+    reward?: number;
+    targetFiles?: string[];
+  }, targetDb: any = db): EpisodicMemory {
+    const reward = typeof params.reward === 'number' ? params.reward : 1.0;
+    const initialQ = Math.max(0.1, Math.min(1.0, reward >= 1.0 ? 1.0 : (0.6 + reward * 0.4)));
+
+    return this.recordEpisodicLesson({
+      taskCategory: params.taskCategory || params.category || this.inferTaskCategory(params.taskTitle || '', params.taskDescription),
+      taskText: params.taskText || `${params.taskTitle || ''} ${params.taskDescription || ''}`.trim(),
+      errorPattern: params.errorPattern,
+      rootCause: params.rootCause || 'Falha superada com validação e testes',
+      surgicalVaccine: params.surgicalVaccine || params.resolutionVaccine || 'Correção cirúrgica com exit code 0',
+      qValue: initialQ,
+      targetFiles: params.targetFiles
+    }, targetDb);
   }
 
   // =========================================================================

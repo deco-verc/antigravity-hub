@@ -28,10 +28,20 @@ let guidelinesCache: CachedGuidelines | null = null;
 const EMBEDDED_GLOBAL_GUIDELINES = `
 === GLOBAL AGENT GUIDELINES (AI DEV HUB) ===
 1. THINK BEFORE CODING: Identifique premissas, ambiguidades, tradeoffs e a solução mais simples antes de modificar código. Em execuções autônomas (run_id ativo), é ESTRITAMENTE PROIBIDO invocar ask_question ou abrir modais bloqueantes; resolva ambiguidades via evidências do repositório, DESIGN.md e contratos locais (clarificationRequired: false).
-2. SIMPLICITY FIRST: Menor implementação de código correta que resolve 100% do problema. Zero abstrações para uso único e zero dependências externas desnecessárias. Simplicidade de código NUNCA significa produto raso: entregue os 7 Pilares SaaS Master, estados visuais completos (Loading, Empty, Populated, Error) e povoamento realista via seedIfEmpty().
-3. SURGICAL CHANGES: Toque apenas nos arquivos indispensáveis ao escopo da tarefa. Proibido reformatar ou alterar código funcional adjacente ou destruir tabelas/testes existentes em modo DELTA_EVOLUTION.
-4. GOAL-DRIVEN EXECUTION & PROTOCOLO TDD RED-GREEN OBRIGATÓRIO (VERIFY BEFORE DECLARING SUCCESS): Estruture cada tarefa com OBJECTIVE, ACCEPTANCE CRITERIA (2 a 4 critérios binários PASS/FAIL factuais, proibindo critérios vagos como "Implementação concluída"), VERIFICATION (comando focado compatível com controlledVerification.ts, sem encadeamento) e DONE WHEN. O Worker NUNCA pode declarar uma tarefa como concluída baseando-se apenas em texto ou suposição; DEVE cumprir o ciclo TDD: (1) RED: Criar ou apontar teste unitário focado em test/ e executar no terminal para confirmar a falha inicial ou baseline esperado; (2) GREEN: Implementar o código mínimo estritamente necessário no arquivo de produção até que o teste unitário passe com exit code 0 e verificação de tipagem limpa (tsc --noEmit); (3) PROVA DE CONCLUSÃO: Executar obrigatoriamente o verificationCommand da tarefa no terminal e incluir a saída real (código de saída 0) no relatório final para o Reviewer.
-5. OPERATIONAL AUTONOMY, SYSTEMATIC DEBUGGING & PROTOCOLO ANTI-RETRABALHO: Execução autônoma com encerramento obrigatório de processos/servidores efêmeros em blocos try/finally e proibição absoluta de adulterar testes protegidos (TAMPERING_DETECTED). Diante de retrabalho (CHANGES_REQUESTED ou retentativa), é TERMINANTEMENTE PROIBIDO tentar adivinhar a causa, reescrever arquivos aleatórios ou aplicar refatorações cosméticas por tentativa e erro. O Worker deve obrigatoriamente: (1) Isolar a linha ou asserção que falhou; (2) Fazer a menor intervenção de código possível para corrigir o ponto exato da falha; (3) Reexecutar o comando de teste específico da tarefa para comprovar o reparo com código 0.
+2. SIMPLICITY FIRST & PREVENÇÃO DE IMPORTS ALUCINADOS: Menor implementação de código correta que resolve 100% do problema. Zero abstrações para uso único e zero dependências externas desnecessárias. É PROIBIDO importar bibliotecas externas não declaradas no package.json do projeto; use utilitários nativos do Node.js 22+ (node:crypto.randomUUID() em vez de uuid, node:sqlite ou driver configurado, fetch() nativo em vez de axios, e extensão .js em imports relativos ESM). Simplicidade de código NUNCA significa produto raso: entregue os 7 Pilares SaaS Master, estados visuais completos (Loading, Empty, Populated, Error) e povoamento realista via seedIfEmpty().
+3. SURGICAL CHANGES, SURGICAL BOUNDARY & ANTI-BLOWUP: Toque apenas nos arquivos indispensáveis ao escopo da tarefa (allowedScope/expectedFiles). Para arquivos com mais de 50 linhas, aplique modificações pontuais e cirúrgicas (Search & Replace / Patches direcionados), sendo PROIBIDO reescrever o arquivo inteiro do zero a menos que seja arquivo novo; preserve interfaces, comentários e funções adjacentes. Expressamente PROIBIDO: (a) Modificar arquivos fora do allowedScope (exceto whitelist de suporte como src/services/ e src/utils/); (b) Aplicar refatorações cosméticas, limpezas de comentários ou reestruturações em arquivos adjacentes; (c) Destruir dados ou esquemas de banco existentes (sempre usar migrações aditivas e CREATE TABLE IF NOT EXISTS); (d) Deixar processos filhos ou servidores locais abertos no terminal sem encerramento determinístico em bloco try / finally (PORT LEAK GUARD / EADDRINUSE).
+4. PROTOCOLO DO WORKER (FAZER - CIRURGIÃO GUIADO POR TESTES & FLUXO TDD RED-GREEN):
+   - ZERO GUESSWORK: Antes de implementar novas rotas ou serviços, consulte obrigatoriamente os tipos em src/types/ e os schemas em src/db/ para consistência nominal estrita de campos.
+   - FLUXO OBRIGATÓRIO TDD:
+     * PASSO 1 (RED): Crie ou atualize o arquivo de teste unitário focado em test/ refletindo os critérios de aceitação da tarefa. Execute o comando de teste no terminal para comprovar a falha inicial esperada.
+     * PASSO 2 (GREEN): Escreva estritamente a menor quantidade de código funcional necessária nos arquivos de expectedFiles para fazer o teste passar e o compilador TypeScript sair limpo (tsc --noEmit).
+     * PASSO 3 (PROVA): Antes de submeter o relatório ao Reviewer, execute internamente a compilação dos arquivos tocados (npx tsc --noEmit) corrigindo qualquer erro de tipagem/import no mesmo turno. Em seguida, execute o verificationCommand da tarefa no terminal e inclua o resultado literal no relatório final com exit code 0. É expressamente PROIBIDO declarar conclusão sem evidência de terminal.
+5. PROTOCOLO DO REVIEWER (REVISAR - TECH LEAD DE DIAGNÓSTICO FACTUAL):
+   (1) Se a tarefa for de planejamento (sem arquivos alterados), avalie apenas a lógica e aprove com APPROVED se cobrir os requisitos;
+   (2) Se a tarefa for de código implementado:
+       - Verifique se os arquivos alterados estão dentro de allowedScope ou pertencem à whitelist de suporte (src/services/, src/utils/, etc.);
+       - Rode o comando de verificação da tarefa;
+       - Se falhar, NÃO emita rejeições genéricas: aponte [Arquivo:Linha], [Log do Erro] e [Ação Corretiva Exata].
 6. FULL-STACK, APPSEC & ANTI-SLOP INVARIANTS: Respeite o PORT_GUARD (portas 4000-4999, proibindo 3001/3000/5173), sirva a SPA em GET / e isole JSON em GET /api/health, aplique Dual-Mode DOCSIMP (Graceful Mock Fallback), use tokens :root + SVGs Lucide inline (zero emojis como ícones) + [role="tab"] / data-tab para capturas enumeradas (01-Secao.png), e blinde contra SQLi (?), XSS (escapeHtml), Path Traversal e valores negativos (HTTP 400).
 `.trim();
 
@@ -112,9 +122,19 @@ ${objective || 'Definir o objetivo principal e metas verificáveis do projeto.'}
 
 ## Product Principles
 - **Think Before Coding & Full Autonomy**: Explicitar premissas e opções tecnicamente; em execuções autônomas do DecoHUB, nunca invocar \`ask_question\` nem bloquear o pipeline — resolver ambiguidades via contratos locais e \`DESIGN.md\`.
-- **Simplicity First & Product Density**: Menor código correto e direto, sem classes ou abstrações especulativas para uso único, mas garantindo densidade funcional completa (estados Loading, Empty, Populated, Error e \`seedIfEmpty()\` realista).
-- **Surgical Changes**: Toda linha modificada deve ser diretamente rastreável à tarefa solicitada; sem alterações cosméticas ortogonais ou regressão em módulos prontos.
-- **Goal-Driven Execution & Prova Binária de Conclusão**: Toda tarefa possui objetivo declarado, critérios de aceitação binários e comando de verificação simples compatível com \`controlledVerification.ts\`. O Worker NUNCA declara conclusão por suposição; executa obrigatoriamente o \`verificationCommand\` no terminal comprovando código 0 e aplica ciclo Red-Green com testes em \`test/\` para rotas e regras de negócio.
+- **Simplicity First & Prevenção de Imports Alucinados**: Menor código correto e direto, sem classes ou abstrações especulativas para uso único. É PROIBIDO importar pacotes externos não declarados no \`package.json\` do projeto (preferir \`node:crypto.randomUUID()\`, \`node:sqlite\`, \`fetch()\` nativo e extensões \`.js\` em ESM).
+- **Surgical Changes, Surgical Boundary & Anti-Blowup**: Toda linha modificada deve ser diretamente rastreável à tarefa solicitada. Para arquivos com >50 linhas, aplicar modificações pontuais (Search & Replace / Patches direcionados), sendo PROIBIDO reescrever o arquivo inteiro do zero; preservar interfaces e comentários pré-existentes. Proibido: (1) Modificar arquivos fora do allowedScope (exceto whitelist como src/services/ e src/utils/); (2) Refatorações cosméticas em arquivos adjacentes; (3) Destruição de dados/esquemas existentes; (4) Deixar portas presas (PORT LEAK GUARD / EADDRINUSE) encerrando servidores sempre em blocos \`try / finally\`.
+- **Zero Guesswork (Contratos e Tipos Reais)**: Consultar sempre os tipos definidos em \`src/types\` e os schemas em \`src/db\` antes de implementar rotas/serviços, garantindo paridade nominal de campos.
+- **Goal-Driven Execution & Protocolo do Worker (Fluxo Obrigatório TDD Red-Green & Auto-Validação Pré-Handover)**:
+  * PASSO 1 (RED): Crie ou atualize o teste unitário focado em \`test/\` refletindo os critérios de aceitação. Execute o teste no terminal para comprovar a falha inicial esperada.
+  * PASSO 2 (GREEN): Escreva estritamente a menor quantidade de código funcional necessária nos arquivos de \`expectedFiles\` para fazer o teste passar e o compilador TypeScript sair limpo (\`tsc --noEmit\`).
+  * PASSO 3 (PROVA): Execute internamente a checagem de compilação dos arquivos tocados (\`npx tsc --noEmit\`) corrigindo erros no mesmo turno, rode o \`verificationCommand\` da tarefa no terminal e inclua o resultado literal no relatório final com exit code 0. É proibido inventar conclusões sem evidência de terminal.
+- **Reviewer Audit Protocol (Revisar - Tech Lead de diagnóstico factual)**:
+  1. Se a tarefa for de planejamento (sem arquivos alterados), avalie apenas a lógica e aprove com \`APPROVED\` se cobrir os requisitos.
+  2. Se a tarefa for de código implementado:
+     - Verifique se os arquivos alterados estão dentro de \`allowedScope\` ou pertencem à whitelist de suporte (\`src/services/\`, \`src/utils/\`, etc.).
+     - Rode o comando de verificação da tarefa.
+     - Se falhar, NÃO emita rejeições genéricas: aponte \`[Arquivo:Linha]\`, \`[Log do Erro]\` e \`[Ação Corretiva Exata]\`.
 - **Systematic Debugging & Anti-Retrabalho**: Em tarefas rejeitadas (\`CHANGES_REQUESTED\`), é terminantemente proibido tentar palpites ou refatorações cosméticas aleatórias. O Worker deve isolar a linha/asserção falha, aplicar a menor intervenção e reexecutar o teste específico para comprovar o reparo com código 0.
 
 ## Technical & Full-Stack Constraints
@@ -202,7 +222,14 @@ export function buildPromptWithInheritance(opts: {
       scopeLine +
       `ACCEPTANCE CRITERIA:\n${(opts.task.criteria || ['Atender o objetivo da tarefa']).map(c => ` - ${c}`).join('\n')}\n` +
       `VERIFICATION: ${opts.task.verificationCommand || 'npm test'}\n` +
-      `DONE WHEN: ${opts.task.doneWhen || 'Todos os critérios forem satisfeitos e a verificação comprovar sucesso com exit code 0.'}`;
+      `DONE WHEN: ${opts.task.doneWhen || 'Todos os critérios forem satisfeitos e a verificação comprovar sucesso com exit code 0.'}\n\n` +
+      `[PROTOCOLO DO WORKER (FLUXO OBRIGATÓRIO TDD RED-GREEN, SURGICAL BOUNDARY & ANTI-BLOWUP)]:\n` +
+      `* ZERO GUESSWORK & PREVENÇÃO DE IMPORTS ALUCINADOS: Consulte obrigatoriamente os tipos em src/types/ e os schemas em src/db/ antes de codificar. PROIBIDO importar pacotes externos não declarados no package.json (preferir node:crypto.randomUUID, node:sqlite, fetch nativo).\n` +
+      `* SURGICAL BOUNDARY & ANTI-BLOWUP: Para arquivos existentes com >50 linhas, utilize modificações pontuais/cirúrgicas, sendo PROIBIDO reescrever o arquivo inteiro do zero. Proibido alterar arquivos fora de expectedScopeFiles (exceto whitelist src/services/, src/utils/) ou aplicar refatorações cosméticas em código adjacente.\n` +
+      `* PORT LEAK GUARD: Encerre sempre servidores e processos locais em blocos try / finally { server.close() }, prevenindo EADDRINUSE.\n` +
+      `* PASSO 1 (RED): Crie ou atualize o teste unitário focado em test/ refletindo os critérios de aceitação. Execute o comando de teste para comprovar a falha inicial esperada.\n` +
+      `* PASSO 2 (GREEN): Escreva estritamente a menor quantidade de código funcional necessária nos arquivos de expectedFiles para fazer o teste passar e o compilador TypeScript sair limpo (tsc --noEmit).\n` +
+      `* PASSO 3 (PROVA): Execute internamente a validação de compilação dos arquivos tocados (npx tsc --noEmit), execute o verificationCommand no terminal e inclua o resultado literal no relatório final com exit code 0. É expressamente PROIBIDO declarar conclusão sem evidência real de terminal.`;
   }
 
   const userReqStr = opts.userRequest
@@ -242,6 +269,45 @@ function isAlwaysAllowedGovernanceArtifact(normMod: string): boolean {
 }
 
 /**
+ * Checks if a file belongs to the allowed support whitelist (src/services/, src/utils/, etc.)
+ */
+export function isAllowedSupportWhitelist(normMod: string): boolean {
+  const norm = String(normMod || '').replace(/\\/g, '/').replace(/^\.\/+/, '').toLowerCase().trim();
+  return (
+    norm.startsWith('src/services/') ||
+    norm.startsWith('src/utils/') ||
+    norm.startsWith('src/lib/') ||
+    norm.startsWith('src/models/') ||
+    norm.startsWith('src/helpers/') ||
+    norm.startsWith('src/types/') ||
+    norm.startsWith('src/config/') ||
+    norm.startsWith('src/database/') ||
+    norm.startsWith('src/db/') ||
+    norm.startsWith('server/src/services/') ||
+    norm.startsWith('server/src/utils/') ||
+    norm.startsWith('server/src/lib/') ||
+    norm.startsWith('server/src/models/') ||
+    norm.startsWith('server/src/helpers/') ||
+    norm.startsWith('server/src/types/') ||
+    norm.startsWith('server/src/config/') ||
+    norm.startsWith('server/src/database/') ||
+    norm.startsWith('server/src/db/') ||
+    norm.startsWith('services/') ||
+    norm.startsWith('utils/') ||
+    norm.startsWith('lib/') ||
+    norm.startsWith('models/') ||
+    norm.startsWith('helpers/') ||
+    norm.startsWith('types/') ||
+    norm.startsWith('config/') ||
+    norm.startsWith('database/') ||
+    norm.startsWith('db/') ||
+    norm.startsWith('test/') ||
+    norm.startsWith('tests/') ||
+    /(test|spec)\.[cm]?[jt]sx?$/i.test(norm)
+  );
+}
+
+/**
  * Matches a normalized modified path against an expected scope entry (supporting directory prefixes and * globs)
  */
 function matchesScopeEntry(normMod: string, normExp: string): boolean {
@@ -274,7 +340,8 @@ function matchesScopeEntry(normMod: string, normExp: string): boolean {
  */
 export function validateSurgicalDiff(
   modifiedFiles: string[],
-  expectedScopeFiles: string[]
+  expectedScopeFiles: string[],
+  options?: { allowSupportWhitelist?: boolean }
 ): { isSurgical: boolean; unrelatedFiles: string[]; explanation: string } {
   if (!Array.isArray(expectedScopeFiles) || expectedScopeFiles.length === 0 || !Array.isArray(modifiedFiles) || modifiedFiles.length === 0) {
     return {
@@ -292,6 +359,10 @@ export function validateSurgicalDiff(
     if (!normMod) continue;
 
     if (isAlwaysAllowedGovernanceArtifact(normMod)) {
+      continue;
+    }
+
+    if (options?.allowSupportWhitelist && isAllowedSupportWhitelist(normMod)) {
       continue;
     }
 

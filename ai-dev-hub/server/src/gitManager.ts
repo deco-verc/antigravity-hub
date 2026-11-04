@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import os from 'node:os';
-import { db } from './db.js';
+import { db, resolveProjectProfileMode } from './db.js';
 import { Logger } from './logger.js';
 
 export interface GitFileStatus {
@@ -42,6 +42,10 @@ export class GitManager {
       GIT_TERMINAL_PROMPT: '0',
       GIT_PAGER: 'cat',
       GCM_INTERACTIVE: 'never',
+      GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME || 'DecoHUB Agent',
+      GIT_AUTHOR_EMAIL: process.env.GIT_AUTHOR_EMAIL || 'agent@decohub.local',
+      GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME || 'DecoHUB Agent',
+      GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL || 'agent@decohub.local',
       ...(extraEnv || {})
     };
   }
@@ -453,8 +457,127 @@ export class GitManager {
     }
   }
 
+  /**
+   * Executa rollback seguro de alterações corrompidas / não commitadas
+   * restaurando a árvore de trabalho para o último estado íntegro conhecido.
+   * Executa:
+   * 1. git checkout -- . (descarta modificações em arquivos rastreados)
+   * 2. git clean -fd (remove arquivos e diretórios não rastreados criados pelo worker)
+   * 3. Se targetCommitSha for especificado e HEAD estiver divergente, alinha ao commit indicado.
+   */
+  static rollbackUncommittedChanges(projectPath: string, targetCommitSha?: string | null): boolean {
+    const root = path.resolve(projectPath);
+    if (!fs.existsSync(path.join(root, '.git'))) return false;
+
+    this.cleanupOrphanIndexLock(root);
+
+    try {
+      // 1. Restaurar arquivos rastreados modificados
+      this.safeExecFileSync('git', ['checkout', '--', '.'], { cwd: root, timeout: 15000 });
+
+      // 2. Limpar arquivos e diretórios não rastreados
+      this.safeExecFileSync('git', ['clean', '-fd'], { cwd: root, timeout: 15000 });
+
+      // 3. Se targetCommitSha for especificado e HEAD estiver divergente, restaurar para o targetCommitSha
+      if (targetCommitSha) {
+        try {
+          const currentHead = this.safeExecFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, timeout: 5000 }).trim();
+          if (currentHead && currentHead !== targetCommitSha) {
+            this.safeExecFileSync('git', ['reset', '--hard', targetCommitSha], { cwd: root, timeout: 15000 });
+            this.safeExecFileSync('git', ['clean', '-fd'], { cwd: root, timeout: 15000 });
+          }
+        } catch {}
+      }
+
+      Logger.info(`[GitManager] Rollback seguro executado com sucesso em ${root}`);
+      return true;
+    } catch (err: any) {
+      Logger.warn(`[GitManager] Falha no rollback seguro em ${root}: ${err.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Retorna a lista de remotes configurados no repositório Git.
+   */
+  static getRemotes(projectPath: string): string[] {
+    try {
+      const out = this.safeExecFileSync('git', ['remote'], {
+        cwd: projectPath,
+        timeout: 5000,
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+      return out.split(/\r?\n/).map(r => r.trim()).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Verifica se o repositório Git possui o remote especificado (padrão: 'origin').
+   */
+  static hasRemote(projectPath: string, remoteName = 'origin'): boolean {
+    const remotes = this.getRemotes(projectPath);
+    return remotes.includes(remoteName);
+  }
+
+  /**
+   * Determina se operações de push devem ser ignoradas (sem remote configurado ou projeto local_personal).
+   */
+  static shouldSkipPush(projectPath: string, projectId?: string): { skip: boolean; reason: string; isLocal: boolean; hasRemote: boolean } {
+    let isLocal = false;
+    try {
+      const profile = projectId ? resolveProjectProfileMode(projectId) : resolveProjectProfileMode(projectPath);
+      if (profile === 'local_personal') isLocal = true;
+    } catch {}
+
+    const remotes = this.getRemotes(projectPath);
+    const hasOrigin = remotes.includes('origin');
+    const hasAnyRemote = remotes.length > 0;
+
+    if (isLocal) {
+      return {
+        skip: true,
+        reason: 'Projeto classificado como Ferramenta Local / Meu Trabalho (local_personal). Push ignorado.',
+        isLocal: true,
+        hasRemote: hasAnyRemote
+      };
+    }
+
+    if (!hasAnyRemote) {
+      return {
+        skip: true,
+        reason: 'Nenhum remote Git configurado no repositório.',
+        isLocal: false,
+        hasRemote: false
+      };
+    }
+
+    if (!hasOrigin) {
+      return {
+        skip: true,
+        reason: 'Remote "origin" não encontrado no repositório.',
+        isLocal: false,
+        hasRemote: false
+      };
+    }
+
+    return {
+      skip: false,
+      reason: 'Remote origin válido e configurado.',
+      isLocal: false,
+      hasRemote: true
+    };
+  }
+
   static pushBranch(projectPath: string, branchName: string): boolean {
     try {
+      const skipCheck = this.shouldSkipPush(projectPath);
+      if (skipCheck.skip) {
+        Logger.info(`[GitManager] Push ignorado para branch "${branchName}" em "${projectPath}": ${skipCheck.reason}`);
+        return false;
+      }
+
       const token = this.getStoredGitHubToken();
       const envWithToken = token
         ? { ...process.env, GITHUB_TOKEN: token, GH_TOKEN: token, GITHUB_PERSONAL_ACCESS_TOKEN: token }

@@ -15,6 +15,7 @@ import { GitManager } from './gitManager.js';
 import { AgentApiGateway } from './agentApiGateway.js';
 import { SessionCircuitBreaker } from './sessionCircuitBreaker.js';
 import { ModelRegistry } from './modelRegistry.js';
+import { NativeWorkspaceBinding } from './nativeWorkspaceBinding.js';
 
 export type AgentRole = 'SUPERVISOR' | 'WORKER' | 'CONVERSATIONAL';
 export type AgentSessionStatus = 'ACTIVE' | 'ARCHIVED' | 'ROTATING' | 'INVALID';
@@ -326,8 +327,25 @@ export class AgentSessionManager {
     }
 
       // 2. Resolve project information
-      const project: any = db.prepare('SELECT id, name, path, objective FROM projects WHERE id = ?').get(projectId);
+      const project: any = db.prepare('SELECT id, name, path, objective, active_account_profile_id FROM projects WHERE id = ?').get(projectId);
       const projectName = project?.name || 'Projeto';
+
+      let nativeBinding: any = null;
+      try {
+        const accountProfileId = options.accountProfileId || project?.active_account_profile_id || 'google_pro_1';
+        const userProfileDir = options.env?.USERPROFILE || process.env.USERPROFILE || os.homedir();
+        nativeBinding = NativeWorkspaceBinding.resolve(projectId, accountProfileId, userProfileDir, true);
+      } catch (bindErr: any) {
+        Logger.warn(`[AgentSessionManager] Aviso ao resolver vínculo nativo do workspace: ${bindErr.message}`);
+      }
+
+      const mergedEnv: NodeJS.ProcessEnv = {
+        ...(options.env || process.env)
+      };
+      if (nativeBinding?.nativeProjectId) {
+        mergedEnv.ANTIGRAVITY_PROJECT_ID = nativeBinding.nativeProjectId;
+        mergedEnv.PROJECT_ID = nativeBinding.nativeProjectId;
+      }
 
       // 3. Determine next generation
       const maxGenRow: any = db.prepare(`
@@ -379,7 +397,8 @@ export class AgentSessionManager {
             role,
             runId: options.runId,
             caller: 'AgentSessionManager.getOrCreateAgentSession',
-            env: options.env
+            env: mergedEnv,
+            cwd: project?.path
           });
         }
 
@@ -423,7 +442,12 @@ export class AgentSessionManager {
           nowIso,
           nowIso,
           nowIso,
-          JSON.stringify({ model, title: deterministicTitle, accountProfileId: options.accountProfileId || null, nativeProjectId: options.env?.ANTIGRAVITY_PROJECT_ID || null })
+          JSON.stringify({
+            model,
+            title: deterministicTitle,
+            accountProfileId: options.accountProfileId || project?.active_account_profile_id || null,
+            nativeProjectId: nativeBinding?.nativeProjectId || options.env?.ANTIGRAVITY_PROJECT_ID || null
+          })
         );
 
         // Also sync to legacy conversations table for backwards compatibility

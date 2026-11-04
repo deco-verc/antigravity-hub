@@ -40,6 +40,20 @@ export interface PlannedTask {
 }
 
 export class GeminiSupervisorProvider {
+  public static readonly GOLDEN_DECOMPOSITION_EXEMPLAR = `QUANDO O USUÁRIO ENVIAR UM BRIEFING COM SEÇÕES MACRO E SUB-PASSOS:
+- Entrada do Usuário:
+  ## 1. Backend e Ingestão: passo A, passo B, passo C
+  ## 2. Processamento e Mídia: passo D, passo E
+  ## 3. Interface e Player: passo F, passo G
+  ## 4. Filtros e Toolbar: passo H, passo I
+
+- Saída Esperada do Supervisor (EXATAMENTE 4 a 5 Grandes Tarefas Coesas):
+  * GT-1 [Backend - Ingestão e Persistência]: Condensa passos A, B e C. Critérios: endpoints POST testados com HTTP 200/400 e schema SQLite WAL criado. verificationCommand: \`npx tsx --test test/mine.test.ts\`.
+  * GT-2 [Backend - Mídia e Listagem]: Condensa passos D e E. Critérios: stream proxy com headers e listagem paginada. verificationCommand: \`npx tsx --test test/media.test.ts\`.
+  * GT-3 [Frontend - SPA e Player]: Condensa passos F e G. Critérios: SPA servida na raiz GET /, tags <video controls> e botões ativos. verificationCommand: \`npx tsc --noEmit\`.
+  * GT-4 [Frontend - Toolbar e Filtros]: Condensa passos H e I. Critérios: busca com debounce 300ms e filtros dinâmicos. verificationCommand: \`npx tsc --noEmit\`.
+  * GT-5 [Qualidade e Homologação E2E]: Suíte completa de testes de integração e validação de segurança. verificationCommand: \`npm test\`.`;
+
   private exePath: string;
   private appDataBrainDir: string;
   private model: 'flash' | 'pro' | 'flash_lite';
@@ -382,6 +396,26 @@ export class GeminiSupervisorProvider {
     } = await this.resolveContextualSkillBlocks(briefing, projectContext.path, projectContext.name, options?.requirements);
 
     const effectiveProjectId = this.projectId || projectContext.id;
+    let codebaseAstContext = '';
+    try {
+      const { AstSymbolIndexService } = await import('./astSymbolIndexService.js');
+      codebaseAstContext = AstSymbolIndexService.buildCodebaseAstContext(effectiveProjectId || 'default-project', projectContext.path, { briefing });
+    } catch {}
+
+    let empiricalVaccinesBlock = '';
+    try {
+      const { DecoMindMlService } = await import('./decoMindMlService.js');
+      const vaccines = DecoMindMlService.retrieveVaccinesForTask(projectContext.name, briefing);
+      empiricalVaccinesBlock = DecoMindMlService.formatEmpiricalVaccinesBlock(vaccines);
+      const reworkRisk = DecoMindMlService.predictReworkRiskFromTask({
+        taskTitle: projectContext.name,
+        taskDescription: briefing
+      }, projectContext.path);
+      if (reworkRisk.riskTier === 'CRITICAL') {
+        Logger.warn(`[GeminiSupervisor] DecoMind ML: Risco CRITICAL detectado (${(reworkRisk.probability * 100).toFixed(0)}%). Forçando detalhamento de critérios de aceitação e mitigação pre-mortem.`);
+      }
+    } catch {}
+
     const { prompt, meta } = PromptArchitectureService.buildSupervisorPrompt({
       mode,
       projectId: effectiveProjectId || 'default-project',
@@ -397,6 +431,8 @@ export class GeminiSupervisorProvider {
       reaSaaSMasterContextBlock,
       marketDiscoveryContextBlock,
       livingSpecContextBlock,
+      codebaseAstContext,
+      empiricalVaccinesBlock,
       completedTasks: options?.completedTasks,
       pendingTasks: options?.pendingTasks,
       replanReason: options?.replanReason
@@ -577,6 +613,73 @@ export class GeminiSupervisorProvider {
     );
   }
 
+  static isVaguePath(pathStr: string): boolean {
+    const norm = (pathStr || '').trim().toLowerCase();
+    if (!norm) return true;
+    return /^(?:a\s*definir|tbd|none|pendente|undefined|null|n\/a|a_definir|vazio|\s*)$/i.test(norm);
+  }
+
+  static inferPhysicalFilesForTask(title: string, milestone: string, description: string): string[] {
+    const text = `${title} ${milestone} ${description}`.toLowerCase();
+    if (/(?:banco|sqlite|database|schema|persistencia|wal|tabela|repository|ingest)/i.test(text) || milestone === 'GT-1' || milestone === 'TK-1') {
+      return ['server/src/routes/mine.ts', 'server/src/db/schema.sql', 'test/mine.test.ts'];
+    }
+    if (/(?:api|route|endpoint|express|fastify|server|backend|controller|download|media|ads|proxy)/i.test(text) || milestone === 'GT-2' || milestone === 'TK-2') {
+      return ['server/src/routes/media.ts', 'server/src/routes/ads.ts', 'test/media.test.ts'];
+    }
+    if (/(?:player|spa|index\.html|frontend|video|interface|app\.js|views)/i.test(text) || milestone === 'GT-3' || milestone === 'TK-3') {
+      return ['public/index.html', 'public/app.js', 'server/src/server.ts'];
+    }
+    if (/(?:toolbar|filtro|filter|search|busca|css|component|drawer|grid)/i.test(text) || milestone === 'GT-4' || milestone === 'TK-4') {
+      return ['public/components/toolbar.js', 'public/styles.css', 'test/toolbar.test.ts'];
+    }
+    if (/(?:seguranca|security|qualidade|quality|homologacao|audit|e2e|integration|test|port_guard)/i.test(text) || milestone === 'GT-5' || milestone === 'TK-5') {
+      return ['test/integration.test.ts', 'test/security.test.ts'];
+    }
+    const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 20).replace(/^_+|_+$/g, '') || 'module';
+    return [`src/${slug}.ts`, `test/${slug}.test.ts`];
+  }
+
+  static injectArchitecturalBoundaryCriteria(
+    criteria: string[],
+    milestone: string,
+    title: string,
+    orderIndex: number
+  ): string[] {
+    const list = [...criteria];
+    const isFirstOrBackend = orderIndex === 1 || milestone === 'GT-1' || milestone === 'TK-1' || /backend|ingest|banco|sqlite|setup/i.test(title);
+    const isLastOrQuality = milestone === 'GT-5' || milestone === 'TK-5' || /qualidade|homologa[çc][ãa]o|seguran[çc]a|security|e2e/i.test(title);
+
+    if (isFirstOrBackend) {
+      if (!list.some(c => /journal_mode\s*=\s*WAL/i.test(c))) {
+        list.push('Inicialização do SQLite com PRAGMA journal_mode = WAL, PRAGMA busy_timeout = 5000 e PRAGMA foreign_keys = ON (Pre-Mortem: blindagem contra concorrência e locks)');
+      }
+      if (!list.some(c => /PORT_GUARD/i.test(c))) {
+        list.push('Cumprimento do PORT_GUARD vinculando a porta na faixa 4000-4999 (mantendo 3000/3001 livres contra conflitos de porta)');
+      }
+      if (!list.some(c => /SQL\s*Injection|\?/i.test(c))) {
+        list.push('Sanitização de entradas contra SQL Injection (queries 100% parametrizadas com placeholders ?)');
+      }
+    }
+
+    if (/filtro|export|csv|tabela|relat[óo]rio|grid/i.test(title + ' ' + milestone)) {
+      if (!list.some(c => /f[óo]rmula|csv/i.test(c))) {
+        list.push('Sanitização preventiva contra injeção de fórmulas em exportação CSV RFC-4180 (escape de =, +, -, @)');
+      }
+    }
+
+    if (isLastOrQuality || /static|servidor|spa|rota|server/i.test(title)) {
+      if (!list.some(c => /Path\s*Traversal/i.test(c))) {
+        list.push('Proteção do static server contra Path Traversal na rota raiz GET / (validação com path.resolve seguro)');
+      }
+      if (isLastOrQuality && !list.some(c => /testes?\s+de\s+integra[çc][ãa]o/i.test(c) || /exit\s*code\s*0/i.test(c))) {
+        list.push('Suíte completa de testes de integração e segurança executando com exit code 0');
+      }
+    }
+
+    return list;
+  }
+
   static enrichBinaryCriteria(title: string, scopeFiles: string[] = []): string[] {
     const criteria: string[] = [];
     const filesJoined = scopeFiles.join(' ').toLowerCase();
@@ -644,7 +747,14 @@ export class GeminiSupervisorProvider {
       : Array.isArray(raw.scopeFiles)
       ? raw.scopeFiles
       : [];
-    const expectedFiles = Array.from(new Set<string>(rawExpected.map((f: any) => String(f || '').trim()).filter(Boolean)));
+    let expectedFiles = Array.from(new Set<string>(
+      rawExpected
+        .map((f: any) => String(f || '').trim())
+        .filter((f: string) => Boolean(f) && !GeminiSupervisorProvider.isVaguePath(f))
+    ));
+    if (expectedFiles.length === 0) {
+      expectedFiles = GeminiSupervisorProvider.inferPhysicalFilesForTask(cleanTitle, milestone, cleanDesc);
+    }
 
     const rawScope = Array.isArray(raw.allowedScope)
       ? raw.allowedScope
@@ -653,7 +763,14 @@ export class GeminiSupervisorProvider {
       : Array.isArray(raw.expected_files)
       ? raw.expected_files
       : [];
-    const allowedScope = Array.from(new Set<string>(rawScope.map((f: any) => String(f || '').trim()).filter(Boolean)));
+    let allowedScope = Array.from(new Set<string>(
+      rawScope
+        .map((f: any) => String(f || '').trim())
+        .filter((f: string) => Boolean(f) && !GeminiSupervisorProvider.isVaguePath(f))
+    ));
+    if (allowedScope.length === 0) {
+      allowedScope = [...expectedFiles];
+    }
 
     const rawCriteria = Array.isArray(raw.criteria)
       ? raw.criteria
@@ -661,12 +778,12 @@ export class GeminiSupervisorProvider {
     const filteredCriteria = rawCriteria
       .map((c: any) => String(c || '').trim())
       .filter((c: string) => c.length > 0 && !GeminiSupervisorProvider.isVagueCriterion(c));
-    const criteria = filteredCriteria.length > 0
+    let criteria = filteredCriteria.length > 0
       ? filteredCriteria
       : GeminiSupervisorProvider.enrichBinaryCriteria(cleanTitle, expectedFiles.length ? expectedFiles : allowedScope);
 
-
-
+    // Contrato de Fronteiras Arquiteturais (SQLite WAL, PORT_GUARD, SQLi, Path Traversal)
+    criteria = GeminiSupervisorProvider.injectArchitecturalBoundaryCriteria(criteria, milestone, cleanTitle, orderIndex);
 
     let rawCmd = typeof raw.verificationCommand === 'string' && raw.verificationCommand.trim().length > 0
       ? raw.verificationCommand.trim()
@@ -674,20 +791,19 @@ export class GeminiSupervisorProvider {
       ? raw.verification_command.trim()
       : '';
 
-    if (!rawCmd) {
+    const isMockOrEmpty = !rawCmd || /^(?:true|exit\s*0|:|echo(?:\s.*)?|return\s*0)$/i.test(rawCmd);
+    if (isMockOrEmpty) {
       const scopeForTest = expectedFiles.length ? expectedFiles : allowedScope;
-      const focusedCmd = TestSelector.resolveTestForFiles(scopeForTest, projectPath);
-      if (focusedCmd) {
-        rawCmd = focusedCmd;
+      const testFileInScope = scopeForTest.find((f: string) => /\.(?:test|spec)\.[cm]?[jt]sx?$/i.test(f));
+      if (testFileInScope) {
+        rawCmd = testFileInScope.endsWith('.ts') || testFileInScope.endsWith('.tsx')
+          ? `npx tsx --test "${testFileInScope}"`
+          : `node --test "${testFileInScope}"`;
+      } else if (scopeForTest.some(f => f.startsWith('public/') || f.endsWith('.html') || f.endsWith('.css'))) {
+        rawCmd = 'npx tsc --noEmit';
       } else {
-        const testFileInScope = scopeForTest.find((f: string) => /\.(?:test|spec)\.[cm]?[jt]sx?$/i.test(f));
-        if (testFileInScope) {
-          rawCmd = testFileInScope.endsWith('.ts') || testFileInScope.endsWith('.tsx')
-            ? `node --import tsx --test "${testFileInScope}"`
-            : `node --test "${testFileInScope}"`;
-        } else {
-          rawCmd = rawCmd || 'npm test';
-        }
+        const focusedCmd = TestSelector.resolveTestForFiles(scopeForTest, projectPath);
+        rawCmd = focusedCmd || 'npm test';
       }
     }
 
@@ -778,23 +894,48 @@ export class GeminiSupervisorProvider {
       const rawExpected = Array.isArray(raw.expectedFiles)
         ? raw.expectedFiles
         : (Array.isArray((raw as any).expected_files) ? (raw as any).expected_files : []);
-      const expectedFiles = Array.from(new Set<string>(rawExpected.map((f: any) => String(f || '').trim()).filter(Boolean)));
+      let expectedFiles = Array.from(new Set<string>(
+        rawExpected
+          .map((f: any) => String(f || '').trim())
+          .filter((f: string) => Boolean(f) && !GeminiSupervisorProvider.isVaguePath(f))
+      ));
+      if (expectedFiles.length === 0) {
+        expectedFiles = GeminiSupervisorProvider.inferPhysicalFilesForTask(
+          raw.title.trim(),
+          raw.milestone || raw.majorTaskCode || 'M1',
+          raw.description || raw.title
+        );
+      }
 
       const rawCriteria = Array.isArray(raw.criteria)
         ? raw.criteria.map(c => String(c || '').trim()).filter(Boolean)
         : [];
       const nonVague = rawCriteria.filter(c => !GeminiSupervisorProvider.isVagueCriterion(c));
-      const criteria = nonVague.length > 0
+      let criteria = nonVague.length > 0
         ? nonVague
         : GeminiSupervisorProvider.enrichBinaryCriteria(raw.title.trim(), expectedFiles);
 
-      let verificationCommand = raw.verificationCommand || '';
-      if (!verificationCommand) {
-        const focusedCmd = TestSelector.resolveTestForFiles(expectedFiles);
-        if (focusedCmd) {
-          verificationCommand = focusedCmd;
+      // Injeta contratos de fronteiras arquiteturais (SQLite WAL, PORT_GUARD, SQLi, Path Traversal)
+      criteria = GeminiSupervisorProvider.injectArchitecturalBoundaryCriteria(
+        criteria,
+        raw.milestone || raw.majorTaskCode || 'M1',
+        raw.title.trim(),
+        raw.orderIndex || (deduplicated.length + 1)
+      );
+
+      let verificationCommand = (raw.verificationCommand || '').trim();
+      const isMockOrEmpty = !verificationCommand || /^(?:true|exit\s*0|:|echo(?:\s.*)?|return\s*0)$/i.test(verificationCommand);
+      if (isMockOrEmpty) {
+        const testFileInScope = expectedFiles.find((f: string) => /\.(?:test|spec)\.[cm]?[jt]sx?$/i.test(f));
+        if (testFileInScope) {
+          verificationCommand = testFileInScope.endsWith('.ts') || testFileInScope.endsWith('.tsx')
+            ? `npx tsx --test "${testFileInScope}"`
+            : `node --test "${testFileInScope}"`;
+        } else if (expectedFiles.some(f => f.startsWith('public/') || f.endsWith('.html') || f.endsWith('.css'))) {
+          verificationCommand = 'npx tsc --noEmit';
         } else {
-          verificationCommand = verificationCommand || 'npm test';
+          const focusedCmd = TestSelector.resolveTestForFiles(expectedFiles);
+          verificationCommand = focusedCmd || 'npm test';
         }
       }
 
@@ -816,8 +957,24 @@ export class GeminiSupervisorProvider {
       });
     }
 
+    // Coalescência e eliminação de tarefas órfãs: interliga dependências sequenciais na ausência de arestas
+    for (let i = 1; i < deduplicated.length; i++) {
+      const curr = deduplicated[i];
+      const prev = deduplicated[i - 1];
+      if (!curr.dependencies || curr.dependencies.length === 0) {
+        curr.dependencies = [prev.code || prev.milestone || (prev.id ? String(prev.id) : `TK-${i}`)];
+      }
+    }
+
     // Auto-heal DAG, resolve multi-key dependencies and remove orphans
     const healed = DagAutoHealer.autoHealAndNormalizeTaskGraph(deduplicated, { breakCycles: false, completedTasks });
+
+    // Garante que nenhuma tarefa intermediária fique órfã após o auto-healer
+    for (let i = 1; i < healed.length; i++) {
+      if (!healed[i].dependencies || healed[i].dependencies.length === 0) {
+        healed[i].dependencies = [healed[i - 1].title || healed[i - 1].code || `TK-${i}`];
+      }
+    }
     try {
       const { SkillRouter } = require('./skillRouter.js');
       for (const t of healed) {
@@ -865,8 +1022,29 @@ export class GeminiSupervisorProvider {
   }> {
     const resolvedBlocks = options?.preResolvedBlocks ?? await this.resolveContextualSkillBlocks(briefing, projectContext.path, projectContext.name, options?.requirements);
 
+    const effectiveProjId = this.projectId || projectContext.id || 'default-project';
+    let codebaseAstContext = '';
+    try {
+      const { AstSymbolIndexService } = await import('./astSymbolIndexService.js');
+      codebaseAstContext = AstSymbolIndexService.buildCodebaseAstContext(effectiveProjId, projectContext.path, { briefing });
+    } catch {}
+
+    let empiricalVaccinesBlock = '';
+    try {
+      const { DecoMindMlService } = await import('./decoMindMlService.js');
+      const vaccines = DecoMindMlService.retrieveVaccinesForTask(projectContext.name, briefing);
+      empiricalVaccinesBlock = DecoMindMlService.formatEmpiricalVaccinesBlock(vaccines);
+      const reworkRisk = DecoMindMlService.predictReworkRiskFromTask({
+        taskTitle: projectContext.name,
+        taskDescription: briefing
+      }, projectContext.path);
+      if (reworkRisk.riskTier === 'CRITICAL') {
+        Logger.warn(`[GeminiSupervisor] DecoMind ML (Onda 1): Risco CRITICAL detectado (${(reworkRisk.probability * 100).toFixed(0)}%). Forçando detalhamento de critérios e pre-mortem.`);
+      }
+    } catch {}
+
     const { prompt } = PromptArchitectureService.buildArchitecturalBlueprintPrompt({
-      projectId: this.projectId || projectContext.id || 'default-project',
+      projectId: effectiveProjId,
       projectName: projectContext.name,
       projectPath: projectContext.path,
       projectObjective: projectContext.objective,
@@ -878,7 +1056,9 @@ export class GeminiSupervisorProvider {
       designSkillContextBlock: resolvedBlocks.designSkillContextBlock,
       reaSaaSMasterContextBlock: resolvedBlocks.reaSaaSMasterContextBlock,
       marketDiscoveryContextBlock: resolvedBlocks.marketDiscoveryContextBlock,
-      livingSpecContextBlock: resolvedBlocks.livingSpecContextBlock
+      livingSpecContextBlock: resolvedBlocks.livingSpecContextBlock,
+      codebaseAstContext,
+      empiricalVaccinesBlock
     });
 
     let conversationId = this.lastConversationId;
@@ -1075,8 +1255,29 @@ export class GeminiSupervisorProvider {
     marketDiscoveryContextBlock = filtered.marketDiscoveryContextBlock;
     livingSpecContextBlock = filtered.livingSpecContextBlock;
 
+    const effectiveProjId = this.projectId || projectContext.id || 'default-project';
+    let codebaseAstContext = '';
+    try {
+      const { AstSymbolIndexService } = await import('./astSymbolIndexService.js');
+      codebaseAstContext = AstSymbolIndexService.buildCodebaseAstContext(effectiveProjId, projectContext.path, { briefing: context.briefing, maxChars: 3000 });
+    } catch {}
+
+    let empiricalVaccinesBlock = '';
+    try {
+      const { DecoMindMlService } = await import('./decoMindMlService.js');
+      const vaccines = DecoMindMlService.retrieveVaccinesForTask(majorTask.title, majorTask.objective);
+      empiricalVaccinesBlock = DecoMindMlService.formatEmpiricalVaccinesBlock(vaccines);
+      const reworkRisk = DecoMindMlService.predictReworkRiskFromTask({
+        taskTitle: majorTask.title,
+        taskDescription: majorTask.objective
+      }, projectContext.path);
+      if (reworkRisk.riskTier === 'CRITICAL') {
+        Logger.warn(`[GeminiSupervisor] DecoMind ML (Onda 2 - ${majorTask.code}): Risco CRITICAL detectado (${(reworkRisk.probability * 100).toFixed(0)}%). Forçando detalhamento de critérios.`);
+      }
+    } catch {}
+
     const { prompt } = PromptArchitectureService.buildMajorTaskExpansionPrompt({
-      projectId: this.projectId || projectContext.id || 'default-project',
+      projectId: effectiveProjId,
       projectName: projectContext.name,
       projectPath: projectContext.path,
       projectObjective: projectContext.objective || '',
@@ -1091,7 +1292,9 @@ export class GeminiSupervisorProvider {
       designSkillContextBlock,
       reaSaaSMasterContextBlock,
       marketDiscoveryContextBlock,
-      livingSpecContextBlock
+      livingSpecContextBlock,
+      codebaseAstContext,
+      empiricalVaccinesBlock
     });
 
     let conversationId = this.lastConversationId;
@@ -1866,6 +2069,19 @@ export class GeminiSupervisorProvider {
     let minStepIndex = -1;
 
     try {
+      // 1. Tentar primeiro o modo headless via agy CLI para avaliações rápidas sem criar janelas ou chats interativos
+      try {
+        const headlessRes = await AgentApiGateway.runViaAgyCli(prompt, effectiveProjectId || undefined, modelToUse);
+        if (headlessRes?.response && headlessRes.response.trim().length > 0) {
+          return headlessRes.response;
+        }
+      } catch (headlessErr: any) {
+        if (typeof (globalThis as any).logger !== 'undefined' && (globalThis as any).logger?.debug) {
+          (globalThis as any).logger.debug({ event: 'supervisor.headless_unavailable', error: headlessErr?.message });
+        }
+      }
+
+      // 2. Reutilizar o provedor / sessão do Supervisor existente para o projeto
       const { AgentSessionManager } = await import('./agentSessionManager.js');
       if (effectiveProjectId) {
         const { session, isNew } = await AgentSessionManager.getOrCreateAgentSession(effectiveProjectId, 'SUPERVISOR', {

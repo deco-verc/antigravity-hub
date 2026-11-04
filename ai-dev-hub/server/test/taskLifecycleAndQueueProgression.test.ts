@@ -2,9 +2,13 @@ import './testSetup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 import express from 'express';
 import { db } from '../src/db.js';
 import { AutonomousManager } from '../src/autonomousManager.js';
+import { HierarchicalOrchestrationService } from '../src/hierarchicalOrchestrationService.js';
 import { WorkerRegistry } from '../src/workerRegistry.js';
 import { IndependentEvaluator } from '../src/independentEvaluator.js';
 import { ChatSubmission } from '../src/chatSubmission.js';
@@ -360,6 +364,139 @@ test('Task Lifecycle, Queue Progression & Milestone Alignment Suite', async (t) 
       assert.equal(retryData.userMessage.content, content);
     } finally {
       await new Promise<void>(res => server.close(() => res()));
+    }
+  });
+
+  await t.test('11. State Continuity / Context Transfer: Extracts exports on post-review commit and injects [CONTEXTO ACUMULADO DAS ETAPAS ANTERIORES] into dependent tasks', async () => {
+    const tempProjDir = path.join(os.tmpdir(), 'decohub-state-transfer-' + crypto.randomUUID().slice(0, 8));
+    fs.mkdirSync(path.join(tempProjDir, 'src', 'db'), { recursive: true });
+    fs.mkdirSync(path.join(tempProjDir, 'src', 'routes'), { recursive: true });
+    fs.mkdirSync(path.join(tempProjDir, 'src', 'services'), { recursive: true });
+
+    // 1. Criar arquivos da GT-1 (banco/schema, rotas e serviços)
+    fs.writeFileSync(
+      path.join(tempProjDir, 'src', 'db', 'schema.sql'),
+      `CREATE TABLE IF NOT EXISTS leads (
+  id TEXT PRIMARY KEY,
+  cnpj TEXT NOT NULL,
+  status TEXT DEFAULT 'active'
+);`,
+      'utf-8'
+    );
+
+    fs.writeFileSync(
+      path.join(tempProjDir, 'src', 'routes', 'leads.ts'),
+      `import { Router } from 'express';
+const router = Router();
+router.post('/api/leads', createLead);
+router.get('/api/leads', listLeads);
+export default router;`,
+      'utf-8'
+    );
+
+    fs.writeFileSync(
+      path.join(tempProjDir, 'src', 'services', 'leadService.ts'),
+      `export async function createLead(data: any) { return { id: 'lead-1' }; }
+export class LeadService {
+  static getStatus() { return 'ready'; }
+}`,
+      'utf-8'
+    );
+
+    // 2. Registrar projeto e tarefas no banco
+    const pId = 'proj-transfer-' + crypto.randomUUID().slice(0, 8);
+    const rId = 'run-transfer-' + crypto.randomUUID().slice(0, 8);
+    const isoNow = new Date().toISOString();
+
+    db.prepare(`
+      INSERT INTO projects (id, name, path, objective, created_at, updated_at)
+      VALUES (?, 'Projeto Transferência', ?, 'Testar continuidade arquitetural', ?, ?)
+    `).run(pId, tempProjDir, isoNow, isoNow);
+
+    db.prepare(`
+      INSERT INTO autonomous_runs (id, project_id, name, objective, status, current_milestone, current_task, start_time, created_at, updated_at)
+      VALUES (?, ?, 'Run Transferência', 'Objetivo de teste', 'running', 'GT-1', 'GT-1 Backend', ?, ?, ?)
+    `).run(rId, pId, isoNow, isoNow, isoNow);
+
+    const gt1Id = crypto.randomUUID();
+    const gt2Id = crypto.randomUUID();
+
+    db.prepare(`
+      INSERT INTO autonomous_tasks (id, run_id, title, description, milestone, order_index, dependencies_json, status, lifecycle_state, created_at, updated_at)
+      VALUES (?, ?, 'GT-1 Backend e Persistência', 'Criar schema de leads, rotas e serviços', 'GT-1', 1, '[]', 'approved', 'APPROVED', ?, ?)
+    `).run(gt1Id, rId, isoNow, isoNow);
+
+    db.prepare(`
+      INSERT INTO autonomous_tasks (id, run_id, title, description, milestone, order_index, dependencies_json, status, lifecycle_state, created_at, updated_at)
+      VALUES (?, ?, 'GT-2 Frontend e Integração', 'Construir interface consumindo a API de leads', 'GT-2', 2, ?, 'pending', 'PLANNED', ?, ?)
+    `).run(gt2Id, rId, JSON.stringify([gt1Id]), isoNow, isoNow);
+
+    try {
+      // 3. Executar o Gate de Commit Pós-Review da GT-1
+      const commitRes = HierarchicalOrchestrationService.executePostReviewCommitGate({
+        runId: rId,
+        taskId: gt1Id,
+        projectPath: tempProjDir,
+        filesChanged: [
+          'src/db/schema.sql',
+          'src/routes/leads.ts',
+          'src/services/leadService.ts'
+        ]
+      });
+
+      assert.equal(commitRes.success, true);
+      assert.equal(commitRes.committed, true);
+
+      // Verificar que exports_json foi salvo no banco na GT-1
+      const updatedGt1: any = db.prepare('SELECT exports_json, status, lifecycle_state FROM autonomous_tasks WHERE id = ?').get(gt1Id);
+      assert.equal(updatedGt1.status, 'completed');
+      assert.equal(updatedGt1.lifecycle_state, 'COMPLETED');
+      assert.ok(updatedGt1.exports_json, 'exports_json deve estar preenchido na GT-1');
+
+      const parsedExports = JSON.parse(updatedGt1.exports_json);
+      // Validação das tabelas e colunas
+      assert.ok(parsedExports.tables.some((t: any) => t.name === 'leads'));
+      const leadsTable = parsedExports.tables.find((t: any) => t.name === 'leads');
+      assert.deepEqual(leadsTable.columns.sort(), ['cnpj', 'id', 'status'].sort());
+
+      // Validação dos endpoints HTTP
+      assert.ok(parsedExports.endpoints.some((e: any) => e.endpoint === 'POST /api/leads'));
+      assert.ok(parsedExports.endpoints.some((e: any) => e.endpoint === 'GET /api/leads'));
+
+      // Validação dos serviços exportados
+      assert.ok(parsedExports.services.some((s: any) => s.file === 'src/services/leadService.ts'));
+      const leadSvc = parsedExports.services.find((s: any) => s.file === 'src/services/leadService.ts');
+      assert.ok(leadSvc.exports.includes('createLead'));
+      assert.ok(leadSvc.exports.includes('LeadService'));
+
+      // Verificar que .ai-dev-hub/tasks-context.json foi gerado e persistido
+      const contextFilePath = path.join(tempProjDir, '.ai-dev-hub', 'tasks-context.json');
+      assert.ok(fs.existsSync(contextFilePath), 'tasks-context.json deve existir em .ai-dev-hub/');
+      const contextFileContent = JSON.parse(fs.readFileSync(contextFilePath, 'utf-8'));
+      assert.ok(contextFileContent.tasks[gt1Id], 'GT-1 deve estar presente em tasks');
+      assert.ok(contextFileContent.consolidated.tables.some((t: any) => t.name === 'leads'));
+
+      // 4. Construir o contrato do Worker para a GT-2 (dependente da GT-1)
+      const contractGt2 = HierarchicalOrchestrationService.buildWorkerExecutionContract(gt2Id);
+
+      // Verificar injeção da seção [CONTEXTO ACUMULADO DAS ETAPAS ANTERIORES]
+      assert.ok(contractGt2.description.includes('[CONTEXTO ACUMULADO DAS ETAPAS ANTERIORES]'));
+      assert.ok(contractGt2.description.includes('- Tabelas e colunas disponíveis no banco SQLite WAL:'));
+      assert.ok(contractGt2.description.includes('* leads: cnpj, id, status') || contractGt2.description.includes('* leads: id, cnpj, status'));
+      assert.ok(contractGt2.description.includes('- Endpoints REST já operacionais e prontos para serem consumidos pela interface:'));
+      assert.ok(contractGt2.description.includes('* POST /api/leads'));
+      assert.ok(contractGt2.description.includes('* GET /api/leads'));
+      assert.ok(contractGt2.description.includes('- Módulos e utilitários disponíveis para importação em src/services/:'));
+      assert.ok(contractGt2.description.includes('createLead'));
+      assert.ok(contractGt2.description.includes('LeadService'));
+
+      // Verificar que accumulatedContext também foi retornado no objeto de contrato
+      assert.ok(contractGt2.accumulatedContext);
+      assert.ok(contractGt2.accumulatedContext.includes('[CONTEXTO ACUMULADO DAS ETAPAS ANTERIORES]'));
+    } finally {
+      try {
+        fs.rmSync(tempProjDir, { recursive: true, force: true });
+      } catch {}
     }
   });
 });

@@ -6,7 +6,7 @@ import { db } from './db.js';
 import { Logger } from './logger.js';
 import { ObservabilityService } from './observability/observabilityService.js';
 
-export type AstSymbolType = 'function' | 'class' | 'interface' | 'type' | 'enum' | 'const' | 'method' | 'route';
+export type AstSymbolType = 'function' | 'class' | 'interface' | 'type' | 'enum' | 'const' | 'method' | 'route' | 'schema';
 
 export interface AstSymbol {
   id: string;
@@ -32,6 +32,7 @@ export interface AstSymbolMapResult {
   types: string[];
   exportedMethods: string[];
   routes: string[];
+  schemas?: string[];
   formattedSummary: string;
   originalBytes: number;
   compactBytes: number;
@@ -259,6 +260,26 @@ export class AstSymbolIndexService {
     };
 
     visit(sourceFile);
+
+    // 8. Schemas de tabelas SQLite / SQL
+    const tableRegex = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-zA-Z0-9_]+)\s*\(([\s\S]*?)\);?/gi;
+    for (const match of code.matchAll(tableRegex)) {
+      const tableName = match[1];
+      const cols = match[2]
+        .split(/\r?\n/)
+        .map(l => l.trim())
+        .filter(l => l && !l.startsWith('--'))
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .slice(0, 150);
+      symbols.push({
+        symbolName: `TABLE ${tableName}`,
+        symbolType: 'schema',
+        signature: `CREATE TABLE ${tableName} (${cols})`,
+        exports: true
+      });
+    }
+
     return symbols;
   }
 
@@ -405,6 +426,24 @@ export class AstSymbolIndexService {
         });
         continue;
       }
+    }
+
+    const tableRegex = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-zA-Z0-9_]+)\s*\(([\s\S]*?)\);?/gi;
+    for (const match of code.matchAll(tableRegex)) {
+      const tableName = match[1];
+      const cols = match[2]
+        .split(/\r?\n/)
+        .map(l => l.trim())
+        .filter(l => l && !l.startsWith('--'))
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .slice(0, 150);
+      symbols.push({
+        symbolName: `TABLE ${tableName}`,
+        symbolType: 'schema',
+        signature: `CREATE TABLE ${tableName} (${cols})`,
+        exports: true
+      });
     }
 
     return symbols;
@@ -781,6 +820,7 @@ export class AstSymbolIndexService {
     const types: string[] = [];
     const exportedMethods: string[] = [];
     const routes: string[] = [];
+    const schemas: string[] = [];
 
     for (const sym of symbols) {
       if (sym.symbolType === 'interface') {
@@ -789,6 +829,8 @@ export class AstSymbolIndexService {
         if (!types.includes(sym.signature)) types.push(sym.signature);
       } else if (sym.symbolType === 'route') {
         if (!routes.includes(sym.signature)) routes.push(sym.signature);
+      } else if (sym.symbolType === 'schema') {
+        if (!schemas.includes(sym.signature)) schemas.push(sym.signature);
       } else if (sym.exports) {
         if (!exportedMethods.includes(sym.signature)) exportedMethods.push(sym.signature);
       }
@@ -811,6 +853,12 @@ export class AstSymbolIndexService {
     }
 
     const summaryLines: string[] = [`#### [AST SYMBOL MAP] \`${normPath}\``];
+    if (schemas.length > 0) {
+      summaryLines.push(`- Schemas de Tabela:`);
+      for (const s of schemas) {
+        summaryLines.push(`  * ${s}`);
+      }
+    }
     if (interfaces.length > 0) {
       summaryLines.push(`- Interfaces:`);
       for (const iface of interfaces) {
@@ -835,7 +883,7 @@ export class AstSymbolIndexService {
         summaryLines.push(`  * ${r}`);
       }
     }
-    if (interfaces.length === 0 && types.length === 0 && exportedMethods.length === 0 && routes.length === 0) {
+    if (interfaces.length === 0 && types.length === 0 && exportedMethods.length === 0 && routes.length === 0 && schemas.length === 0) {
       summaryLines.push(`  * (Sem símbolos públicos declarados)`);
     }
 
@@ -852,6 +900,7 @@ export class AstSymbolIndexService {
       types,
       exportedMethods,
       routes,
+      schemas,
       formattedSummary,
       originalBytes,
       compactBytes,
@@ -1120,5 +1169,43 @@ export class AstSymbolIndexService {
     }
 
     return blocks.join('\n\n');
+  }
+
+  /**
+   * Constrói o contexto AST consolidado do repositório para injeção sob o bloco <codebase_ast_context>.
+   * Extrai símbolos compactos (export function, export class, interface, schemas de tabela e rotas ativas).
+   */
+  static buildCodebaseAstContext(
+    projectId: string,
+    projectPath: string,
+    options: {
+      briefing?: string;
+      targetFiles?: string[];
+      maxChars?: number;
+    } = {}
+  ): string {
+    if (!projectPath || !fs.existsSync(projectPath)) return '';
+
+    const maxChars = options.maxChars || 6000;
+    try {
+      const currentCount = this.getProjectSymbolCount(projectId);
+      if (currentCount === 0) {
+        this.indexProjectFiles(projectId, projectPath, { maxFiles: 100 });
+      }
+    } catch {}
+
+    let targetFiles = options.targetFiles;
+    if ((!targetFiles || targetFiles.length === 0) && options.briefing) {
+      targetFiles = this.identifyTargetFiles(options.briefing, projectPath, 8);
+    }
+
+    const summary = this.generateStructuredSymbolSummary(projectId, {
+      projectPath,
+      targetFiles,
+      maxChars,
+      onlyExported: true
+    });
+
+    return summary;
   }
 }

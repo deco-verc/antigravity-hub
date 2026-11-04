@@ -10,7 +10,7 @@ import { PolicyEngine, RiskLevel } from './policyEngine.js';
 import { MemoryManager } from './memoryManager.js';
 import { CheckpointManager } from './checkpointManager.js';
 import { Logger } from './logger.js';
-import { AntigravityProvider } from './antigravityProvider.js';
+import { AntigravityProvider, resolveConversationTranscriptPath } from './antigravityProvider.js';
 import { GeminiSupervisorProvider } from './geminiSupervisorProvider.js';
 import { GitManager } from './gitManager.js';
 import { GitHubMcpClient } from './githubMcpClient.js';
@@ -101,6 +101,63 @@ export class AutonomousRunnerService {
 
   static isAgentBusy(): boolean {
     return this.isAgentExecuting;
+  }
+
+  /**
+   * Bloqueio de Conclusão sem Evidência Factual (DecoHUB Engine Invariant):
+   * Rejeita sumariamente qualquer submissão do Worker com status 'success' se o relatório
+   * não contiver evidência factual de execução real de comando de verificação em terminal com exit code 0.
+   */
+  public static validateWorkerFactualEvidence(report: {
+    status?: string;
+    commandsExecuted?: string[];
+    testsRun?: string;
+    tests?: { ran?: boolean; passed?: boolean; exitCode?: number; command?: string };
+    evaluation?: { taskIsDone?: boolean; verdict?: string; exitCode?: number | null; executedCommands?: string[] };
+    problems?: string[];
+    knownProblems?: string[];
+    testResults?: string;
+  }): { valid: boolean; reason?: string } {
+    if (report.status !== 'success' && !report.evaluation?.taskIsDone) {
+      return { valid: true };
+    }
+
+    const problems = [...(report.problems || []), ...(report.knownProblems || [])];
+    const hasCompilationError = problems.some(p => /COMPILATION_ERROR_PRE_HANDOVER|LSP_SYNTAX_ERROR/i.test(p));
+    if (hasCompilationError) {
+      return {
+        valid: false,
+        reason: 'Auto-Validação Pré-Handover falhou: arquivos modificados contêm erros de compilação ou tipagem não resolvidos (npx tsc --noEmit).'
+      };
+    }
+
+    const hasExecutedCommands = (
+      (Array.isArray(report.commandsExecuted) && report.commandsExecuted.length > 0) ||
+      Boolean(report.tests?.ran) ||
+      (Array.isArray(report.evaluation?.executedCommands) && report.evaluation.executedCommands.length > 0) ||
+      (typeof report.testsRun === 'string' &&
+        report.testsRun.trim().length > 0 &&
+        report.testsRun !== 'N/A' &&
+        report.testsRun !== 'Sem testes específicos')
+    );
+
+    const hasExitCodeZero = (
+      report.evaluation?.exitCode === 0 ||
+      report.tests?.exitCode === 0 ||
+      report.tests?.passed === true ||
+      (typeof report.testResults === 'string' &&
+        /PASS|exitCode\s*0/i.test(report.testResults) &&
+        !/FAIL|ERROR/i.test(report.testResults))
+    );
+
+    if (!hasExecutedCommands || !hasExitCodeZero) {
+      return {
+        valid: false,
+        reason: 'O Worker não pode finalizar um turno com status "success" sem evidência de execução real de verificação em terminal com exit code 0.'
+      };
+    }
+
+    return { valid: true };
   }
 
   /**
@@ -390,6 +447,13 @@ export class AutonomousRunnerService {
           .run(nowIso, nowIso, runId);
         AutonomousManager.logEvent(runId, null, 'system', 'RUN_COMPLETED_ON_RECONCILIATION', 'Run reconciliado e encerrado como concluído pois todas as tarefas já estavam finalizadas.');
         try {
+          const projectRec: any = db.prepare('SELECT * FROM projects WHERE id = ?').get(run.project_id);
+          if (projectRec) {
+            await AutonomousRunnerService.synthesizeProjectLessons(run, projectRec);
+            ProjectOperationsService.startPreview(projectRec.id, projectRec.path).catch(() => {});
+          }
+        } catch {}
+        try {
           await ProjectOperationsService.postExecutionReportToProjectChat(run.project_id, runId, 'completed');
         } catch (err) {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
@@ -668,18 +732,32 @@ export class AutonomousRunnerService {
         db.prepare("UPDATE autonomous_tasks SET status = 'in_review', lifecycle_state = 'REVIEW_PENDING', updated_at = ? WHERE id = ?").run(new Date().toISOString(), task.id);
       }
     } else {
+      const factualValidation = AutonomousRunnerService.validateWorkerFactualEvidence({
+        status: evaluation.taskIsDone ? 'success' : 'failure',
+        commandsExecuted: report.commandsExecuted,
+        testsRun: evaluation.executedCommands.join(' && ') || report.testsRun,
+        tests: report.tests,
+        evaluation
+      });
+      const resolvedStatus = (evaluation.taskIsDone && factualValidation.valid) ? 'success' : 'failure';
+      const resolvedProblems = Array.isArray(report.problems) ? [...report.problems] : [];
+      if (!factualValidation.valid && evaluation.taskIsDone) {
+        resolvedProblems.push(`[UNVERIFIED_COMPLETION] ${factualValidation.reason}`);
+        evaluation.taskIsDone = false;
+        evaluation.verdict = 'FAIL';
+      }
       AutonomousManager.submitBuilderReport({
         runId,
         taskId: task.id,
-        status: evaluation.taskIsDone ? 'success' : 'failure',
+        status: resolvedStatus,
         filesChanged: report.filesChanged,
         implemented: report.implemented,
         testsRun: evaluation.executedCommands.join(' && '),
         testResults: `Evaluator ${evaluation.verdict}`,
         buildStatus: report.buildStatus,
-        knownProblems: report.problems,
+        knownProblems: resolvedProblems,
         decisions: [],
-        recommendation: 'Resultado recuperado sem novo despacho ao Worker',
+        recommendation: resolvedStatus === 'success' ? 'Resultado recuperado sem novo despacho ao Worker' : 'Rejeitado por ausência de evidência factual',
         evaluation
       });
     }
@@ -1137,8 +1215,76 @@ export class AutonomousRunnerService {
           continue;
         }
 
+        // 1. Checagem de atividade real em disco no transcript do Antigravity
+        let transcriptPath: string | null = null;
+        try {
+          const obs = AgentTurnState.forTask(task.id);
+          if (obs?.conversation_id) {
+            transcriptPath = resolveConversationTranscriptPath(obs.conversation_id, obs.brain_dir);
+          }
+          if (!transcriptPath) {
+            const workerWithTask: any = db.prepare("SELECT conversation_id FROM workers WHERE current_task_id = ?").get(task.id);
+            if (workerWithTask?.conversation_id) {
+              transcriptPath = resolveConversationTranscriptPath(workerWithTask.conversation_id);
+            }
+          }
+        } catch {}
+
+        let hasRecentTranscriptActivity = false;
+        let hasDiskActivityWithin10Min = false;
+        if (transcriptPath && fs.existsSync(transcriptPath)) {
+          try {
+            const mtime = fs.statSync(transcriptPath).mtimeMs;
+            const elapsed = Date.now() - mtime;
+            if (elapsed < 8 * 60 * 1000) {
+              hasRecentTranscriptActivity = true;
+            }
+            if (elapsed <= 10 * 60 * 1000) {
+              hasDiskActivityWithin10Min = true;
+            }
+          } catch {}
+        }
+
+        // REGRA INVIOLÁVEL: NUNCA resetar se houver atividade no transcript nos últimos 8 minutos
+        if (hasRecentTranscriptActivity) {
+          continue;
+        }
+
+        // Se houver atividade em disco nos últimos 10 minutos, não considerar estagnada
+        if (hasDiskActivityWithin10Min) {
+          continue;
+        }
+
+        // 2. Checagem de processo filho vivo no SO
+        const workerInfo: any = db.prepare(`
+          SELECT w.pid, l.lease_until, l.last_heartbeat, l.status as lease_status
+          FROM worker_leases l
+          JOIN workers w ON l.worker_id = w.id
+          WHERE l.task_id = ? AND l.status = 'active'
+          ORDER BY l.claimed_at DESC LIMIT 1
+        `).get(task.id);
+
+        let isProcessAlive = false;
+        if (workerInfo?.pid && workerInfo.pid > 0) {
+          try {
+            process.kill(workerInfo.pid, 0);
+            isProcessAlive = true;
+          } catch (e: any) {
+            if (e.code === 'EPERM') isProcessAlive = true;
+          }
+        }
+
+        // 3. Checagem de lease válida e heartbeat recente (< 5 min)
+        const nowIso = new Date().toISOString();
+        const hasLiveLease = workerInfo?.lease_until && workerInfo.lease_until > nowIso;
+        const hasRecentHeartbeat = workerInfo?.last_heartbeat && (Date.now() - new Date(workerInfo.last_heartbeat).getTime() < 5 * 60 * 1000);
+
+        if (isProcessAlive && (hasLiveLease || hasRecentHeartbeat)) {
+          continue;
+        }
+
         const liveLease: any = db.prepare("SELECT id FROM worker_leases WHERE task_id = ? AND status = 'active' AND lease_until > ?")
-          .get(task.id, new Date().toISOString());
+          .get(task.id, nowIso);
         if (liveLease) continue;
 
         // TOP-LEVEL check for active in-flight native turns (independent of in-memory session manager)
@@ -1153,20 +1299,23 @@ export class AutonomousRunnerService {
         const reconciled = await this.reconcileCompletedTurn(task.run_id);
         if (reconciled) continue;
 
-        // Turno orfao/sem lease genuinamente abandonado (> 12 min): auto-heal silencioso sem pausar!
+        // Tarefa comprovadamente estagnada (> 10min sem atividade, PID inativo e lease expirada sem heartbeat):
+        // Auto-heal silencioso SEM pausar o run (mantém run.status = 'running')
         db.prepare("UPDATE agent_turn_observations SET phase = 'CONSUMED' WHERE task_id = ? AND phase IN ('IN_FLIGHT','UNCERTAIN')").run(task.id);
-        db.prepare("UPDATE worker_leases SET status = 'expired', released_at = ? WHERE task_id = ? AND status = 'active'").run(new Date().toISOString(), task.id);
+        db.prepare("UPDATE worker_leases SET status = 'expired', released_at = ? WHERE task_id = ? AND status = 'active'").run(nowIso, task.id);
+        db.prepare("UPDATE workers SET status = 'READY', current_task_id = NULL WHERE current_task_id = ?").run(task.id);
 
         const retries = (task.retry_count || 0) + 1;
-        const nowIso = new Date().toISOString();
+        const retryNowIso = new Date().toISOString();
 
         if (retries >= 3) {
+          AutonomousRunnerService.rollbackToLastStableCommit(task.run_id, task.id, `Watchdog: tarefa travada após ${retries} tentativas`);
           // Mark BLOCKED and allow supervisor to pick other independent tasks
           db.prepare(`
             UPDATE autonomous_tasks
             SET status = 'blocked', retry_count = ?, updated_at = ?
             WHERE id = ?
-          `).run(retries, nowIso, task.id);
+          `).run(retries, retryNowIso, task.id);
 
           AutonomousManager.logEvent(
             task.run_id,
@@ -1231,6 +1380,16 @@ export class AutonomousRunnerService {
    */
   static async schedulerTick() {
     if (!this.isRunning || this.isExecutingCycle || this.isAgentExecuting) return;
+
+    // -1. Varrer e expurgar leases expiradas antes do agendamento (garante que nenhum worker fique bloqueado)
+    try {
+      const { expired, resetTasks } = WorkerRegistry.expireStaleLeases();
+      if (expired > 0) {
+        Logger.info(`[AutonomousRunnerService] Expurgadas ${expired} lease(s) expirada(s) antes do tick: ${resetTasks.join(', ')}`);
+      }
+    } catch (leaseErr: any) {
+      Logger.warn(`[AutonomousRunnerService] Erro não bloqueante ao expurgar leases expiradas: ${leaseErr.message}`);
+    }
 
     // 0. Auto-resume paused runs when quota cooldown period expires
     try {
@@ -2252,6 +2411,22 @@ export class AutonomousRunnerService {
             const taskIndex = allTasks.findIndex((t: any) => t.id === inReviewTask.id) + 1 || inReviewTask.order_index || 1;
             const totalTasks = allTasks.length || 1;
 
+            let visualCaptures: any[] = [];
+            // PILAR 1: Homologação Visual via Playwright para tarefas de frontend (GT-3 e GT-4)
+            if (AutonomousRunnerService.isFrontendTask(inReviewTask) && run.project?.path) {
+              try {
+                const { PlaywrightVisualInspector } = await import('./playwrightVisualInspector.js');
+                visualCaptures = await PlaywrightVisualInspector.captureStructuredUiViews({
+                  projectPath: run.project.path,
+                  projectId: run.project_id,
+                  taskId: inReviewTask.code || inReviewTask.milestone || inReviewTask.id,
+                  timeoutMs: 15000
+                });
+              } catch (visErr: any) {
+                Logger.warn(`[Runner] Graceful fallback na auditoria visual de frontend: ${visErr.message}`);
+              }
+            }
+
             ProjectOperationsService.postTaskCompletionToChat({
               projectId: run.project_id,
               projectPath: run.project.path,
@@ -2262,7 +2437,8 @@ export class AutonomousRunnerService {
               taskTitle: inReviewTask.title,
               filesChanged: reportData.filesChanged || [],
               implemented: reportData.implemented || [inReviewTask.title],
-              reviewerVerdict: reviewResult.verdict
+              reviewerVerdict: reviewResult.verdict,
+              screenshots: visualCaptures
             }).catch((err: any) => Logger.warn(`[Runner] Falha ao postar conclusão da etapa: ${err.message}`));
           } catch {}
 
@@ -2477,6 +2653,22 @@ export class AutonomousRunnerService {
           'RUN_COMPLETED',
           'Todas as tarefas concluídas após avaliação independente e revisão do Supervisor.'
         );
+
+        // PILAR 3: Síntese Cumulativa de Lições Aprendidas & Reforço Positivo no DecoMindMlService
+        try {
+          await AutonomousRunnerService.synthesizeProjectLessons(run, project);
+        } catch (synthErr: any) {
+          Logger.warn(`[Autonomous Runner] Falha ao sintetizar lições do projeto: ${synthErr.message}`);
+        }
+
+        // PILAR 2: Live Preview Automático Embutido (PORT_GUARD 4000-4999)
+        try {
+          if (project?.id && project?.path) {
+            ProjectOperationsService.startPreview(project.id, project.path).catch((prevErr: any) => {
+              Logger.warn(`[Autonomous Runner] Preview automático em background: ${prevErr.message}`);
+            });
+          }
+        } catch {}
 
         // Announce completion directly in the project chat with Playwright screenshots & 4 seals
         try {
@@ -2855,6 +3047,9 @@ export class AutonomousRunnerService {
     } catch (taskErr: any) {
       const errMsg = taskErr?.message || String(taskErr);
       if (errMsg.includes('FAILOVER_REASSIGNED')) {
+        setImmediate(() => {
+          AutonomousRunnerService.schedulerTick().catch(() => {});
+        });
         return;
       }
       if (errMsg.includes('AGENT_TURN_HANDOFF_RESOLVED')) {
@@ -2994,6 +3189,9 @@ export class AutonomousRunnerService {
       WorkerRegistry.releaseAllLeases(selectedWorker.id);
       const retries = (nextTask.retry_count || 0) + 1;
       const isBlocked = retries >= (nextTask.max_retries || 3);
+      if (isBlocked) {
+        AutonomousRunnerService.rollbackToLastStableCommit(runId, nextTask.id, `Limite de ${nextTask.max_retries || 3} tentativas excedido na execução`);
+      }
       db.prepare(`
         UPDATE autonomous_tasks
         SET status = ?, lifecycle_state = ?, retry_count = ?, updated_at = ?
@@ -3030,7 +3228,22 @@ export class AutonomousRunnerService {
       WHERE id = ?
     `).run(nowIso, runId);
 
-    // 5. Submit report (evaluates policies for ORANGE/RED approvals)
+    // 5. Submit report (evaluates policies for ORANGE/RED approvals com Bloqueio de Conclusão sem Evidência Factual)
+    const factualValidation = AutonomousRunnerService.validateWorkerFactualEvidence(reportData);
+    if (!factualValidation.valid) {
+      Logger.warn(`[AutonomousRunnerService] Rejeição sumária na submissão da tarefa "${nextTask.title}": ${factualValidation.reason}`);
+      reportData.status = 'failure';
+      if (!reportData.knownProblems) reportData.knownProblems = [];
+      reportData.knownProblems.push(`[UNVERIFIED_COMPLETION] ${factualValidation.reason}`);
+      if (reportData.evaluation) {
+        reportData.evaluation.taskIsDone = false;
+        reportData.evaluation.verdict = 'FAIL';
+        if (!reportData.evaluation.failedCriteria) reportData.evaluation.failedCriteria = [];
+        reportData.evaluation.failedCriteria.push('Execução real de comando em terminal com exit code 0');
+      }
+      reportData.recommendation = `Rejeição sumária da entrega: ${factualValidation.reason}`;
+    }
+
     const submitResult = AutonomousManager.submitBuilderReport(reportData);
     if (RunControl.apply(runId, true)) return;
 
@@ -3044,6 +3257,7 @@ export class AutonomousRunnerService {
       const maxRetries = Number(currentTaskDb.max_retries || 3);
 
       if (isTampering || currentRetry >= maxRetries) {
+        AutonomousRunnerService.rollbackToLastStableCommit(runId, nextTask.id, isTampering ? 'Adulteração de testes detectada' : `Limite de retentativas atingido (${currentRetry}/${maxRetries}) ou regressão irrecuperável`);
         this.pauseForVerification(runId, nextTask.id, reportData.evaluation.actual || 'Avaliação bloqueada');
         return;
       }
@@ -3120,6 +3334,13 @@ export class AutonomousRunnerService {
       this.currentTask = null;
       this.currentWorker = null;
 
+      // Auto-Purge preventivo em transição de tarefas (Port Leak Guard: zero EADDRINUSE)
+      try {
+        const { CommandExecutionEngine } = await import('./commandExecutionEngine.js');
+        CommandExecutionEngine.terminateAllActive('TRANSITION_CLEANUP');
+        CommandExecutionEngine.releasePortRangeIfBound(4000, 4999);
+      } catch {}
+
       // Fast-Forward DAG: Encadeamento contínuo com 0ms de latência entre tarefas aprovadas
       setImmediate(() => {
         AutonomousRunnerService.schedulerTick().catch((err) => {
@@ -3174,6 +3395,19 @@ export class AutonomousRunnerService {
       `).run(nowIso, nowIso, runId);
 
       Logger.success(`[APPROVED] [Supervisor] Tarefa "${nextTask.title}" aprovada após avaliação independente.`);
+
+      // PILAR 1: Homologação Visual via Playwright para tarefas de frontend (GT-3 e GT-4)
+      if (AutonomousRunnerService.isFrontendTask(nextTask) && project?.path) {
+        import('./playwrightVisualInspector.js').then(({ PlaywrightVisualInspector }) => {
+          PlaywrightVisualInspector.captureFrontendAuditScreenshots({
+            projectPath: project.path,
+            projectId: project.id,
+            taskId: nextTask.code || nextTask.milestone || nextTask.id,
+            timeoutMs: 12000
+          }).catch((err: any) => Logger.warn(`[Runner] Falha ao capturar screenshots de frontend: ${err.message}`));
+        }).catch(() => {});
+      }
+
       // Fast-Forward DAG: Encadeamento contínuo com 0ms de latência entre tarefas aprovadas
       setImmediate(() => {
         AutonomousRunnerService.schedulerTick().catch((err) => {
@@ -3776,12 +4010,27 @@ export class AutonomousRunnerService {
         Logger.warn(`[AutonomousRunner] Falha não bloqueante ao resolver Living Specs para o Worker: ${err.message}`);
       }
 
+      let scaffoldPromptBlock = '';
+      if (workerExecutionContract?.taskScaffold || workerExecutionContract?.testSkeleton) {
+        const scaffold = workerExecutionContract.taskScaffold;
+        const skeleton = workerExecutionContract.testSkeleton;
+        const lines: string[] = [
+          '=== [ESQUELETO E ASSINATURAS ESPERADAS] ===',
+          scaffold ? `Tipo de Entrega Identificado: ${scaffold.deliveryType.toUpperCase()}` : '',
+          scaffold?.targetSignatures ? `Assinaturas de Interface Esperadas:\n${scaffold.targetSignatures}` : '',
+          scaffold?.guidelines?.length ? `Diretrizes Técnicas Mandatórias:\n${scaffold.guidelines.map((g: string) => `- ${g}`).join('\n')}` : '',
+          skeleton ? `Modelo de Teste Unitário Inicial (test/):\n\`\`\`typescript\n${skeleton}\n\`\`\`` : '',
+          'Instrução ao Worker: Utilize este esqueleto de teste e as assinaturas de interface acima como base direta da implementação para codificar sem qualquer ambiguidade de contrato.'
+        ].filter(Boolean);
+        scaffoldPromptBlock = lines.join('\n\n');
+      }
+
       const taskInput: any = {
         mode: detectedMode,
         task: {
           id: task.id,
           title: task.title,
-          description: task.description,
+          description: workerExecutionContract?.description || task.description,
           milestone: task.milestone,
           majorTaskCode: workerExecutionContract?.majorTaskCode || parentMajorTask?.code || undefined,
           majorTaskTitle: workerExecutionContract?.majorTaskTitle || parentMajorTask?.title || undefined,
@@ -3830,16 +4079,53 @@ export class AutonomousRunnerService {
         livingSpecContextBlock: livingSpecBlock || undefined,
         routedSkillId: routedSkill.skill,
         routedSkillDigest: routedSkill.surgicalDigest,
+        taskScaffoldBlock: scaffoldPromptBlock || undefined,
         supervisorInstructions: [
           resumeContext,
           protectedWarning,
           selfHealingReworkDirective,
           structuredReworkPrompt,
+          scaffoldPromptBlock,
+          workerExecutionContract?.accumulatedContext || undefined,
           task.retry_count > 0 && run.last_error
             ? `CORREÇÕES SOLICITADAS PELO SUPERVISOR: ${run.last_error}. Implemente as melhorias solicitadas no mesmo branch.`
             : 'Implemente de forma completa, com código limpo, sem simulações e sem placeholders.'
         ].filter(Boolean).join('\n\n')
       };
+
+      // FASE 5 & PILAR 2: Extração e injeção de símbolos AST no bloco <codebase_ast_context>
+      let codebaseAstContext = '';
+      try {
+        const { AstSymbolIndexService } = await import('./astSymbolIndexService.js');
+        codebaseAstContext = AstSymbolIndexService.buildCodebaseAstContext(project.id, project.path, {
+          targetFiles: task.expected_files,
+          briefing: task.title,
+          maxChars: 3500
+        });
+      } catch {}
+
+      // PILAR 4: Ativação plena das vacinas DecoMind ML Engine & Predição de Risco Crítico
+      let empiricalVaccinesBlock = '';
+      try {
+        const { DecoMindMlService } = await import('./decoMindMlService.js');
+        const retrievedVaccines = DecoMindMlService.retrieveVaccinesForTask(task.title, task.description || '');
+        if (retrievedVaccines.length > 0) {
+          empiricalVaccinesBlock = DecoMindMlService.formatEmpiricalVaccinesBlock(retrievedVaccines);
+        }
+        const reworkRisk = DecoMindMlService.predictReworkRiskFromTask({
+          taskTitle: task.title,
+          taskDescription: task.description,
+          expectedFiles: task.expected_files,
+          attempts: task.retry_count,
+          category: task.skill_routed
+        }, project.path);
+        if (reworkRisk.riskTier === 'CRITICAL') {
+          taskInput.supervisorInstructions = [
+            `[ALERTA DE RISCO CRÍTICO DE RETRABALHO (${(reworkRisk.probability * 100).toFixed(0)}%)]: Foco cirúrgico máximo. Escreva testes focados em test/ antes do código e comprove execução com exit code 0.`,
+            taskInput.supervisorInstructions
+          ].filter(Boolean).join('\n\n');
+        }
+      } catch {}
 
       const builtWorkerPrompt = PromptArchitectureService.buildWorkerPrompt({
         mode: detectedMode,
@@ -3850,7 +4136,7 @@ export class AutonomousRunnerService {
         runId: run.id || null,
         taskId: task.id,
         taskTitle: task.title,
-        taskDescription: task.description,
+        taskDescription: workerExecutionContract?.description || task.description,
         majorTaskCode: taskInput.task.majorTaskCode,
         majorTaskTitle: taskInput.task.majorTaskTitle,
         stageCode: taskInput.task.stageCode,
@@ -3861,6 +4147,7 @@ export class AutonomousRunnerService {
         verificationCommand: taskInput.task.verificationCommand,
         doneWhen: taskInput.task.doneWhen,
         expectedScopeFiles: taskInput.expectedScopeFiles,
+        taskScaffoldBlock: scaffoldPromptBlock || undefined,
         supervisorInstructions: taskInput.supervisorInstructions,
         programMd: taskInput.context.programMd,
         formattedEngineeringBlock: taskInput.engineeringPackage?.formattedPromptBlock,
@@ -3871,6 +4158,8 @@ export class AutonomousRunnerService {
         designSkillContextBlock: taskInput.designSkillContextBlock,
         reaSaaSMasterContextBlock: taskInput.reaSaaSMasterContextBlock,
         livingSpecContextBlock: taskInput.livingSpecContextBlock,
+        codebaseAstContext,
+        empiricalVaccinesBlock,
         routedSkillId: taskInput.routedSkillId,
         routedSkillDigest: taskInput.routedSkillDigest
       });
@@ -4429,6 +4718,29 @@ export class AutonomousRunnerService {
         current_task_id: null,
         current_issue_number: null,
       });
+      // Bloqueio de Conclusão sem Evidência Factual (DecoHUB Engine Invariant):
+      // Rejeite sumariamente a submissão do Worker se o relatório não contiver evidência
+      // de execução real de comando com exit code 0.
+      const factualValidation = AutonomousRunnerService.validateWorkerFactualEvidence({
+        status: agentResult.status,
+        commandsExecuted: agentResult.commandsExecuted,
+        testsRun: agentResult.tests?.command || evaluationResult?.executedCommands?.join(' && '),
+        tests: agentResult.tests,
+        evaluation: evaluationResult,
+        problems: agentResult.problems
+      });
+
+      if (!factualValidation.valid) {
+        Logger.warn(`[AutonomousRunnerService] Rejeição sumária da submissão do Worker na tarefa "${task.title}": ${factualValidation.reason}`);
+        agentResult.status = 'failure';
+        if (!agentResult.problems) agentResult.problems = [];
+        agentResult.problems.push(`[UNVERIFIED_COMPLETION] ${factualValidation.reason}`);
+        evaluationResult.taskIsDone = false;
+        evaluationResult.verdict = 'FAIL';
+        if (!evaluationResult.failedCriteria) evaluationResult.failedCriteria = [];
+        evaluationResult.failedCriteria.push('Execução real de comando em terminal com exit code 0');
+      }
+
       const isTransportTimeout = agentResult.problems?.some(p => p.includes('TIMEOUT'));
       executionSucceeded = evaluationResult.taskIsDone && (agentResult.status === 'success' || Boolean(isTransportTimeout));
 
@@ -4516,6 +4828,21 @@ export class AutonomousRunnerService {
             : (agentResult.problems?.join('; ') || evaluationResult.verdict),
           solutionVaccine: evaluationResult.taskIsDone && task.retry_count > 0 ? (agentResult.implemented?.join('; ') || 'Correção aplicada com sucesso') : undefined
         });
+
+        // PILAR 4: Gravação explícita de memória episódica após conclusão com sucesso de tarefa com retrabalho (reward = +1.0)
+        if (evaluationResult.taskIsDone && task.retry_count > 0) {
+          const solutionVaccine = (agentResult.implemented?.length ? agentResult.implemented.join('; ') : undefined) || 'Correção cirúrgica com teste comprovado (exit code 0)';
+          DecoMindMlService.recordEpisodicMemory({
+            taskTitle: task.title,
+            taskDescription: task.description,
+            taskCategory: task.skill_routed || 'GENERAL',
+            errorPattern: priorErrorPattern || 'REWORK_REQUIRED',
+            rootCause: priorReworkCause || 'Falha superada no retry com validação factual',
+            surgicalVaccine: solutionVaccine,
+            reward: 1.0,
+            targetFiles: agentResult.filesChanged || task.expected_files
+          });
+        }
       } catch (mlErr: any) {
         Logger.warn(`[AutonomousRunner] Aviso não bloqueante no DecoMind ML: ${mlErr.message}`);
       }
@@ -4551,6 +4878,13 @@ export class AutonomousRunnerService {
         WorkerRegistry.releaseLease(leaseId, worker.id);
       }
       AutonomousRunnerService.releaseExecutionLock();
+
+      // Blindagem contra processos presos no terminal (Port Leak Guard)
+      try {
+        const { CommandExecutionEngine } = await import('./commandExecutionEngine.js');
+        CommandExecutionEngine.terminateAllActive('TRANSITION_CLEANUP');
+        CommandExecutionEngine.releasePortRangeIfBound(4000, 4999);
+      } catch {}
 
       // Record telemetry in UsageTracker
       const durationMs = Date.now() - startTime;
@@ -4613,6 +4947,52 @@ export class AutonomousRunnerService {
         console.warn("[WARN][server:autonomousRunnerService]", err);
       }
     }
+    }
+  }
+
+  /**
+   * Executa rollback automático para o último commit estável conhecido quando uma tarefa
+   * falha consecutivamente e esgota o limite de retentativas (retry_count >= maxRetries) ou
+   * introduz regressões de compilação sem autocorreção.
+   * Executa um rollback seguro de arquivos não commitados (git checkout -- . e git clean -fd).
+   */
+  public static rollbackToLastStableCommit(runId: string, taskId: string, reason?: string): boolean {
+    try {
+      const runRow: any = db.prepare('SELECT project_id FROM autonomous_runs WHERE id = ?').get(runId);
+      const projectId = runRow?.project_id;
+      if (!projectId) return false;
+
+      const project: any = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId);
+      if (!project?.path || !fs.existsSync(path.join(project.path, '.git'))) return false;
+
+      // Localiza o task_commit_sha da última tarefa aprovada com sucesso
+      const lastApprovedTask: any = db.prepare(`
+        SELECT id, title, code, milestone, task_commit_sha 
+        FROM autonomous_tasks 
+        WHERE run_id = ? AND task_commit_sha IS NOT NULL AND task_commit_sha NOT LIKE 'no-git-%' AND (status = 'completed' OR lifecycle_state = 'COMPLETED')
+        ORDER BY order_index DESC, updated_at DESC
+        LIMIT 1
+      `).get(runId);
+
+      const targetSha = lastApprovedTask?.task_commit_sha || null;
+
+      // Executa rollback seguro de arquivos não commitados
+      const rollbackSuccess = GitManager.rollbackUncommittedChanges(project.path, targetSha);
+
+      // Registra o evento no log: ROLLBACK_EXECUTED_TO_LAST_STABLE_COMMIT
+      AutonomousManager.logEvent(
+        runId,
+        taskId,
+        'system',
+        'ROLLBACK_EXECUTED_TO_LAST_STABLE_COMMIT',
+        `Rollback automático executado: árvore de trabalho restaurada ao último estado íntegro conhecido${targetSha ? ` (commit ${targetSha.slice(0, 8)})` : ''}. Arquivos não commitados descartados após esgotamento de retentativas. Motivo: ${reason || 'Falha irrecuperável na tarefa'}.`,
+        { targetSha, lastApprovedTaskId: lastApprovedTask?.id, lastApprovedTaskTitle: lastApprovedTask?.title, reason }
+      );
+
+      return rollbackSuccess;
+    } catch (err: any) {
+      Logger.warn(`[AutonomousRunnerService] Falha ao executar rollback automático: ${err?.message}`);
+      return false;
     }
   }
 
@@ -4927,6 +5307,11 @@ export class AutonomousRunnerService {
       return { verdict, feedback, run: updatedRun };
     } finally {
       AutonomousRunnerService.releaseExecutionLock();
+      try {
+        const { CommandExecutionEngine } = await import('./commandExecutionEngine.js');
+        CommandExecutionEngine.terminateAllActive('TRANSITION_CLEANUP');
+        CommandExecutionEngine.releasePortRangeIfBound(4000, 4999);
+      } catch {}
     }
   }
 
@@ -5299,5 +5684,38 @@ export class AutonomousRunnerService {
     errorMessage?: string
   ) {
     return ProjectOperationsService.postExecutionReportToProjectChat(projectId, runId, outcome, errorMessage);
+  }
+
+  /**
+   * Identifica se uma tarefa pertence ao ciclo de frontend / interface visual (ex: GT-3, GT-4).
+   */
+  public static isFrontendTask(task: any): boolean {
+    if (!task) return false;
+    const code = String(task.code || task.milestone || '').toUpperCase();
+    if (code.includes('GT-3') || code.includes('GT-4') || code.includes('GT3') || code.includes('GT4') || code.includes('M3') || code.includes('M4')) {
+      return true;
+    }
+    const text = `${task.title || ''} ${task.description || ''} ${(task.expected_files || []).join(' ')}`.toLowerCase();
+    return /(gt-3|gt-4|frontend|interface|ui|layout|tela|dashboard|componente|visual|view|html|css|modal)/i.test(text);
+  }
+
+  /**
+   * PILAR 3: SÍNTESE DE LIÇÕES APRENDIDAS (AUTO-EVOLUÇÃO & lessons.md)
+   * Registra pontos altos em .ai-dev-hub/lessons.md e reforço positivo no DecoMindMlService (q_value = 1.0).
+   */
+  public static async synthesizeProjectLessons(run: any, project: any): Promise<void> {
+    if (!project || !project.path) return;
+    try {
+      const { ProjectLivingSpecService } = await import('./projectLivingSpecService.js');
+      await ProjectLivingSpecService.curateLessonsLearned({
+        projectPath: project.path,
+        projectName: run?.name || project?.name,
+        projectObjective: project?.objective || run?.name,
+        runId: run?.id
+      });
+      Logger.success(`[Autonomous Runner] Lições de engenharia consolidadas via ProjectLivingSpecService em "${project.path}".`);
+    } catch (err: any) {
+      Logger.warn(`[Autonomous Runner] Falha ao executar curateLessonsLearned: ${err.message}`);
+    }
   }
 }

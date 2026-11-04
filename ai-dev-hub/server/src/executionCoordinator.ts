@@ -9,104 +9,118 @@ export class ExecutionCoordinator {
   static acquire(scope: string, context: Record<string, any>): string {
     const token = crypto.randomUUID();
     const now = new Date().toISOString();
-    const result = db.prepare('INSERT OR IGNORE INTO execution_reservations (scope,token,owner_pid,context_json,created_at,updated_at) VALUES (?,?,?,?,?,?)')
-      .run(scope, token, process.pid, JSON.stringify(context), now, now);
-    if (!result.changes) {
-      const owner: any = db.prepare('SELECT * FROM execution_reservations WHERE scope=?').get(scope);
-      if (!owner) {
-        return this.acquire(scope, context);
-      }
-      let alive = true;
-      try { process.kill(owner.owner_pid, 0); } catch (err: any) { if (err.code === 'ESRCH') alive = false; }
-
-      const updatedOrCreated = owner.updated_at || owner.created_at;
-      const ageMs = updatedOrCreated ? (Date.now() - new Date(updatedOrCreated).getTime()) : Infinity;
-      const isTtlExpired = ageMs > this.DEFAULT_TTL_MS;
-
-      let isRunInactive = false;
-      let isSameRun = false;
-      let isMalformedContext = false;
-      try {
-        const ctx = JSON.parse(owner.context_json || '{}');
-        if (ctx && typeof ctx === 'object' && ctx.runId) {
-          const run: any = db.prepare('SELECT status FROM autonomous_runs WHERE id = ?').get(ctx.runId);
-          if (run && ['completed', 'failed', 'paused', 'cancelled', 'stopped', 'error'].includes(run.status)) {
-            isRunInactive = true;
-          }
-          if (context?.runId && ctx.runId === context.runId) {
-            isSameRun = true;
-          }
+    const inTx = Boolean((db as any).isTransaction ?? (db as any).inTransaction);
+    if (!inTx) db.exec('BEGIN IMMEDIATE');
+    try {
+      const result = db.prepare('INSERT OR IGNORE INTO execution_reservations (scope,token,owner_pid,context_json,created_at,updated_at) VALUES (?,?,?,?,?,?)')
+        .run(scope, token, process.pid, JSON.stringify(context), now, now);
+      if (!result.changes) {
+        const owner: any = db.prepare('SELECT * FROM execution_reservations WHERE scope=?').get(scope);
+        if (!owner) {
+          if (!inTx) db.exec('COMMIT');
+          return this.acquire(scope, context);
         }
-      } catch {
-        isMalformedContext = true;
-      }
+        let alive = true;
+        try { process.kill(owner.owner_pid, 0); } catch (err: any) { if (err.code === 'ESRCH') alive = false; }
 
-      if (!alive || isTtlExpired || isRunInactive || isSameRun || isMalformedContext) {
-        const reason = !alive
-          ? `processo finalizado (PID ${owner.owner_pid})`
-          : isTtlExpired
-          ? `TTL expirado (${Math.round(ageMs / 1000)}s sem renovação)`
-          : isSameRun
-          ? `mesmo run (${context.runId}) renovando reserva`
-          : isMalformedContext
-          ? `contexto JSON malformado recuperado`
-          : `run associado inativo ou finalizado`;
+        const updatedOrCreated = owner.updated_at || owner.created_at;
+        const ageMs = updatedOrCreated ? (Date.now() - new Date(updatedOrCreated).getTime()) : Infinity;
+        const isTtlExpired = ageMs > this.DEFAULT_TTL_MS;
 
-        db.prepare('DELETE FROM execution_reservations WHERE scope=?').run(scope);
-
+        let isRunInactive = false;
+        let isSameRun = false;
+        let isMalformedContext = false;
         try {
-          ObservabilityService.emit({
-            level: 'WARN',
-            event: 'reservation.orphaned_cleared',
-            message: `Reserva órfã (${reason}) limpa automaticamente para escopo "${scope}"`,
-            service: 'coordinator',
-            runId: context?.runId,
-            taskId: context?.taskId,
-            projectId: context?.projectId,
-            metadata: { scope, deadPid: owner.owner_pid, reason, priorContext: owner?.context_json }
-          });
-        } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "executionCoordinator",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:executionCoordinator]", err);
-      }
-    }
+          const ctx = JSON.parse(owner.context_json || '{}');
+          if (ctx && typeof ctx === 'object' && ctx.runId) {
+            const run: any = db.prepare('SELECT status FROM autonomous_runs WHERE id = ?').get(ctx.runId);
+            if (run && ['completed', 'failed', 'paused', 'cancelled', 'stopped', 'error'].includes(run.status)) {
+              isRunInactive = true;
+            }
+            if (context?.runId && ctx.runId === context.runId) {
+              isSameRun = true;
+            }
+          }
+        } catch {
+          isMalformedContext = true;
+        }
 
-        const retryResult = db.prepare('INSERT OR IGNORE INTO execution_reservations (scope,token,owner_pid,context_json,created_at,updated_at) VALUES (?,?,?,?,?,?)')
-          .run(scope, token, process.pid, JSON.stringify(context), now, now);
-        if (retryResult.changes) {
+        if (!alive || isTtlExpired || isRunInactive || isSameRun || isMalformedContext) {
+          const reason = !alive
+            ? `processo finalizado (PID ${owner.owner_pid})`
+            : isTtlExpired
+            ? `TTL expirado (${Math.round(ageMs / 1000)}s sem renovação)`
+            : isSameRun
+            ? `mesmo run (${context.runId}) renovando reserva`
+            : isMalformedContext
+            ? `contexto JSON malformado recuperado`
+            : `run associado inativo ou finalizado`;
+
+          db.prepare('DELETE FROM execution_reservations WHERE scope=?').run(scope);
+
           try {
             ObservabilityService.emit({
-              level: 'INFO',
-              event: 'reservation.acquired',
-              message: `Reserva de execução adquirida para escopo "${scope}" após recuperação de reserva órfã (${reason})`,
+              level: 'WARN',
+              event: 'reservation.orphaned_cleared',
+              message: `Reserva órfã (${reason}) limpa automaticamente para escopo "${scope}"`,
               service: 'coordinator',
               runId: context?.runId,
               taskId: context?.taskId,
               projectId: context?.projectId,
-              metadata: { scope, token, ownerPid: process.pid, context }
+              metadata: { scope, deadPid: owner.owner_pid, reason, priorContext: owner?.context_json }
             });
           } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "executionCoordinator",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:executionCoordinator]", err);
-      }
-    }
-          return token;
+        if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+          (globalThis as any).logger.warn({
+            event: "server.handled_exception",
+            file: "executionCoordinator",
+            error: (err as any)?.message || String(err)
+          });
+        } else {
+          console.warn("[WARN][server:executionCoordinator]", err);
         }
       }
 
-      throw new Error(`EXECUTION_BUSY: operação reservada em ${scope}; reconciliar antes de repetir (${owner?.context_json}).`);
+          const retryResult = db.prepare('INSERT OR IGNORE INTO execution_reservations (scope,token,owner_pid,context_json,created_at,updated_at) VALUES (?,?,?,?,?,?)')
+            .run(scope, token, process.pid, JSON.stringify(context), now, now);
+          if (retryResult.changes) {
+            if (!inTx) db.exec('COMMIT');
+            try {
+              ObservabilityService.emit({
+                level: 'INFO',
+                event: 'reservation.acquired',
+                message: `Reserva de execução adquirida para escopo "${scope}" após recuperação de reserva órfã (${reason})`,
+                service: 'coordinator',
+                runId: context?.runId,
+                taskId: context?.taskId,
+                projectId: context?.projectId,
+                metadata: { scope, token, ownerPid: process.pid, context }
+              });
+            } catch (err) {
+        if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+          (globalThis as any).logger.warn({
+            event: "server.handled_exception",
+            file: "executionCoordinator",
+            error: (err as any)?.message || String(err)
+          });
+        } else {
+          console.warn("[WARN][server:executionCoordinator]", err);
+        }
+      }
+            return token;
+          }
+        }
+
+        if (!inTx) db.exec('ROLLBACK');
+        throw new Error(`EXECUTION_BUSY: operação reservada em ${scope}; reconciliar antes de repetir (${owner?.context_json}).`);
+      }
+
+      if (!inTx) db.exec('COMMIT');
+    } catch (err) {
+      if (!inTx) {
+        try { db.exec('ROLLBACK'); } catch {}
+      }
+      throw err;
     }
 
     try {

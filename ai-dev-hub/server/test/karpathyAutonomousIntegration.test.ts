@@ -233,4 +233,143 @@ test('Karpathy + Autonomous Runner Integrated Pipeline Suite', async (t) => {
     assert.equal(checkComplete.isComplete, true);
     assert.equal(checkComplete.missingAspects.length, 0);
   });
+
+  await t.test('5. WorkerExecutionContract enriquece contrato com taskScaffold e testSkeleton inicial', async () => {
+    const { HierarchicalOrchestrationService } = await import('../src/hierarchicalOrchestrationService.js');
+
+    // 1. Backend / Rota task
+    const routeContract = HierarchicalOrchestrationService.generateTaskScaffoldAndTestSkeleton({
+      title: 'Implementar rotas de transações financeiras',
+      description: 'Criar endpoints REST para transações',
+      allowedScope: ['src/routes/transactions.ts', 'test/transactions.test.ts'],
+      criteria: ['GET /api/transactions retorna 200 e lista', 'POST /api/transactions valida payload']
+    });
+    assert.equal(routeContract.taskScaffold.deliveryType, 'backend_route');
+    assert.ok(routeContract.taskScaffold.targetSignatures.includes('GET  /api/transactions'));
+    assert.ok(routeContract.taskScaffold.targetSignatures.includes('POST /api/transactions'));
+    assert.ok(routeContract.taskScaffold.targetSignatures.includes('400 Bad Request'));
+    assert.ok(routeContract.testSkeleton.includes("import test from 'node:test'"));
+    assert.ok(routeContract.testSkeleton.includes('GET /api/transactions'));
+
+    // 2. Database / Persistência task
+    const dbContract = HierarchicalOrchestrationService.generateTaskScaffoldAndTestSkeleton({
+      title: 'Criar tabela e repositório de contas',
+      description: 'Persistir contas no banco SQLite',
+      allowedScope: ['src/db/accounts.ts', 'test/accounts.test.ts'],
+      criteria: ['Tabela accounts criada com chaves e timestamps', 'seedIfEmpty popula contas padrão']
+    });
+    assert.equal(dbContract.taskScaffold.deliveryType, 'database_persistence');
+    assert.ok(dbContract.taskScaffold.targetSignatures.includes('PRAGMA journal_mode = WAL'));
+    assert.ok(dbContract.taskScaffold.targetSignatures.includes('CREATE TABLE IF NOT EXISTS'));
+    assert.ok(dbContract.taskScaffold.targetSignatures.includes('seedIfEmpty()'));
+    assert.ok(dbContract.testSkeleton.includes("import assert from 'node:assert/strict'"));
+
+    // 3. Frontend / UI task
+    const uiContract = HierarchicalOrchestrationService.generateTaskScaffoldAndTestSkeleton({
+      title: 'Desenvolver Dashboard de Métricas e Gráficos',
+      description: 'Interface web com navegação e cards',
+      allowedScope: ['public/index.html', 'public/app.js', 'test/ui.test.ts'],
+      criteria: ['Aba de métricas com navegação funcional', 'Sanitização contra XSS']
+    });
+    assert.equal(uiContract.taskScaffold.deliveryType, 'frontend_ui');
+    assert.ok(uiContract.taskScaffold.targetSignatures.includes('role="tab"'));
+    assert.ok(uiContract.taskScaffold.targetSignatures.includes('data-tab='));
+    assert.ok(uiContract.taskScaffold.targetSignatures.includes('escapeHtml'));
+    assert.ok(uiContract.testSkeleton.includes('Dashboard de Métricas e Gráficos'));
+
+    // 4. Integração real via buildWorkerExecutionContract na tarefa do banco
+    const taskRecord: any = db.prepare('SELECT id FROM autonomous_tasks WHERE project_id = ? LIMIT 1').get(projId);
+    assert.ok(taskRecord);
+    const workerContract = HierarchicalOrchestrationService.buildWorkerExecutionContract(taskRecord.id);
+    assert.ok(workerContract.taskScaffold);
+    assert.ok(workerContract.testSkeleton);
+    assert.ok(workerContract.taskScaffold.targetSignatures.length > 0);
+    assert.ok(workerContract.testSkeleton.includes('import test from'));
+  });
+
+  await t.test('6. Bloqueio de Conclusão sem Evidência Factual & Diretrizes Cirúrgicas TDD', async () => {
+    const { PromptArchitectureService } = await import('../src/promptArchitectureService.js');
+    const { getGlobalAgentGuidelines } = await import('../src/agentGuidelines.ts');
+
+    // 6.1 Validação das diretrizes no prompt do Worker e agentGuidelines
+    const guidelines = getGlobalAgentGuidelines();
+    assert.ok(guidelines.includes('PASSO 1 (RED)'));
+    assert.ok(guidelines.includes('PASSO 2 (GREEN)'));
+    assert.ok(guidelines.includes('PASSO 3'));
+    assert.ok(guidelines.includes('SURGICAL BOUNDARY'));
+    assert.ok(guidelines.includes('src/types/'));
+    assert.ok(guidelines.includes('src/db/'));
+    assert.ok(guidelines.includes('node:crypto.randomUUID()'));
+    assert.ok(guidelines.includes('ANTI-BLOWUP'));
+    assert.ok(guidelines.includes('PORT LEAK GUARD'));
+
+    const workerPrompt = PromptArchitectureService.buildWorkerPrompt({
+      mode: 'IMPLEMENT',
+      projectId: projId,
+      projectName: 'Projeto Integrado Karpathy',
+      projectPath: tmpRoot,
+      projectObjective: 'Aplicativo demonstrador do fluxo autônomo com Karpathy',
+      taskId: 'task-tdd-1',
+      taskTitle: 'Implementar cálculo cirúrgico',
+      acceptanceCriteria: ['Soma de valores com tipagem limpa'],
+      verificationCommand: 'npm test',
+      expectedScopeFiles: ['src/calc.ts']
+    });
+
+    assert.ok(workerPrompt.prompt.includes('PASSO 1 (RED)'));
+    assert.ok(workerPrompt.prompt.includes('PASSO 2 (GREEN)'));
+    assert.ok(workerPrompt.prompt.includes('PASSO 3'));
+    assert.ok(workerPrompt.prompt.includes('SURGICAL BOUNDARY'));
+    assert.ok(workerPrompt.prompt.includes('ZERO GUESSWORK'));
+    assert.ok(workerPrompt.prompt.includes('ANTI-BLOWUP'));
+    assert.ok(workerPrompt.prompt.includes('PORT LEAK GUARD'));
+    assert.ok(workerPrompt.prompt.includes('node:crypto.randomUUID()'));
+
+    // 6.2 Validação Factual: Rejeição sumária quando status='success' sem comando no terminal
+    const unverifiedReport = {
+      status: 'success' as const,
+      commandsExecuted: [],
+      testsRun: '',
+      tests: { ran: false },
+      filesChanged: ['src/calc.ts']
+    };
+    const resUnverified = AutonomousRunnerService.validateWorkerFactualEvidence(unverifiedReport);
+    assert.equal(resUnverified.valid, false);
+    assert.ok(resUnverified.reason?.includes('evidência de execução real de verificação em terminal com exit code 0'));
+
+    // 6.3 Validação Factual: Rejeição sumária quando comando falha (exit code != 0)
+    const failedCmdReport = {
+      status: 'success' as const,
+      commandsExecuted: ['npm test'],
+      testsRun: 'npm test',
+      tests: { ran: true, passed: false, exitCode: 1 },
+      evaluation: { taskIsDone: true, exitCode: 1, executedCommands: ['npm test'] }
+    };
+    const resFailedCmd = AutonomousRunnerService.validateWorkerFactualEvidence(failedCmdReport);
+    assert.equal(resFailedCmd.valid, false);
+
+    // 6.4 Validação Factual: Rejeição sumária quando Auto-Validação Pré-Handover detecta erro de compilação
+    const compilationErrReport = {
+      status: 'success' as const,
+      commandsExecuted: ['npm test'],
+      testsRun: 'npm test',
+      tests: { ran: true, passed: true, exitCode: 0 },
+      evaluation: { taskIsDone: true, exitCode: 0, executedCommands: ['npm test'] },
+      knownProblems: ['[COMPILATION_ERROR_PRE_HANDOVER] src/calc.ts:10 - Type error: missing return type']
+    };
+    const resCompErr = AutonomousRunnerService.validateWorkerFactualEvidence(compilationErrReport);
+    assert.equal(resCompErr.valid, false);
+    assert.ok(resCompErr.reason?.includes('Auto-Validação Pré-Handover falhou'));
+
+    // 6.5 Validação Factual: Sucesso aceito quando há comando com exit code 0 e sem erros de compilação
+    const verifiedReport = {
+      status: 'success' as const,
+      commandsExecuted: ['npm test'],
+      testsRun: 'npm test',
+      tests: { ran: true, passed: true, exitCode: 0 },
+      evaluation: { taskIsDone: true, exitCode: 0, executedCommands: ['npm test'] }
+    };
+    const resVerified = AutonomousRunnerService.validateWorkerFactualEvidence(verifiedReport);
+    assert.equal(resVerified.valid, true);
+  });
 });

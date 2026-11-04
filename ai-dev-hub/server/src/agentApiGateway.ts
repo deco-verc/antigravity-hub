@@ -30,6 +30,8 @@ export interface AgentApiMockProvider {
     prompt: string;
     projectId?: string | null;
     role?: string | null;
+    cwd?: string;
+    env?: NodeJS.ProcessEnv;
   }): string | Promise<string>;
   sendMessage(options: {
     conversationId: string;
@@ -474,7 +476,9 @@ export class AgentApiGateway {
         title: options.title,
         prompt: options.prompt,
         projectId,
-        role
+        role,
+        cwd: options.cwd,
+        env: options.env
       });
 
       SessionCircuitBreaker.logTelemetry({
@@ -605,7 +609,30 @@ export class AgentApiGateway {
     }
 
     // 5. Execute physical agentapi new-conversation
-    const resolvedCwd = options.cwd || this.resolveProjectPath(projectId);
+    let resolvedCwd = options.cwd || this.resolveProjectPath(projectId);
+    let nativeProjectId: string | null = options.env?.ANTIGRAVITY_PROJECT_ID || options.env?.PROJECT_ID || null;
+
+    if (projectId) {
+      try {
+        const projectRow = db
+          .prepare('SELECT id, path, name, active_account_profile_id FROM projects WHERE id = ?')
+          .get(projectId) as any;
+        if (projectRow) {
+          if (projectRow.path) {
+            resolvedCwd = path.resolve(projectRow.path);
+          }
+          const accountProfileId = projectRow.active_account_profile_id || 'google_pro_1';
+          const userProfileDir = options.env?.USERPROFILE || process.env.USERPROFILE || os.homedir();
+          const binding = NativeWorkspaceBinding.resolve(projectId, accountProfileId, userProfileDir, true);
+          if (binding?.nativeProjectId) {
+            nativeProjectId = binding.nativeProjectId;
+          }
+        }
+      } catch (bindErr: any) {
+        Logger.warn(`[AgentApiGateway] Aviso ao resolver vínculo nativo do workspace para newConversation: ${bindErr.message}`);
+      }
+    }
+
     if (!this.isOfflineMode()) {
       try {
         AntigravityDiscovery.ensureAntigravityRunning(resolvedCwd);
@@ -624,6 +651,11 @@ export class AgentApiGateway {
       cleanEnv.HOME = process.env.USERPROFILE || os.homedir();
       cleanEnv.APPDATA = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
       cleanEnv.LOCALAPPDATA = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+    }
+
+    if (nativeProjectId) {
+      cleanEnv.ANTIGRAVITY_PROJECT_ID = nativeProjectId;
+      cleanEnv.PROJECT_ID = nativeProjectId;
     }
     const cliModelFlag = this.normalizeCliModelFlag(options.model);
     const timeout = Math.min(options.timeoutMs || 15000, 15000);
@@ -653,6 +685,7 @@ export class AgentApiGateway {
         title: options.title,
         isMock: false,
         role,
+        nativeProjectId,
         timeoutMs: timeout
       }
     });
@@ -670,8 +703,11 @@ export class AgentApiGateway {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         const safePrompt = this.clampPromptForCli(options.prompt);
-        // Sintaxe oficial do Antigravity 2.0: agentapi new-conversation [--model=<slug>] <prompt>
+        // Sintaxe oficial do Antigravity 2.0: agentapi new-conversation [--project=<nativeProjectId>] [--model=<slug>] <prompt>
         const cliArgs = ['agentapi', 'new-conversation'];
+        if (nativeProjectId) {
+          cliArgs.push(`--project=${nativeProjectId}`);
+        }
         if (cliModelFlag) {
           cliArgs.push(`--model=${cliModelFlag}`);
         }
@@ -753,6 +789,10 @@ export class AgentApiGateway {
               Logger.info(`[AgentApiGateway] Auto-Failover com sucesso (${classification.kind}) para conta "${failover.activeProfile.display_name}". Retentando com nova conta...`);
               const newEnv = apm.getExecutionEnvForProfile(failover.activeProfile, projectId);
               cleanEnv = this.sanitizeEnv(newEnv);
+              if (nativeProjectId) {
+                cleanEnv.ANTIGRAVITY_PROJECT_ID = nativeProjectId;
+                cleanEnv.PROJECT_ID = nativeProjectId;
+              }
               continue;
             }
           } catch (failoverErr: any) {

@@ -58,7 +58,7 @@ export class NativeExecutionPolicy {
       this.releaseStaleAmbiguousLocks(projectId, project.path);
       if (db.prepare("SELECT 1 FROM autonomous_runs WHERE project_id=? AND status NOT IN ('completed','failed') LIMIT 1").get(projectId) ||
           db.prepare("SELECT 1 FROM agent_turn_observations WHERE project_path=? AND phase IN ('IN_FLIGHT','UNCERTAIN') LIMIT 1").get(project.path) ||
-          db.prepare("SELECT 1 FROM execution_reservations WHERE scope = ? OR json_extract(context_json, '$.projectId') = ? LIMIT 1").get(projectId, projectId) ||
+          db.prepare("SELECT 1 FROM execution_reservations WHERE scope = ? OR json_extract(context_json, '$.projectId') = ? OR json_extract(context_json, '$.projectId') IS NULL LIMIT 1").get(projectId, projectId) ||
           db.prepare("SELECT 1 FROM agent_creation_reservations WHERE project_id=? AND status<>'CONFIRMED' LIMIT 1").get(projectId)) {
         throw new Error('NATIVE_EXECUTION_POLICY_ACTIVE_OR_AMBIGUOUS');
       }

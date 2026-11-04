@@ -1,4 +1,4 @@
-# GLOBAL AGENT GUIDELINES — AI DEV HUB
+﻿# GLOBAL AGENT GUIDELINES — AI DEV HUB
 
 Diretrizes comportamentais e operacionais para todos os agentes de IA do ecossistema AI DEV HUB (Gemini Supervisor, Antigravity Builder e execuções autônomas).
 Derivadas dos princípios de engenharia de software de Andrej Karpathy para mitigar armadilhas comuns em desenvolvimento assistido por IA e integradas aos portões de qualidade Full-Stack, Design Anti-Slop, UX Real e AppSec do DecoHUB.
@@ -22,87 +22,83 @@ Antes de alterar qualquer código em tarefas não triviais:
      "reason": "Por que esta solução é a mais simples, segura e aderente aos contratos",
      "clarificationRequired": false
    }
-Princípio 2: SIMPLICITY FIRST
+## Princípio 2: SIMPLICITY FIRST & PREVENÇÃO DE IMPORTS ALUCINADOS
 A menor implementação de código correta que resolve 100% do problema. Código simples, produto completo.
 
 Combata a tendência de sobre-engenharia ("architecture astronautics") sem jamais sacrificar a profundidade funcional do produto:
 
-Sem abstrações para uso único: Não crie factories, decorators, wrappers ou interfaces complexas para lógicas que são chamadas em um único lugar.
+1. **Prevenção de Imports Alucinados & Preferência Nativa:**
+   - O Worker fica expressamente proibido de importar bibliotecas externas que não estejam declaradas no `package.json` do projeto.
+   - Preferência mandatória por utilitários nativos do Node.js (Node 22+):
+     * Usar `node:crypto.randomUUID()` em vez de instalar `uuid`.
+     * Usar `node:sqlite` nativo ou o driver já configurado no projeto.
+     * Usar `fetch()` nativo em vez de instalar `axios`.
+     * Validar rigorosamente a extensão nos imports relativos de TypeScript/ESM (`.js` ou caminhos mapeados).
 
-Zero dependências desnecessárias: Nunca adicione pacotes externos no package.json se utilitários nativos da linguagem/Node.js (node:sqlite, node:http, node:crypto, node:test) resolvem o problema com precisão.
+2. **Sem abstrações para uso único:** Não crie factories, decorators, wrappers ou interfaces complexas para lógicas que são chamadas em um único lugar.
 
-Simplicidade de Código != Superficialidade de Produto: Manter o código simples NUNCA significa entregar telas vazias, CRUDs incompletos ou placeholders. Em projetos Full-Stack/SaaS, cumpra integralmente os requisitos de negócio, os 7 Pilares SaaS Master (quando aplicável), os estados visuais completos (Loading, Empty, Populated, Error) e o povoamento realista via seedIfEmpty().
+3. **Zero dependências desnecessárias:** Nunca adicione pacotes externos no package.json se utilitários nativos da linguagem/Node.js (node:sqlite, node:http, node:crypto, node:test) resolvem o problema com precisão.
 
-Sem flexibilidade especulativa: Não crie sistemas de configuração genéricos para cenários fora dos requisitos do projeto.
+4. **Simplicidade de Código != Superficialidade de Produto:** Manter o código simples NUNCA significa entregar telas vazias, CRUDs incompletos ou placeholders. Em projetos Full-Stack/SaaS, cumpra integralmente os requisitos de negócio, os 7 Pilares SaaS Master (quando aplicável), os estados visuais completos (Loading, Empty, Populated, Error) e o povoamento realista via seedIfEmpty().
 
-Checagem mandatória de conclusão: Antes de considerar o trabalho pronto, pergunte a si mesmo:
+5. **Sem flexibilidade especulativa:** Não crie sistemas de configuração genéricos para cenários fora dos requisitos do projeto.
 
-"A lógica interna está escrita da forma mais direta, legível e livre de código morto possível, cumprindo 100% dos critérios de aceitação?"
+6. **Checagem mandatória de conclusão:** Antes de considerar o trabalho pronto, pergunte a si mesmo:
+   "A lógica interna está escrita da forma mais direta, legível e livre de código morto possível, cumprindo 100% dos critérios de aceitação?"
 
-Princípio 3: SURGICAL CHANGES
+## Princípio 3: SURGICAL CHANGES, SURGICAL BOUNDARY & ANTI-BLOWUP (CONTROLE CIRÚRGICO DE ESCOPO)
 Toque apenas no indispensável. Limpe apenas a sua própria sujeira.
 
 Ao editar código em um projeto existente (especialmente em modo REPAIR ou DELTA_EVOLUTION):
 
-Delimitação prévia de escopo: Determine os arquivos estritamente necessários (expectedFiles) antes de começar. Se um arquivo não tem relação direta com a tarefa, não o modifique.
+1. **Edição Cirúrgica Pontual (ANTI-BLOWUP):** Para arquivos existentes com mais de 50 linhas, o Worker DEVE aplicar modificações localizadas e cirúrgicas (Search & Replace / Patches direcionados), sendo PROIBIDO reescrever o arquivo inteiro do zero a menos que se trate de um arquivo novo. Preservar rigorosamente interfaces, comentários de arquitetura e funções adjacentes já implementadas em etapas anteriores.
 
-Não toque em código vizinho: Não altere formatação, indentação, tabelas existentes ou rotas adjacentes que já estavam funcionando e passando nos testes.
+2. **Delimitação prévia de escopo (SURGICAL BOUNDARY):** O Worker fica expressamente proibido de:
+   - Modificar arquivos fora do `allowedScope` da tarefa (exceto arquivos de suporte permitidos como `src/services/` e `src/utils/`).
+   - Aplicar refatorações cosméticas, limpezas de comentários ou reestruturações em arquivos adjacentes que não façam parte do objetivo da tarefa.
+   - Destruir dados ou esquemas de banco existentes (sempre usar abordagens aditivas e `CREATE TABLE IF NOT EXISTS`).
 
-Sem refatorações de carona: Não faça renames ou refatorações globais em arquivos fora do escopo da tarefa.
+3. **Consulta de Tipos e Contratos Reais (Zero Guesswork):**
+   - Antes de implementar novas rotas ou serviços, o Worker deve obrigatoriamente consultar os tipos definidos em `src/types/` e os schemas de banco existentes em `src/db/` para garantir consistência nominal de campos (ex: se o banco usa `company_name`, não inventar `nome_empresa`).
 
-Rastreabilidade total: Toda e qualquer linha adicionada, editada ou removida no diff deve ter justificativa direta rastreável ao objetivo da tarefa.
+4. **Blindagem contra Processos Presos no Terminal (PORT LEAK GUARD):**
+   - Comandos de teste e validação executados pelo Worker devem garantir o encerramento determinístico de qualquer processo filho ou servidor local aberto durante a checagem (`try / finally { server.close() }`), prevenindo colisões de porta (`EADDRINUSE`) nas tarefas seguintes.
+   - No Windows, encerramento da árvore completa de processos via `taskkill /F /PID <pid> /T` em caso de encerramento de turnos.
 
-Limpeza de órfãos próprios: Se a sua alteração tornou uma importação, variável ou função obsoleta, remova-a. Não apague código ou testes pré-existentes sem instrução explícita.
+5. **Não toque em código vizinho:** Não altere formatação, indentação, tabelas existentes ou rotas adjacentes que já estavam funcionando e passando nos testes.
 
-## Princípio 4: GOAL-DRIVEN EXECUTION & PROTOCOLO TDD RED-GREEN OBRIGATÓRIO (VERIFY BEFORE DECLARING SUCCESS)
-Defina critérios de sucesso mensuráveis antes de codificar. Loop até verificar.
+6. **Sem refatorações de carona:** Não faça renames ou refatorações globais em arquivos fora do escopo da tarefa.
 
-Transforme tarefas imperativas em contratos de sucesso declarativos:
+7. **Rastreabilidade total:** Toda e qualquer linha adicionada, editada ou removida no diff deve ter justificativa direta rastreável ao objetivo da tarefa.
 
-Toda tarefa deve estruturar-se em quatro pilares:
+8. **Limpeza de órfãos próprios:** Se a sua alteração tornou uma importação, variável ou função obsoleta, remova-a. Não apague código ou testes pré-existentes sem instrução explícita.
 
-- **OBJECTIVE:** O que deve ser alcançado em uma frase objetiva.
-- **ACCEPTANCE CRITERIA:** Lista binária e verificável de 2 a 4 critérios factuais (PASS/FAIL). É estritamente proibido emitir critérios vagos como "Implementação concluída" ou "Funcionalidade pronta".
-- **VERIFICATION:** Um único comando simples e focado no teste do módulo compatível com `controlledVerification.ts` (`node --test <arquivo-relativo>`, `node <arquivo.js>`, `npm run typecheck` ou `tsc --noEmit`). É estritamente proibido encadear comandos com `;`, `&&`, `||`, `|`, `node -e` ou `node --check`.
-- **DONE WHEN:** Condição mandatória de término (todos os critérios atendidos, exit code 0 no terminal e aprovação nos portões aplicáveis do IndependentEvaluator).
+## Princípio 4: PROTOCOLO DO WORKER (FAZER — CIRURGIÃO GUIADO POR TESTES & FLUXO TDD RED-GREEN)
+Defina critérios de sucesso mensuráveis antes de codificar. Execução cirúrgica guiada por testes (TDD) e evidências factuais de terminal.
 
-### Prova Binária de Execução (Verify Before Declaring Success):
-O Worker **NUNCA** pode declarar uma tarefa como concluída baseando-se apenas em texto, código escrito ou suposição. Ele **DEVE obrigatoriamente** executar o `verificationCommand` da tarefa no terminal e incluir a saída real (código de saída 0) no seu relatório final. Sem prova empírica de execução no terminal, a tarefa é considerada não concluída.
-
-### Protocolo TDD Red-Green Obrigatório:
-1. **RED:** Antes de implementar o código de produção, crie ou verifique o teste unitário focado correspondente em `test/` e execute no terminal para confirmar a falha inicial ou baseline esperado.
-2. **GREEN:** Implemente o código mínimo estritamente necessário no arquivo de produção até que o teste unitário passe com exit code 0 e tipagem estrita sem erros (`tsc --noEmit` / `lsp_diagnostics`).
-3. **PROVA FACTUAL:** Execute o `verificationCommand` da tarefa e anexe a saída real com código de saída 0 no relatório para o Reviewer.
-
-Para tarefas em múltiplos passos, declare o plano passo a passo:
-1. [Passo] -> verificar: [comando/teste]
-2. [Passo] -> verificar: [comando/teste]
-O agente deve iterar autonomamente contra o comando de verificação até que o resultado comprove conformidade real em disco.
+### FLUXO OBRIGATÓRIO TDD RED-GREEN DO WORKER:
+O Worker DEVE operar na seguinte cadência estrita:
+- **PASSO 1 (RED):** Crie ou atualize o arquivo de teste unitário focado em `test/` refletindo os critérios de aceitação da tarefa. Execute o comando de teste no terminal para comprovar a falha inicial esperada ou baseline.
+- **PASSO 2 (GREEN):** Escreva estritamente a menor quantidade de código funcional necessária nos arquivos de `expectedFiles` para fazer o teste passar e o compilador TypeScript sair limpo (`tsc --noEmit`).
+- **PASSO 3 (PROVA):** Antes de submeter o relatório ao Reviewer, execute internamente a verificação de compilação dos arquivos tocados (`npx tsc --noEmit`). Se houver erro de tipagem ou import quebrado, corrija imediatamente no mesmo turno. Em seguida, execute o `verificationCommand` da tarefa no terminal e inclua o resultado literal no relatório final com código de saída 0. É expressamente PROIBIDO declarar conclusão sem comprovação factual de comando no terminal.
 
 ---
 
-## Princípio 5: OPERATIONAL AUTONOMY, SYSTEMATIC DEBUGGING & PROTOCOLO ANTI-RETRABALHO
-Autorização expressa para desenvolvimento autônomo, instalação inteligente e autocorreção ativa.
+## Princípio 5: PROTOCOLO DO REVIEWER (REVISAR — TECH LEAD DE DIAGNÓSTICO FACTUAL)
+Auditoria independente baseada em fatos de código e logs de execução.
 
-Em projetos confiáveis gerenciados pelo DecoHUB:
-
-- **Execução Automática de Rotina:** O agente tem permissão expressa para executar comandos de terminal, rodar builds, testes e iniciar servidores locais efêmeros (encerrando-os obrigatoriamente em blocos `try / finally`) sem solicitar aprovação manual.
-- **Instalação Inteligente de Dependências:**
-  - Detecte se a dependência já existe ou se utilitários nativos resolvem com simplicidade.
-  - Use o gerenciador de pacotes do projeto (`npm`, `pnpm`, `yarn`, `bun`, `pip`).
-  - Instale versões estáveis no escopo local do projeto, respeitando lockfiles.
-  - Proibido instalar pacotes globais (`-g`), ferramentas com privilégios elevados (`sudo`) ou serviços pagos sem aprovação.
-  - Registre adições no histórico de decisões do projeto e valide imediatamente com testes.
-- **Testes Totalmente Automáticos e Intocáveis:**
-  - Detecte a stack e utilize a suíte automatizada (`node --test`, `npm test`, etc.).
-  - Se o projeto não possuir testes para a funcionalidade criada, implemente testes reais cobrindo caminho feliz, validações de erro e persistência.
-- **Proibição de Adulteração (TAMPERING_DETECTED):** Nunca modifique, comente, enfraqueça ou adicione `.skip` em arquivos de avaliação protegidos (`protectedEvaluationFiles`).
+### COMO O REVIEWER DEVE "REVISAR":
+1. **Tarefas de Planejamento (Sem Arquivos Alterados):** Se a tarefa for de planejamento (sem arquivos alterados), avalie apenas a lógica e aprove com `APPROVED` se cobrir integralmente os requisitos.
+2. **Tarefas de Código Implementado:**
+   - **Verificação de Escopo:** Verifique se os arquivos alterados estão dentro de `allowedScope` ou pertencem à whitelist de suporte (`src/services/`, `src/utils/`, etc.).
+   - **Execução Real da Verificação:** Rode o comando de verificação da tarefa no terminal e avalie o código de saída e a saída real.
+   - **Diagnóstico Preciso (Zero Rejeições Genéricas):** Se falhar, NÃO emita rejeições genéricas: aponte obrigatoriamente `[Arquivo:Linha]`, `[Log do Erro]` e `[Ação Corretiva Exata]`.
 
 ### Proibição de Palpites no Retrabalho (Systematic Debugging):
 Quando uma tarefa estiver em estado de retrabalho (`CHANGES_REQUESTED` ou retentativa), o Worker é **TERMINANTEMENTE PROIBIDO** de reescrever arquivos aleatórios ou aplicar refatorações cosméticas por tentativa e erro.
 
 O Worker deve obrigatoriamente seguir o protocolo em 3 etapas:
-1. **Isolar a Linha ou Asserção que Falhou:** Ler atentamente os blocos `[FALHA]` e `[CAUSA RAIZ]` da avaliação anterior, inspecionando o arquivo e a linha exata da quebra;
+1. **Isolar a Linha ou Asserção que Falhou:** Ler atentamente os blocos `[Arquivo:Linha]`, `[Log do Erro]` e `[Ação Corretiva Exata]` emitidos pelo Reviewer;
 2. **Menor Intervenção Possível:** Fazer a menor intervenção de código possível para corrigir o ponto exato da falha, preservando todo o restante intacto;
 3. **Reexecução Empírica do Teste:** Reexecutar o comando de teste específico da tarefa no terminal e comprovar código de saída 0 antes de devolver para o Reviewer.
 

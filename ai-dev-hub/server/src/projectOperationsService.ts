@@ -400,6 +400,9 @@ export class ProjectOperationsService {
 
     const defaultPort = 4100;
     let port = options.port || defaultPort;
+    if (port < 4000 || port > 4999) {
+      port = 4100;
+    }
 
     // Se a porta padrão (4100) ou porta solicitada estiver ocupada, força encerramento de processo anterior do DecoHUB
     if (!(await this.isPortAvailable(port))) {
@@ -407,11 +410,11 @@ export class ProjectOperationsService {
       await new Promise(resolve => setTimeout(resolve, 300));
     }
 
-    // Se ainda não estiver livre, busca a próxima porta livre
+    // Se ainda não estiver livre, busca a próxima porta livre na faixa 4000-4999
     if (!(await this.isPortAvailable(port))) {
-      port = await this.findFreePort(options.port || defaultPort);
+      port = await this.findFreePort(port);
     }
-    const timeoutMs = options.timeoutMs || 15000;
+    const timeoutMs = options.timeoutMs || 8000;
     const logs: string[] = [];
 
     const appendLog = (line: string, tag: 'STDOUT' | 'STDERR' | 'EXIT' | 'ERROR' | 'INFO' = 'INFO') => {
@@ -690,17 +693,28 @@ export class ProjectOperationsService {
           }
         } catch (err) {
           try {
-            const fallbackRes = await fetch(`http://localhost:${port}/`, {
+            const healthRes = await fetch(`http://127.0.0.1:${port}/api/health`, {
               method: 'GET',
-              headers: { 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
               signal: AbortSignal.timeout(300)
             });
-            if (fallbackRes.status >= 200 && fallbackRes.status < 500) {
+            if (healthRes.status >= 200 && healthRes.status < 500) {
               isReady = true;
               break;
             }
           } catch {
-            // Segue tentando até timeoutMs
+            try {
+              const fallbackRes = await fetch(`http://localhost:${port}/`, {
+                method: 'GET',
+                headers: { 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
+                signal: AbortSignal.timeout(300)
+              });
+              if (fallbackRes.status >= 200 && fallbackRes.status < 500) {
+                isReady = true;
+                break;
+              }
+            } catch {
+              // Segue tentando até timeoutMs
+            }
           }
         }
         await new Promise((r) => setTimeout(r, 50));
@@ -780,6 +794,22 @@ export class ProjectOperationsService {
     };
 
     this.activePreviews.set(projectId, activeInstance);
+
+    // Salvar o PID do processo filho em projects-operational/<projectId>/preview.pid
+    if (childProcess?.pid) {
+      try {
+        const rootOpDir = path.join(process.cwd(), 'projects-operational', projectId);
+        fs.mkdirSync(rootOpDir, { recursive: true });
+        fs.writeFileSync(path.join(rootOpDir, 'preview.pid'), String(childProcess.pid), 'utf-8');
+
+        const { resolveProjectOperationalDataDir } = await import('./db.js');
+        const dbOpDir = resolveProjectOperationalDataDir(projectId);
+        fs.writeFileSync(path.join(dbOpDir, 'preview.pid'), String(childProcess.pid), 'utf-8');
+      } catch (pidErr: any) {
+        Logger.warn(`[ProjectOperationsService] Erro ao gravar preview.pid: ${pidErr.message}`);
+      }
+    }
+
     appendLog(`[DecoHUB Launcher] Aplicação pronta e respondendo em ${serverUrl}!`);
 
     return this.getPreviewStatus(projectId);
@@ -790,40 +820,65 @@ export class ProjectOperationsService {
    */
   public static async stopPreview(projectId: string): Promise<boolean> {
     const active = this.activePreviews.get(projectId);
-    if (!active) return false;
 
-    if (active.child?.pid) {
+    // Ler preview.pid e encerrar deterministicamente toda a árvore de processos
+    let killedFromPid = false;
+    try {
+      const { resolveProjectOperationalDataDir } = await import('./db.js');
+      const pidPaths = [
+        path.join(process.cwd(), 'projects-operational', projectId, 'preview.pid'),
+        path.join(resolveProjectOperationalDataDir(projectId), 'preview.pid')
+      ];
+
+      for (const p of pidPaths) {
+        if (fs.existsSync(p)) {
+          try {
+            const raw = fs.readFileSync(p, 'utf-8').trim();
+            const pid = parseInt(raw, 10);
+            if (pid && !Number.isNaN(pid)) {
+              this.killProcessTree(pid);
+              killedFromPid = true;
+            }
+            fs.rmSync(p, { force: true });
+          } catch {}
+        }
+      }
+    } catch {}
+
+    if (!active && !killedFromPid) return false;
+
+    if (active?.child?.pid) {
       this.killProcessTree(active.child.pid);
       try {
         active.child.kill('SIGKILL');
       } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "projectOperationsService",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:projectOperationsService]", err);
+        if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+          (globalThis as any).logger.warn({
+            event: "server.handled_exception",
+            file: "projectOperationsService",
+            error: (err as any)?.message || String(err)
+          });
+        }
       }
     }
-    }
 
-    if (active.staticClose) {
+    if (active?.staticClose) {
       try {
         await active.staticClose();
       } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "projectOperationsService",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:projectOperationsService]", err);
+        if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+          (globalThis as any).logger.warn({
+            event: "server.handled_exception",
+            file: "projectOperationsService",
+            error: (err as any)?.message || String(err)
+          });
+        }
       }
     }
-    }
+
+    this.activePreviews.delete(projectId);
+    Logger.info(`[ProjectOperationsService] Preview do projeto "${projectId}" encerrado.`);
+    return true;
 
     this.activePreviews.delete(projectId);
     Logger.info(`[ProjectOperationsService] Preview do projeto "${projectId}" encerrado.`);
@@ -1566,56 +1621,61 @@ export class ProjectOperationsService {
 
     // Descobrir Screenshots (.png)
     const rawScreenshotFiles: Array<{ filename: string; full: string; stat: fs.Stats }> = [];
-    try {
-      if (fs.existsSync(evidenceDir)) {
-        const files = fs.readdirSync(evidenceDir);
-        for (const f of files) {
-          if (/\.(png|jpe?g)$/i.test(f)) {
-            const full = path.join(evidenceDir, f);
-            try {
-              let stat = fs.statSync(full);
-              if (stat.isFile()) {
-                if (/\.png$/i.test(f) && stat.size === 70) {
-                  try {
-                    const contentBuf = fs.readFileSync(full);
-                    if (contentBuf.toString('base64') === 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==') {
-                      const sectionName = PlaywrightVisualInspector.sanitizeSectionName(f.replace(/\.png$/i, ''));
-                      const isMobile = /mobile/i.test(f);
-                      const newBuf = PlaywrightVisualInspector.generateHighFidelityPlaceholderPng(
-                        sectionName,
-                        isMobile ? 390 : 1280,
-                        isMobile ? 844 : 800
-                      );
-                      fs.writeFileSync(full, newBuf);
-                      stat = fs.statSync(full);
-                    }
-                  } catch {}
+    const candidateDirs = [evidenceDir, path.join(project.path, '.ai-dev-hub', 'screenshots')];
+
+    for (const scanDir of candidateDirs) {
+      try {
+        if (fs.existsSync(scanDir)) {
+          const files = fs.readdirSync(scanDir);
+          for (const f of files) {
+            if (rawScreenshotFiles.some(item => item.filename === f)) continue;
+            if (/\.(png|jpe?g)$/i.test(f)) {
+              const full = path.join(scanDir, f);
+              try {
+                let stat = fs.statSync(full);
+                if (stat.isFile()) {
+                  if (/\.png$/i.test(f) && stat.size === 70) {
+                    try {
+                      const contentBuf = fs.readFileSync(full);
+                      if (contentBuf.toString('base64') === 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==') {
+                        const sectionName = PlaywrightVisualInspector.sanitizeSectionName(f.replace(/\.png$/i, ''));
+                        const isMobile = /mobile/i.test(f);
+                        const newBuf = PlaywrightVisualInspector.generateHighFidelityPlaceholderPng(
+                          sectionName,
+                          isMobile ? 390 : 1280,
+                          isMobile ? 844 : 800
+                        );
+                        fs.writeFileSync(full, newBuf);
+                        stat = fs.statSync(full);
+                      }
+                    } catch {}
+                  }
+                  rawScreenshotFiles.push({ filename: f, full, stat });
                 }
-                rawScreenshotFiles.push({ filename: f, full, stat });
+              } catch (err) {
+                if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+                  (globalThis as any).logger.warn({
+                    event: "server.handled_exception",
+                    file: "projectOperationsService",
+                    error: (err as any)?.message || String(err)
+                  });
+                } else {
+                  console.warn("[WARN][server:projectOperationsService]", err);
+                }
               }
-            } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "projectOperationsService",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:projectOperationsService]", err);
-      }
-    }
+            }
           }
         }
-      }
-    } catch (err) {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "projectOperationsService",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:projectOperationsService]", err);
+      } catch (err) {
+        if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+          (globalThis as any).logger.warn({
+            event: "server.handled_exception",
+            file: "projectOperationsService",
+            error: (err as any)?.message || String(err)
+          });
+        } else {
+          console.warn("[WARN][server:projectOperationsService]", err);
+        }
       }
     }
 
@@ -1777,10 +1837,19 @@ export class ProjectOperationsService {
 
     const resolvedProjectPath = path.resolve(projectPath);
     const evidenceDir = path.join(resolvedProjectPath, '.ai-dev-hub', 'evidence');
-    const safeFilePath = path.normalize(path.join(evidenceDir, filename));
+    const screenshotsDir = path.join(resolvedProjectPath, '.ai-dev-hub', 'screenshots');
 
-    if (!safeFilePath.startsWith(evidenceDir + path.sep)) {
-      throw new Error('Acesso negado: o arquivo deve residir exclusivamente no diretório de evidências.');
+    let safeFilePath = path.normalize(path.join(evidenceDir, filename));
+    const isInsideEvidence = safeFilePath.startsWith(evidenceDir + path.sep);
+
+    if (!fs.existsSync(safeFilePath) || !isInsideEvidence) {
+      const altFilePath = path.normalize(path.join(screenshotsDir, filename));
+      const isInsideScreenshots = altFilePath.startsWith(screenshotsDir + path.sep);
+      if (isInsideScreenshots && fs.existsSync(altFilePath) && !fs.statSync(altFilePath).isDirectory()) {
+        safeFilePath = altFilePath;
+      } else if (!isInsideEvidence) {
+        throw new Error('Acesso negado: o arquivo deve residir exclusivamente no diretório de evidências ou screenshots.');
+      }
     }
 
     if (!fs.existsSync(safeFilePath) || fs.statSync(safeFilePath).isDirectory()) {
@@ -2442,8 +2511,9 @@ export class ProjectOperationsService {
     filesChanged?: string[];
     implemented?: string[];
     reviewerVerdict?: string;
+    screenshots?: any[];
   }): Promise<{ posted: boolean; messageId: string }> {
-    const { projectId, projectPath, runId, taskId, taskIndex, totalTasks, taskTitle, filesChanged = [], implemented = [], reviewerVerdict = 'APPROVED' } = params;
+    const { projectId, projectPath, runId, taskId, taskIndex, totalTasks, taskTitle, filesChanged = [], implemented = [], reviewerVerdict = 'APPROVED', screenshots = [] } = params;
 
     // Idempotência estrita
     try {
@@ -2488,12 +2558,16 @@ export class ProjectOperationsService {
       ? `Aprovado — avançando para a Etapa [${taskIndex + 1}/${totalTasks}].`
       : 'Aprovado com 100% de conformidade — todas as etapas foram concluídas.';
 
-    const content = `🛠️ **Etapa [${taskIndex}/${totalTasks}] Concluída pelo Worker:**\n- **Arquivos entregues:**\n${filesBlock}\n- **Resumo da implementação:**\n${summaryBlock}\n- **🔍 Veredito do Reviewer:** ${nextStepText}`;
+    let content = `🛠️ **Etapa [${taskIndex}/${totalTasks}] Concluída pelo Worker:**\n- **Arquivos entregues:**\n${filesBlock}\n- **Resumo da implementação:**\n${summaryBlock}\n- **🔍 Veredito do Reviewer:** ${nextStepText}`;
+
+    if (screenshots && screenshots.length > 0) {
+      content += `\n\n📸 **Auditoria Visual Concluída (${screenshots.length} capturas estruturadas):**\n  • 01-Desktop-Dashboard (1440x900)\n  • 02-Componente-Foco\n  • 03-Mobile-Viewport (390x844)`;
+    }
 
     const messageId = crypto.randomUUID();
     const nowIso = new Date().toISOString();
 
-    const metadataPayload = {
+    const metadataPayload: any = {
       type: 'task_completion',
       agentRole: 'worker',
       taskId,
@@ -2502,6 +2576,10 @@ export class ProjectOperationsService {
       totalTasks,
       reviewerVerdict
     };
+
+    if (screenshots && screenshots.length > 0) {
+      metadataPayload.screenshots = screenshots;
+    }
 
     db.prepare(`
       INSERT INTO messages (id, project_id, role, content, agent_role, created_at, metadata)

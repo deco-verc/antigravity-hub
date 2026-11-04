@@ -2539,11 +2539,12 @@ export class AccountProfileManager {
         try {
           db.prepare(`
             UPDATE autonomous_runs
-            SET last_error = NULL,
+            SET status = 'running',
+                last_error = NULL,
                 next_action = ?,
                 updated_at = ?
-            WHERE id = ?
-          `).run(`Failover automático executado: alternado para "${switchRes.activeProfile.display_name}".`, nowIso, params.runId);
+            WHERE id = ? AND status != 'completed' AND status != 'cancelled'
+          `).run(`Failover automático executado: alternado para "${switchRes.activeProfile.display_name}". Retomando execução.`, nowIso, params.runId);
         } catch (err) {
       if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
         (globalThis as any).logger.warn({
@@ -2664,6 +2665,17 @@ export class AccountProfileManager {
       }
 
       if (params.runId) {
+        try {
+          db.prepare(`
+            UPDATE autonomous_runs
+            SET status = 'running',
+                last_error = NULL,
+                next_action = ?,
+                updated_at = ?
+            WHERE id = ? AND status != 'completed' AND status != 'cancelled'
+          `).run(`Failover automático executado: alternado para "${switchRes.activeProfile.display_name}". Retomando execução.`, nowIso, params.runId);
+        } catch {}
+
         try {
           const { AutonomousManager } = await import('./autonomousManager.js');
           AutonomousManager.logEvent(

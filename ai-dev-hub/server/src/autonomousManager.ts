@@ -315,6 +315,15 @@ export class AutonomousManager {
         plannedTasks = config.plannedTasks as any;
       }
 
+      // Prioridade 0: Extração imediata de Grandes Tarefas (GTs) explícitas no briefing
+      if (!plannedTasks && briefing) {
+        const { HierarchicalOrchestrationService } = await import('./hierarchicalOrchestrationService.js');
+        const explicitGts = HierarchicalOrchestrationService.extractExplicitGrandesTarefasFromBriefing(briefing, project.name);
+        if (explicitGts && explicitGts.length > 0) {
+          plannedTasks = explicitGts as any;
+        }
+      }
+
       const isSupervisorMocked = !plannedTasks && typeof GeminiSupervisorProvider.prototype.planTasks === 'function' &&
         GeminiSupervisorProvider.prototype.planTasks !== defaultSupervisorPlanTasks;
 
@@ -363,6 +372,7 @@ export class AutonomousManager {
       }
 
       // AI DEV COUNCIL: Plan Architecture Critique Gate
+      let activePlanDeliberation: any = null;
       if (plannedTasks && plannedTasks.length > 0) {
         const { CouncilManager } = await import('./councilManager.js');
         try {
@@ -370,16 +380,27 @@ export class AutonomousManager {
             taskId: `plan-${runId.slice(0, 8)}`,
             projectId: project.id,
             runId,
+            phase: 'PLANNING',
             task: {
               title: `Plano Arquitetural Inicial: ${config.name}`,
               description: briefing,
+              briefing,
+              objective: objective || project.objective,
+              phase: 'PLANNING',
+              isPlanReview: true,
               plannedTasks
             },
+            diff: '',
+            filesChanged: [],
             riskLevel: 'high',
             policyTrigger: 'PLAN_ARCHITECTURE_CRITIQUE'
           });
 
-          let activePlanDeliberation = planDeliberation;
+          activePlanDeliberation = planDeliberation;
+          try {
+            db.prepare('UPDATE autonomous_runs SET plan_deliberation_id = ? WHERE id = ?')
+              .run(planDeliberation.id, runId);
+          } catch {}
 
           if (planDeliberation.chairmanVerdict === 'CHANGES_REQUESTED' && planDeliberation.actionItems.length > 0) {
             Logger.info(`[AutonomousManager] Refinando plano conforme crítica do Conselho...`);
@@ -397,15 +418,25 @@ export class AutonomousManager {
               } as any);
               if (refinedTasks && refinedTasks.length > 0) {
                 plannedTasks = refinedTasks as any;
+                // Limpar tarefas anteriores órfãs para garantir que apenas o plano refinado/aprovado seja persistido
+                db.prepare('DELETE FROM autonomous_tasks WHERE run_id = ?').run(runId);
+
                 const reDeliberation = await CouncilManager.deliberate({
                   taskId: `plan-${runId.slice(0, 8)}`,
                   projectId: project.id,
                   runId,
+                  phase: 'PLANNING',
                   task: {
                     title: `Plano Arquitetural Refinado: ${config.name}`,
                     description: briefing,
-                    plannedTasks
+                    briefing,
+                    objective: objective || project.objective,
+                    phase: 'PLANNING',
+                    isPlanReview: true,
+                    plannedTasks: refinedTasks
                   },
+                  diff: '',
+                  filesChanged: [],
                   riskLevel: 'high',
                   policyTrigger: 'PLAN_ARCHITECTURE_CRITIQUE'
                 });
@@ -431,31 +462,47 @@ export class AutonomousManager {
               Logger.warn(`[AutonomousManager] Falha ao refinar plano: ${replanErr.message}`);
             }
           }
-
-          if (activePlanDeliberation.chairmanVerdict === 'BLOCKED' || activePlanDeliberation.chairmanVerdict === 'CHANGES_REQUESTED') {
-            Logger.warn(`[AutonomousManager] Plano reprovado pelo Conselho (${activePlanDeliberation.chairmanVerdict}). Impedindo despacho ao Worker.`);
-            db.prepare(`
-              UPDATE autonomous_runs
-              SET status = 'waiting_approval', next_action = 'Plano reprovado pelo Conselho (${activePlanDeliberation.chairmanVerdict}). Aguardando aprovação na Inbox.', updated_at = ?
-              WHERE id = ?
-            `).run(new Date().toISOString(), runId);
-            this.logEvent(
-              runId,
-              null,
-              'system',
-              'PLAN_EXECUTION_BLOCKED',
-              `Execução impedida pelo Conselho: ${activePlanDeliberation.chairmanSynthesis || 'Plano requer ajustes'}`,
-              { deliberationId: activePlanDeliberation.id, verdict: activePlanDeliberation.chairmanVerdict }
-            );
-            return this.getRun(runId);
-          }
         } catch (councilErr: any) {
           Logger.warn(`[AutonomousManager] Conselho não concluiu crítica do plano: ${councilErr.message}`);
         }
       }
 
       if (plannedTasks && plannedTasks.length > 0) {
+        // Expurgar qualquer resquício de tarefas anteriores órfãs antes de persistir o plano final
+        db.prepare('DELETE FROM autonomous_tasks WHERE run_id = ?').run(runId);
+        // Persistir exclusivamente as tarefas do plano refinado/aprovado na tabela autonomous_tasks
         await this.persistPlannedTasks(runId, plannedTasks, project, briefing, config);
+
+        if (activePlanDeliberation && (activePlanDeliberation.chairmanVerdict === 'BLOCKED' || activePlanDeliberation.chairmanVerdict === 'CHANGES_REQUESTED')) {
+          Logger.warn(`[AutonomousManager] Plano proposto com ressalvas do Conselho (${activePlanDeliberation.chairmanVerdict}). Tarefas persistidas; aguardando aprovação na Inbox.`);
+          db.prepare(`
+            UPDATE autonomous_runs
+            SET status = 'waiting_approval', next_action = 'Plano gerado com ressalvas do Conselho (${activePlanDeliberation.chairmanVerdict}). Proposta de tarefas pronta para revisão na Inbox.', updated_at = ?
+            WHERE id = ?
+          `).run(new Date().toISOString(), runId);
+
+          this.logEvent(
+            runId,
+            null,
+            'system',
+            'PLAN_AWAITING_REVIEW',
+            `Plano proposto com ${plannedTasks.length} tarefas salvo para revisão na Inbox. Parecer do Conselho: ${activePlanDeliberation.chairmanSynthesis || activePlanDeliberation.chairmanVerdict}`,
+            { deliberationId: activePlanDeliberation.id, verdict: activePlanDeliberation.chairmanVerdict, taskCount: plannedTasks.length }
+          );
+
+          ObservabilityService.emit({
+            level: 'INFO',
+            event: 'run.tasks_planned_for_review',
+            message: `Tarefas planejadas salvas para revisão na Inbox para run ${runId.slice(0, 8)} (${plannedTasks.length} tarefas)`,
+            service: 'manager',
+            runId,
+            projectId: project.id,
+            status: 'waiting_approval'
+          });
+
+          return this.getRun(runId);
+        }
+
         db.prepare("UPDATE autonomous_runs SET status='running',last_error=NULL,next_action='Plano criado com sucesso; aguardando despacho ao Worker',updated_at=? WHERE id=?")
           .run(new Date().toISOString(), runId);
 
@@ -811,11 +858,18 @@ export class AutonomousManager {
               taskId: `plan-${runId.slice(0, 8)}`,
               projectId: project.id,
               runId,
+              phase: 'PLANNING',
               task: {
                 title: `Plano Arquitetural: ${config.name}`,
                 description: briefing,
+                briefing,
+                objective: config.objective,
+                phase: 'PLANNING',
+                isPlanReview: true,
                 plannedTasks
               },
+              diff: '',
+              filesChanged: [],
               riskLevel: 'high',
               policyTrigger: 'PLAN_ARCHITECTURE_CRITIQUE'
             }),
@@ -1452,6 +1506,11 @@ export class AutonomousManager {
    * List all available tasks ready to be worked on (DAG non-blocking resolution + file-scope conflict guard)
    */
   static getAvailableTasks(runId: string) {
+    const runRecord: any = db.prepare('SELECT status FROM autonomous_runs WHERE id = ?').get(runId);
+    if (!runRecord || ['waiting_approval', 'blocked', 'paused', 'error', 'failed', 'cancelled', 'stopped'].includes(runRecord.status)) {
+      return [];
+    }
+
     const tasks: any[] = db.prepare('SELECT * FROM autonomous_tasks WHERE run_id = ? ORDER BY order_index ASC').all(runId);
     const completedIds = new Set(
       tasks
@@ -1644,117 +1703,127 @@ export class AutonomousManager {
     let taskId = taskIdOrAgentName || '';
     let agentName = agentNameArg;
 
-    let task: any = db.prepare('SELECT * FROM autonomous_tasks WHERE id = ? AND run_id = ?').get(taskId, runId);
-    if (!task) {
-      const byTaskIdOnly: any = db.prepare('SELECT * FROM autonomous_tasks WHERE id = ?').get(runIdOrTaskId);
-      if (byTaskIdOnly) {
-        task = byTaskIdOnly;
-        taskId = byTaskIdOnly.id;
-        runId = byTaskIdOnly.run_id;
-        agentName = taskIdOrAgentName || 'Builder';
+    const inTx = Boolean((db as any).isTransaction ?? (db as any).inTransaction);
+    if (!inTx) db.exec('BEGIN IMMEDIATE');
+    try {
+      let task: any = db.prepare('SELECT * FROM autonomous_tasks WHERE id = ? AND run_id = ?').get(taskId, runId);
+      if (!task) {
+        const byTaskIdOnly: any = db.prepare('SELECT * FROM autonomous_tasks WHERE id = ?').get(runIdOrTaskId);
+        if (byTaskIdOnly) {
+          task = byTaskIdOnly;
+          taskId = byTaskIdOnly.id;
+          runId = byTaskIdOnly.run_id;
+          agentName = taskIdOrAgentName || 'Builder';
+        }
       }
-    }
-    if (!task) throw new Error('Tarefa não encontrada.');
+      if (!task) throw new Error('Tarefa não encontrada.');
 
-    // Explicit file-scope conflict check against IN_PROGRESS tasks before claiming
-    const activeInProgress: any[] = db.prepare(
-      "SELECT * FROM autonomous_tasks WHERE run_id = ? AND id <> ? AND (status = 'in_progress' OR lifecycle_state = 'IN_PROGRESS')"
-    ).all(runId, taskId);
-    for (const activeTask of activeInProgress) {
-      const conflict = HierarchicalOrchestrationService.detectScopeConflicts(activeTask, task);
-      if (conflict.hasConflict) {
-        throw new Error(
-          `TASK_SCOPE_CONFLICT: conflito de escopo de arquivos (${conflict.overlappingFiles.join(', ')}) com a tarefa em execução "${activeTask.title}".`
-        );
+      // Explicit file-scope conflict check against IN_PROGRESS tasks before claiming
+      const activeInProgress: any[] = db.prepare(
+        "SELECT * FROM autonomous_tasks WHERE run_id = ? AND id <> ? AND (status = 'in_progress' OR lifecycle_state = 'IN_PROGRESS')"
+      ).all(runId, taskId);
+      for (const activeTask of activeInProgress) {
+        const conflict = HierarchicalOrchestrationService.detectScopeConflicts(activeTask, task);
+        if (conflict.hasConflict) {
+          throw new Error(
+            `TASK_SCOPE_CONFLICT: conflito de escopo de arquivos (${conflict.overlappingFiles.join(', ')}) com a tarefa em execução "${activeTask.title}".`
+          );
+        }
       }
-    }
 
-    if (!this.getAvailableTasks(runId).some(t => t.id === taskId)) {
-      throw new Error('TASK_NOT_AVAILABLE: tarefa concluída, em execução ou com dependências pendentes.');
-    }
-
-    const refreshedTask: any = db.prepare('SELECT * FROM autonomous_tasks WHERE id = ? AND run_id = ?').get(taskId, runId);
-    if (HierarchicalOrchestrationService.resolveTaskLifecycleState(refreshedTask) === 'IN_PROGRESS') {
-      throw new Error('TASK_ALREADY_CLAIMED: outra execução reivindicou esta tarefa.');
-    }
-
-    const attempt = (refreshedTask.retry_count || 0) + 1;
-    const executionId = `exec-${taskId}-attempt-${attempt}-${Date.now()}`;
-    const nowIso = new Date().toISOString();
-
-    HierarchicalOrchestrationService.transitionTaskState(
-      taskId,
-      'IN_PROGRESS',
-      'supervisor',
-      `${agentName} reivindicou a microtarefa (tentativa ${attempt})`,
-      { agentName, attempt, executionId }
-    );
-
-    const claimed = db.prepare(`
-      UPDATE autonomous_tasks
-      SET status = 'in_progress', lifecycle_state = 'IN_PROGRESS', assigned_to = ?, execution_id = ?, updated_at = ?
-      WHERE id = ?
-    `).run(agentName, executionId, nowIso, taskId);
-    if (!claimed.changes) throw new Error('TASK_ALREADY_CLAIMED: outra execução reivindicou esta tarefa.');
-
-    const run: any = db.prepare('SELECT project_id FROM autonomous_runs WHERE id = ?').get(runId);
-    const contract = HierarchicalOrchestrationService.buildWorkerExecutionContract(taskId);
-
-    HierarchicalOrchestrationService.recordAgentCommunication({
-      projectId: run?.project_id || refreshedTask.project_id,
-      runId,
-      majorTaskId: refreshedTask.major_task_id || null,
-      microTaskId: taskId,
-      executionId,
-      attempt,
-      fromAgent: 'supervisor',
-      toAgent: 'worker',
-      messageType: 'TASK_DISPATCHED_TO_WORKER',
-      content: `Supervisor despachou microtarefa "${refreshedTask.code || refreshedTask.milestone}: ${refreshedTask.title}" para ${agentName} (tentativa ${attempt}).`,
-      payload: { contract },
-      idempotencyKey: `dispatch:${runId}:${taskId}:attempt:${attempt}`
-    });
-
-    HierarchicalOrchestrationService.recordAgentCommunication({
-      projectId: run?.project_id || refreshedTask.project_id,
-      runId,
-      majorTaskId: refreshedTask.major_task_id || null,
-      microTaskId: taskId,
-      executionId,
-      attempt,
-      fromAgent: 'worker',
-      toAgent: 'supervisor',
-      messageType: 'WORKER_EXECUTION_STARTED',
-      content: `${agentName} iniciou a execução da microtarefa "${refreshedTask.title}" (tentativa ${attempt}).`,
-      payload: { agentName, executionId, attempt },
-      idempotencyKey: `worker_start:${runId}:${taskId}:attempt:${attempt}`
-    });
-
-    this.logEvent(runId, taskId, 'builder', 'TASK_CLAIMED', `${agentName} iniciou implementação da tarefa "${task.title}"`);
-
-    // Notify GitHub issue if linked
-    const project: any = run ? db.prepare('SELECT * FROM projects WHERE id = ?').get(run.project_id) : null;
-    if (project?.github_repo && task.github_issue_number) {
-      const [owner, repo] = project.github_repo.split('/');
-      GitHubMcpClient.addIssueComment(
-        owner,
-        repo,
-        task.github_issue_number,
-        `[WORKER] **${agentName}** assumiu a execução desta issue no branch \`${task.github_branch || 'ai/' + task.github_issue_number}\`.`
-      ).catch((err) => {
-      if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
-        (globalThis as any).logger.warn({
-          event: "server.handled_exception",
-          file: "autonomousManager",
-          error: (err as any)?.message || String(err)
-        });
-      } else {
-        console.warn("[WARN][server:autonomousManager]", err);
+      if (!this.getAvailableTasks(runId).some(t => t.id === taskId)) {
+        throw new Error('TASK_NOT_AVAILABLE: tarefa concluída, em execução ou com dependências pendentes.');
       }
-    });
-    }
 
-    return this.getRun(runId);
+      const refreshedTask: any = db.prepare('SELECT * FROM autonomous_tasks WHERE id = ? AND run_id = ?').get(taskId, runId);
+      if (HierarchicalOrchestrationService.resolveTaskLifecycleState(refreshedTask) === 'IN_PROGRESS') {
+        throw new Error('TASK_ALREADY_CLAIMED: outra execução reivindicou esta tarefa.');
+      }
+
+      const attempt = (refreshedTask.retry_count || 0) + 1;
+      const executionId = `exec-${taskId}-attempt-${attempt}-${Date.now()}`;
+      const nowIso = new Date().toISOString();
+
+      HierarchicalOrchestrationService.transitionTaskState(
+        taskId,
+        'IN_PROGRESS',
+        'supervisor',
+        `${agentName} reivindicou a microtarefa (tentativa ${attempt})`,
+        { agentName, attempt, executionId }
+      );
+
+      const claimed = db.prepare(`
+        UPDATE autonomous_tasks
+        SET status = 'in_progress', lifecycle_state = 'IN_PROGRESS', assigned_to = ?, execution_id = ?, updated_at = ?
+        WHERE id = ?
+      `).run(agentName, executionId, nowIso, taskId);
+      if (!claimed.changes) throw new Error('TASK_ALREADY_CLAIMED: outra execução reivindicou esta tarefa.');
+
+      const run: any = db.prepare('SELECT project_id FROM autonomous_runs WHERE id = ?').get(runId);
+      const contract = HierarchicalOrchestrationService.buildWorkerExecutionContract(taskId);
+
+      HierarchicalOrchestrationService.recordAgentCommunication({
+        projectId: run?.project_id || refreshedTask.project_id,
+        runId,
+        majorTaskId: refreshedTask.major_task_id || null,
+        microTaskId: taskId,
+        executionId,
+        attempt,
+        fromAgent: 'supervisor',
+        toAgent: 'worker',
+        messageType: 'TASK_DISPATCHED_TO_WORKER',
+        content: `Supervisor despachou microtarefa "${refreshedTask.code || refreshedTask.milestone}: ${refreshedTask.title}" para ${agentName} (tentativa ${attempt}).`,
+        payload: { contract },
+        idempotencyKey: `dispatch:${runId}:${taskId}:attempt:${attempt}`
+      });
+
+      HierarchicalOrchestrationService.recordAgentCommunication({
+        projectId: run?.project_id || refreshedTask.project_id,
+        runId,
+        majorTaskId: refreshedTask.major_task_id || null,
+        microTaskId: taskId,
+        executionId,
+        attempt,
+        fromAgent: 'worker',
+        toAgent: 'supervisor',
+        messageType: 'WORKER_EXECUTION_STARTED',
+        content: `${agentName} iniciou a execução da microtarefa "${refreshedTask.title}" (tentativa ${attempt}).`,
+        payload: { agentName, executionId, attempt },
+        idempotencyKey: `worker_start:${runId}:${taskId}:attempt:${attempt}`
+      });
+
+      this.logEvent(runId, taskId, 'builder', 'TASK_CLAIMED', `${agentName} iniciou implementação da tarefa "${task.title}"`);
+
+      // Notify GitHub issue if linked
+      const project: any = run ? db.prepare('SELECT * FROM projects WHERE id = ?').get(run.project_id) : null;
+      if (project?.github_repo && task.github_issue_number) {
+        const [owner, repo] = project.github_repo.split('/');
+        GitHubMcpClient.addIssueComment(
+          owner,
+          repo,
+          task.github_issue_number,
+          `[WORKER] **${agentName}** assumiu a execução desta issue no branch \`${task.github_branch || 'ai/' + task.github_issue_number}\`.`
+        ).catch((err) => {
+        if (typeof (globalThis as any).logger !== "undefined" && (globalThis as any).logger?.warn) {
+          (globalThis as any).logger.warn({
+            event: "server.handled_exception",
+            file: "autonomousManager",
+            error: (err as any)?.message || String(err)
+          });
+        } else {
+          console.warn("[WARN][server:autonomousManager]", err);
+        }
+      });
+      }
+
+      if (!inTx) db.exec('COMMIT');
+      return this.getRun(runId);
+    } catch (err) {
+      if (!inTx) {
+        try { db.exec('ROLLBACK'); } catch {}
+      }
+      throw err;
+    }
   }
 
   /**
@@ -2288,7 +2357,7 @@ export class AutonomousManager {
         taskId: input.taskId,
         projectPath: project?.path || '',
         filesChanged: reportFiles,
-        commitMessage: `feat(ai): [${task.code || task.milestone}] ${task.title}`,
+        commitMessage: `feat(${task.code || task.milestone || 'task'}): [${task.code || task.milestone || 'task'}] ${task.title}`,
         requireGitCommit: Boolean(input.requireGitCommit),
         requireCodeChanges: Boolean(input.requireCodeChanges),
         simulateCommitFailure: Boolean(input.simulateCommitFailure)
@@ -2623,6 +2692,13 @@ export class AutonomousManager {
     }
         db.prepare("UPDATE autonomous_tasks SET status = 'blocked', lifecycle_state = 'BLOCKED', retry_count = ?, updated_at = ? WHERE id = ?")
           .run(currentRetry, nowIso, input.taskId);
+
+        // Rollback automático em caso de regressão irrecuperável / limite de retentativas esgotado
+        try {
+          import('./autonomousRunnerService.js').then(({ AutonomousRunnerService }) => {
+            AutonomousRunnerService.rollbackToLastStableCommit(input.runId, input.taskId, `Limite de retentativas (${currentRetry}/${maxRetries}) esgotado na revisão`);
+          }).catch(() => {});
+        } catch {}
 
         HierarchicalOrchestrationService.recordAgentCommunication({
           projectId: run.project_id,

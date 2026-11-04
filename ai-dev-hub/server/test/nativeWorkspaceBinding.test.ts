@@ -123,3 +123,18 @@ test('permissive mode cannot relax the independent local executor',()=>{
   const {executeVerification}=require('../src/controlledVerification.js');
   assert.throws(()=>executeVerification('npm test && whoami',f.folder,1000),/COMMAND_REVIEW_REQUIRED|allowlist|blocked|not allowed|UNSUPPORTED/i);
 });
+
+test('resolve automatically synchronizes projects.json CLI cache with canonical path and folderUri', () => {
+  const f = fixture();
+  const res = NativeWorkspaceBinding.resolve(f.record.projectId, 'profile-1', f.home);
+  assert.equal(res.nativeProjectId, f.config.id);
+
+  const cacheFile = path.join(f.home, '.gemini', 'antigravity-cli', 'cache', 'projects.json');
+  assert.ok(fs.existsSync(cacheFile), 'projects.json cache must exist');
+  const cache = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+  const entry = Array.isArray(cache) ? cache.find((p: any) => p.id === f.config.id) : cache[f.config.id];
+  assert.ok(entry, 'Project entry must be present in projects.json cache');
+  assert.equal(entry.id, f.config.id);
+  assert.equal(entry.name, f.record.projectId);
+  assert.equal(entry.folderUri, pathToFileURL(f.folder).href);
+});

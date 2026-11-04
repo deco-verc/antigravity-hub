@@ -1933,7 +1933,12 @@ export const DecoHubMetaChatView: React.FC<DecoHubMetaChatViewProps> = ({
     setIsSyncing(true);
     try {
       const res = await api.githubSync();
-      if (res.committed) {
+      if ((res as any).isLocal || (res as any).pushed === false) {
+        onShowToast?.(
+          'info',
+          (res as any).message || 'Alterações commitadas localmente com sucesso. Push ignorado (projeto local sem remote configurado).'
+        );
+      } else if (res.committed) {
         onShowToast?.(
           'success',
           `Git push concluído! Commit ${res.commitHash} · ${res.filesCommitted?.length ?? 0} arquivo(s)`

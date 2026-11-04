@@ -281,4 +281,224 @@ test('Independent Review Scope Hardening & Anti-Slop Precision Suite', async (t)
     const slop = IndependentEvaluator.detectAntiSlop(tmpDir, ['app.js']);
     assert.equal(slop.hasSlop, false, 'Frontend com fetch e renderizacao real nao deve ser marcado com hasSlop');
   });
+
+  await t.test('6. Tolerancia de escopo para arquivos auxiliares (src/models, src/services, src/helpers, src/types)', () => {
+    const taskId = 'task-aux-scope-' + crypto.randomUUID().slice(0, 8);
+
+    db.prepare(`
+      INSERT INTO autonomous_tasks (
+        id, run_id, project_id, title, objective, description,
+        status, criteria_json, allowed_scope_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+    `).run(
+      taskId,
+      runId,
+      projectId,
+      'Criar Endpoint de Faturamento e Modelagem',
+      'Implementar faturamento',
+      'Implementar rotas e modelos auxiliares',
+      'in_review',
+      JSON.stringify(['Endpoint de faturamento operacional']),
+      JSON.stringify(['src/routes/billing.ts'])
+    );
+
+    const review = HierarchicalOrchestrationService.evaluateIndependentReviewDecision({
+      runId,
+      taskId,
+      projectPath: tmpDir,
+      supervisorVerdict: 'APPROVED',
+      evaluationResult: {
+        id: 'eval-aux',
+        contractId: 'contract-aux',
+        taskId,
+        runId,
+        verdict: 'PASS',
+        builderStatus: 'COMPLETED',
+        evaluatorVerdict: 'PASS',
+        taskIsDone: true,
+        passedCriteria: ['Endpoint de faturamento operacional'],
+        failedCriteria: [],
+        evidence: { output: 'All tests passed' },
+        expected: 'Billing works',
+        actual: 'OK',
+        evaluatorNotes: 'Testes aprovados',
+        evaluatorName: 'Evaluator',
+        executedCommands: ['npm test'],
+        exitCode: 0,
+        durationMs: 60,
+        createdAt: new Date().toISOString()
+      },
+      workerReport: {
+        filesChanged: [
+          'src/routes/billing.ts',
+          'src/models/invoice.ts',
+          'src/services/billingService.ts',
+          'src/helpers/currency.ts',
+          'src/types/billingTypes.ts'
+        ],
+        implemented: ['Faturamento'],
+        testsRun: true,
+        testResults: 'Pass',
+        buildStatus: 'success'
+      }
+    });
+
+    assert.equal(review.outOfScopeFiles.length, 0, 'Arquivos em src/models/, src/services/, src/helpers/, src/types/ nunca devem ir para outOfScopeFiles');
+    assert.equal(review.decision, 'APPROVED', 'Decisao deve ser APPROVED com escopo tolerante para modulos auxiliares');
+  });
+
+  await t.test('7. Factual Proof Audit: exit code 0 sobrepoe queixas visuais subjetivas (APPROVED com nota alta)', () => {
+    const taskId = 'task-factual-proof-' + crypto.randomUUID().slice(0, 8);
+
+    db.prepare(`
+      INSERT INTO autonomous_tasks (
+        id, run_id, project_id, title, objective, description,
+        status, criteria_json, allowed_scope_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+    `).run(
+      taskId,
+      runId,
+      projectId,
+      'Motor de Exportacao CSV e Relatorios',
+      'Exportar dados em CSV',
+      'Criar exportador com testes unitarios',
+      'in_review',
+      JSON.stringify(['Testes unitarios passam com codigo 0']),
+      JSON.stringify(['src/exporter.ts'])
+    );
+
+    // Supervisor tentou reprovar alegando falta de detalhes visuais, mas testes passaram com exit code 0
+    const review = HierarchicalOrchestrationService.evaluateIndependentReviewDecision({
+      runId,
+      taskId,
+      projectPath: tmpDir,
+      supervisorVerdict: 'CHANGES_REQUESTED',
+      supervisorFeedback: 'Reprovado por falta de detalhes visuais no dashboard e paleta de cores.',
+      evaluationResult: {
+        id: 'eval-factual',
+        contractId: 'contract-factual',
+        taskId,
+        runId,
+        verdict: 'PASS',
+        builderStatus: 'COMPLETED',
+        evaluatorVerdict: 'PASS',
+        taskIsDone: true,
+        passedCriteria: ['Testes unitarios passam com codigo 0'],
+        failedCriteria: [],
+        evidence: { output: 'All unit tests passed with exit code 0' },
+        expected: 'Exporter works',
+        actual: 'OK',
+        evaluatorNotes: 'Testes aprovados com codigo 0',
+        evaluatorName: 'Evaluator',
+        executedCommands: ['npm test'],
+        exitCode: 0,
+        durationMs: 45,
+        createdAt: new Date().toISOString()
+      },
+      workerReport: {
+        filesChanged: ['src/exporter.ts'],
+        implemented: ['Exportador CSV'],
+        testsRun: true,
+        testResults: 'Pass',
+        buildStatus: 'success'
+      }
+    });
+
+    assert.equal(review.decision, 'APPROVED', 'Proibicao de reprovar tarefa aprovada nos testes por falta de detalhes visuais');
+  });
+
+  await t.test('8. Formatacao obrigatoria de root-cause em CHANGES_REQUESTED contem os 3 blocos estruturados', () => {
+    const formatted = IndependentEvaluator.formatStructuredFeedback({
+      falha: 'Compilacao falhou',
+      causaRaiz: "Type 'null' is not assignable to type 'string'",
+      acaoRequerida: 'Tipar variavel como string | null',
+      fileAndLine: 'src/user.ts:42',
+      realError: "Type 'null' is not assignable to type 'string'",
+      surgicalDirective: 'Ajustar a tipagem em src/user.ts:42 para aceitar null.'
+    });
+
+    assert.ok(formatted.includes('[ARQUIVO E LINHA]: src/user.ts:42'), 'Deve conter [ARQUIVO E LINHA]');
+    assert.ok(formatted.includes("[ERRO REAL]: Type 'null' is not assignable to type 'string'"), 'Deve conter [ERRO REAL]');
+    assert.ok(formatted.includes('[DIRETRIZ CIRÚRGICA]: Ajustar a tipagem em src/user.ts:42 para aceitar null.'), 'Deve conter [DIRETRIZ CIRÚRGICA]');
+  });
+
+  await t.test('9. Varredura ativa de placeholders e mocks em producao sob src/ emite CHANGES_REQUESTED', () => {
+    const todoFile = path.join(tmpDir, 'src', 'todoEndpoint.ts');
+    fs.mkdirSync(path.dirname(todoFile), { recursive: true });
+    fs.writeFileSync(todoFile, `
+      // TODO: implementar depois
+      export function getItems() {
+        return [];
+      }
+    `);
+
+    const slopCheck = IndependentEvaluator.detectAntiSlop(tmpDir, ['src/todoEndpoint.ts']);
+    assert.equal(slopCheck.hasSlop, true, 'Deve identificar hasSlop como true');
+    assert.ok(
+      slopCheck.findings.some(f => f.details.includes('[FALHA ANTI-SLOP]: Arquivo src/todoEndpoint.ts contém código estático/placeholder. Implemente a lógica real antes de submeter.')),
+      'Mensagem exata de [FALHA ANTI-SLOP] deve constar nos findings'
+    );
+
+    const taskId = 'task-anti-slop-prod-' + crypto.randomUUID().slice(0, 8);
+    db.prepare(`
+      INSERT INTO autonomous_tasks (
+        id, run_id, project_id, title, objective, description,
+        status, criteria_json, allowed_scope_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+    `).run(
+      taskId,
+      runId,
+      projectId,
+      'Criar Endpoint Real',
+      'Persistência SQLite de Itens',
+      'Criar rota real',
+      'in_review',
+      JSON.stringify(['Rota operacional']),
+      JSON.stringify(['src/todoEndpoint.ts'])
+    );
+
+    const review = HierarchicalOrchestrationService.evaluateIndependentReviewDecision({
+      runId,
+      taskId,
+      projectPath: tmpDir,
+      workerReport: {
+        filesChanged: ['src/todoEndpoint.ts'],
+        implemented: ['Endpoint'],
+        testsRun: true,
+        testResults: 'Pass',
+        buildStatus: 'success'
+      }
+    });
+
+    assert.equal(review.decision, 'REJECTED', 'Deve rejeitar entrega com placeholder');
+    assert.equal(review.verdict, 'CHANGES_REQUESTED', 'Veredicto estruturado deve ser CHANGES_REQUESTED');
+    assert.ok(
+      review.problemsFound.some(p => p.includes('[FALHA ANTI-SLOP]: Arquivo src/todoEndpoint.ts contém código estático/placeholder. Implemente a lógica real antes de submeter.')),
+      'problemsFound deve incluir a mensagem factual de [FALHA ANTI-SLOP]'
+    );
+  });
+
+  await t.test('10. Auditoria factual de testes: rejeita testes ocos com apenas process.exit(0) ou try/catch vazios', () => {
+    const hollowTestFile = path.join(tmpDir, 'test', 'hollow.test.js');
+    fs.mkdirSync(path.dirname(hollowTestFile), { recursive: true });
+    fs.writeFileSync(hollowTestFile, `
+      // Teste oco sem assercoes
+      try {
+        console.log('Running hollow test');
+        process.exit(0);
+      } catch (err) {
+      }
+    `);
+
+    const slopCheck = IndependentEvaluator.detectAntiSlop(tmpDir, ['test/hollow.test.js']);
+    assert.equal(slopCheck.hasSlop, true, 'Teste sem assercoes reais deve ser marcado com hasSlop');
+    assert.ok(
+      slopCheck.findings.some(f => f.type === 'HOLLOW_TEST'),
+      'Deve catalogar como HOLLOW_TEST'
+    );
+    assert.ok(
+      slopCheck.findings.some(f => f.details.includes('[FALHA ANTI-SLOP]: Arquivo de teste test/hollow.test.js é oco ou não contém asserções reais')),
+      'Deve detalhar que o arquivo de teste e oco'
+    );
+  });
 });

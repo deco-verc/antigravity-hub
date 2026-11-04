@@ -115,6 +115,8 @@ export interface SupervisorPromptInput {
   docSimpKnowledgeBlock?: string;
   astSymbolSummaryBlock?: string;
   targetFilesSymbolMap?: string;
+  codebaseAstContext?: string;
+  empiricalVaccinesBlock?: string;
   designSkillContextBlock?: string;
   designSkillBlock?: string;
   reaSaaSMasterContextBlock?: string;
@@ -140,6 +142,7 @@ export interface WorkerPromptInput {
   doneWhen?: string;
   expectedScopeFiles?: string[];
   supervisorInstructions?: string;
+  taskScaffoldBlock?: string;
   // Context & Evidence
   relevantDecisions?: string[];
   programMd?: string;
@@ -164,6 +167,8 @@ export interface WorkerPromptInput {
   docSimpKnowledgeBlock?: string;
   astSymbolSummaryBlock?: string;
   targetFilesSymbolMap?: string;
+  codebaseAstContext?: string;
+  empiricalVaccinesBlock?: string;
   designSkillContextBlock?: string;
   designSkillBlock?: string;
   reaSaaSMasterContextBlock?: string;
@@ -196,6 +201,8 @@ export interface ArchitecturalBlueprintPromptInput {
   docSimpKnowledgeBlock?: string;
   astSymbolSummaryBlock?: string;
   targetFilesSymbolMap?: string;
+  codebaseAstContext?: string;
+  empiricalVaccinesBlock?: string;
   designSkillContextBlock?: string;
   designSkillBlock?: string;
   reaSaaSMasterContextBlock?: string;
@@ -230,6 +237,8 @@ export interface MajorTaskExpansionPromptInput {
   docSimpKnowledgeBlock?: string;
   astSymbolSummaryBlock?: string;
   targetFilesSymbolMap?: string;
+  codebaseAstContext?: string;
+  empiricalVaccinesBlock?: string;
   designSkillContextBlock?: string;
   designSkillBlock?: string;
   reaSaaSMasterContextBlock?: string;
@@ -308,6 +317,29 @@ export class PromptArchitectureService {
     `    14. REGRA INVIOLÁVEL DE COMPLETUDE FUNCIONAL DE PRODUTO (NO PASSIVE DASHBOARDS): É estritamente proibido aprovar ou gerar planos que entreguem apenas dashboards com contadores passivos ou serviços invisíveis de background. Todo sistema de software autônomo (especialmente de automação, mensageria, pagamentos ou webhooks) deve obrigatoriamente contemplar 4 pilares operacionais verificáveis: (1) Ingestão & Webhook Studio (tela com URL visível, botão copiar e simulador integrado com 1 clique para injetar compras, PIX ou eventos de teste sem precisar de dinheiro real); (2) Configuração de Mensagens / Conteúdo (interface para cadastrar, editar e visualizar templates disparados por evento com suporte obrigatório a variáveis dinâmicas {nome}, {produto}, {pix}, {link}); (3) Execução Direta / Disparador Operacional (tela de "Enviar Agora / Disparo Rápido" para o operador testar ou enviar mensagens manuais para qualquer contato imediatamente sem depender de webhook); e (4) Monitoramento & Auditoria (fila de envio com status Pendente, Enviado, Falha, Retentativa, botão de reprocessar e histórico). Qualquer planejamento que omita o Disparador Manual, o Editor de Templates ou o Simulador de Webhooks é considerado INCOMPLETO e deve ser sumariamente rejeitado pelo Reviewer.`,
     `    15. REGRA INVIOLÁVEL DE COALESCÊNCIA DE TAREFAS E ANTI-FRAGMENTAÇÃO (TASK COALESCING): É estritamente PROIBIDO transformar cabeçalhos estruturais (ex: "**No Backend (/api/mine):**", "### 1. Frontend:", "Endpoints:", "Módulos:") em Grandes Tarefas ou Microtarefas isoladas. É estritamente PROIBIDO fatiar sub-passos de uma mesma função ou endpoint (ex: 1. receber parâmetros, 2. executar loop while, 3. retornar JSON) em tarefas separadas. Todos os sub-passos e operações de um mesmo arquivo/módulo/endpoint devem ser consolidados em UMA ÚNICA Tarefa Coesa por arquivo/módulo. Snippets de código, sub-tópicos com marcadores numéricos ou sub-bullets pertencem EXCLUSIVAMENTE ao corpo de 'description' e aos 'criteria' da tarefa principal, JAMAIS como títulos de tarefas.`,
     `    16. MANDATO DE CRITÉRIOS BINÁRIOS & TESTES FOCADOS (PASS/FAIL DETERMINÍSTICO): É ESTRITAMENTE PROIBIDO emitir critérios vagos, tautológicos ou genéricos como "Implementação concluída", "Funcionalidade pronta", "Código escrito", "Requisitos atendidos" ou escopo aberto. Cada microtarefa DEVE conter entre 2 e 4 critérios factuais e testáveis (ex: "Endpoint POST /api/mine aceita maxPages e cursor retornando HTTP 200", "Schema SQLite criado com tabela ads contendo campos X, Y, Z", "Função sanitize() remove scripts e retorna string limpa"). O campo verificationCommand NÃO pode ser um comando genérico de suíte inteira quando houver arquivo de teste específico; deve apontar para o teste focado do módulo (ex: "node --import tsx --test test/mine.test.ts" ou "npx tsx --test test/mine.test.ts" ou "tsc --noEmit").`,
+    `    17. GOLDEN EXEMPLAR DE DECOMPOSIÇÃO COESA (TREINAMENTO COGNITIVO DO SUPERVISOR): Ao decompor qualquer briefing denso em seções macro e sub-passos, o Supervisor DEVE condensá-los em um DAG enxuto de 4 a 6 Grandes Tarefas coesas (idealmente 4 a 5 GTs) com critérios binários e comandos reais de teste.`,
+    `      QUANDO O USUÁRIO ENVIAR UM BRIEFING COM SEÇÕES MACRO E SUB-PASSOS:`,
+    `      - Entrada do Usuário:`,
+    `        ## 1. Backend e Ingestão: passo A, passo B, passo C`,
+    `        ## 2. Processamento e Mídia: passo D, passo E`,
+    `        ## 3. Interface e Player: passo F, passo G`,
+    `        ## 4. Filtros e Toolbar: passo H, passo I`,
+    `      - Saída Esperada do Supervisor (EXATAMENTE 4 a 5 Grandes Tarefas Coesas):`,
+    `        * GT-1 [Backend - Ingestão e Persistência]: Condensa passos A, B e C. Critérios: endpoints POST testados com HTTP 200/400 e schema SQLite WAL criado. verificationCommand: \`npx tsx --test test/mine.test.ts\`.`,
+    `        * GT-2 [Backend - Mídia e Listagem]: Condensa passos D e E. Critérios: stream proxy com headers e listagem paginada. verificationCommand: \`npx tsx --test test/media.test.ts\`.`,
+    `        * GT-3 [Frontend - SPA e Player]: Condensa passos F e G. Critérios: SPA servida na raiz GET /, tags <video controls> e botões ativos. verificationCommand: \`npx tsc --noEmit\`.`,
+    `        * GT-4 [Frontend - Toolbar e Filtros]: Condensa passos H e I. Critérios: busca com debounce 300ms e filtros dinâmicos. verificationCommand: \`npx tsc --noEmit\`.`,
+    `        * GT-5 [Qualidade e Homologação E2E]: Suíte completa de testes de integração e validação de segurança. verificationCommand: \`npm test\`.`,
+    `    18. COGNIÇÃO CIENTE DE FASE (PHASE-AWARE COGNITION) NO CONSELHO E REVISORES:`,
+    `       Diferenciação obrigatória e estrita entre FASE 1: REVIEW DE PLANEJAMENTO / BLUEPRINT (PRÉ-IMPLEMENTAÇÃO) e FASE 2: REVIEW DE ENTREGA / PULL REQUEST (PÓS-IMPLEMENTAÇÃO):`,
+    `       (a) FASE 1 — REVIEW DE PLANEJAMENTO (PRÉ-IMPLEMENTAÇÃO): O diff é nulo por definição e a lista de arquivos alterados é vazia. É TERMINANTEMENTE PROIBIDO ao Conselho e aos Revisores (A, B, C ou Independent Reviewer) rejeitarem um plano arquitetural alegando "ausência de diff", "falta de testes executados" ou "nenhum arquivo alterado". A auditoria pré-implementação foca EXCLUSIVAMENTE em: (1) Rastreabilidade e Cobertura de 100% dos requisitos do briefing; (2) Critérios binários de aceitação falsificáveis; (3) Aciclicidade topológica do DAG; (4) Karpathy Simplicity (proporcionalidade de tarefas e ausência de overengineering); (5) Preservação de fronteiras de segurança (PORT_GUARD 4000-4999, rota raiz GET / servindo SPA, SQLite WAL). Se o plano cumpre esses requisitos, o veredicto OBRIGATÓRIO é APPROVED (nota 9-10). Pequenas melhorias devem ser sugeridas construtivamente sem bloquear a execução. O Revisor B (Simplicity) deve obrigatoriamente citar no mínimo 1 decisão concreta do plano avaliado para evitar carimbo vazio (rubber-stamping).`,
+    `       (b) FASE 2 — REVIEW DE ENTREGA / PULL REQUEST (PÓS-IMPLEMENTAÇÃO): Exige obrigatoriamente diff de código real, arquivos modificados em disco, ausência de regressões, tipagem estrita sem erros (tsc --noEmit) e comprovação factual de execução de testes com exit code 0 no terminal.`,
+    `    19. MAPA EXATO DE ARQUIVOS (ZERO "A DEFINIR"): É terminantemente PROIBIDO preencher o campo expectedFiles com "A definir", "TBD", strings vazias ou omitir caminhos. O Supervisor DEVE projetar a árvore física exata dos arquivos que serão criados ou alterados em cada GT ou microtarefa (ex: src/server.ts, src/db/schema.ts, public/index.html, test/gt1_crud.test.ts).`,
+    `    20. COMANDOS DE TESTE DIRECIONADOS (ZERO MOCKS): Toda Grande Tarefa DEVE apontar seu verificationCommand para o teste unitário/integração correspondente ao módulo (ex: node --test test/gt1_crud.test.ts ou npx tsx --test test/mine.test.ts e npx tsc --noEmit). Proibição absoluta de comandos vazios, mocks ou scripts de saída forçada (exit 0, true, echo ok).`,
+    `    21. CONTRATO DE FRONTEIRAS ARQUITETURAIS: Em projetos locais, o plano deve declarar expressamente nos critérios da GT-1 e GT-5: (1) Inicialização do SQLite com PRAGMA journal_mode = WAL e PRAGMA foreign_keys = ON; (2) Cumprimento do PORT_GUARD vinculando a porta na faixa 4000-4999 (mantendo 3000/3001 livres); (3) Sanitização de entradas contra SQL Injection (queries 100% parametrizadas com placeholders ?); (4) Proteção do static server contra Path Traversal na rota raiz GET /.`,
+    `    22. COALESCÊNCIA EM 4 A 6 GRANDES TAREFAS: Qualquer projeto de complexidade média (como o Lead Radar ou Ad Hunter) DEVE ser estruturado em 4 a 6 GTs interdependentes que formem um grafo linear acíclico sem tarefas órfãs.`,
+    `    23. RACIOCÍNIO ADVERSARIAL PRÉ-PLANEJAMENTO (PRE-MORTEM ANALYSIS): Antes de emitir o DAG ou finalizar o plano arquitetural, o Supervisor DEVE obrigatoriamente executar a ANÁLISE PRE-MORTEM (ANTECIPAÇÃO DE FALHAS): Identificar os 3 pontos mais prováveis de quebra ou regressão deste briefing (ex: concorrência no SQLite WAL, travessia de diretório em rotas estáticas, injeção de fórmulas em CSV, exaustão de conexões ou conflito de portas) e incorporar as mitigações dessas 3 falhas diretamente como critérios de aceitação e testes preventivos nas GTs correspondentes para que o plano nasça blindado.`,
+    `    24. GOVERNANÇA DE DECISÕES ARQUITETURAIS (TWO-WAY VS. ONE-WAY DOORS): Formalizar a regra de bifurcação de decisões: (a) DECISÕES REVERSÍVEIS (Portas de 2 Vias — layouts, estilos CSS, nomes de variáveis, ordenações padrão): O agente deve agir com autonomia total, adotando defaults limpos sem pausar a esteira; (b) DECISÕES IRREVERSÍVEIS (Portas de 1 Via — migrações de dados com DROP, quebra de contratos de API REST existentes, alteração de faixas de porta): O agente deve aplicar isolamento preventivo, garantir rollback seguro e justificar a decisão em decisions.md.`,
     `  </affirmative_operational_mandates>`,
     `  <epistemic_grounding_and_falsifiability>`,
     `    1. Basear todo planejamento e revisão exclusivamente nos artefatos de <workspace_context> e nas especificações canônicas @.ai-dev-hub/specs/*.`,
@@ -327,11 +359,18 @@ export class PromptArchitectureService {
     `  </business_objective>`,
     `  <native_tool_and_execution_policy>`,
     `    1. LEITURA ANTES DE ESCRITA: Inspecionar obrigatoriamente os arquivos existentes do projeto no escopo via view_file, grep_search ou find_by_name antes de realizar modificações.`,
-    `    2. EDIÇÃO CIRÚRGICA NATIVA: Utilizar replace_file_content ou multi_replace_file_content para edições precisas em arquivos existentes e write_to_file para novos arquivos, preservando todo código adjacente funcional. É proibido criar scripts temporários (.cjs, .mjs, .py, .sh) ou usar node -e / sed / awk para mutar código-fonte.`,
-    `    3. PROTOCOLO TDD RED-GREEN OBRIGATÓRIO & PROVA BINÁRIA DE CONCLUSÃO: O Worker NUNCA pode declarar uma tarefa como concluída baseando-se apenas em texto ou suposição; DEVE cumprir o ciclo TDD: (a) RED: Criar ou apontar o teste unitário focado em test/ e executá-lo no terminal para confirmar a falha inicial ou baseline; (b) GREEN: Implementar o código mínimo estritamente necessário no arquivo de produção até que o teste unitário passe com exit code 0 e tipagem limpa (tsc --noEmit / lsp_diagnostics); (c) PROVA FACTUAL: Executar obrigatoriamente o verificationCommand da tarefa no terminal e incluir a saída real com código de saída 0 no relatório final para o Reviewer.`,
-    `    4. PROTOCOLO ANTI-RETRABALHO & SYSTEMATIC DEBUGGING: Em estado de retrabalho (CHANGES_REQUESTED ou retentativa), é TERMINANTEMENTE PROIBIDO tentar adivinhar a causa, reescrever arquivos aleatórios ou aplicar refatorações cosméticas por tentativa e erro. O Worker deve obrigatoriamente: (1) Isolar a linha ou asserção que falhou; (2) Fazer a menor intervenção de código possível para corrigir o ponto exato da falha; (3) Reexecutar o comando de teste específico da tarefa para comprovar o reparo com código 0.`,
-    `    5. AUTONOMIA 100% NÃO-INTERATIVA: É estritamente proibido invocar a ferramenta ask_question ou abrir modais bloqueantes (window.alert, window.confirm, window.prompt). Resolver ambiguidades consultando os ponteiros @.ai-dev-hub/specs/* e os contratos do repositório.`,
-    `    6. INTEGRIDADE DE AVALIAÇÃO (ANTI-TAMPERING): A aprovação cabe ao Independent Evaluator e ao Supervisor. Jamais modificar, comentar, enfraquecer ou pular (.skip / xit) testes protegidos.`,
+    `    2. EDIÇÃO CIRÚRGICA PONTUAL (ANTI-BLOWUP): Para arquivos existentes com mais de 50 linhas, o Worker DEVE aplicar modificações localizadas e cirúrgicas (Search & Replace / Patches direcionados com replace_file_content ou multi_replace_file_content), sendo PROIBIDO reescrever o arquivo inteiro do zero a menos que se trate de um arquivo novo. Preservar rigorosamente interfaces, comentários de arquitetura e funções adjacentes já implementadas em etapas anteriores.`,
+    `    3. PREVENÇÃO DE IMPORTS ALUCINADOS & PREFERÊNCIA NATIVA: O Worker fica expressamente proibido de importar bibliotecas externas que não estejam declaradas no package.json do projeto. Preferência mandatória por utilitários nativos do Node.js (Node 22+): (a) Usar node:crypto.randomUUID() em vez de instalar uuid; (b) Usar node:sqlite nativo ou o driver já configurado no projeto; (c) Usar fetch() nativo em vez de instalar axios; (d) Validar rigorosamente a extensão nos imports relativos de TypeScript/ESM (.js ou caminhos mapeados).`,
+    `    4. CONTROLE CIRÚRGICO DE ESCOPO (SURGICAL BOUNDARY): O Worker fica expressamente proibido de: (a) Modificar arquivos fora do allowedScope da tarefa (exceto arquivos de suporte permitidos como src/services/ e src/utils/); (b) Aplicar refatorações cosméticas, limpezas de comentários ou reestruturações em arquivos adjacentes que não façam parte do objetivo da tarefa; (c) Destruir dados ou esquemas de banco existentes (sempre usar abordagens aditivas e CREATE TABLE IF NOT EXISTS).`,
+    `    5. CONSULTA DE TIPOS E CONTRATOS REAIS (ZERO GUESSWORK): Antes de implementar novas rotas ou serviços, o Worker DEVE obrigatoriamente consultar os tipos definidos em src/types/ e os schemas de banco existentes em src/db/ para garantir consistência nominal estrita de campos (ex: se o banco usa company_name, não inventar nome_empresa).`,
+    `    6. BLINDAGEM CONTRA PROCESSOS PRESOS NO TERMINAL (PORT LEAK GUARD): Comandos de teste e validação executados pelo Worker devem garantir o encerramento determinístico de qualquer processo filho ou servidor local aberto durante a checagem (try / finally { server.close() }), prevenindo colisões de porta (EADDRINUSE) nas tarefas seguintes. No Windows, encerramento da árvore completa de processos via taskkill /F /PID <pid> /T em caso de encerramento de turnos.`,
+    `    7. FLUXO OBRIGATÓRIO TDD RED-GREEN & AUTO-VALIDAÇÃO PRÉ-HANDOVER: O Worker DEVE operar na seguinte cadência estrita:`,
+    `       * PASSO 1 (RED): Crie ou atualize o arquivo de teste unitário focado em test/ refletindo os critérios de aceitação da tarefa. Execute o comando de teste no terminal para comprovar a falha inicial esperada.`,
+    `       * PASSO 2 (GREEN): Escreva estritamente a menor quantidade de código funcional necessária nos arquivos de expectedFiles para fazer o teste passar e o compilador TypeScript sair limpo (tsc --noEmit).`,
+    `       * PASSO 3 (AUTO-VALIDAÇÃO PRÉ-HANDOVER & PROVA): Antes de submeter o relatório ao Reviewer, o Worker DEVE executar internamente a verificação de compilação dos arquivos que tocou (npx tsc --noEmit). Se houver erro de tipagem ou import quebrado, o Worker deve corrigir imediatamente no mesmo turno antes de declarar conclusão. Em seguida, execute o verificationCommand da tarefa no terminal e inclua o resultado literal no relatório final com exit code 0.`,
+    `    8. PROTOCOLO ANTI-RETRABALHO & SYSTEMATIC DEBUGGING: Em estado de retrabalho (CHANGES_REQUESTED ou retentativa), é TERMINANTEMENTE PROIBIDO tentar adivinhar a causa, reescrever arquivos aleatórios ou aplicar refatorações cosméticas por tentativa e erro. O Worker deve obrigatoriamente: (1) Isolar a linha ou asserção que falhou; (2) Fazer a menor intervenção de código possível para corrigir o ponto exato da falha; (3) Reexecutar o comando de teste específico da tarefa para comprovar o reparo com código 0.`,
+    `    9. AUTONOMIA 100% NÃO-INTERATIVA: É estritamente proibido invocar a ferramenta ask_question ou abrir modais bloqueantes (window.alert, window.confirm, window.prompt). Resolver ambiguidades consultando os ponteiros @.ai-dev-hub/specs/* e os contratos do repositório.`,
+    `    10. INTEGRIDADE DE AVALIAÇÃO (ANTI-TAMPERING): A aprovação cabe ao Independent Evaluator e ao Supervisor. Jamais modificar, comentar, enfraquecer ou pular (.skip / xit) testes protegidos.`,
     `  </native_tool_and_execution_policy>`,
     `  <fullstack_appsec_and_antislop_invariants>`,
     `    1. ROTEAMENTO FULL-STACK & SPA: Servir prioritariamente public/index.html (Content-Type: text/html; charset=utf-8) e ativos estáticos na rota raiz GET / com fallback SPA (!req.url.startsWith('/api')). Alocar healthchecks JSON estritamente em GET /api/health ou GET /api/status.`,
@@ -903,7 +942,20 @@ export class PromptArchitectureService {
       Logger.warn(`[PromptArchitectureService] Falha não bloqueante ao injetar vacinas preventivas no Supervisor: ${vaccineErr.message}`);
     }
 
-    // Injeção cirúrgica de contexto baseada em AST (Target Files Symbol Map)
+    // Injeção cirúrgica de contexto baseada em AST (Target Files Symbol Map & Codebase AST Context)
+    const codebaseAst = input.codebaseAstContext || (
+      input.projectId && input.projectPath
+        ? AstSymbolIndexService.buildCodebaseAstContext(input.projectId, input.projectPath, { briefing: input.briefing })
+        : ""
+    );
+    if (codebaseAst) {
+      sections.push(`  <codebase_ast_context>\n${codebaseAst}\n  </codebase_ast_context>`);
+    }
+
+    if (input.empiricalVaccinesBlock) {
+      sections.push(`  ${input.empiricalVaccinesBlock}`);
+    }
+
     let astSymbolBlock = input.astSymbolSummaryBlock || input.targetFilesSymbolMap || "";
     if (!astSymbolBlock && input.briefing && input.projectPath) {
       try {
@@ -978,6 +1030,29 @@ export class PromptArchitectureService {
           `      * Escopo simples (ajuste ou 1 função): 1 a 3 microtarefas atômicas.`,
           `      * Escopo intermediário (múltiplos módulos / CLI): 6 a 15 microtarefas organizadas em Grandes Tarefas e Etapas.`,
           `      * Sistema SaaS / Full-Stack Completo: 40 a 75+ microtarefas atômicas distribuídas entre 10 a 12 Grandes Tarefas (4 a 7 microtarefas por GT).`,
+          `    - GOLDEN EXEMPLAR DE DECOMPOSIÇÃO COESA (TREINAMENTO COGNITIVO DO SUPERVISOR):`,
+          `      QUANDO O USUÁRIO ENVIAR UM BRIEFING COM SEÇÕES MACRO E SUB-PASSOS:`,
+          `      - Entrada do Usuário:`,
+          `        ## 1. Backend e Ingestão: passo A, passo B, passo C`,
+          `        ## 2. Processamento e Mídia: passo D, passo E`,
+          `        ## 3. Interface e Player: passo F, passo G`,
+          `        ## 4. Filtros e Toolbar: passo H, passo I`,
+          `      - Saída Esperada do Supervisor (EXATAMENTE 4 a 5 Grandes Tarefas Coesas):`,
+          `        * GT-1 [Backend - Ingestão e Persistência]: Condensa passos A, B e C. Critérios: endpoints POST testados com HTTP 200/400 e schema SQLite WAL criado. verificationCommand: \`npx tsx --test test/mine.test.ts\`.`,
+          `        * GT-2 [Backend - Mídia e Listagem]: Condensa passos D e E. Critérios: stream proxy com headers e listagem paginada. verificationCommand: \`npx tsx --test test/media.test.ts\`.`,
+          `        * GT-3 [Frontend - SPA e Player]: Condensa passos F e G. Critérios: SPA servida na raiz GET /, tags <video controls> e botões ativos. verificationCommand: \`npx tsc --noEmit\`.`,
+          `        * GT-4 [Frontend - Toolbar e Filtros]: Condensa passos H e I. Critérios: busca com debounce 300ms e filtros dinâmicos. verificationCommand: \`npx tsc --noEmit\`.`,
+          `        * GT-5 [Qualidade e Homologação E2E]: Suíte completa de testes de integração e validação de segurança. verificationCommand: \`npm test\`.`,
+    `    18. COGNIÇÃO CIENTE DE FASE (PHASE-AWARE COGNITION) NO CONSELHO E REVISORES:`,
+    `       Diferenciação obrigatória e estrita entre FASE 1: REVIEW DE PLANEJAMENTO / BLUEPRINT (PRÉ-IMPLEMENTAÇÃO) e FASE 2: REVIEW DE ENTREGA / PULL REQUEST (PÓS-IMPLEMENTAÇÃO):`,
+    `       (a) FASE 1 — REVIEW DE PLANEJAMENTO (PRÉ-IMPLEMENTAÇÃO): O diff é nulo por definição e a lista de arquivos alterados é vazia. É TERMINANTEMENTE PROIBIDO ao Conselho e aos Revisores (A, B, C ou Independent Reviewer) rejeitarem um plano arquitetural alegando "ausência de diff", "falta de testes executados" ou "nenhum arquivo alterado". A auditoria pré-implementação foca EXCLUSIVAMENTE em: (1) Rastreabilidade e Cobertura de 100% dos requisitos do briefing; (2) Critérios binários de aceitação falsificáveis; (3) Aciclicidade topológica do DAG; (4) Karpathy Simplicity (proporcionalidade de tarefas e ausência de overengineering); (5) Preservação de fronteiras de segurança (PORT_GUARD 4000-4999, rota raiz GET / servindo SPA, SQLite WAL). Se o plano cumpre esses requisitos, o veredicto OBRIGATÓRIO é APPROVED (nota 9-10). Pequenas melhorias devem ser sugeridas construtivamente sem bloquear a execução. O Revisor B (Simplicity) deve obrigatoriamente citar no mínimo 1 decisão concreta do plano avaliado para evitar carimbo vazio (rubber-stamping).`,
+    `       (b) FASE 2 — REVIEW DE ENTREGA / PULL REQUEST (PÓS-IMPLEMENTAÇÃO): Exige obrigatoriamente diff de código real, arquivos modificados em disco, ausência de regressões, tipagem estrita sem erros (tsc --noEmit) e comprovação factual de execução de testes com exit code 0 no terminal.`,
+    `    19. MAPA EXATO DE ARQUIVOS (ZERO "A DEFINIR"): É terminantemente PROIBIDO preencher o campo expectedFiles com "A definir", "TBD", strings vazias ou omitir caminhos. O Supervisor DEVE projetar a árvore física exata dos arquivos que serão criados ou alterados em cada GT ou microtarefa (ex: src/server.ts, src/db/schema.ts, public/index.html, test/gt1_crud.test.ts).`,
+    `    20. COMANDOS DE TESTE DIRECIONADOS (ZERO MOCKS): Toda Grande Tarefa DEVE apontar seu verificationCommand para o teste unitário/integração correspondente ao módulo (ex: node --test test/gt1_crud.test.ts ou npx tsx --test test/mine.test.ts e npx tsc --noEmit). Proibição absoluta de comandos vazios, mocks ou scripts de saída forçada (exit 0, true, echo ok).`,
+    `    21. CONTRATO DE FRONTEIRAS ARQUITETURAIS: Em projetos locais, o plano deve declarar expressamente nos critérios da GT-1 e GT-5: (1) Inicialização do SQLite com PRAGMA journal_mode = WAL e PRAGMA foreign_keys = ON; (2) Cumprimento do PORT_GUARD vinculando a porta na faixa 4000-4999 (mantendo 3000/3001 livres); (3) Sanitização de entradas contra SQL Injection (queries 100% parametrizadas com placeholders ?); (4) Proteção do static server contra Path Traversal na rota raiz GET /.`,
+    `    22. COALESCÊNCIA EM 4 A 6 GRANDES TAREFAS: Qualquer projeto de complexidade média (como o Lead Radar ou Ad Hunter) DEVE ser estruturado em 4 a 6 GTs interdependentes que formem um grafo linear acíclico sem tarefas órfãs.`,
+    `    23. RACIOCÍNIO ADVERSARIAL PRÉ-PLANEJAMENTO (PRE-MORTEM ANALYSIS): Antes de emitir o DAG ou finalizar o plano arquitetural, o Supervisor DEVE obrigatoriamente executar a ANÁLISE PRE-MORTEM (ANTECIPAÇÃO DE FALHAS): Identificar os 3 pontos mais prováveis de quebra ou regressão deste briefing (ex: concorrência no SQLite WAL, travessia de diretório em rotas estáticas, injeção de fórmulas em CSV, exaustão de conexões ou conflito de portas) e incorporar as mitigações dessas 3 falhas diretamente como critérios de aceitação e testes preventivos nas GTs correspondentes para que o plano nasça blindado.`,
+    `    24. GOVERNANÇA DE DECISÕES ARQUITETURAIS (TWO-WAY VS. ONE-WAY DOORS): Formalizar a regra de bifurcação de decisões: (a) DECISÕES REVERSÍVEIS (Portas de 2 Vias — layouts, estilos CSS, nomes de variáveis, ordenações padrão): O agente deve agir com autonomia total, adotando defaults limpos sem pausar a esteira; (b) DECISÕES IRREVERSÍVEIS (Portas de 1 Via — migrações de dados com DROP, quebra de contratos de API REST existentes, alteração de faixas de porta): O agente deve aplicar isolamento preventivo, garantir rollback seguro e justificar a decisão em decisions.md.`,
           `    - POSSE EXCLUSIVA E ACICLICIDADE: Cada microtarefa deve declarar expectedFiles disjuntos na mesma onda, criteria binários verificáveis, requirementIds e dependencies estritamente anteriores (j < orderIndex).`,
           `    - GRAMÁTICA ESTRITA DE VERIFICATION COMMAND (controlledVerification.ts):`,
           `      * O campo "verificationCommand" DEVE usar EXCLUSIVAMENTE um único comando simples dentre: "npm test" | "npm run test" | "npm run typecheck" | "npm run build" | "npm run lint" | "node --test" | "node --test <arquivo-relativo>" | "node <arquivo.js>" | "tsc --noEmit".`,
@@ -1016,15 +1091,16 @@ export class PromptArchitectureService {
           `    2. GATE CHALLENGER (Persistência F5 e Resiliência): Verificar se as rotas e a UI sobrevivem a reload (F5) com dados reais no SQLite e tratam entradas inválidas com HTTP 400.`,
           `    3. GATE AUDITOR (Integridade Benchmark & Anti-Tampering): Reprovar imediatamente (CHANGES_REQUESTED) se o Independent Evaluator reportou FAIL, se houve adulteração de testes protegidos (tamperedFiles), ou presença de mocks/TODOs indevidos.`,
           `    4. GATE SUCCESS AUDITOR (Anti-Slop, Rota Raiz & Completude Funcional): Reprovar se GET / retornar JSON bruto em vez da SPA, se houver emojis na UI, ou se violar a REGRA DE COMPLETUDE FUNCIONAL DE PRODUTO (entregar apenas dashboard passivo ou serviço invisível de background sem contemplar Webhook Studio com simulador, Editor de Templates ou Disparador Manual).`,
-          `    5. FEEDBACK CIRÚRGICO DE REVISÃO (ROOT-CAUSE DIRECTIVE): É ESTRITAMENTE PROIBIDO emitir reprovações genéricas ou silenciosas (como apenas "NEEDS_EVIDENCE" ou "Reprovado"). Ao emitir CHANGES_REQUESTED, estruture o campo "feedback" OBRIGATORIAMENTE no formato padronizado:\n` +
-          `       [FALHA]: O critério ou arquivo específico que falhou.\n` +
-          `       [CAUSA RAIZ]: A saída de erro real, erro de compilação do TypeScript ou asserção do teste que quebrou.\n` +
-          `       [AÇÃO REQUERIDA]: O comando ou correção mínima esperada para o Worker aprovar o critério.\n` +
-          `       Se 100% dos critérios passaram com exit code 0 e prova de execução no terminal, emitir APPROVED.`,
+          `    5. FEEDBACK CIRÚRGICO DE REVISÃO (ROOT-CAUSE DIRECTIVE): É ESTRITAMENTE PROIBIDO emitir reprovações genéricas ou silenciosas (como apenas "NEEDS_EVIDENCE", "Reprovado" ou "Evidência insuficiente"). Ao emitir CHANGES_REQUESTED, estruture o campo "feedback" OBRIGATORIAMENTE no padrão factual contendo:\n` +
+          `       [ARQUIVO E LINHA]: Nome do arquivo e linha do erro (extraído do output do tsc ou stack trace).\n` +
+          `       [ERRO REAL]: Mensagem literal de erro (ex: Type 'null' is not assignable to type 'string').\n` +
+          `       [DIRETRIZ CIRÚRGICA]: Ação pontual esperada para guiar o Worker no reparo imediato.\n` +
+          `       Se 100% dos critérios técnicos passaram com exit code 0 e prova de execução no terminal e compilação limpa do TypeScript sem arquivos sensíveis (.env, chaves), o veredicto OBRIGATÓRIO é APPROVED (Nota 9 ou 10), sendo expressamente proibido reprovar alegando falta de detalhes visuais.\n` +
+          `    6. COGNIÇÃO CIENTE DE FASE (PHASE-AWARE REVIEW): Se esta avaliação for sobre um plano arquitetural ou blueprint pré-implementação (sem código escrito ainda), aplicar estritamente a FASE 1 (Blueprint): NUNCA reprovar por ausência de diff ou falta de testes de código; auditar estritamente a completude dos requisitos, critérios binários e aciclicidade da DAG.`,
           `  </adversarial_verification_gates>`,
           `  <output_contract>`,
           `    Responder exclusivamente com um objeto JSON:`,
-          `    {"verdict":"APPROVED ou CHANGES_REQUESTED","feedback":"[FALHA]: ... \\n[CAUSA RAIZ]: ... \\n[AÇÃO REQUERIDA]: ...","nextAction":"próximo passo seguro","qualityScore":8,"simplicityScore":8,"isSurgical":true,"unrelatedFilesDetected":[]}`,
+          `    {"verdict":"APPROVED ou CHANGES_REQUESTED","feedback":"[ARQUIVO E LINHA]: ... \\n[ERRO REAL]: ... \\n[DIRETRIZ CIRÚRGICA]: ...","nextAction":"próximo passo seguro","qualityScore":9,"simplicityScore":8,"isSurgical":true,"unrelatedFilesDetected":[]}`,
           `  </output_contract>`
         );
         break;
@@ -1248,6 +1324,15 @@ export class PromptArchitectureService {
 
     // FASE 5: AstSymbolIndexService - Estrutura de símbolos e assinaturas (anti-context-rot)
     try {
+      const codebaseAst = input.codebaseAstContext || (
+        input.projectId && input.projectPath
+          ? AstSymbolIndexService.buildCodebaseAstContext(input.projectId, input.projectPath, { targetFiles: input.expectedScopeFiles, maxChars: 3000 })
+          : ''
+      );
+      if (codebaseAst) {
+        sections.push(`  <codebase_ast_context>\n${codebaseAst}\n  </codebase_ast_context>`);
+      }
+
       const symbolSummary = input.astSymbolSummaryBlock || (
         input.projectId && input.projectPath
           ? AstSymbolIndexService.generateStructuredSymbolSummary(input.projectId, {
@@ -1306,19 +1391,31 @@ export class PromptArchitectureService {
         category: input.skillCategory || input.stageCode || 'GENERAL'
       }, input.projectPath);
 
-      const mlVaccines = DecoMindMlService.retrieveTopEpisodicVaccines(
-        `${input.taskTitle} ${input.taskDescription} ${(input.expectedScopeFiles || []).join(' ')}`,
-        input.skillCategory || input.stageCode || 'GENERAL',
-        3
+      const mlVaccines = DecoMindMlService.retrieveVaccinesForTask(
+        input.taskTitle,
+        input.taskDescription,
+        {
+          category: input.skillCategory || input.stageCode || 'GENERAL',
+          topK: 4
+        }
       );
       if (Array.isArray(mlVaccines) && mlVaccines.length > 0) {
         retrievedMemoryIds = mlVaccines.map(v => v.id).filter(Boolean);
+      }
+
+      const empiricalBlock = input.empiricalVaccinesBlock || DecoMindMlService.formatEmpiricalVaccinesBlock(mlVaccines);
+      if (empiricalBlock) {
+        sections.push(`  ${empiricalBlock}`);
       }
 
       const mlLines: string[] = [
         `  <decomind_ml_episodic_vaccines>`,
         `    PROBABILIDADE CALCULADA DE REWORK: ${(mlRisk.probability * 100).toFixed(1)}% (Nível: ${mlRisk.riskTier})`
       ];
+
+      if (mlRisk.riskTier === 'CRITICAL') {
+        mlLines.push(`    [ALERTA DE RISCO CRÍTICO DE RETRABALHO]: Esta tarefa possui probabilidade crítica de falha (${(mlRisk.probability * 100).toFixed(0)}%). O Worker DEVE aplicar TDD rigoroso, verificar sintaxe e comprovar 100% dos critérios factuais com exit code 0 no terminal.`);
+      }
 
       if (mlRisk.topRiskFactors?.length) {
         mlLines.push(`    FATORES PREDITIVOS DE RISCO DETECTADOS: ${mlRisk.topRiskFactors.join(', ')}`);
@@ -1385,6 +1482,10 @@ export class PromptArchitectureService {
       sections.push(`  <research_scope>\n${input.researchScope}\n  </research_scope>`);
     }
 
+    if (input.taskScaffoldBlock) {
+      sections.push(`  <task_scaffold_and_expected_signatures>\n${input.taskScaffoldBlock}\n  </task_scaffold_and_expected_signatures>`);
+    }
+
     if (input.supervisorInstructions) {
       sections.push(`  <supervisor_specific_instructions>\n${input.supervisorInstructions}\n  </supervisor_specific_instructions>`);
     }
@@ -1434,12 +1535,20 @@ export class PromptArchitectureService {
       case 'IMPLEMENT':
         sections.push(
           `  <step_by_step_execution_protocol>`,
-          `    OBJETIVO DESTE MODO: DIRETRIZES DE IMPLEMENTAÇÃO: Altere apenas o necessário (escopo cirúrgico) para atender a 100% dos critérios da tarefa. ARQUIVOS ESPERADOS NO ESCOPO: ${(input.expectedScopeFiles || []).join(', ')}`,
+          `    OBJETIVO DESTE MODO: DIRETRIZES DE IMPLEMENTAÇÃO CIRÚRGICA: Altere apenas o necessário (escopo cirúrgico) para atender a 100% dos critérios da tarefa. ARQUIVOS ESPERADOS NO ESCOPO: ${(input.expectedScopeFiles || []).join(', ')}`,
+          `    EDIÇÃO CIRÚRGICA PONTUAL (ANTI-BLOWUP): Para arquivos com mais de 50 linhas, utilize modificações pontuais e localizadas (replace_file_content / multi_replace_file_content). É PROIBIDO reescrever o arquivo inteiro do zero a menos que se trate de um novo arquivo. Preservar rigorosamente interfaces, comentários e funções pré-existentes.`,
+          `    PREVENÇÃO DE IMPORTS ALUCINADOS: Proibido importar dependências que não estejam declaradas no package.json. Usar utilitários nativos do Node 22+: node:crypto.randomUUID() (não uuid), node:sqlite ou driver configurado, fetch() nativo (não axios) e extensão .js em imports relativos ESM.`,
+          `    CONTROLE CIRÚRGICO DE ESCOPO (SURGICAL BOUNDARY): Expressamente proibido: (1) Modificar arquivos fora do allowedScope (exceto whitelist de suporte como src/services/ e src/utils/); (2) Aplicar refatorações cosméticas, limpezas de comentários ou reestruturações em arquivos adjacentes; (3) Destruir dados ou esquemas de banco existentes (sempre abordagens aditivas).`,
+          `    PORT LEAK GUARD: Comandos e testes devem garantir encerramento determinístico de processos e servidores locais (try / finally { server.close() }), prevenindo erros EADDRINUSE.`,
+          `    CONSULTA DE TIPOS E CONTRATOS REAIS (ZERO GUESSWORK): Antes de implementar novas rotas ou serviços, consulte obrigatoriamente os tipos definidos em src/types/ e os schemas de banco em src/db/ para garantir consistência nominal estrita de campos.`,
           stage === 'frontend-ui'
             ? `    Passo 1 (Inspeção e Ancoragem de Contratos): Verificar os arquivos existentes no projeto (package.json, serviços, componentes e rotas) via view_file para manter consistência absoluta de propriedades JSON e imports. Em Node.js/TypeScript, utilizar SEMPRE imports canônicos com namespace para bibliotecas padrão: 'import * as fs from "node:fs"', 'import * as path from "node:path"', 'import * as http from "node:http"', 'import assert from "node:assert/strict"' (jamais usar default import de módulos CJS sem default export).`
             : `    Passo 1 (Inspeção e Ancoragem de Contratos): Verificar os arquivos existentes no projeto (package.json, esquemas SQLite, serviços e rotas) via view_file para manter consistência absoluta de propriedades JSON e imports. Em Node.js/TypeScript, utilizar SEMPRE imports canônicos com namespace para bibliotecas padrão: 'import * as fs from "node:fs"', 'import * as path from "node:path"', 'import * as http from "node:http"', 'import assert from "node:assert/strict"' (jamais usar default import de módulos CJS sem default export).`,
           this.buildStageStep2(stage, input),
-          `    Passo 2.1 (Protocolo TDD Red-Green Obrigatório): (1) RED: Antes de codificar a solução final, criar ou verificar o teste unitário focado correspondente em test/ e executá-lo no terminal para confirmar a falha inicial ou baseline; (2) GREEN: Implementar o código mínimo de produção até que o teste unitário passe com exit code 0 e tipagem estrita sem erros (tsc --noEmit / lsp_diagnostics); (3) Prova Factual: rodar verificationCommand e anexar a saída real com código de saída 0 ao relatório.`,
+          `    Passo 2.1 (FLUXO OBRIGATÓRIO TDD RED-GREEN):`,
+          `      * PASSO 1 (RED): Crie ou atualize o arquivo de teste unitário focado em test/ refletindo os critérios de aceitação da tarefa. Execute o comando de teste no terminal para comprovar a falha inicial esperada.`,
+          `      * PASSO 2 (GREEN): Escreva estritamente a menor quantidade de código funcional necessária nos arquivos de expectedFiles para fazer o teste passar e o compilador TypeScript sair limpo (tsc --noEmit).`,
+          `      * PASSO 3 (AUTO-VALIDAÇÃO PRÉ-HANDOVER & PROVA): Antes de submeter ao Reviewer, execute 'npx tsc --noEmit' nos arquivos tocados e corrija imediatamente qualquer erro de tipagem/import. Em seguida, execute o verificationCommand (${input.verificationCommand || 'npm test'}) no terminal e inclua o resultado literal no relatório final.`,
           `    Passo 3 (Prova Binária de Conclusão - Verify Before Declaring Success): Executar lsp_diagnostics nos arquivos editados e rodar obrigatoriamente o comando de verificação (${input.verificationCommand || 'npm test'}) no terminal. O Worker NUNCA pode declarar uma tarefa como concluída baseando-se apenas em texto ou suposição: DEVE incluir a saída real (código de saída 0) no seu relatório final.`,
           `    Passo 4 (Relatório Factual): Encerrar reportando objetivamente os arquivos alterados e a saída real dos testes executados com código 0.`,
           `  </step_by_step_execution_protocol>`
@@ -1561,6 +1670,19 @@ export class PromptArchitectureService {
 
     if (effectiveBlueprintDocSimp) sections.push(`  <docsimp_blueprints>\n${effectiveBlueprintDocSimp.slice(0, maxAuxiliaryChars * 2)}\n  </docsimp_blueprints>`);
 
+    const codebaseAst = input.codebaseAstContext || (
+      input.projectId && input.projectPath
+        ? AstSymbolIndexService.buildCodebaseAstContext(input.projectId, input.projectPath, { briefing: input.briefing, maxChars: maxAuxiliaryChars })
+        : ""
+    );
+    if (codebaseAst) {
+      sections.push(`  <codebase_ast_context>\n${codebaseAst}\n  </codebase_ast_context>`);
+    }
+
+    if (input.empiricalVaccinesBlock) {
+      sections.push(`  ${input.empiricalVaccinesBlock}`);
+    }
+
     let blueprintAstSymbols = input.astSymbolSummaryBlock || "";
     if (!blueprintAstSymbols && input.briefing && input.projectPath) {
       try {
@@ -1622,13 +1744,36 @@ export class PromptArchitectureService {
       `    * GT-10 [Data Grid de Alta Densidade & Filtros Empilháveis]: Refinamento da tabela de registros do domínio (linhas compactas h-9, tabular-nums) e cards, filtros compostos empilháveis, Bulk Actions e Slide-Over Detail Drawer lateral de 480px-520px.`,
       `    * GT-11 [Visualizações Especializadas do Domínio & Responsividade]: Painéis de análise, comparadores ou visualizadores específicos do domínio conforme solicitado no briefing, com responsividade completa para Desktop (1440x900), Tablet (768x1024) e Mobile (390x844).`,
       `    * GT-12 [Homologação Visual Playwright & Screenshots no Chat: playwright-agent-cli]: Auditoria visual E2E Desktop e Mobile, garantia de sobrevivência ao F5, zero botões mortos, zero overflow horizontal, captura de evidências fotográficas em PNG no Playwright e envio automático das Screenshots finais no Chat do Projeto.`,
+      `    - GOLDEN EXEMPLAR DE DECOMPOSIÇÃO COESA EM GRANDES TAREFAS (TREINAMENTO COGNITIVO DO SUPERVISOR):`,
+      `      QUANDO O USUÁRIO ENVIAR UM BRIEFING COM SEÇÕES MACRO E SUB-PASSOS:`,
+      `      - Entrada do Usuário:`,
+      `        ## 1. Backend e Ingestão: passo A, passo B, passo C`,
+      `        ## 2. Processamento e Mídia: passo D, passo E`,
+      `        ## 3. Interface e Player: passo F, passo G`,
+      `        ## 4. Filtros e Toolbar: passo H, passo I`,
+      `      - Saída Esperada do Supervisor (EXATAMENTE 4 a 5 Grandes Tarefas Coesas):`,
+      `        * GT-1 [Backend - Ingestão e Persistência]: Condensa passos A, B e C. Critérios: endpoints POST testados com HTTP 200/400 e schema SQLite WAL criado. verificationCommand: \`npx tsx --test test/mine.test.ts\`.`,
+      `        * GT-2 [Backend - Mídia e Listagem]: Condensa passos D e E. Critérios: stream proxy com headers e listagem paginada. verificationCommand: \`npx tsx --test test/media.test.ts\`.`,
+      `        * GT-3 [Frontend - SPA e Player]: Condensa passos F e G. Critérios: SPA servida na raiz GET /, tags <video controls> e botões ativos. verificationCommand: \`npx tsc --noEmit\`.`,
+      `        * GT-4 [Frontend - Toolbar e Filtros]: Condensa passos H e I. Critérios: busca com debounce 300ms e filtros dinâmicos. verificationCommand: \`npx tsc --noEmit\`.`,
+      `        * GT-5 [Qualidade e Homologação E2E]: Suíte completa de testes de integração e validação de segurança. verificationCommand: \`npm test\`.`,
+    `    18. COGNIÇÃO CIENTE DE FASE (PHASE-AWARE COGNITION) NO CONSELHO E REVISORES:`,
+    `       Diferenciação obrigatória e estrita entre FASE 1: REVIEW DE PLANEJAMENTO / BLUEPRINT (PRÉ-IMPLEMENTAÇÃO) e FASE 2: REVIEW DE ENTREGA / PULL REQUEST (PÓS-IMPLEMENTAÇÃO):`,
+    `       (a) FASE 1 — REVIEW DE PLANEJAMENTO (PRÉ-IMPLEMENTAÇÃO): O diff é nulo por definição e a lista de arquivos alterados é vazia. É TERMINANTEMENTE PROIBIDO ao Conselho e aos Revisores (A, B, C ou Independent Reviewer) rejeitarem um plano arquitetural alegando "ausência de diff", "falta de testes executados" ou "nenhum arquivo alterado". A auditoria pré-implementação foca EXCLUSIVAMENTE em: (1) Rastreabilidade e Cobertura de 100% dos requisitos do briefing; (2) Critérios binários de aceitação falsificáveis; (3) Aciclicidade topológica do DAG; (4) Karpathy Simplicity (proporcionalidade de tarefas e ausência de overengineering); (5) Preservação de fronteiras de segurança (PORT_GUARD 4000-4999, rota raiz GET / servindo SPA, SQLite WAL). Se o plano cumpre esses requisitos, o veredicto OBRIGATÓRIO é APPROVED (nota 9-10). Pequenas melhorias devem ser sugeridas construtivamente sem bloquear a execução. O Revisor B (Simplicity) deve obrigatoriamente citar no mínimo 1 decisão concreta do plano avaliado para evitar carimbo vazio (rubber-stamping).`,
+    `       (b) FASE 2 — REVIEW DE ENTREGA / PULL REQUEST (PÓS-IMPLEMENTAÇÃO): Exige obrigatoriamente diff de código real, arquivos modificados em disco, ausência de regressões, tipagem estrita sem erros (tsc --noEmit) e comprovação factual de execução de testes com exit code 0 no terminal.`,
+    `    19. MAPA EXATO DE ARQUIVOS (ZERO "A DEFINIR"): É terminantemente PROIBIDO preencher o campo expectedFiles com "A definir", "TBD", strings vazias ou omitir caminhos. O Supervisor DEVE projetar a árvore física exata dos arquivos que serão criados ou alterados em cada GT ou microtarefa (ex: src/server.ts, src/db/schema.ts, public/index.html, test/gt1_crud.test.ts).`,
+    `    20. COMANDOS DE TESTE DIRECIONADOS (ZERO MOCKS): Toda Grande Tarefa DEVE apontar seu verificationCommand para o teste unitário/integração correspondente ao módulo (ex: node --test test/gt1_crud.test.ts ou npx tsx --test test/mine.test.ts e npx tsc --noEmit). Proibição absoluta de comandos vazios, mocks ou scripts de saída forçada (exit 0, true, echo ok).`,
+    `    21. CONTRATO DE FRONTEIRAS ARQUITETURAIS: Em projetos locais, o plano deve declarar expressamente nos critérios da GT-1 e GT-5: (1) Inicialização do SQLite com PRAGMA journal_mode = WAL e PRAGMA foreign_keys = ON; (2) Cumprimento do PORT_GUARD vinculando a porta na faixa 4000-4999 (mantendo 3000/3001 livres); (3) Sanitização de entradas contra SQL Injection (queries 100% parametrizadas com placeholders ?); (4) Proteção do static server contra Path Traversal na rota raiz GET /.`,
+    `    22. COALESCÊNCIA EM 4 A 6 GRANDES TAREFAS: Qualquer projeto de complexidade média (como o Lead Radar ou Ad Hunter) DEVE ser estruturado em 4 a 6 GTs interdependentes que formem um grafo linear acíclico sem tarefas órfãs.`,
+    `    23. RACIOCÍNIO ADVERSARIAL PRÉ-PLANEJAMENTO (PRE-MORTEM ANALYSIS): Antes de emitir o DAG ou finalizar o plano arquitetural, o Supervisor DEVE obrigatoriamente executar a ANÁLISE PRE-MORTEM (ANTECIPAÇÃO DE FALHAS): Identificar os 3 pontos mais prováveis de quebra ou regressão deste briefing (ex: concorrência no SQLite WAL, travessia de diretório em rotas estáticas, injeção de fórmulas em CSV, exaustão de conexões ou conflito de portas) e incorporar as mitigações dessas 3 falhas diretamente como critérios de aceitação e testes preventivos nas GTs correspondentes para que o plano nasça blindado.`,
+    `    24. GOVERNANÇA DE DECISÕES ARQUITETURAIS (TWO-WAY VS. ONE-WAY DOORS): Formalizar a regra de bifurcação de decisões: (a) DECISÕES REVERSÍVEIS (Portas de 2 Vias — layouts, estilos CSS, nomes de variáveis, ordenações padrão): O agente deve agir com autonomia total, adotando defaults limpos sem pausar a esteira; (b) DECISÕES IRREVERSÍVEIS (Portas de 1 Via — migrações de dados com DROP, quebra de contratos de API REST existentes, alteração de faixas de porta): O agente deve aplicar isolamento preventivo, garantir rollback seguro e justificar a decisão em decisions.md.`,
       `    - FIDELIDADE ABSOLUTA AO BRIEFING: Modele estritamente os módulos, entidades e fluxos solicitados no briefing do usuário (@.ai-dev-hub/BRIEFING_ORIGINAL.md). Jamais invente módulos não solicitados (como vídeos virais do YouTube, PIX, Turnstile ou n8n, a menos que constem no briefing).`,
       `    - REGRA INVIOLÁVEL DE COMPLETUDE FUNCIONAL (NO PASSIVE DASHBOARDS): Em sistemas de automação, mensageria, pagamentos ou webhooks, é estritamente obrigatório contemplar os 4 pilares: (1) Ingestão & Webhook Studio (URL visível + simulador 1-clique); (2) Configuração de Mensagens / Templates (variáveis {nome}, {produto}, {pix}, {link}); (3) Disparador Operacional Manual ("Enviar Agora / Disparo Rápido"); e (4) Monitoramento da Fila & Auditoria (status, retentativa, reprocessar). Planos que entreguem apenas dashboards com contadores passivos ou serviços invisíveis de background serão sumariamente rejeitados.`,
       `    - Explicitar no campo "objective" de cada Grande Tarefa e Etapa os nomes principais de tabelas, módulos e rotas da API para orientar a Onda 2.`,
       `  </blueprint_architecture_mandates>`,
       `  <output_contract>`,
-      `    Responder exclusivamente com um JSON (array de Grandes Tarefas com Etapas):`,
-      `    [{"code":"GT-1","title":"Fundação SaaS, Configuração Dual-Mode DOCSIMP e Infraestrutura","objective":"Configurar package.json, ambiente, adaptadores Dual-Mode com fallback local, Dockerfile e runner de testes","expectedOutcome":"Estrutura do projeto pronta com adaptadores resilientes e testes executáveis","requirementIds":["REQ-1"],"dependencies":[],"stages":[{"code":"ET-1.1","title":"Scaffolding, Env e Adaptadores DOCSIMP","objective":"Configurar arquivos base, Dockerfile e adaptadores Dual-Mode"},{"code":"ET-1.2","title":"Configuração da Suíte de Testes","objective":"Configurar runner e smoke tests de infraestrutura"}]}]`,
+      `    Responder exclusivamente com um JSON (array de 4 a 6 Grandes Tarefas interdependentes com Etapas, arquivos físicos previstos e comandos reais de teste):`,
+      `    [{"code":"GT-1","title":"Backend - Ingestão e Persistência (/api/mine)","objective":"Configurar schema SQLite WAL e endpoint POST /api/mine com paginação por cursor","expectedOutcome":"Tabelas criadas com WAL e endpoint testado com código 200","expectedFiles":["server/src/routes/mine.ts","server/src/db/schema.sql","test/mine.test.ts"],"verificationCommand":"npx tsx --test test/mine.test.ts","criteria":["Endpoint POST /api/mine aceita maxPages e cursor retornando HTTP 200","Tabela ads criada no SQLite com PRAGMA journal_mode = WAL e PRAGMA foreign_keys = ON","Servidor vinculado na faixa PORT_GUARD 4000-4999 (mantendo 3000/3001 livres)","Queries 100% parametrizadas com placeholders (?) contra SQL Injection"],"requirementIds":["REQ-1"],"dependencies":[],"stages":[{"code":"ET-1.1","title":"Schema e Persistência SQLite WAL","objective":"Criar banco com journal_mode=WAL e foreign_keys=ON"},{"code":"ET-1.2","title":"Endpoint POST /api/mine e Testes","objective":"Implementar rota com paginação e teste unitário"}]}]`,
       `  </output_contract>`
     );
     sections.push(`</execution_directive>`);
@@ -1685,6 +1830,19 @@ export class PromptArchitectureService {
     }
     if (input.docSimpContextBlock) sections.push(`  <docsimp_blueprints>\n${input.docSimpContextBlock}\n  </docsimp_blueprints>`);
 
+    const codebaseAst = input.codebaseAstContext || (
+      input.projectId && input.projectPath
+        ? AstSymbolIndexService.buildCodebaseAstContext(input.projectId, input.projectPath, { briefing: input.briefing, maxChars: 3000 })
+        : ""
+    );
+    if (codebaseAst) {
+      sections.push(`  <codebase_ast_context>\n${codebaseAst}\n  </codebase_ast_context>`);
+    }
+
+    if (input.empiricalVaccinesBlock) {
+      sections.push(`  ${input.empiricalVaccinesBlock}`);
+    }
+
     const designBlock = input.designSkillContextBlock || input.designSkillBlock;
     if (designBlock) sections.push(`  <design_skill_tokens>\n${designBlock}\n  </design_skill_tokens>`);
     if (input.reaSaaSMasterContextBlock) sections.push(`  <rea_saas_master>\n${input.reaSaaSMasterContextBlock}\n  </rea_saas_master>`);
@@ -1738,11 +1896,34 @@ export class PromptArchitectureService {
       `      * SE GT-7 (MACRO FASE 1 - FRONTEND SIMPLES FUNCIONAL): Construção de interface base limpa e 100% conectada via fetch() a todas as rotas do backend, provando integração ponta a ponta.`,
       `      * SE GT-8 A GT-12+ (MACRO FASE 2 - REFINAMENTO PROFUNDO DE FRONTEND COM TALLY, N8N, ATTIO & PLAYWRIGHT): Decompor em microtarefas de maestria visual: GT-8 (Cores & Tipografia com tokens :root e tabular-nums), GT-9 (Inputs, Busca / & Modais Zero-Fricção estilo Tally max-w-[580px] seguindo tally-form-block-ux_rea_blueprint.md), GT-10 (Data Grid estilo Attio h-9, filtros empilháveis, alternância Tabela/Cards e Slide-Over 480px-520px seguindo attio-crm-data-engine_rea_blueprint.md), GT-11 (Esteira Visual estilo n8n & Decompositor de 3 Pilares seguindo n8n-workflow-automation_rea_blueprint.md com responsividade Desktop 1440x900, Tablet 768x1024 e Mobile 390x844), GT-12 (Homologação Visual Playwright com persistência pós-F5, zero botões mortos, zero emojis e envio das Screenshots finais no Chat).`,
       `    - PADRÃO GSD ATOMIC SPECIFICATION & ANTI-CONTEXT-ROT: Definir na description uma 'action' detalhada e manter expectedFiles sem colisão desnecessária (disjuntos entre tarefas paralelas).`,
+      `    - GOLDEN EXEMPLAR DE DECOMPOSIÇÃO COESA (TREINAMENTO COGNITIVO DO SUPERVISOR):`,
+      `      QUANDO O USUÁRIO ENVIAR UM BRIEFING COM SEÇÕES MACRO E SUB-PASSOS:`,
+      `      - Entrada do Usuário:`,
+      `        ## 1. Backend e Ingestão: passo A, passo B, passo C`,
+      `        ## 2. Processamento e Mídia: passo D, passo E`,
+      `        ## 3. Interface e Player: passo F, passo G`,
+      `        ## 4. Filtros e Toolbar: passo H, passo I`,
+      `      - Saída Esperada do Supervisor (EXATAMENTE 4 a 5 Grandes Tarefas Coesas):`,
+      `        * GT-1 [Backend - Ingestão e Persistência]: Condensa passos A, B e C. Critérios: endpoints POST testados com HTTP 200/400 e schema SQLite WAL criado. verificationCommand: \`npx tsx --test test/mine.test.ts\`.`,
+      `        * GT-2 [Backend - Mídia e Listagem]: Condensa passos D e E. Critérios: stream proxy com headers e listagem paginada. verificationCommand: \`npx tsx --test test/media.test.ts\`.`,
+      `        * GT-3 [Frontend - SPA e Player]: Condensa passos F e G. Critérios: SPA servida na raiz GET /, tags <video controls> e botões ativos. verificationCommand: \`npx tsc --noEmit\`.`,
+      `        * GT-4 [Frontend - Toolbar e Filtros]: Condensa passos H e I. Critérios: busca com debounce 300ms e filtros dinâmicos. verificationCommand: \`npx tsc --noEmit\`.`,
+      `        * GT-5 [Qualidade e Homologação E2E]: Suíte completa de testes de integração e validação de segurança. verificationCommand: \`npm test\`.`,
+    `    18. COGNIÇÃO CIENTE DE FASE (PHASE-AWARE COGNITION) NO CONSELHO E REVISORES:`,
+    `       Diferenciação obrigatória e estrita entre FASE 1: REVIEW DE PLANEJAMENTO / BLUEPRINT (PRÉ-IMPLEMENTAÇÃO) e FASE 2: REVIEW DE ENTREGA / PULL REQUEST (PÓS-IMPLEMENTAÇÃO):`,
+    `       (a) FASE 1 — REVIEW DE PLANEJAMENTO (PRÉ-IMPLEMENTAÇÃO): O diff é nulo por definição e a lista de arquivos alterados é vazia. É TERMINANTEMENTE PROIBIDO ao Conselho e aos Revisores (A, B, C ou Independent Reviewer) rejeitarem um plano arquitetural alegando "ausência de diff", "falta de testes executados" ou "nenhum arquivo alterado". A auditoria pré-implementação foca EXCLUSIVAMENTE em: (1) Rastreabilidade e Cobertura de 100% dos requisitos do briefing; (2) Critérios binários de aceitação falsificáveis; (3) Aciclicidade topológica do DAG; (4) Karpathy Simplicity (proporcionalidade de tarefas e ausência de overengineering); (5) Preservação de fronteiras de segurança (PORT_GUARD 4000-4999, rota raiz GET / servindo SPA, SQLite WAL). Se o plano cumpre esses requisitos, o veredicto OBRIGATÓRIO é APPROVED (nota 9-10). Pequenas melhorias devem ser sugeridas construtivamente sem bloquear a execução. O Revisor B (Simplicity) deve obrigatoriamente citar no mínimo 1 decisão concreta do plano avaliado para evitar carimbo vazio (rubber-stamping).`,
+    `       (b) FASE 2 — REVIEW DE ENTREGA / PULL REQUEST (PÓS-IMPLEMENTAÇÃO): Exige obrigatoriamente diff de código real, arquivos modificados em disco, ausência de regressões, tipagem estrita sem erros (tsc --noEmit) e comprovação factual de execução de testes com exit code 0 no terminal.`,
+    `    19. MAPA EXATO DE ARQUIVOS (ZERO "A DEFINIR"): É terminantemente PROIBIDO preencher o campo expectedFiles com "A definir", "TBD", strings vazias ou omitir caminhos. O Supervisor DEVE projetar a árvore física exata dos arquivos que serão criados ou alterados em cada GT ou microtarefa (ex: src/server.ts, src/db/schema.ts, public/index.html, test/gt1_crud.test.ts).`,
+    `    20. COMANDOS DE TESTE DIRECIONADOS (ZERO MOCKS): Toda Grande Tarefa DEVE apontar seu verificationCommand para o teste unitário/integração correspondente ao módulo (ex: node --test test/gt1_crud.test.ts ou npx tsx --test test/mine.test.ts e npx tsc --noEmit). Proibição absoluta de comandos vazios, mocks ou scripts de saída forçada (exit 0, true, echo ok).`,
+    `    21. CONTRATO DE FRONTEIRAS ARQUITETURAIS: Em projetos locais, o plano deve declarar expressamente nos critérios da GT-1 e GT-5: (1) Inicialização do SQLite com PRAGMA journal_mode = WAL e PRAGMA foreign_keys = ON; (2) Cumprimento do PORT_GUARD vinculando a porta na faixa 4000-4999 (mantendo 3000/3001 livres); (3) Sanitização de entradas contra SQL Injection (queries 100% parametrizadas com placeholders ?); (4) Proteção do static server contra Path Traversal na rota raiz GET /.`,
+    `    22. COALESCÊNCIA EM 4 A 6 GRANDES TAREFAS: Qualquer projeto de complexidade média (como o Lead Radar ou Ad Hunter) DEVE ser estruturado em 4 a 6 GTs interdependentes que formem um grafo linear acíclico sem tarefas órfãs.`,
+    `    23. RACIOCÍNIO ADVERSARIAL PRÉ-PLANEJAMENTO (PRE-MORTEM ANALYSIS): Antes de emitir o DAG ou finalizar o plano arquitetural, o Supervisor DEVE obrigatoriamente executar a ANÁLISE PRE-MORTEM (ANTECIPAÇÃO DE FALHAS): Identificar os 3 pontos mais prováveis de quebra ou regressão deste briefing (ex: concorrência no SQLite WAL, travessia de diretório em rotas estáticas, injeção de fórmulas em CSV, exaustão de conexões ou conflito de portas) e incorporar as mitigações dessas 3 falhas diretamente como critérios de aceitação e testes preventivos nas GTs correspondentes para que o plano nasça blindado.`,
+    `    24. GOVERNANÇA DE DECISÕES ARQUITETURAIS (TWO-WAY VS. ONE-WAY DOORS): Formalizar a regra de bifurcação de decisões: (a) DECISÕES REVERSÍVEIS (Portas de 2 Vias — layouts, estilos CSS, nomes de variáveis, ordenações padrão): O agente deve agir com autonomia total, adotando defaults limpos sem pausar a esteira; (b) DECISÕES IRREVERSÍVEIS (Portas de 1 Via — migrações de dados com DROP, quebra de contratos de API REST existentes, alteração de faixas de porta): O agente deve aplicar isolamento preventivo, garantir rollback seguro e justificar a decisão em decisions.md.`,
       `    - Cada microtarefa deve conter: title (sem sufixos repetidos), description (contratos exatos de tabelas, rotas e tipos), majorTaskCode ("${input.majorTask.code}"), majorTaskTitle ("${input.majorTask.title}"), stageCode, stageTitle, requirementIds, expectedFiles (incluindo o teste em test/), allowedScope, criteria (2 a 4 critérios binários PASS/FAIL factuais e testáveis; PROIBIDO critérios vagos como 'Implementação concluída' ou 'Funcionalidade pronta'), verificationCommand (comando focado no teste específico do módulo, ex: 'node --import tsx --test test/<modulo>.test.ts' ou 'npx tsx --test test/<modulo>.test.ts' ou 'tsc --noEmit'; proibido usar ';', '&&', '||', '|', 'node -e' ou 'node --check'), doneWhen e dependencies (a primeira microtarefa desta GT deve depender de "${input.lastMicrotaskOfPreviousMajor || input.priorMajorTaskLastMicrotaskCode || 'nenhuma'}").`,
       `  </atomic_expansion_rules>`,
       `  <output_contract>`,
-      `    Responder exclusivamente com um JSON compacto (array de microtarefas):`,
-      `    [{"title":"...","description":"...","milestone":"${input.majorTask.code}","majorTaskCode":"${input.majorTask.code}","majorTaskTitle":"${input.majorTask.title}","stageCode":"ET-1.1","stageTitle":"...","requirementIds":["REQ-1"],"expectedFiles":["src/...","test/..."],"orderIndex":1,"dependencies":[],"criteria":["..."],"verificationCommand":"npm test","doneWhen":"..."}]`,
+      `    Responder exclusivamente com um JSON compacto (array de microtarefas com caminhos físicos exatos em expectedFiles, critérios binários e comandos reais):`,
+      `    [{"title":"Persistência SQLite WAL e Queries Parametrizadas","description":"Criar banco com PRAGMA journal_mode=WAL, foreign_keys=ON e queries preparadas (?)","milestone":"${input.majorTask.code}","majorTaskCode":"${input.majorTask.code}","majorTaskTitle":"${input.majorTask.title}","stageCode":"ET-1.1","stageTitle":"Schema Base","requirementIds":["REQ-1"],"expectedFiles":["src/db/schema.sql","src/db/connection.ts","test/db.test.ts"],"orderIndex":1,"dependencies":[],"criteria":["Inicialização do SQLite com PRAGMA journal_mode = WAL e PRAGMA foreign_keys = ON","Queries 100% parametrizadas com placeholders (?) contra SQL Injection"],"verificationCommand":"node --import tsx --test test/db.test.ts","doneWhen":"Testes em test/db.test.ts passando com exit code 0."}]`,
       `  </output_contract>`
     );
     sections.push(`</execution_directive>`);

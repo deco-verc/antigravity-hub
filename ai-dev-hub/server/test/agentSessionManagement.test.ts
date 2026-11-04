@@ -10,6 +10,7 @@ import { AutonomousManager } from '../src/autonomousManager.js';
 import { AutonomousRunnerService } from '../src/autonomousRunnerService.js';
 import { WorkerRegistry } from '../src/workerRegistry.js';
 import { IndependentEvaluator } from '../src/independentEvaluator.js';
+import { AgentApiGateway } from '../src/agentApiGateway.js';
 
 test('Agent Session & Context Management Suite — Scenarios A through L', async (t) => {
   const tmpRootA = path.join(os.tmpdir(), `decohub-session-test-alpha-${Date.now()}`);
@@ -390,5 +391,56 @@ test('Agent Session & Context Management Suite — Scenarios A through L', async
     AutonomousRunnerService.releaseExecutionLock();
 
     assert.deepEqual(pipelinePhases, ['SUPERVISOR_PLANNING', 'WORKER_BUILDING', 'INDEPENDENT_EVALUATION']);
+  });
+
+  // -----------------------------------------------------------------
+    // -----------------------------------------------------------------
+  // Test M: Injeção obrigatória de ANTIGRAVITY_PROJECT_ID e cwd no gateway
+  // -----------------------------------------------------------------
+  await t.test('Test M: Injeção de ANTIGRAVITY_PROJECT_ID e cwd no AgentApiGateway', async () => {
+    AgentSessionManager.setProviderCreateOverride(null as any);
+
+    let capturedOptions: any = null;
+    AgentApiGateway.setMockProvider({
+      newConversation: (opts: any) => {
+        capturedOptions = opts;
+        return `conv-mock-gateway-${Date.now()}`;
+      },
+      sendMessage: () => {},
+      getConversationMetadata: () => ({})
+    });
+
+    const tmpRootM = path.join(os.tmpdir(), `decohub-session-test-m-${Date.now()}`);
+    fs.mkdirSync(tmpRootM, { recursive: true });
+    execSync('git init -b main', { cwd: tmpRootM, stdio: 'ignore' });
+    fs.writeFileSync(path.join(tmpRootM, 'package.json'), JSON.stringify({ name: 'proj-m' }, null, 2));
+
+    try {
+      const projIdM = `proj-sess-m-${Date.now()}`;
+      const nowM = new Date().toISOString();
+      db.prepare(`
+        INSERT INTO projects (id, name, path, objective, stack, status, is_trusted, full_dev_autonomy, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'Node/TypeScript', 'active', 1, 1, ?, ?)
+      `).run(projIdM, 'Projeto M', tmpRootM, 'Objetivo M', nowM, nowM);
+
+      const sessionResult = await AgentSessionManager.getOrCreateAgentSession(projIdM, 'SUPERVISOR', {
+        forceNew: true
+      });
+
+      assert.ok(sessionResult.session);
+      assert.ok(capturedOptions, 'AgentApiGateway.newConversation deve ter sido chamado');
+      assert.equal(capturedOptions.cwd, tmpRootM, 'cwd deve ser o caminho do projeto');
+      assert.ok(capturedOptions.env?.ANTIGRAVITY_PROJECT_ID, 'env deve conter ANTIGRAVITY_PROJECT_ID');
+      assert.equal(capturedOptions.env?.PROJECT_ID, capturedOptions.env?.ANTIGRAVITY_PROJECT_ID, 'PROJECT_ID deve espelhar ANTIGRAVITY_PROJECT_ID');
+    } finally {
+      AgentApiGateway.setMockProvider(null as any);
+      AgentSessionManager.setProviderCreateOverride((params) => {
+        simulatedCreationCount++;
+        const convId = `conv-mock-${simulatedCreationCount}-${Date.now().toString(36)}`;
+        createdSessions.push({ ...params, convId });
+        return convId;
+      });
+      try { fs.rmSync(tmpRootM, { recursive: true, force: true }); } catch {}
+    }
   });
 });
